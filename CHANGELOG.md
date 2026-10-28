@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.3] — 2026-10-28
+
+### Vérifié
+
+- Release de contrôle sans changement fonctionnel : valide sur machine réelle
+  l'icône de mise à jour dans l'en-tête, le redémarrage automatique après
+  installation, la persistance de l'autorisation du trousseau au-delà d'une
+  mise à jour, et le retour arrière signé vers 0.4.2.
+
 ## [0.4.2] — 2026-10-28
 
 ### Ajouté
