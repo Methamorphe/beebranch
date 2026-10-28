@@ -69,6 +69,25 @@ version est défectueuse, l'utilisateur peut installer la précédente depuis
 Réglages → Mises à jour → « Revenir à la version précédente ». Le même contrôle
 de signature s'applique.
 
+## Rotation de la clé de signature
+
+1. `node_modules/.bin/tauri signer generate -w src-tauri/keys/release.key -f`
+   avec un mot de passe neuf, stocké dans `src-tauri/keys/release.key.password`
+   (ignoré par git, comme `*.key`).
+2. Recopier le contenu de `release.key.pub` dans `plugins.updater.pubkey` de
+   `src-tauri/tauri.conf.json`.
+3. Réécrire les secrets `TAURI_SIGNING_PRIVATE_KEY` et
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+4. Publier une release : la CI signe avec la nouvelle clé.
+
+Un client installé ne vérifie qu'avec **la clé embarquée dans sa propre
+version** : après une rotation, l'ancienne version ne peut plus installer les
+nouvelles releases (elle les refuse en `update.signature_invalid`). La rotation
+se prépare donc avec une release de transition signée par l'ancienne clé, ou un
+téléchargement manuel.
+
+
+
 ## Aucune télémétrie
 
 `npm run audit:telemetry` échoue si une référence d'analytics apparaît dans
