@@ -26,3 +26,4 @@ Thumbs.db
 
 # Signing keys (public key is committed as dev.key.pub)
 src-tauri/keys/*.key
+src-tauri/keys/*.password

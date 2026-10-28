@@ -17,34 +17,36 @@
    - fusionne les fragments, génère `latest.json` et `rollback.json` ;
    - publie les artefacts signés et les manifestes.
 
-## Hébergement des manifestes (GitHub Releases)
+## Hébergement des manifestes (dépôt public `beebranch-releases`)
 
-Le job `publish` attache à chaque release `latest.json`, `rollback.json` et les
+Le code source reste privé. Le job `publish` publie dans
+`Methamorphe/beebranch-releases` (public) `latest.json`, `rollback.json` et les
 artefacts signés. L'application interroge une URL stable, sans serveur dédié :
 
 | Manifeste | URL |
 |---|---|
-| mise à jour | `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` |
-| rollback | `https://github.com/<owner>/<repo>/releases/latest/download/rollback.json` |
+| mise à jour | `https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json` |
+| rollback | `https://github.com/Methamorphe/beebranch-releases/releases/latest/download/rollback.json` |
 
 L'URL est injectée à la compilation par `BEEBRANCH_UPDATE_ENDPOINT` (voir le
-job `build` de `release.yml`) ; elle sert à la fois à l'affichage dans
-Réglages → Mises à jour, à la vérification, au téléchargement et au rollback.
-Le repli des compilations locales est `DEFAULT_UPDATE_ENDPOINT` dans
-`crates/app/src/commands/update.rs`.
+job `build` de `release.yml`, variable `RELEASES_REPO`) ; elle sert à la fois à
+l'affichage dans Réglages → Mises à jour, à la vérification, au téléchargement
+et au rollback. Le repli des compilations locales est
+`DEFAULT_UPDATE_ENDPOINT` dans `crates/app/src/commands/update.rs`.
 
 Contraintes :
 
 | Contrainte | Détail |
 |---|---|
-| Lisibilité | `releases/latest/download` exige un dépôt public. Dépôt privé ⇒ publier les releases dans un dépôt public dédié et mettre son slug dans `BEEBRANCH_UPDATE_ENDPOINT`. |
+| Cross-repo | Publier dans un autre dépôt exige `RELEASE_REPO_TOKEN` (PAT fine-grained, `Contents: Read and write` sur `beebranch-releases` uniquement). Sans ce secret, le job `publish` échoue immédiatement avec un message explicite. |
 | `latest` | GitHub renvoie la release la plus récemment **créée**, hors brouillon et hors pré-release. Ne jamais publier une mise à jour en `--draft` ou `--prerelease`. |
 | Historique | Les URLs d'artefacts sont immuables (`/releases/download/<tag>/…`) : ne pas supprimer la release N-1, sinon `rollback.json` pointe dans le vide. |
 | HTTPS | Un endpoint non HTTPS est refusé (`update.invalid_endpoint`), sauf loopback pour tester un manifeste local. |
 | Panne | GitHub indisponible ⇒ `update.timeout` / `update.failed` ; aucune installation n'est tentée. |
+| Signature Apple/Windows | Optionnelle : sans les secrets `APPLE_*` / `TAURI_WINDOWS_CERTIFICATE`, la CI construit un bundle non signé par l'OS (avertissement, Gatekeeper/SmartScreen) mais conserve la signature d'update obligatoire. |
 
-La signature minisign reste la barrière : compromettre le dépôt ou l'URL ne
-suffit pas à installer un binaire non signé.
+La signature minisign reste la barrière : compromettre le dépôt public ou l'URL
+ne suffit pas à installer un binaire non signé.
 
 ## Secrets requis
 
@@ -52,8 +54,9 @@ suffit pas à installer un binaire non signé.
 |---|---|
 | `TAURI_SIGNING_PRIVATE_KEY` | contenu de `src-tauri/keys/release.key` (clé privée minisign) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | mot de passe de `release.key` |
-| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | signature et notarisation macOS |
-| `TAURI_WINDOWS_CERTIFICATE`, `TAURI_WINDOWS_CERTIFICATE_PASSWORD` | signature Authenticode Windows |
+| `RELEASE_REPO_TOKEN` | PAT fine-grained, `Contents: Read and write` sur `Methamorphe/beebranch-releases` uniquement — publication cross-repo |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | signature et notarisation macOS (optionnel : sans eux, bundle non signé) |
+| `TAURI_WINDOWS_CERTIFICATE`, `TAURI_WINDOWS_CERTIFICATE_PASSWORD` | signature Authenticode Windows (optionnel : sans eux, installateur non signé) |
 
 La clé publique `release.key.pub` est embarquée dans
 `src-tauri/tauri.conf.json`. Ne jamais publier la clé privée.
