@@ -93,13 +93,117 @@
   color: var(--muted);
 }
 
-.summary {
+/* The compared commits, newest first, like the graph above. */
+.commitBlock {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  padding-top: 2px;
+}
+
+.caption {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.commits {
+  display: flex;
+  flex-direction: column;
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.commit {
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
+  padding: 4px 8px;
+  min-width: 0;
+}
+
+.commit + .commit {
+  border-top: 1px solid var(--border);
+}
+
+.commitSha {
+  flex: none;
+  padding-top: 1px;
+  color: var(--accent-text);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.commitText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.commitSubject,
+.commitMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commitSubject {
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.commitMeta {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.loading {
+  margin: 0;
+  padding: 18px 12px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.filesBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.viewToggle {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.viewToggle button {
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.viewToggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.viewToggle button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface-raised);
 }
 
 .totals {
@@ -138,7 +242,7 @@
   display: flex;
   flex-direction: column;
   flex: none;
-  max-height: 38%;
+  max-height: 32%;
   overflow-y: auto;
   border-bottom: 1px solid var(--border);
 }
@@ -233,6 +337,49 @@
   text-overflow: ellipsis;
 }
 
+/* Directory rows in the tree view: disclosure, then the changed-file count. */
+.dir {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dir:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.caret {
+  flex: none;
+  width: 10px;
+  font-size: 9px;
+}
+
+.dirName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dirCount {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .stats {
   display: inline-flex;
   flex: none;
@@ -242,6 +389,44 @@
   font-size: 10px;
 }
 
+.diffArea {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* The file whose patch is open, so its identity stays visible above the rows. */
+.diffHeader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  min-width: 0;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.diffPath {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.hunkCount {
+  flex: none;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
 .diff {
   display: flex;
   flex: 1;
@@ -249,12 +434,21 @@
   min-width: 0;
 }
 
-/* Narrow windows stack the inspector below the graph (see Workbench.module.css). */
+/* Narrow windows stack the inspector below the graph (see Workbench.module.css).
+   The compared-commit list gives way so the patch keeps a readable height. */
 @media (max-width: 1000px) {
   .panel {
     width: 100%;
-    min-height: 420px;
+    min-height: 460px;
     border-left: 0;
     border-top: 1px solid var(--border);
+  }
+
+  .commits {
+    max-height: 96px;
+  }
+
+  .files {
+    max-height: 24%;
   }
 }

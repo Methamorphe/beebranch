@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.1] — 2026-10-28
+
+### Ajouté
+
+- **Sélection d'une plage de commits** : après un clic, Maj+clic sur un autre
+  commit sélectionne tous les commits entre les deux, de l'ancre vers le clic ;
+  Maj+↑/↓ étend la plage au clavier. La sélection est ordonnée du plus ancien au
+  plus récent, ce qui est l'ordre d'application de Cherry-pick et Revert, et le
+  diff A→B s'ouvre sur la plage.
+
+### Modifié
+
+- **Panneau de comparaison lisible comme chez GitKraken** : l'en-tête annonce le
+  nombre de commits sélectionnés et « Diff de N commits », puis liste chaque
+  commit comparé (sujet, date, auteur, SHA) du plus récent au plus ancien. Les
+  fichiers passent d'une liste à plat à une arborescence repliable, dossiers à
+  enfant unique compactés (`src/app/components`), avec bascule
+  Chemin / Arborescence ; le fichier ouvert garde son chemin et ses statistiques
+  au-dessus du diff. En mode Unifié, les mots modifiés sont désormais soulignés
+  comme en Côte à côte.
+- **« Comparer » sur toute la sélection** : au-delà de deux commits cochés, le
+  bouton compare la sélection du plus ancien au plus récent au lieu d'exiger
+  exactement deux commits ; la liste d'ordre se compacte en `N commits · sha…sha`
+  pour ne plus afficher une puce par commit.
+
 ## [0.6.0] — 2026-10-28
 
 ### Ajouté
