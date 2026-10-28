@@ -96,7 +96,7 @@ locale il ne sert que de repère. Une release publiée en `--draft` ou
 |---|---|
 | `TAURI_SIGNING_PRIVATE_KEY` | contenu de `src-tauri/keys/release.key` (clé privée minisign) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | mot de passe de `release.key` |
-| `RELEASE_REPO_TOKEN` | PAT fine-grained, `Contents: Read and write` sur `Methamorphe/beebranch-releases` uniquement — publication cross-repo |
+| `RELEASE_REPO_TOKEN` | PAT fine-grained, `Contents: Read and write` sur `Methamorphe/beebranch-releases` uniquement — **nécessaire seulement pour publier depuis la CI** (une publication locale utilise l'auth `gh` du poste) |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | signature et notarisation macOS (optionnel : sans eux, bundle non signé) |
 | `TAURI_WINDOWS_CERTIFICATE`, `TAURI_WINDOWS_CERTIFICATE_PASSWORD` | signature Authenticode Windows (optionnel : sans eux, installateur non signé) |
 
