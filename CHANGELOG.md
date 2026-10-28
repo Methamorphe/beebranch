@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — barre d’actions, branches dans le graphe, détail de commit
+## [0.4.1] — 2026-10-28
 
 ### Modifié
 
@@ -10,6 +10,10 @@
   Badge et menu distinguent local, distant et tag par une icône (fourche, nuage,
   étiquette). Une branche en avance ou en retard reste affichée aux deux commits
   concernés, chacun avec son badge.
+
+## [Unreleased] — barre d’actions, branches dans le graphe, détail de commit
+
+### Modifié
 
 - **Historique / saisie du commit** : canvas maintenu dans le viewport par
   positionnement sticky, sans translation différée après défilement. Évite
