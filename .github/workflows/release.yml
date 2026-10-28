@@ -74,23 +74,51 @@ jobs:
       - run: npm run build
       - run: node scripts/audit-no-telemetry.mjs
 
+      # Secrets arrive as empty strings when unset, and Tauri treats a present
+      # but empty APPLE_CERTIFICATE as a PKCS#12 and fails to import it. Export
+      # only the credentials that actually have a value; the updater key is
+      # mandatory and checked here.
+      - name: Export signing credentials
+        env:
+          APPLE_CERTIFICATE_SECRET: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD_SECRET: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE_SECRET: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD_SECRET: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
+          UPDATER_KEY_SECRET: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_KEY_PASSWORD_SECRET: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -eu
+          export_if_present() {
+            if [ -n "$2" ]; then
+              printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
+            fi
+          }
+          export_if_present APPLE_CERTIFICATE "$APPLE_CERTIFICATE_SECRET"
+          export_if_present APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD_SECRET"
+          export_if_present APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY_SECRET"
+          export_if_present APPLE_ID "$APPLE_ID_SECRET"
+          export_if_present APPLE_PASSWORD "$APPLE_PASSWORD_SECRET"
+          export_if_present APPLE_TEAM_ID "$APPLE_TEAM_ID_SECRET"
+          export_if_present TAURI_WINDOWS_CERTIFICATE "$WINDOWS_CERTIFICATE_SECRET"
+          export_if_present TAURI_WINDOWS_CERTIFICATE_PASSWORD "$WINDOWS_CERTIFICATE_PASSWORD_SECRET"
+          export_if_present TAURI_SIGNING_PRIVATE_KEY "$UPDATER_KEY_SECRET"
+          export_if_present TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$UPDATER_KEY_PASSWORD_SECRET"
+          if [ -z "$UPDATER_KEY_SECRET" ]; then
+            echo "::error title=Clé de signature absente::TAURI_SIGNING_PRIVATE_KEY n'est pas configuré ; aucun artefact ne serait installable."
+            exit 1
+          fi
+
       # Tauri verifies the updater signature at install time. The private key
       # never enters the repository; it comes from an environment secret.
-      - name: Build, sign and notarize
+      - name: Build, sign and bundle
         env:
           # Single source of the update endpoint: the `latest.json` asset of
           # the newest non-draft, non-prerelease release of the public mirror.
           BEEBRANCH_UPDATE_ENDPOINT: https://github.com/${{ env.RELEASES_REPO }}/releases/latest/download/latest.json
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_WINDOWS_CERTIFICATE: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
-          TAURI_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
         run: npm run tauri build
 
       - name: Install smoke (macOS)
