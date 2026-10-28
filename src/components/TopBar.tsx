@@ -13,10 +13,12 @@ type Props = {
   onOpenDialog: () => void
   onClone: () => void
   onSettings: () => void
+  updateVersion?: string | null
+  onOpenUpdates?: () => void
   user?: string | null
 }
 
-export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialog, onClone, onSettings, user }: Props) {
+export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialog, onClone, onSettings, updateVersion, onOpenUpdates, user }: Props) {
   return <header className={styles.topbar}>
     <button type="button" className={styles.iconButton} onClick={onOpenDialog} aria-label="Ouvrir un dépôt" title="Ouvrir un dépôt · ⌘O"><ToolbarIcon name="folder" /></button>
     <div className={styles.brandSlot}><Brand /></div>
@@ -34,6 +36,12 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialo
       </ActionMenu>
     </div>
     <div className={styles.spacer} />
+    {updateVersion ? (
+      <button type="button" className={styles.updateButton} onClick={onOpenUpdates} data-update={updateVersion}
+        aria-label={`Mise à jour ${updateVersion} disponible`} title={`Mise à jour ${updateVersion} disponible · installer`}>
+        <ToolbarIcon name="update" /><span className={styles.updateDot} aria-hidden="true" />
+      </button>
+    ) : null}
     <button type="button" className={styles.iconButton} onClick={onSettings} aria-label="Profils et réglages" title="Profils et réglages · ⌘,"><ToolbarIcon name="settings" /></button>
     <ActionMenu label="Menu du profil" triggerClassName={styles.profile} triggerContent={<><span className={styles.avatar}>{(user ?? 'P').slice(0, 1).toUpperCase()}</span><span className={styles.userName}>{user ?? 'Profil local'}</span><ToolbarIcon name="chevron" /></>}>
       <button type="button" onClick={onSettings}>Profils et réglages</button>

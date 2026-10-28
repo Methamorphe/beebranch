@@ -84,6 +84,7 @@ export function ProfilesPanel({
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
   const [available, setAvailable] = useState<UpdateInfo | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const [pendingInstall, setPendingInstall] = useState(false)
   const [pendingRollback, setPendingRollback] = useState(false)
 
@@ -197,7 +198,7 @@ export function ProfilesPanel({
             <button
               type="button"
               className={p2.secondary}
-              disabled={updateBusy || !update?.endpoint}
+              disabled={updateBusy || restarting || !update?.endpoint}
               onClick={() => {
                 setUpdateBusy(true)
                 setError(null)
@@ -214,7 +215,7 @@ export function ProfilesPanel({
                   .finally(() => setUpdateBusy(false))
               }}
             >
-              {updateBusy ? 'Vérification…' : 'Vérifier les mises à jour'}
+              {restarting ? 'Redémarrage…' : updateBusy ? 'Vérification…' : 'Vérifier les mises à jour'}
             </button>
             {available ? (
               <>
@@ -222,7 +223,7 @@ export function ProfilesPanel({
                 <button
                   type="button"
                   className={p2.primary}
-                  disabled={updateBusy}
+                  disabled={updateBusy || restarting}
                   onClick={() => setPendingInstall(true)}
                 >
                   Installer
@@ -232,7 +233,7 @@ export function ProfilesPanel({
             <button
               type="button"
               className={p2.secondary}
-              disabled={updateBusy || !update?.rollbackEndpoint}
+              disabled={updateBusy || restarting || !update?.rollbackEndpoint}
               onClick={() => setPendingRollback(true)}
             >
               Revenir à la version précédente
@@ -500,7 +501,7 @@ export function ProfilesPanel({
       <ConfirmDialog
         open={pendingInstall}
         title={`Installer BeeBranch ${available?.version ?? ''}`}
-        consequence="Le paquet est téléchargé puis sa signature minisign est vérifiée. Un binaire non signé ou altéré est refusé. Un redémarrage de l'application est nécessaire après installation. Un rollback signé reste disponible."
+        consequence="Le paquet est téléchargé puis sa signature minisign est vérifiée. Un binaire non signé ou altéré est refusé. L'application redémarre automatiquement sur la nouvelle version. Un rollback signé reste disponible."
         confirmLabel="Télécharger et installer"
         busy={updateBusy}
         onCancel={() => setPendingInstall(false)}
@@ -510,8 +511,13 @@ export function ProfilesPanel({
           setError(null)
           void updateInstall()
             .then((result) => {
-              setNotice(`Version ${result.installedVersion} installée. Redémarrez BeeBranch.`)
               setAvailable(null)
+              setRestarting(result.restarting)
+              setNotice(
+                result.restarting
+                  ? `Version ${result.installedVersion} installée. Redémarrage…`
+                  : `Version ${result.installedVersion} installée.`,
+              )
             })
             .catch((cause) => setError(errorMessage(cause)))
             .finally(() => setUpdateBusy(false))
@@ -529,7 +535,14 @@ export function ProfilesPanel({
           setUpdateBusy(true)
           setError(null)
           void updateRollback()
-            .then((result) => setNotice(`Version ${result.installedVersion} restaurée.`))
+            .then((result) => {
+              setRestarting(result.restarting)
+              setNotice(
+                result.restarting
+                  ? `Version ${result.installedVersion} restaurée. Redémarrage…`
+                  : `Version ${result.installedVersion} restaurée.`,
+              )
+            })
             .catch((cause) => setError(errorMessage(cause)))
             .finally(() => setUpdateBusy(false))
         }}

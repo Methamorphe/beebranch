@@ -28,6 +28,7 @@ import {
   syncPush,
   undoApply,
   undoStatus,
+  updateCheck,
 } from './ipc/commands'
 import { useRepoEvents } from './hooks/useRepoEvents'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -71,6 +72,8 @@ export default function App() {
   const [repos, setRepos] = useState<RepoView[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [view, setView] = useState<ViewId>('graph')
+  // Latest version offered by the signed manifest, surfaced in the header.
+  const [availableUpdate, setAvailableUpdate] = useState<string | null>(null)
   const [worktreeRequest, setWorktreeRequest] = useState(0)
   const [branchRequest, setBranchRequest] = useState(0)
   const [generation, setGeneration] = useState(0)
@@ -250,6 +253,29 @@ export default function App() {
   }, [])
 
   useRepoEvents(activeId, onRepoChanged)
+
+  // One quiet check at startup, then when the window regains focus and every
+  // six hours: the header offers an update without opening the settings page.
+  useEffect(() => {
+    let cancelled = false
+    const check = async () => {
+      try {
+        const next = await updateCheck()
+        if (!cancelled) setAvailableUpdate(next?.version ?? null)
+      } catch {
+        if (!cancelled) setAvailableUpdate(null)
+      }
+    }
+    void check()
+    const onFocus = () => void check()
+    window.addEventListener('focus', onFocus)
+    const timer = window.setInterval(() => void check(), 6 * 60 * 60 * 1000)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', onFocus)
+      window.clearInterval(timer)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -650,6 +676,8 @@ export default function App() {
         onOpenDialog={() => openRepositoryDialog()}
         onClone={() => setCloneDialogOpen(true)}
         onSettings={() => navigate('profiles')}
+        updateVersion={availableUpdate}
+        onOpenUpdates={() => navigate('profiles')}
         user={gitlabUser}
       />
       <RepoBar

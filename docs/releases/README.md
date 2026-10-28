@@ -59,6 +59,9 @@ ou pour une plateforme isolée.
 export TAURI_SIGNING_PRIVATE_KEY="$(cat src-tauri/keys/release.key)"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat src-tauri/keys/release.key.password)"
 export BEEBRANCH_UPDATE_ENDPOINT="https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json"
+# Identité de signature stable : sans elle, macOS redemande l'accès au trousseau
+# à chaque build (une signature ad-hoc change à chaque compilation).
+export APPLE_SIGNING_IDENTITY="Apple Distribution: Nala Multimedia (FVD8259QJ4)"
 npm run tauri build
 
 node scripts/update-manifest.mjs --dir target/release/bundle --target darwin-aarch64 \

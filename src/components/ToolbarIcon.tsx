@@ -16,6 +16,7 @@ const paths = {
   terminal: ['m4 5 6 7-6 7M13 19h7'],
   actions: ['M4 4h6M4 4v6M20 4h-6M20 4v6M4 20h6M4 20v-6M20 20h-6M20 20v-6'],
   undo: ['M9 14 4 9l5-5', 'M4 9h10a6 6 0 0 1 0 12h-3'],
+  update: ['M12 3v13m-5-5 5 5 5-5', 'M4 21h16'],
   redo: ['m15 14 5-5-5-5', 'M20 9H10a6 6 0 0 0 0 12h3'],
 }
 export function ToolbarIcon({ name }: { name: keyof typeof paths }) {

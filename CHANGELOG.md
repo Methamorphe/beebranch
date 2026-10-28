@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.2] — 2026-10-28
+
+### Ajouté
+
+- **Mise à jour dans l'en-tête** : une icône de téléchargement apparaît dans la
+  barre supérieure dès qu'une version est publiée (point d'accent, libellé
+  accessible). Le clic ouvre Réglages → Mises à jour. Vérification silencieuse
+  au démarrage, au retour de focus et toutes les six heures.
+- **Redémarrage automatique après installation** : l'application se relance
+  seule sur la nouvelle version ; le bouton affiche « Redémarrage… » pendant la
+  bascule. Idem pour le rollback.
+
+### Modifié
+
+- **Signature macOS** : bundle signé avec l'identité Apple Distribution de
+  l'équipe, donc stable d'un build à l'autre. Les autorisations du trousseau
+  sont mémorisées : plus de demande du mot de passe du trousseau à chaque
+  lancement. Le paquet reste non notarié.
+
 ## [0.4.1] — 2026-10-28
 
 ### Modifié

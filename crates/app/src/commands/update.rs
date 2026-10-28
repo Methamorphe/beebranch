@@ -5,6 +5,10 @@
 //! tampered artifact is refused with `update.signature_invalid`. Rollback
 //! reuses the same verification against a `rollback.json` manifest that pins
 //! the previous release.
+//!
+//! Installing replaces the running bundle, so the process relaunches itself
+//! once the command has replied: the user never has to quit and reopen the
+//! application to run the new version.
 
 use beebranch_core::{AppError, Confirmation, ErrorCategory};
 use serde::Serialize;
@@ -105,6 +109,16 @@ fn rollback_url() -> Result<Url, AppError> {
         "update.invalid_endpoint",
         "L'endpoint de rollback est invalide.",
     )
+}
+
+/// Relaunch after the IPC reply has been delivered, so the UI can show that
+/// the new version is starting instead of appearing to hang.
+fn schedule_restart(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        handle.restart();
+    });
 }
 
 fn updater_error(error: tauri_plugin_updater::Error) -> AppError {
@@ -210,10 +224,11 @@ pub async fn update_install(
         )
         .await
         .map_err(updater_error)?;
+    schedule_restart(&app);
     Ok(UpdateInstallDto {
         previous_version: current_version,
         installed_version,
-        restarting: false,
+        restarting: true,
     })
 }
 
@@ -257,10 +272,11 @@ pub async fn update_rollback(
         )
         .await
         .map_err(updater_error)?;
+    schedule_restart(&app);
     Ok(UpdateInstallDto {
         previous_version: current_version,
         installed_version,
-        restarting: false,
+        restarting: true,
     })
 }
 

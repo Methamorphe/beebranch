@@ -2,6 +2,10 @@
 .iconButton,.add { display:flex; flex:none; align-items:center; justify-content:center; width:34px; padding:0; color:var(--muted); }
 .iconButton { align-self:center; height:32px; }
 .iconButton svg,.add svg { width:20px; height:20px; }
+.updateButton { position:relative; display:flex; flex:none; align-items:center; justify-content:center; align-self:center; width:34px; height:32px; padding:0; color:var(--accent-text); }
+.updateButton svg { width:20px; height:20px; }
+.updateButton:hover { color:var(--text); }
+.updateDot { position:absolute; top:6px; right:7px; width:6px; height:6px; border-radius:50%; background:var(--accent-text); box-shadow:0 0 0 2px var(--surface); }
 .brandSlot { display:flex; align-items:center; width:32px; flex:none; margin-right:4px; }
 .brandSlot > div { padding:0; width:auto; min-width:0; }
 .brandSlot span { display:none; }

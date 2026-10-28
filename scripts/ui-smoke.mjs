@@ -286,9 +286,9 @@ function mockScript(commits, rows, diffLines) {
       rollbackEndpoint: 'https://updates.beebranch.fr/rollback.json',
       signatureRequired: true, platform: 'macos-aarch64',
     }),
-    update_check: () => null,
-    update_install: () => ({ previousVersion: '0.4.0', installedVersion: '0.4.1', restarting: false }),
-    update_rollback: () => ({ previousVersion: '0.4.1', installedVersion: '0.4.0', restarting: false }),
+    update_check: () => (window.__scenarioUpdateAvailable ? { currentVersion: '0.4.0', version: '0.4.1', publishedAt: '2026-10-28T10:00:00Z', notes: 'Références du graphe.', downloadUrl: 'https://example.test/BeeBranch.app.tar.gz', rollback: false } : null),
+    update_install: () => ({ previousVersion: '0.4.0', installedVersion: '0.4.1', restarting: true }),
+    update_rollback: () => ({ previousVersion: '0.4.1', installedVersion: '0.4.0', restarting: true }),
     diagnostics_export: () => '{}',
     'plugin:dialog|open': (args) => { (window.__pickerCalls ??= []).push(args.options); if (window.__pickerDeferred) return new Promise((resolve) => { window.__pickerResolve = resolve }); return window.__pickerSelection ?? null; },
     'plugin:event|listen': () => 1,
@@ -1577,6 +1577,25 @@ try {
   await waitFor(client, `document.body.innerText.includes('BeeBranch est à jour')`, 'update check')
   await a11yAudit('profiles')
   await screenshot(client, 'p3-updates.png')
+  // A release published after startup must surface in the header, and installing
+  // it must relaunch the app instead of asking the user to quit.
+  await evaluate(client, `window.__scenarioUpdateAvailable = true; window.dispatchEvent(new Event('focus'))`)
+  await waitFor(client, `Boolean(document.querySelector('[data-update]'))`, 'header update badge')
+  assertUI('header-update-badge-version', await evaluate(client, `document.querySelector('[data-update]').dataset.update === '0.4.1' && document.querySelector('[data-update]').getAttribute('aria-label').includes('0.4.1')`))
+  await go('graph')
+  assertUI('header-update-badge-survives-navigation', await evaluate(client, `Boolean(document.querySelector('[data-update]'))`))
+  await evaluate(client, `document.querySelector('[data-update]').click()`)
+  await waitFor(client, `document.body.innerText.includes('Mises à jour signées')`, 'updates via header')
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Vérifier les mises à jour')); button?.click() })()`)
+  await waitFor(client, `document.body.innerText.includes('Mise à jour 0.4.1 disponible')`, 'update offered')
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Installer'); button?.click() })()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'install confirmation')
+  assertUI('install-confirmation-mentions-auto-restart', await evaluate(client, `document.querySelector('[role="alertdialog"]').innerText.includes('redémarre automatiquement')`))
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.includes('Télécharger et installer')); button.click() })()`)
+  await waitFor(client, `document.body.innerText.includes('Redémarrage…')`, 'restart notice')
+  assertUI('install-restarts-without-user-action', await evaluate(client, `document.body.innerText.includes('installée. Redémarrage…') && [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Redémarrage…') || b.textContent.includes('Vérifier les mises à jour')).disabled`))
+  await screenshot(client, 'p3-update-installed.png')
+  await evaluate(client, `window.__scenarioUpdateAvailable = false`)
 
   const contrastAudit = await evaluate(client, `(() => {
     const parse = (value) => {
