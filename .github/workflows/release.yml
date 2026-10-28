@@ -79,6 +79,7 @@ jobs:
       # only the credentials that actually have a value; the updater key is
       # mandatory and checked here.
       - name: Export signing credentials
+        shell: bash
         env:
           APPLE_CERTIFICATE_SECRET: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD_SECRET: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -198,6 +199,7 @@ jobs:
           find target/release/bundle -name '*.sig' -size +0c | grep -q .
 
       - name: Build per-platform update manifest fragment
+        shell: bash
         run: |
           tag="${{ github.event.inputs.tag || github.ref_name }}"
           version="${tag#v}"

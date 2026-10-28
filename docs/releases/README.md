@@ -49,6 +49,47 @@ Contraintes :
 La signature minisign reste la barrière : compromettre le dépôt public ou l'URL
 ne suffit pas à installer un binaire non signé.
 
+## Publication locale (sans CI)
+
+Le pipeline n'est pas indispensable : la publication se fait depuis le poste qui
+détient les clés, avec `gh` authentifié. Utile quand le quota Actions est épuisé
+ou pour une plateforme isolée.
+
+```sh
+export TAURI_SIGNING_PRIVATE_KEY="$(cat src-tauri/keys/release.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat src-tauri/keys/release.key.password)"
+export BEEBRANCH_UPDATE_ENDPOINT="https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json"
+npm run tauri build
+
+node scripts/update-manifest.mjs --dir target/release/bundle --target darwin-aarch64 \
+  --version <version> --notes "docs/releases/<version>.md" \
+  --base-url "https://github.com/Methamorphe/beebranch-releases/releases/download/v<version>" \
+  --out target/update/fragments/darwin-aarch64.json
+node scripts/merge-manifests.mjs --dir target/update/fragments --version <version> \
+  --notes "docs/releases/<version>.md" --out target/update/latest.json
+```
+
+Rollback : à partir de la deuxième release, télécharger le manifeste publié
+précédent (`gh release download <version-precedente> --repo Methamorphe/beebranch-releases --pattern latest.json --dir target/update/previous`) et ajouter
+`--rollback target/update/previous/latest.json` à `merge-manifests.mjs`.
+
+Publication et contrôle :
+
+```sh
+gh release create "v<version>" --repo Methamorphe/beebranch-releases \
+  --title "BeeBranch <version>" --notes-file "docs/releases/<version>.md" \
+  target/update/latest.json target/update/rollback.json \
+  target/release/bundle/macos/BeeBranch.app.tar.gz \
+  target/release/bundle/macos/BeeBranch.app.tar.gz.sig \
+  target/release/bundle/dmg/BeeBranch_<version>_aarch64.dmg
+
+curl -sSL "https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json"
+```
+
+Le tag `v<version>` n'est nécessaire que pour déclencher la CI ; en publication
+locale il ne sert que de repère. Une release publiée en `--draft` ou
+`--prerelease` ne devient pas `latest` et n'est donc jamais servie aux clients.
+
 ## Secrets requis
 
 | Secret | Usage |
