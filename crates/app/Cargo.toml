@@ -1,0 +1,24 @@
+[package]
+name = "beebranch-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+beebranch-core = { path = "../core" }
+beebranch-git = { path = "../git" }
+beebranch-gitlab = { path = "../gitlab" }
+beebranch-store = { path = "../store" }
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+tauri-plugin-updater.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+minisign-verify = "0.3.0"
+tempfile.workspace = true

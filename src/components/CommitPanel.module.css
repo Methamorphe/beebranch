@@ -1,0 +1,14 @@
+.compact { flex:none; padding:10px 12px 12px; border-top:1px solid var(--border); background:var(--surface); }
+.stack { display:flex; flex-direction:column; gap:0; }
+.compact section { min-width:0; padding:0; border:0; background:none; }
+.compact h2 { margin:0 0 8px; color:var(--text); font-size:14px; font-weight:600; letter-spacing:0; text-transform:none; }
+.compact textarea { min-height:132px; max-height:200px; padding:10px 12px; font:14px/1.6 var(--sans); }
+.compact textarea::placeholder { color:var(--muted); opacity:.8; }
+.compact p { margin:6px 0 0; font-size:12px; }
+.options { margin:5px 0 8px; color:var(--muted); font-size:12px; }
+.options > summary { padding:4px 0; cursor:pointer; }
+.options > div { margin-top:8px; }
+.identity { margin:8px 0; }
+.identity summary { padding:4px 0; cursor:pointer; }
+.compact .submit { width:100%; min-height:36px; font-size:13px; }
+@media(max-height:760px) and (min-width:1001px) { .compact textarea { min-height:100px; } }

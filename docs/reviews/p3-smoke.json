@@ -1,0 +1,215 @@
+{
+  "ok": true,
+  "ux": {
+    "navigate-graph": true,
+    "unselected-dirty-history-has-no-panel": true,
+    "composer-visible-next-to-graph": true,
+    "no-dedicated-changes-tab": true,
+    "density-at-least-20-commits": true,
+    "density-content-starts-above-220": true,
+    "density-reference-column-bounded": true,
+    "density-message-column-at-least-520": true,
+    "graph-author-column-visible": true,
+    "graph-date-column-hidden-by-default": true,
+    "density-readable-files": true,
+    "menu-bounds-1440-bottom-right": true,
+    "menu-focus-1440-bottom-right": true,
+    "menu-dismiss-1440-bottom-right": true,
+    "menu-bounds-1440-top-left": true,
+    "menu-focus-1440-top-left": true,
+    "menu-dismiss-1440-top-left": true,
+    "menu-bounds-390-bottom-right": true,
+    "menu-focus-390-bottom-right": true,
+    "menu-dismiss-390-bottom-right": true,
+    "menu-bounds-390-top-left": true,
+    "menu-focus-390-top-left": true,
+    "menu-dismiss-390-top-left": true,
+    "graph-keyboard-selection": true,
+    "inspector-can-close": true,
+    "navigate-status": true,
+    "draft-survives-navigation": true,
+    "diff-stays-in-changes": true,
+    "no-duplicate-file-sidebar": true,
+    "stage-single-file": true,
+    "file-actions-open": true,
+    "file-actions-escape": true,
+    "closing-pending-diff-clears-loading": true,
+    "palette-traps-focus": true,
+    "palette-restores-focus": true,
+    "native-picker-folder-mode": true,
+    "native-picker-no-path-form": true,
+    "native-picker-cancel-keeps-repository": true,
+    "native-picker-no-duplicate-dialogs": true,
+    "native-picker-opens-selected-directory": true,
+    "native-picker-invalid-repo-feedback": true,
+    "native-picker-open-shortcut": true,
+    "changes-width-1024": true,
+    "composer-reachable-1024": true,
+    "graph-width-1024": true,
+    "changes-width-768": true,
+    "composer-reachable-768": true,
+    "graph-width-768": true,
+    "changes-width-390": true,
+    "composer-reachable-390": true,
+    "graph-width-390": true,
+    "canvas-repaints-light-theme": true,
+    "reduced-motion-modal": true,
+    "confirm-initial-focus": true,
+    "confirm-escape": true,
+    "unavailable-command-not-executed": true,
+    "clean-history-has-no-local-row-or-panel": true,
+    "clean-history-uses-full-width": true,
+    "closing-commit-leaves-no-panel": true,
+    "new-changes-do-not-open-panel": true,
+    "last-change-removal-restores-graph": true,
+    "toolbar-no-empty-stash-pop": true,
+    "toolbar-git-actions-connected": true,
+    "toolbar-terminal-repo-context": true,
+    "toolbar-branch-selector": true,
+    "toolbar-branch-checkout-connected": true,
+    "toolbar-repo-selector": true,
+    "graph-hover-shows-all-refs": true,
+    "graph-single-ref-click-does-not-checkout": true,
+    "graph-hover-list-remains-interactive": true,
+    "graph-hidden-local-double-click-checkout": true,
+    "graph-visible-branch-double-click-checkout": true,
+    "graph-remote-creates-correct-local-branch": true,
+    "graph-remote-preserves-upstream": true,
+    "graph-tag-cannot-checkout-same-named-branch": true,
+    "graph-remote-collision-is-not-overwritten": true,
+    "graph-hover-closes-on-scroll": true,
+    "toolbar-keyboard-search-900": true,
+    "toolbar-keyboard-search-390": true,
+    "add-repo-plus-centered-on-tabs": true,
+    "add-repo-menu-local-or-clone": true,
+    "add-repo-local-opens-native-picker": true,
+    "add-repo-clone-focus-trapped": true,
+    "add-repo-clone-preserves-current-repo": true,
+    "add-repo-clone-cancel-restores-plus": true,
+    "add-repo-clone-error-retains-dialog": true,
+    "add-repo-clone-opens-new-tab": true,
+    "add-repo-clone-request": true,
+    "undo-button-connected": true,
+    "undo-notice": true,
+    "navigate-branches": true,
+    "branch-drag-rows": true,
+    "drop-preview-shows-commits": true,
+    "drop-no-mutation-before-confirm": true,
+    "drop-cancel-no-mutation": true,
+    "drop-confirm-calls-integration": true,
+    "navigate-rebase": true,
+    "rebase-drag-reorders-preview": true,
+    "rebase-drag-no-mutation-before-start": true,
+    "navigate-workspaces": true,
+    "workspaces-per-repo-status": true,
+    "workspaces-bounded": true,
+    "workspaces-isolated-failure-result": true,
+    "a11y-workspaces": true,
+    "a11y-graph": true,
+    "navigate-profiles": true,
+    "update-settings-signature-and-no-telemetry": true,
+    "a11y-profiles": true,
+    "contrast-tokens": true,
+    "density-compact-tokens": true,
+    "density-restored": true,
+    "skip-link": true,
+    "skip-link-target": true
+  },
+  "density": {
+    "firstCommitTop": 196.046875,
+    "visibleCommits": 21,
+    "referencesWidth": 140,
+    "graphWidth": 56,
+    "messageWidth": 535.203125,
+    "authorWidth": 110,
+    "authorHeader": "Auteur",
+    "dateWidth": 0,
+    "dateHeader": "",
+    "fileTextSize": 14,
+    "fileRowHeight": 29
+  },
+  "p2": {
+    "Resolve conflicts": true,
+    "Interactive rebase": true,
+    "Worktrees": true,
+    "Tags": true,
+    "Remotes": true,
+    "Submodules": true,
+    "Patches": true,
+    "File history & blame": true,
+    "Profiles & settings": true
+  },
+  "typography": {
+    "body": "\"Open Sans\", Arial, sans-serif",
+    "size": "15px",
+    "uiLoaded": true,
+    "monoLoaded": true
+  },
+  "contrast": {
+    "dark": {
+      "color": "rgb(247, 200, 106)",
+      "background": "rgb(32, 36, 45)",
+      "ratio": 9.931996749273669
+    },
+    "light": {
+      "color": "rgb(107, 71, 0)",
+      "background": "rgb(236, 238, 242)",
+      "ratio": 7.155697213441055
+    }
+  },
+  "clone": {
+    "projectPicked": true,
+    "selectedUrl": true
+  },
+  "graph": {
+    "stats": {
+      "p50": 16.59999999999991,
+      "p95": 16.59999999999991,
+      "missed": 0
+    },
+    "firstPage": 1,
+    "rows": "Graphe d'historique, 800 commits chargés"
+  },
+  "diff": {
+    "firstPaint": 1,
+    "lines": true
+  },
+  "p1": {
+    "stagedLine": true,
+    "calls": [
+      [
+        "unstage",
+        {
+          "request": {
+            "repoId": "repo_demo",
+            "selections": [
+              {
+                "path": "src/main.rs",
+                "hunks": [
+                  {
+                    "hunk": 0,
+                    "lines": [
+                      0
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    ],
+    "viewChecks": {
+      "Commit": true,
+      "Branches": true,
+      "Synchronisation": true,
+      "Stashes": true,
+      "Deep search": true,
+      "External tools": true
+    }
+  },
+  "screenshots": [
+    "/Users/johannbee/Perso/beebranch/target/ui-smoke/p0-graph.png",
+    "/Users/johannbee/Perso/beebranch/target/ui-smoke/p0-diff.png"
+  ]
+}

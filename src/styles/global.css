@@ -1,0 +1,177 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+}
+
+.skip-link {
+  position: fixed;
+  top: -40px;
+  left: 8px;
+  z-index: var(--z-toast);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--text-size)/1.55 var(--sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+button {
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-text);
+}
+
+/* Press feedback must never change geometry: transforms and outlines are
+   counted as scrollable overflow by WebKit/Blink, which flashed scrollbars
+   inside scrollable panes for the duration of the animation. */
+button:active:not(:disabled) {
+  filter: brightness(0.9);
+}
+
+button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+button.primary,
+.primary {
+  border-color: var(--accent-text);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled),
+.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+input,
+select,
+textarea {
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--bg);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent-text);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-text) 55%, transparent);
+}
+
+textarea {
+  resize: vertical;
+}
+
+a {
+  color: var(--info);
+}
+
+code,
+pre,
+kbd,
+.mono {
+  font-family: var(--mono);
+}
+
+kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+button { transition:border-color var(--duration-fast) var(--ease-out); }
+input[type='checkbox'] { accent-color:var(--accent); }
+summary:focus-visible { outline:2px solid var(--accent-text); outline-offset:2px; }
+summary { user-select:none; }
+@keyframes dialog-enter { from { opacity:0; transform:translateY(6px) scale(.985); } to { opacity:1; transform:none; } }
+@keyframes overlay-enter { from { opacity:0; } to { opacity:1; } }
+@keyframes view-enter { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+@keyframes status-pulse { 0% { opacity:.4; } 100% { opacity:1; } }
+
+[data-page] { animation: view-enter var(--duration-normal) var(--ease-out); }
+[role='status'] { transition: opacity var(--duration-fast) var(--ease-out); }
+[role='dialog'], [role='alertdialog'] { animation:dialog-enter var(--duration-normal) var(--ease-out); max-height:calc(100dvh - 32px); overflow:auto; }
+@media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }

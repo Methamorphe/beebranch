@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/core",
+  "crates/git",
+  "crates/gitlab",
+  "crates/store",
+  "crates/app",
+  "crates/bench",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.85"
+license = "UNLICENSED"
+authors = ["Beecoming"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tauri = { version = "2", features = [] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "charset", "http2"] }
+sha2 = "0.10"
+rusqlite = { version = "0.37", features = ["bundled"] }
+notify = "8"
+keyring = "3"
+tauri-plugin-updater = "2"
+url = "2"
+tempfile = "3"
+wiremock = "0.6"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

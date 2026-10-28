@@ -1,0 +1,4 @@
+.menu { position:fixed; z-index:60; left:8px; top:8px; width:286px; max-width:calc(100vw - 16px); max-height:calc(100dvh - 16px); overflow:auto; padding:5px; border:1px solid var(--border-strong); border-radius:8px; color:var(--text); background:var(--surface); box-shadow:0 8px 32px #0005; animation:overlay-enter var(--duration-fast) var(--ease-out); }
+.heading { display:flex; flex-direction:column; gap:4px; padding:8px 9px 10px; margin-bottom:4px; border-bottom:1px solid var(--border); }
+.heading code { color:var(--muted); font-size:10px; }
+.heading span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:600; }

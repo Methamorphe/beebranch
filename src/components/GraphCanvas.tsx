@@ -1,0 +1,691 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useMemo,
+  type ReactNode,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
+import type { CommitSummary, GraphRow, RefEntry } from '../types/git'
+import { GraphRefPopover, type RefAnchor } from './GraphRefPopover'
+import { isCheckoutableRef, resolveGraphRef } from '../lib/graphRefs'
+import styles from './GraphCanvas.module.css'
+
+export type MrBadge = {
+  iid: number
+  status: string
+  state: string
+}
+
+type Props = {
+  worktreeRow?: ReactNode
+  headerTools?: ReactNode
+  showDate?: boolean
+  commits: CommitSummary[]
+  rows: GraphRow[]
+  selected?: string
+  mrBadges?: Record<string, MrBadge>
+  refEntries?: RefEntry[]
+  checkoutDisabled?: boolean
+  onCheckoutRef?: (raw: string) => void
+  onSelect: (sha: string) => void
+  onContextMenu?: (commit: CommitSummary, x: number, y: number) => void
+  onRefContextMenu?: (entry: RefEntry, x: number, y: number) => void
+  onRefDrop?: (source: RefEntry, target: RefEntry, x: number, y: number) => void
+  branchTarget?: string | null
+  branchName?: string
+  onBranchName?: (value: string) => void
+  onBranchSubmit?: () => void
+  onBranchCancel?: () => void
+  onBranchRequest?: (sha: string | null) => void
+  onLoadMore: () => void
+  loading: boolean
+  generation: number
+  theme?: string
+  picked?: string[]
+}
+
+const ROW_HEIGHT = 30
+const OVERSCAN = 8
+const LANE_COLORS = [
+  '#81a9ef',
+  '#a48ae0',
+  '#52c993',
+  '#e66b75',
+  '#f0a45b',
+  '#7cb518',
+]
+
+function columns(width: number, lanes: number, withDate = false) {
+  const refs = width >= 640 ? 140 : width >= 480 ? 110 : 0
+  const graph = Math.min(width < 520 ? 64 : 150, Math.max(56, lanes * 18 + 22))
+  const date = withDate && width >= 720 ? 100 : 0
+  // Keep at least 520 px for the message; the author column takes the rest.
+  const room = width - refs - graph - date - 520
+  const author = room >= 130 ? 130 : room >= 110 ? 110 : room >= 90 ? 90 : 0
+  return { refs, graph, author, date }
+}
+function fitText(context: CanvasRenderingContext2D, text: string, width: number) {
+  if (width <= 0) return ''
+  if (context.measureText(text).width <= width) return text
+  let low = 0, high = text.length
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    if (context.measureText(text.slice(0, middle) + '…').width <= width) low = middle
+    else high = middle - 1
+  }
+  return text.slice(0, low) + '…'
+}
+
+type FrameStats = {
+  p50: number
+  p95: number
+  missed: number
+}
+
+declare global {
+  interface Window {
+    __beebranchGraphStats?: FrameStats
+  }
+}
+
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) {
+    return 0
+  }
+  const sorted = [...values].sort((left, right) => left - right)
+  const index = Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))
+  return sorted[index] ?? 0
+}
+
+export function GraphCanvas({
+  worktreeRow,
+  headerTools,
+  showDate = false,
+  commits,
+  rows,
+  selected,
+  mrBadges,
+  onSelect,
+  refEntries = [],
+  checkoutDisabled = false,
+  onCheckoutRef,
+  onContextMenu,
+  onRefContextMenu,
+  onRefDrop,
+  branchTarget = null,
+  branchName = '',
+  onBranchName,
+  onBranchSubmit,
+  onBranchCancel,
+  onBranchRequest,
+  onLoadMore,
+  loading,
+  generation,
+  theme,
+  picked = [],
+}: Props) {
+  const [viewportWidth, setViewportWidth] = useState(1000)
+  const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
+  const layout = columns(viewportWidth, maxLanes, showDate)
+  const [refHover, setRefHover] = useState<RefAnchor | null>(null)
+  const dragStart = useRef<{ entry: RefEntry; x: number; y: number } | null>(null)
+  const dragTargetRect = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [drag, setDrag] = useState<{ entry: RefEntry; x: number; y: number; target: RefEntry | null } | null>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refRects = useRef<{ commit: CommitSummary; raw: string; x:number; y:number; width:number; height:number }[]>([])
+  const cancelRefClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null } }
+  const closeRefSoon = () => { cancelRefClose(); closeTimer.current = setTimeout(() => { if (!popupRef.current?.contains(document.activeElement)) setRefHover(null) }, 140) }
+  const checkoutRef = (raw: string) => {
+    if (checkoutDisabled || !isCheckoutableRef(resolveGraphRef(raw, refEntries))) return
+    cancelRefClose()
+    setRefHover(null)
+    onCheckoutRef?.(raw)
+  }
+  const hoveredRef = useRef<number | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scrollTopRef = useRef(0)
+  const drawRef = useRef<() => void>(() => {})
+  const frameRef = useRef<number | null>(null)
+  const frameTimes = useRef<number[]>([])
+  const lastFrame = useRef(0)
+  const statsRef = useRef<FrameStats>({ p50: 16, p95: 16, missed: 0 })
+
+  const scheduleDraw = useCallback(() => {
+    if (frameRef.current !== null) {
+      return
+    }
+    frameRef.current = window.requestAnimationFrame((time) => {
+      frameRef.current = null
+      if (lastFrame.current > 0) {
+        const delta = time - lastFrame.current
+        frameTimes.current.push(delta)
+        if (frameTimes.current.length > 240) {
+          frameTimes.current.shift()
+        }
+      }
+      lastFrame.current = time
+      drawRef.current()
+    })
+  }, [])
+
+  const draw = useCallback(() => {
+    const container = containerRef.current
+    const canvas = canvasRef.current
+    if (!container || !canvas) {
+      return
+    }
+    const ratio = window.devicePixelRatio || 1
+    const width = container.clientWidth
+    const height = container.clientHeight
+    if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
+      canvas.width = Math.floor(width * ratio)
+      canvas.height = Math.floor(height * ratio)
+    }
+    canvas.style.transform = `translateY(${scrollTopRef.current}px)`
+
+    const context = canvas.getContext('2d')
+    if (!context) {
+      return
+    }
+    context.setTransform(ratio, 0, 0, ratio, 0, 0)
+    context.clearRect(0, 0, width, height)
+    refRects.current = []
+    context.textBaseline = 'middle'
+    const computed = getComputedStyle(canvas)
+    const laneColors = computed.colorScheme === 'light' ? ['#2b6cb0', '#6b4bb5', '#136b46', '#b93b48', '#94470a', '#4c6b0b'] : LANE_COLORS
+    const fontFamily = computed.getPropertyValue('--sans').trim()
+    const textColor = computed.getPropertyValue('--text').trim() || '#e1e5ec'
+    const mutedColor = computed.getPropertyValue('--muted').trim() || '#8992a2'
+    const accentColor = computed.getPropertyValue('--accent').trim() || '#f5bb45'
+    const accentTextColor =
+      computed.getPropertyValue('--accent-text').trim() || accentColor
+    const accentSoft = computed.getPropertyValue('--accent-soft').trim() || '#f5bb4514'
+
+    const borderColor = computed.getPropertyValue('--border').trim()
+    const raisedColor = computed.getPropertyValue('--surface-raised').trim()
+    const selectedColor = computed.getPropertyValue('--selection-bg').trim() || accentSoft
+    const col = columns(width, maxLanes, showDate)
+    const scrollTop = scrollTopRef.current
+    const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
+    const last = Math.min(
+      commits.length - 1,
+      Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN,
+    )
+
+    const laneArea = col.graph - 28
+    const laneScale = laneArea / Math.max(1, maxLanes)
+    const graphLeft = col.refs + 14
+    const messageX = col.refs + col.graph + 14
+    const messageRight = width - col.author - col.date
+
+    for (let index = first; index <= last; index += 1) {
+      const commit = commits[index]
+      const row = rows[index]
+      if (!commit || !row) {
+        continue
+      }
+      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
+      const isSelected = commit.sha === selected
+      const isPicked = picked.includes(commit.sha)
+
+      if (isSelected || isPicked || hoveredRef.current === index) {
+        context.fillStyle = isSelected ? selectedColor : isPicked ? accentSoft : raisedColor
+        context.fillRect(0, y - ROW_HEIGHT / 2, width, ROW_HEIGHT)
+      }
+      if (isPicked || isSelected) {
+        context.fillStyle = accentColor
+        context.fillRect(0, y - ROW_HEIGHT / 2, 2, ROW_HEIGHT)
+      }
+
+      context.lineWidth = 2
+      for (const [start, end] of row.activeRanges) {
+        for (let lane = start; lane <= end; lane += 1) {
+          const x = graphLeft + lane * laneScale + laneScale / 2
+          context.strokeStyle = laneColors[lane % laneColors.length]!
+          context.globalAlpha = 0.8
+          context.beginPath()
+          context.moveTo(x, y - ROW_HEIGHT / 2)
+          context.lineTo(x, y + ROW_HEIGHT / 2)
+          context.stroke()
+        }
+      }
+      context.globalAlpha = 1
+
+      const nodeX = graphLeft + row.nodeLane * laneScale + laneScale / 2
+      for (const parentLane of row.parentLanes) {
+        if (parentLane === row.nodeLane) {
+          continue
+        }
+        const parentX = graphLeft + parentLane * laneScale + laneScale / 2
+        context.strokeStyle = laneColors[parentLane % laneColors.length]!
+        context.beginPath()
+        context.moveTo(nodeX, y)
+        context.bezierCurveTo(nodeX, y + ROW_HEIGHT / 2, parentX, y + ROW_HEIGHT / 2, parentX, y + ROW_HEIGHT)
+        context.stroke()
+      }
+
+      context.beginPath()
+      context.fillStyle = laneColors[row.nodeLane % laneColors.length]!
+      context.arc(nodeX, y, isSelected ? 6 : 4.8, 0, Math.PI * 2)
+      context.fill()
+
+      // References have their own clipped column; messages always start at the same x.
+      context.font = `600 13px ${fontFamily}`
+      if (col.refs > 0 && commit.refs.length > 0) {
+        const ref = commit.refs[0]!
+        const label = ref.replace('HEAD -> ', '').replace('refs/heads/', '') + (commit.refs.length > 1 ? ` +${commit.refs.length - 1}` : '')
+        const refText = fitText(context, label, col.refs - 32)
+        const badgeWidth = Math.min(col.refs - 16, context.measureText(refText).width + 14)
+        context.fillStyle = ref.startsWith('HEAD') ? accentSoft : raisedColor
+        context.beginPath()
+        context.roundRect(8, y - 11, badgeWidth, 22, 4)
+        context.fill()
+        context.fillStyle = ref.startsWith('HEAD') ? accentTextColor : mutedColor
+        context.fillText(refText, 15, y)
+        refRects.current.push({ commit, raw: ref, x:8, y:y - 11, width:badgeWidth, height:22 })
+      }
+      context.save()
+      context.beginPath()
+      context.rect(messageX, y - ROW_HEIGHT / 2, Math.max(0, messageRight - messageX - 12), ROW_HEIGHT)
+      context.clip()
+      let cursor = messageX
+      context.font = `15px ${fontFamily}`
+      if (mrBadges) {
+        const badge = commit.refs.map((ref) => mrBadges[ref.replace('HEAD -> ', '').replace(/^origin\//, '')]).find(Boolean)
+        if (badge) {
+          const badgeText = `!${badge.iid}`
+          context.fillStyle = badge.state === 'success' ? computed.getPropertyValue('--success').trim() : badge.state === 'failed' ? computed.getPropertyValue('--error').trim() : mutedColor
+          context.fillText(badgeText, cursor, y)
+          cursor += context.measureText(badgeText).width + 12
+        }
+      }
+      context.fillStyle = textColor
+      context.fillText(fitText(context, commit.subject, messageRight - cursor - 16), cursor, y)
+      context.restore()
+      context.font = `12px ${fontFamily}`
+      context.fillStyle = mutedColor
+      if (col.author) context.fillText(fitText(context, commit.author.name, col.author - 20), width - col.author - col.date + 10, y)
+      if (col.date) context.fillText(new Date(commit.author.timestamp * 1000).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }), width - col.date + 8, y)
+
+    }
+
+    const dropRect = dragTargetRect.current
+    if (dropRect) {
+      context.strokeStyle = accentTextColor
+      context.lineWidth = 2
+      context.beginPath()
+      context.roundRect(dropRect.x - 1, dropRect.y - 1, dropRect.width + 2, dropRect.height + 2, 5)
+      context.stroke()
+    }
+
+    context.strokeStyle = borderColor
+    context.lineWidth = 1
+    for (const x of [col.refs, col.refs + col.graph, ...(col.author ? [width - col.author - col.date] : []), ...(col.date ? [width - col.date] : [])]) {
+      if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
+    }
+
+  }, [commits, rows, selected, mrBadges, picked, maxLanes, showDate])
+
+  useLayoutEffect(() => {
+    drawRef.current = draw
+  }, [draw])
+
+  useEffect(() => {
+    const times = frameTimes.current
+    const stats: FrameStats = {
+      p50: percentile(times, 0.5),
+      p95: percentile(times, 0.95),
+      missed: times.filter((value) => value > 50).length,
+    }
+    statsRef.current = stats
+    window.__beebranchGraphStats = stats
+    const timer = window.setInterval(() => {
+      if (times.length > 0) {
+        statsRef.current = {
+          p50: percentile(times, 0.5),
+          p95: percentile(times, 0.95),
+          missed: times.filter((value) => value > 50).length,
+        }
+        window.__beebranchGraphStats = statsRef.current
+      }
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    scheduleDraw()
+    void document.fonts.ready.then(scheduleDraw)
+    if (commits.length > 0) {
+      performance.mark('graph.first-page')
+    }
+  }, [scheduleDraw, draw, commits.length, generation, theme])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) {
+      return
+    }
+    const observer = new ResizeObserver(() => { setViewportWidth(container.clientWidth); scheduleDraw() })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [scheduleDraw])
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: light)')
+    media.addEventListener('change', scheduleDraw)
+    const observer = new MutationObserver(scheduleDraw)
+    observer.observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] })
+    return () => { media.removeEventListener('change', scheduleDraw); observer.disconnect() }
+  }, [scheduleDraw])
+
+  useEffect(() => {
+    if (!drag) return
+    const abort = () => {
+      dragStart.current = null
+      dragTargetRect.current = null
+      setDrag(null)
+      scheduleDraw()
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') abort()
+    }
+    const releaseOutside = (event: PointerEvent) => {
+      const canvas = canvasRef.current
+      if (canvas && event.target instanceof Node && canvas.contains(event.target)) return
+      abort()
+    }
+    document.addEventListener('keydown', escape)
+    window.addEventListener('pointerup', releaseOutside)
+    return () => {
+      document.removeEventListener('keydown', escape)
+      window.removeEventListener('pointerup', releaseOutside)
+    }
+  }, [drag, scheduleDraw])
+
+  useEffect(() => {
+    if (!branchTarget) return
+    const index = commits.findIndex((commit) => commit.sha === branchTarget)
+    const container = containerRef.current
+    if (index < 0 || !container) return
+    const top = index * ROW_HEIGHT
+    if (top < container.scrollTop || top + ROW_HEIGHT > container.scrollTop + container.clientHeight) {
+      container.scrollTop = Math.max(0, top - container.clientHeight / 4)
+      scrollTopRef.current = container.scrollTop
+      scheduleDraw()
+    }
+  }, [branchTarget, commits, scheduleDraw])
+
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
+
+  useEffect(() => {
+    if (!refHover) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape' || event.metaKey || event.ctrlKey) setRefHover(null) }
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && popupRef.current?.contains(event.target)) return
+      if (event.target !== canvasRef.current) setRefHover(null)
+    }
+    const resize = () => setRefHover(null)
+    document.addEventListener('keydown', close)
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('resize', resize)
+    window.addEventListener('blur', resize)
+    return () => { document.removeEventListener('keydown', close); document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', resize); window.removeEventListener('blur', resize) }
+  }, [refHover])
+
+  const dropTargetAt = (clientX: number, clientY: number, source: RefEntry) => {
+    const hit = hitRef(clientX, clientY)
+    if (!hit) return null
+    const entry = resolveGraphRef(hit.raw, refEntries)
+    if (!entry || entry.kind !== 'branch') return null
+    if (entry.fullName === source.fullName) return null
+    return {
+      entry,
+      rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
+    }
+  }
+
+  const hitRef = (clientX: number, clientY: number) => {
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    if (!bounds) return
+    const x = clientX - bounds.left, y = clientY - bounds.top
+    return refRects.current.find((rect) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
+  }
+
+  const onScroll = () => {
+    cancelRefClose()
+    setRefHover(null)
+    const container = containerRef.current
+    if (!container) {
+      return
+    }
+    scrollTopRef.current = container.scrollTop
+    if (
+      !loading &&
+      container.scrollTop + container.clientHeight >
+        container.scrollHeight - ROW_HEIGHT * 4
+    ) {
+      onLoadMore()
+    }
+    scheduleDraw()
+  }
+
+  const onCanvasPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.button === 0 && !branchTarget) {
+      const hit = hitRef(event.clientX, event.clientY)
+      if (hit) {
+        const entry = resolveGraphRef(hit.raw, refEntries)
+        if (entry && (entry.kind === 'branch' || entry.kind === 'remoteBranch')) {
+          cancelRefClose()
+          dragStart.current = { entry, x: event.clientX, y: event.clientY }
+          return
+        }
+      }
+    }
+    onPointer(event)
+  }
+
+  const onCanvasPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const start = dragStart.current
+    if (start) {
+      if (!drag && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 6) {
+        return
+      }
+      if (!drag) {
+        setRefHover(null)
+      }
+      const found = dropTargetAt(event.clientX, event.clientY, start.entry)
+      dragTargetRect.current = found?.rect ?? null
+      scheduleDraw()
+      setDrag({ entry: start.entry, x: event.clientX, y: event.clientY, target: found?.entry ?? null })
+      return
+    }
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const index = Math.floor((scrollTopRef.current + event.clientY - bounds.top) / ROW_HEIGHT)
+    const hit = hitRef(event.clientX, event.clientY)
+    if (hit) {
+      cancelRefClose()
+      event.currentTarget.title = ''
+      setRefHover((current) => current?.commit.sha === hit.commit.sha ? current : { commit:hit.commit, left:bounds.left + hit.x, top:bounds.top + hit.y, bottom:bounds.top + hit.y + hit.height })
+    } else {
+      if (refHover) closeRefSoon()
+      const commit = commits[index]
+      event.currentTarget.title = commit ? `${commit.subject}\n${commit.author.name} · ${commit.sha.slice(0, 12)}` : ''
+    }
+    if (hoveredRef.current !== index) { hoveredRef.current = index; scheduleDraw() }
+  }
+
+  const onCanvasPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const start = dragStart.current
+    dragStart.current = null
+    if (drag) {
+      const target = drag.target
+      dragTargetRect.current = null
+      setDrag(null)
+      scheduleDraw()
+      if (start && target && onRefDrop) {
+        onRefDrop(start.entry, target, event.clientX, event.clientY)
+      }
+      return
+    }
+    dragTargetRect.current = null
+  }
+
+  const onPointer = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    // A badge click must not resize the graph before the second click arrives.
+    if (hitRef(event.clientX, event.clientY)) return
+    setRefHover(null)
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const index = Math.floor(
+      (scrollTopRef.current + (event.clientY - bounds.top)) / ROW_HEIGHT,
+    )
+    const commit = commits[index]
+    if (commit) {
+      onSelect(commit.sha)
+    }
+  }
+
+  const onContextMenuEvent = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    event.preventDefault()
+    setRefHover(null)
+    const hit = hitRef(event.clientX, event.clientY)
+    if (hit && onRefContextMenu) {
+      const entry = resolveGraphRef(hit.raw, refEntries)
+      if (entry && (entry.kind === 'branch' || entry.kind === 'remoteBranch')) {
+        onRefContextMenu(entry, event.clientX, event.clientY)
+        return
+      }
+    }
+    if (!onContextMenu) {
+      return
+    }
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const index = Math.floor(
+      (scrollTopRef.current + (event.clientY - bounds.top)) / ROW_HEIGHT,
+    )
+    const commit = commits[index]
+    if (commit) {
+      onSelect(commit.sha)
+      onContextMenu(commit, event.clientX, event.clientY)
+    }
+  }
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    if (commits.length === 0) {
+      return
+    }
+    const current = commits.findIndex((commit) => commit.sha === selected)
+    const index = current >= 0 ? current : 0
+    if ((event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) && onContextMenu) {
+      event.preventDefault()
+      const bounds = event.currentTarget.getBoundingClientRect()
+      onContextMenu(commits[index]!, bounds.left + 120, Math.max(bounds.top, bounds.top + index * ROW_HEIGHT - scrollTopRef.current))
+    }
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault()
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? commits.length - 1 : Math.max(0, Math.min(commits.length - 1, current < 0 ? 0 : index + (event.key === 'ArrowDown' ? 1 : -1)))
+      const commit = commits[next]
+      if (commit) {
+        onSelect(commit.sha)
+        const container = containerRef.current
+        if (container) {
+          const top = next * ROW_HEIGHT
+          if (top < container.scrollTop) container.scrollTop = top
+          else if (top + ROW_HEIGHT > container.scrollTop + container.clientHeight) container.scrollTop = top + ROW_HEIGHT - container.clientHeight
+          scrollTopRef.current = container.scrollTop
+          scheduleDraw()
+        }
+      }
+    }
+
+  }
+
+  return (
+    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px` } as React.CSSProperties}>
+      <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
+        <div className={styles.refsHeader}>
+          <span>{layout.refs ? 'Branches / tags' : ''}</span>
+          {layout.refs && onBranchRequest ? (
+            <button type="button" className={styles.addRef} title="Créer une branche sur le commit sélectionné" aria-label="Créer une branche" onClick={() => onBranchRequest(selected ?? null)}>+</button>
+          ) : null}
+        </div>
+        <span>Graphe</span><div className={styles.messageHeader}><span>Message de commit</span>{headerTools}</div><span>{layout.author ? 'Auteur' : ''}</span><span>{layout.date ? 'Date' : ''}</span>
+      </div>
+      {worktreeRow}
+      <div className={styles.scroll} style={{ top: worktreeRow ? 64 : 32 }} ref={containerRef} onScroll={onScroll}>
+        <div
+          className={styles.spacer}
+          style={{ height: Math.max(1, commits.length * ROW_HEIGHT) }}
+        />
+        {branchTarget ? (() => {
+          const index = commits.findIndex((commit) => commit.sha === branchTarget)
+          if (index < 0) return null
+          return (
+            <form
+              className={styles.createRow}
+              style={{ top: index * ROW_HEIGHT + 2, width: layout.refs > 0 ? Math.max(180, layout.refs - 16) : 220 }}
+              onSubmit={(event) => { event.preventDefault(); onBranchSubmit?.() }}
+            >
+              <input
+                autoFocus
+                value={branchName}
+                onChange={(event) => onBranchName?.(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') { event.preventDefault(); onBranchCancel?.() }
+                }}
+                placeholder="nom de la branche"
+                aria-label="Nom de la nouvelle branche"
+                spellCheck={false}
+              />
+              <button type="submit" className={styles.createSubmit} disabled={branchName.trim().length === 0} aria-label="Créer la branche" title="Créer la branche">↵</button>
+            </form>
+          )
+        })() : null}
+        <canvas
+          ref={canvasRef}
+          className={styles.canvas}
+          data-dragging={drag ? 'true' : undefined}
+          role="img"
+          tabIndex={0}
+          aria-label={`Graphe d'historique, ${commits.length} commits chargés`}
+          onPointerMove={onCanvasPointerMove}
+          onPointerLeave={(event) => {
+            if (drag) return
+            hoveredRef.current = null
+            scheduleDraw()
+            if (!(event.relatedTarget instanceof Node && popupRef.current?.contains(event.relatedTarget))) closeRefSoon()
+          }}
+          onDoubleClick={(event) => {
+            const hit = hitRef(event.clientX, event.clientY)
+            if (hit) { event.preventDefault(); checkoutRef(hit.commit.refs[0]!) }
+          }}
+          onPointerDown={onCanvasPointerDown}
+          onPointerUp={onCanvasPointerUp}
+          onContextMenu={onContextMenuEvent}
+          onKeyDown={onKeyDown}
+        />
+      </div>
+      {drag ? (
+        <div
+          className={styles.dragGhost}
+          data-target={drag.target ? 'true' : 'false'}
+          style={{ left: drag.x + 14, top: drag.y + 12 }}
+          role="status"
+        >
+          <strong>{drag.entry.name}</strong>
+          <span>{drag.target ? `→ ${drag.target.name}` : 'Déposer sur une branche'}</span>
+        </div>
+      ) : null}
+      {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
+      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · clic droit pour les actions'}</span></div>
+      <span className={styles.srOnly} role="status">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
+    </div>
+  )
+}
+

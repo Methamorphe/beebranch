@@ -1,0 +1,7 @@
+.trigger { flex:none; min-width:26px; min-height:28px; padding:2px 5px; color:var(--muted); }
+.menu { position:fixed; inset:auto; margin:0; width:244px; max-width:calc(100vw - 16px); max-height:calc(100dvh - 16px); padding:5px; overflow:auto; border:1px solid var(--border-strong); border-radius:var(--radius); color:var(--text); background:var(--surface); box-shadow:var(--shadow-pop); }
+.menu:popover-open { display:flex; flex-direction:column; animation:overlay-enter var(--duration-fast) var(--ease-out); }
+.menu button { text-align:left; padding:8px; font-size:12px; }
+
+.menu button:has(> svg) { display:flex; align-items:center; gap:10px; }
+.menu button > svg { width:18px; height:18px; flex:none; color:var(--muted); }

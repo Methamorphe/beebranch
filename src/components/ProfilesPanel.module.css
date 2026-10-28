@@ -1,0 +1,45 @@
+.profiles { margin-top: 28px; min-width: 0; padding-top: 24px; border-top: 1px solid var(--border); }
+.sectionHeader { margin-bottom: 16px; }
+.sectionHeader h2 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
+.sectionHeader p, .editorHeader p, .fieldGroup p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.profileList { display: grid; gap: 12px; margin-bottom: 20px; }
+.profile { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.profile[data-active='true'] { box-shadow: inset 2px 0 var(--accent); }
+.profileHeading { display: flex; align-items: center; gap: 12px; padding: 16px 16px 10px; }
+.avatar { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--accent-text); background: var(--accent-soft); font-size: 16px; }
+.identity { flex: 1; min-width: 0; }
+.identity h3 { margin: 0 0 3px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.identity p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.identity p span { color: var(--muted); }
+.activeBadge { flex: none; padding: 2px 8px; border-radius: var(--radius-sm); color: var(--success); background: var(--success-soft); font-size: 11px; font-weight: 600; }
+.profileMeta { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0 16px 14px 64px; color: var(--muted); font-size: 12px; }
+.profileActions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--border); }
+.actionSpacer { flex: 1; }
+.editor { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); scroll-margin-block: 16px; }
+.editorHeader { padding: 18px 20px 0; }
+.editorHeader h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+.fields { display: grid; gap: 20px; min-width: 0; margin: 0; padding: 20px; border: 0; }
+.fieldGroup { display: grid; gap: 12px; min-width: 0; padding-top: 18px; border-top: 1px solid var(--border); }
+.fieldGroup h4 { margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
+.fieldGroup h4 + p { margin-top: -8px; }
+.fieldGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+.field { display: flex; flex-direction: column; align-items: stretch; position: relative; gap: 6px; min-width: 0; color: var(--muted-strong); font-size: 12px; }
+.field input, .field select { width: 100%; min-width: 0; height: 36px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 13px; }
+.optional { position: absolute; top: 0; right: 0; color: var(--muted); font-size: 11px; }
+.editorFooter { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); }
+.editorFooter > span { flex: 1; min-width: 160px; color: var(--muted); font-size: 12px; }
+.footerActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 700px) {
+  .fieldGrid { grid-template-columns: minmax(0, 1fr); }
+  .editorHeader { padding: 16px 16px 0; }
+  .fields { padding: 16px; }
+  .editorFooter { padding: 14px 16px; }
+  .footerActions { width: 100%; }
+  .footerActions > button { flex: 1; }
+  .profileMeta { padding-left: 16px; }
+  .actionSpacer { display: none; }
+  .profileActions > button { flex: 1 1 auto; }
+}
+
+.instanceButton { justify-self: start; max-width: 100%; text-align: left; overflow-wrap: anywhere; }

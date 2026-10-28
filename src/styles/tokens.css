@@ -1,0 +1,177 @@
+:root {
+  color-scheme: dark;
+
+  /* BeeBranch workspace palette (from the reference prototype). */
+  --bg: #181b22;
+  --surface: #20242d;
+  --surface-raised: #2a303c;
+  --border: #343b48;
+  --border-strong: #4d5666;
+  --text: #e8edf4;
+  --muted: #b9c2d0;
+  --muted-strong: #d3dae5;
+  --accent: #f5bb45;
+  --accent-contrast: #171a1f;
+  --accent-soft: #f5bb4514;
+  --accent-strong: #f7c86a;
+  --success: #52c993;
+  --success-soft: #52c99317;
+  --warning: #f0a45b;
+  --warning-soft: #f0a45b17;
+  --error: #e66b75;
+  --error-soft: #e66b7512;
+  --info: #81a9ef;
+  --info-soft: #81a9ef14;
+  --purple: #a48ae0;
+  --purple-soft: #a48ae017;
+
+  --lane-1: #81a9ef;
+  --lane-2: #a48ae0;
+  --lane-3: #52c993;
+  --lane-4: #e66b75;
+  --lane-5: #f0a45b;
+  --lane-6: #7cb518;
+
+  --sans: 'Open Sans', Arial, sans-serif;
+  --mono: 'Geist Mono Variable', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+
+  /* Spacing scale (4 px base). */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Typography scale. */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --line-tight: 1.3;
+  --line-normal: 1.55;
+  --text-size: var(--text-base);
+
+  /* Component geometry. */
+  --row-height: 30px;
+  --row-height-compact: 26px;
+  --control-height: 30px;
+  --control-height-sm: 24px;
+
+  /* Depth and layering. */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-popover: 300;
+  --z-dialog: 500;
+  --z-toast: 700;
+  --shadow-sm: 0 1px 2px #0004;
+  --shadow-md: 0 8px 24px #0006;
+  --focus-ring: 0 0 0 2px var(--accent-text);
+  --accent-text: #f7c86a;
+  --selection-bg: #304663;
+  --duration-fast: 120ms;
+  --duration-normal: 160ms;
+  --duration-slow: 220ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --topbar: 43px;
+  --toolbar: 46px;
+  --statusbar: 26px;
+  --inspector-width: clamp(340px, 27vw, 410px);
+  --shadow-modal: 0 25px 90px #0009;
+  --shadow-pop: 0 10px 30px #0008;
+
+  /* Backwards-compatible aliases used by existing P1 screens. */
+  --fg: var(--text);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --surface: #eceef2;
+  --surface-raised: #e2e5eb;
+  --border: #cfd5df;
+  --border-strong: #aab3c2;
+  --text: #1f2733;
+  --muted: #4b5568;
+  --muted-strong: #333d4d;
+  --accent: #f5bb45;
+  --accent-text: #6b4700;
+  --accent-contrast: #171a1f;
+  --accent-soft: #f5bb4526;
+  --accent-strong: #d99f28;
+  --selection-bg: #d7e7fb;
+  --success: #136b46;
+  --success-soft: #136b4617;
+  --warning: #94470a;
+  --warning-soft: #94470a17;
+  --error: #b93b48;
+  --error-soft: #b93b4812;
+  --info: #2b6cb0;
+  --info-soft: #2b6cb014;
+  --purple: #6b4bb5;
+  --purple-soft: #6b4bb517;
+  --lane-1: #2B7CB3;
+  --lane-2: #7B3FC4;
+  --lane-3: #007A7A;
+  --lane-4: #C23A78;
+  --lane-5: #C2410C;
+  --lane-6: #557D0F;
+  --shadow-modal: 0 25px 90px #0003;
+  --shadow-pop: 0 10px 30px #0002;
+}
+
+:root[data-density='compact'] {
+  --text-size: 13px;
+  --row-height: var(--row-height-compact);
+  --control-height: 27px;
+  --space-2: 6px;
+  --space-3: 10px;
+}
+
+:root[data-density='comfortable'] {
+  --text-size: 15px;
+  --row-height: 34px;
+  --control-height: 34px;
+  --space-2: 9px;
+  --space-3: 13px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --selection-bg: #d7e7fb;
+    --bg: #f5f6f8;
+    --surface: #eceef2;
+    --surface-raised: #e2e5eb;
+    --border: #cfd5df;
+    --border-strong: #aab3c2;
+    --text: #1f2733;
+    --muted: #4b5568;
+    --muted-strong: #333d4d;
+    --accent-text: #6b4700;
+    --success: #136b46;
+    --warning: #94470a;
+    --error: #b93b48;
+    --info: #2b6cb0;
+    --purple: #6b4bb5;
+  --lane-1: #2B7CB3;
+  --lane-2: #7B3FC4;
+  --lane-3: #007A7A;
+  --lane-4: #C23A78;
+  --lane-5: #C2410C;
+  --lane-6: #557D0F;
+    --shadow-modal: 0 25px 90px #0003;
+    --shadow-pop: 0 10px 30px #0002;
+  }
+}

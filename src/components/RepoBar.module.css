@@ -1,0 +1,23 @@
+.root { display:flex; align-items:center; gap:12px; height:var(--toolbar); padding:0 10px; overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; border-bottom:1px solid var(--border); background:var(--surface-raised); }
+.identity { display:flex; align-items:center; flex:none; gap:6px; }
+.selector { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:1px; width:170px; min-height:32px; padding:2px 8px; text-align:left; }
+.caption { color:var(--muted); font-size:10px; line-height:1.2; font-weight:400; }
+.value { display:flex; align-items:center; gap:6px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:13px; line-height:1.25; font-weight:600; }
+.value > svg { flex:none; width:13px; height:13px; color:var(--muted); }
+.contextSeparator { color:var(--muted); font-size:16px; font-weight:300; }
+.gitActions,.utilities { display:flex; align-items:center; gap:2px; flex:none; }
+.utilities { margin-left:auto; }
+.action { display:flex; flex:none; flex-direction:row; align-items:center; justify-content:center; gap:6px; min-width:0; height:30px; padding:0 8px; color:var(--muted-strong); border-radius:5px; font-size:12px; }
+.action > span { font-size:12px; line-height:1.2; font-weight:400; white-space:nowrap; }
+.action > svg { width:16px; height:16px; flex:none; }
+.action:hover:not(:disabled) { color:var(--text); }
+.divider { height:18px; border-left:1px solid var(--border-strong); margin:0 4px; }
+.notice { max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--accent-text); }
+.notice:empty { display:none; }
+@media(max-width:1200px) { .root { gap:8px; } .selector { width:150px; } .action { padding-inline:6px; } .notice { max-width:80px; } }
+@media(max-width:1060px) { .action > span { display:none; } .action { padding-inline:8px; } .selector { width:140px; } }
+@media(max-width:900px) { .selector { width:126px; } .value { font-size:12.5px; } }
+@media(max-width:700px) { .root { padding-inline:5px; gap:6px; } .identity > button:first-child,.contextSeparator { display:none; } .selector { width:145px; } .notice { display:none; } }
+
+.contextName { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.value { width:100%; }

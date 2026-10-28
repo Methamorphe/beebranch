@@ -1,0 +1,110 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: #0009;
+}
+
+.modal {
+  width: min(620px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-modal);
+  animation: palette-in 140ms ease-out;
+}
+
+.modal > input {
+  width: 100%;
+  padding: 18px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  font-size: 14px;
+}
+
+.commands {
+  max-height: 52vh;
+  overflow: auto;
+  padding: 8px;
+}
+
+.command,
+.commandFocus {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-align: left;
+}
+
+.command:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.commandFocus {
+  background: var(--surface-raised);
+}
+
+.command:disabled,
+.commandFocus:disabled {
+  opacity: 0.45;
+}
+
+.group {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reason {
+  color: var(--warning);
+  font-size: 10px;
+}
+
+.empty {
+  margin: 20px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 18px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

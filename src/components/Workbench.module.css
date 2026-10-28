@@ -1,0 +1,42 @@
+.content { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; width:100%; gap:0; }
+.graphLayout { display:flex; flex:1; min-height:0; }
+.historyMain { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
+.graphRegion { flex:1; display:flex; min-height:0; min-width:0; }
+.graphRegion[hidden] { display:none; }
+.graphToolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 12px; border-bottom:1px solid var(--border); }
+.graphControls { display:flex; align-items:center; gap:3px; min-width:0; margin-left:auto; }
+.graphControls select { min-width:0; max-width:190px; height:28px; padding:2px 5px; border:0; border-radius:3px; background:transparent; color:var(--muted-strong); font-size:12px; text-transform:none; letter-spacing:0; }
+.graphControls > button { height:28px; min-height:28px; }
+.viewOption { display:flex; align-items:center; gap:9px; padding:8px; font-size:13px; }
+.actionNotice { padding:4px 12px; color:var(--muted); font-size:12px; }
+.worktreePanel { position:relative; width:var(--inspector-width); flex-shrink:0; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:auto; border-left:1px solid var(--border); background:var(--surface); }
+.worktreeHeading { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; padding:8px 14px; border-bottom:1px solid var(--border); font-size:14px; }
+.worktreeHeading strong { font-weight:600; }
+.worktreeHeading > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:55%; color:var(--accent-text); font-size:13px; }
+.worktreeRow { display:grid; grid-template-columns:var(--refs-width,0px) var(--graph-width,40px) minmax(0,1fr); align-items:center; gap:0; width:100%; height:32px; flex-shrink:0; padding:0; border:0; border-radius:0; text-align:left; color:var(--muted); background:var(--surface); }
+.worktreeRow[data-active='true'], .worktreeRow[data-active='true']:hover { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
+.wipRef { overflow:hidden; padding:0 10px; color:var(--muted); font-size:11px; white-space:nowrap; }
+.wipMarker { justify-self:center; color:var(--accent-text); font-size:23px; line-height:1; }
+.wipMessage { display:flex; align-items:center; gap:12px; min-width:0; overflow:hidden; padding:0 14px; white-space:nowrap; }
+.wipMessage strong { font-size:14px; font-weight:600; color:var(--text); }
+.wipMessage > span { overflow:hidden; text-overflow:ellipsis; font-size:12px; }
+.diffPreview { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+.previewHeading { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); }
+.previewHeading code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-family:var(--sans); }
+.placeholder { display:flex; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-height:220px; padding:24px; color:var(--muted); text-align:center; }
+.placeholder h2 { margin:0; color:var(--text); font-size:16px; }
+.placeholder p { max-width:420px; margin:0; font-size:13px; line-height:1.6; }
+.error { padding:8px 12px; border-left:3px solid var(--error); color:var(--error); background:var(--error-soft); font-size:13px; }
+.contextActions { display:flex; flex-direction:column; gap:1px; }
+.contextAction { display:flex; align-items:center; gap:10px; width:100%; min-height:34px; padding:7px 9px; border:0; color:var(--text); font-size:13px; text-align:left; background:none; }
+.contextAction svg { flex:none; color:var(--muted); }
+.contextAction span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.contextAction:focus-visible { background:var(--surface-raised); outline-offset:-2px; }
+@media(max-width:1200px) { .wipMessage > span { display:none; } }
+@media(max-width:1000px) { .graphLayout { flex-direction:column; overflow:auto; } .historyMain { flex:none; height:400px; min-height:300px; } .worktreePanel { width:100%; min-height:580px; flex-shrink:0; border-left:0; border-top:1px solid var(--border); } }
+@media(max-width:600px) { .graphControls select { max-width:155px; font-size:11px; } }
+.wipRef { max-width:100%; padding:0; text-indent:10px; }
+
+.worktreeHeading > span { margin-left:auto; }
+.worktreeHeading > button { padding:0 4px; color:var(--muted); font-size:18px; }
+.emptyHistory { flex:1; display:flex; flex-direction:column; min-width:0; }

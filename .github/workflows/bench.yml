@@ -1,0 +1,110 @@
+name: bench
+
+on:
+  pull_request:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reduced:
+    name: Reduced benchmarks (PR)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache benchmark corpora
+        uses: actions/cache@v4
+        with:
+          path: target/bench-corpus
+          key: bench-corpus-${{ runner.os }}-${{ hashFiles('crates/bench/src/corpus.rs') }}
+
+      - name: Build harness
+        run: cargo build -p beebranch-bench --release
+
+      - name: Run reduced benchmarks and assert baseline
+        run: |
+          target/release/beebranch-bench \
+            --root target/bench-corpus \
+            --all-reduced \
+            --runs 5 \
+            --warmup 2 \
+            --out target/bench-report.json \
+            --baseline crates/bench/baselines/ci.json \
+            --assert
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-report-pr
+          path: target/bench-report.json
+          if-no-files-found: warn
+
+  nightly:
+    name: Full benchmarks (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache benchmark corpora
+        uses: actions/cache@v4
+        with:
+          path: target/bench-corpus
+          key: bench-corpus-nightly-${{ runner.os }}-${{ hashFiles('crates/bench/src/corpus.rs') }}
+
+      - name: Build harness
+        run: cargo build -p beebranch-bench --release
+
+      - name: linear-100k (PERF-01, PERF-02, PERF-03)
+        run: |
+          for scenario in PERF-01 PERF-02 PERF-03; do
+            target/release/beebranch-bench \
+              --root target/bench-corpus \
+              --corpus linear-100k \
+              --scenario "$scenario" \
+              --runs 5 \
+              --warmup 2 \
+              --out "target/nightly-linear-100k-${scenario}.json"
+          done
+
+      - name: linear-1m (PERF-01)
+        run: |
+          target/release/beebranch-bench \
+            --root target/bench-corpus \
+            --corpus linear-1m \
+            --scenario PERF-01 \
+            --runs 3 \
+            --warmup 1 \
+            --out target/nightly-linear-1m-PERF-01.json
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-report-nightly
+          path: target/nightly-*.json
+          if-no-files-found: warn

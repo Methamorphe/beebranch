@@ -1,0 +1,321 @@
+//! Fetch, pull and push with progress streaming and cancellation.
+
+use beebranch_core::{AppError, Confirmation, DestructiveAction};
+use beebranch_git::session::InvalidationArea;
+use beebranch_git::sync::{self, PullStrategy, PushRequest, SyncKind, SyncOutcome};
+use beebranch_git::ProcessEvent;
+use serde::Deserialize;
+use tauri::{AppHandle, State};
+
+use crate::commands::util::{
+    begin_destructive, begin_operation, emit_operation, finish_destructive, finish_operation,
+    new_operation_id, run_mutation, MutationResult,
+};
+use crate::state::AppState;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchRequest {
+    pub repo_id: String,
+    pub remote: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequest {
+    pub repo_id: String,
+    pub remote: String,
+    pub branch: String,
+    #[serde(default)]
+    pub strategy: Option<PullStrategy>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushCommandRequest {
+    pub repo_id: String,
+    pub remote: String,
+    pub branch: String,
+    #[serde(default)]
+    pub set_upstream: bool,
+    /// Explicit force push. Must be accompanied by a typed confirmation.
+    #[serde(default)]
+    pub force: bool,
+    #[serde(default)]
+    pub confirmation: Confirmation,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelRequest {
+    pub operation_id: String,
+}
+
+fn progress(app: &AppHandle, operation_id: &str) -> impl FnMut(ProcessEvent) + Send + 'static {
+    let app = app.clone();
+    let operation_id = operation_id.to_owned();
+    move |event| match event {
+        ProcessEvent::Started { .. } => {}
+        ProcessEvent::Stdout(line) => emit_operation(
+            &app,
+            "op://progress",
+            serde_json::json!({ "operationId": operation_id, "stream": "stdout", "line": line }),
+        ),
+        ProcessEvent::Stderr(line) => emit_operation(
+            &app,
+            "op://progress",
+            serde_json::json!({ "operationId": operation_id, "stream": "stderr", "line": line }),
+        ),
+        ProcessEvent::Finished {
+            exit_code,
+            duration,
+        } => emit_operation(
+            &app,
+            "op://progress",
+            serde_json::json!({
+                "operationId": operation_id,
+                "stream": "meta",
+                "line": format!("terminé ({exit_code:?}) en {:.1}s", duration.as_secs_f64())
+            }),
+        ),
+    }
+}
+
+#[tauri::command]
+pub async fn sync_fetch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: FetchRequest,
+) -> Result<MutationResult<SyncOutcome>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    let operation_id = new_operation_id("fetch");
+    begin_operation(
+        &state,
+        &operation_id,
+        "fetch",
+        &request.repo_id,
+        &session.worktree().display().to_string(),
+    )?;
+    let operations = state.operations.clone();
+    let result = run_mutation(session.clone(), {
+        let operation_id = operation_id.clone();
+        let remote = request.remote.clone();
+        let app = app.clone();
+        move |runner, discovery| {
+            let worktree = discovery.worktree()?;
+            let context = beebranch_git::OperationContext::new(&operation_id, "fetch");
+            let command = sync::spawn_fetch(
+                runner,
+                worktree,
+                &remote,
+                &context,
+                progress(&app, &operation_id),
+            )?;
+            if let Ok(mut flags) = operations.lock() {
+                flags.insert(
+                    operation_id.clone(),
+                    (request.repo_id.clone(), command.cancel_flag()),
+                );
+            }
+            emit_operation(
+                &app,
+                "op://started",
+                serde_json::json!({ "operationId": operation_id }),
+            );
+            let outcome = sync::finish(command, SyncKind::Fetch, || None);
+            if let Ok(mut flags) = operations.lock() {
+                flags.remove(&operation_id);
+            }
+            let outcome = outcome?;
+            Ok((outcome, InvalidationArea::ALL.to_vec()))
+        }
+    })
+    .await;
+    finish_operation(&state, &operation_id, result.as_ref().err())?;
+    result
+}
+
+#[tauri::command]
+pub async fn sync_pull(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: PullRequest,
+) -> Result<MutationResult<SyncOutcome>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    let operation_id = new_operation_id("pull");
+    begin_operation(
+        &state,
+        &operation_id,
+        "pull",
+        &request.repo_id,
+        &session.worktree().display().to_string(),
+    )?;
+    let operations = state.operations.clone();
+    let result = run_mutation(session, {
+        let operation_id = operation_id.clone();
+        let app = app.clone();
+        move |runner, discovery| {
+            let worktree = discovery.worktree()?;
+            let context = beebranch_git::OperationContext::new(&operation_id, "pull");
+            let command = sync::spawn_pull(
+                runner,
+                worktree,
+                &request.remote,
+                &request.branch,
+                request.strategy.unwrap_or(PullStrategy::Auto),
+                &context,
+                progress(&app, &operation_id),
+            )?;
+            if let Ok(mut flags) = operations.lock() {
+                flags.insert(
+                    operation_id.clone(),
+                    (request.repo_id.clone(), command.cancel_flag()),
+                );
+            }
+            let remote_check =
+                || sync::remote_branch_sha(runner, worktree, &request.remote, &request.branch);
+            let outcome = sync::finish(command, SyncKind::Pull, remote_check);
+            if let Ok(mut flags) = operations.lock() {
+                flags.remove(&operation_id);
+            }
+            let outcome = outcome?;
+            Ok((outcome, InvalidationArea::ALL.to_vec()))
+        }
+    })
+    .await;
+    finish_operation(&state, &operation_id, result.as_ref().err())?;
+    result
+}
+
+#[tauri::command]
+pub async fn sync_push(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: PushCommandRequest,
+) -> Result<MutationResult<SyncOutcome>, AppError> {
+    if request.force {
+        request
+            .confirmation
+            .verify(DestructiveAction::ForcePush, Some(&request.branch))?;
+    }
+    let session = state.session(&request.repo_id)?;
+    let operation_id = new_operation_id("push");
+    let journal_id = if request.force {
+        let previous = tauri::async_runtime::spawn_blocking({
+            let session = session.clone();
+            let remote = request.remote.clone();
+            let branch = request.branch.clone();
+            move || {
+                beebranch_git::sync::remote_branch_sha(
+                    session.runner(),
+                    session.worktree(),
+                    &remote,
+                    &branch,
+                )
+            }
+        })
+        .await
+        .map_err(crate::error::join_error)?;
+        let Some(previous) = previous else {
+            return Err(AppError::new(
+                "push.remote_ref_missing",
+                beebranch_core::ErrorCategory::GitState,
+                "La branche distante est introuvable pour --force-with-lease.",
+            )
+            .with_remediation("Fetchez la branche distante et vérifiez le remote."));
+        };
+        let id = new_operation_id("force-push");
+        begin_destructive(
+            &state,
+            &id,
+            DestructiveAction::ForcePush.code(),
+            &request.repo_id,
+            &session.worktree().display().to_string(),
+        )?;
+        Some((
+            id,
+            format!(
+                "{}/{} · ancien SHA distant {previous}",
+                request.remote, request.branch
+            ),
+        ))
+    } else {
+        None
+    };
+    begin_operation(
+        &state,
+        &operation_id,
+        "push",
+        &request.repo_id,
+        &session.worktree().display().to_string(),
+    )?;
+    let operations = state.operations.clone();
+    let result = run_mutation(session, {
+        let operation_id = operation_id.clone();
+        let app = app.clone();
+        let force = request.force;
+        move |runner, discovery| {
+            let worktree = discovery.worktree()?;
+            let force_with_lease = if force {
+                let sha =
+                    sync::remote_branch_sha(runner, worktree, &request.remote, &request.branch)
+                        .ok_or_else(|| {
+                            AppError::new(
+                                "push.remote_ref_missing",
+                                beebranch_core::ErrorCategory::GitState,
+                                "La branche distante est introuvable pour --force-with-lease.",
+                            )
+                            .with_remediation("Fetchez la branche distante et vérifiez le remote.")
+                        })?;
+                Some(sha)
+            } else {
+                None
+            };
+            let push = PushRequest {
+                remote: request.remote.clone(),
+                branch: request.branch.clone(),
+                set_upstream: request.set_upstream,
+                force_with_lease,
+            };
+            let context = beebranch_git::OperationContext::new(&operation_id, "push");
+            let command = sync::spawn_push(
+                runner,
+                worktree,
+                &push,
+                &context,
+                progress(&app, &operation_id),
+            )?;
+            if let Ok(mut flags) = operations.lock() {
+                flags.insert(
+                    operation_id.clone(),
+                    (request.repo_id.clone(), command.cancel_flag()),
+                );
+            }
+            let remote_check =
+                || sync::remote_branch_sha(runner, worktree, &request.remote, &request.branch);
+            let outcome = sync::finish(command, SyncKind::Push, remote_check);
+            if let Ok(mut flags) = operations.lock() {
+                flags.remove(&operation_id);
+            }
+            let outcome = outcome?;
+            Ok((outcome, InvalidationArea::ALL.to_vec()))
+        }
+    })
+    .await;
+    finish_operation(&state, &operation_id, result.as_ref().err())?;
+    if let Some((journal_id, detail)) = journal_id {
+        finish_destructive(&state, &journal_id, &detail, result.as_ref().err())?;
+    }
+    result
+}
+
+#[tauri::command]
+pub fn operation_cancel(
+    state: State<'_, AppState>,
+    request: CancelRequest,
+) -> Result<bool, AppError> {
+    if request.operation_id.is_empty() || request.operation_id.chars().any(char::is_control) {
+        return Err(AppError::invalid_input("operation_id invalide".to_owned()));
+    }
+    state.cancel_operation(&request.operation_id)
+}

@@ -1,0 +1,351 @@
+.root {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: clamp(24px, 5vw, 64px) clamp(20px, 6vw, 90px) 24px;
+}
+
+.start {
+  max-width: 760px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--border);
+}
+
+.start h1 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.primary,
+.secondary {
+  min-height: 38px;
+  padding: 9px 15px;
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.primary {
+  border: 1px solid var(--accent);
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.secondary {
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.secondary:hover:not(:disabled) {
+  border-color: var(--accent-text);
+}
+
+.cloneForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 180px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.field input {
+  width: 100%;
+  color: var(--text);
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.checkbox input {
+  width: auto;
+}
+
+.error {
+  margin: 0;
+  color: var(--error);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recent {
+  max-width: 760px;
+  margin-top: 28px;
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.sectionHeading h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.sectionHeading > span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.list {
+  border-top: 1px solid var(--border);
+}
+
+.repo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  text-align: left;
+}
+
+.repo:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.repoIcon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--accent-text);
+  background: var(--surface-raised);
+  font-size: 19px;
+}
+
+.repoText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.repoText strong {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.repoText > span {
+  overflow: hidden;
+  color: var(--muted);
+  font: 11px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arrow {
+  color: var(--muted);
+}
+
+.empty {
+  padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 760px;
+  margin-top: 28px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.footer > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.footer button {
+  font-size: 11.5px;
+}
+
+@media (max-width: 600px) {
+  .sectionHeading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.projectPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.projectHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.projectHeader strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.projectList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.project,
+.projectOn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-align: left;
+}
+
+.project:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.projectOn {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.project strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.project > span,
+.projectOn > span {
+  overflow: hidden;
+  color: var(--muted);
+  font: 11px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectEmpty {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.projectEmpty button {
+  margin-left: 8px;
+}
+
+.chosen {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-text);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.chosen strong {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.chosen code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.chosenLabel {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.cloneOnly { min-width:0; }
+.cloneOnly .start { max-width:none; padding:0; border:0; }
+.cloneOnly .cloneForm { margin:0; padding:0; border:0; background:none; }

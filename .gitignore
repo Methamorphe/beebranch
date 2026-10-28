@@ -1,0 +1,28 @@
+# Frontend
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Rust
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Signing keys (public key is committed as dev.key.pub)
+src-tauri/keys/*.key

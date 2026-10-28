@@ -1,0 +1,113 @@
+//! Commit and amend commands.
+
+use beebranch_core::AppError;
+use beebranch_git::commit::{self, CommitConfigView, CommitOptions, CommitOutcome};
+use beebranch_git::session::InvalidationArea;
+use beebranch_git::undo::{self, RestoreMode};
+use serde::Deserialize;
+use tauri::State;
+
+use crate::commands::util::{
+    begin_operation, finish_operation, new_operation_id, run_undoable_mutation, MutationResult,
+    UndoDraft, UndoMeta,
+};
+use crate::state::AppState;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitRequest {
+    pub repo_id: String,
+    pub message: String,
+    #[serde(default)]
+    pub amend: bool,
+    #[serde(default)]
+    pub keep_message: bool,
+    #[serde(default)]
+    pub allow_empty: bool,
+}
+
+#[tauri::command]
+pub async fn commit_config(
+    state: State<'_, AppState>,
+    repo_id: String,
+) -> Result<CommitConfigView, AppError> {
+    let session = state.session(&repo_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        commit::read_commit_config(session.runner(), session.worktree())
+    })
+    .await
+    .map_err(crate::error::join_error)?
+}
+
+#[tauri::command]
+pub async fn commit_create(
+    state: State<'_, AppState>,
+    request: CommitRequest,
+) -> Result<MutationResult<CommitOutcome>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    let operation_id = new_operation_id(if request.amend { "amend" } else { "commit" });
+    begin_operation(
+        &state,
+        &operation_id,
+        if request.amend { "amend" } else { "commit" },
+        &request.repo_id,
+        &session.worktree().display().to_string(),
+    )?;
+    let options = CommitOptions {
+        message: request.message,
+        amend: request.amend,
+        keep_message: request.keep_message,
+        allow_empty: request.allow_empty,
+    };
+    let amend = options.amend;
+    let store = state.store.clone();
+    let result = run_undoable_mutation(
+        session,
+        store,
+        UndoMeta {
+            kind: if amend { "commit.amend" } else { "commit" },
+            label: if amend {
+                "amend du commit".to_owned()
+            } else {
+                "commit".to_owned()
+            },
+            touched_refs: Vec::new(),
+            affected_files: Vec::new(),
+        },
+        move |runner, discovery| {
+            let worktree = discovery.worktree()?;
+            let outcome = commit::create(runner, worktree, &options)?;
+            let short = outcome.sha.chars().take(10).collect::<String>();
+            let label = if amend {
+                format!("amend du commit {short}")
+            } else {
+                format!("commit {short}")
+            };
+            let builder = Box::new(
+                move |before: &beebranch_git::undo::Fingerprint,
+                      after: &beebranch_git::undo::Fingerprint| {
+                    UndoDraft {
+                        kind: if amend { "commit.amend" } else { "commit" }.to_owned(),
+                        label,
+                        undo: undo::restore_to(before, RestoreMode::Soft),
+                        redo: Some(undo::restore_to(after, RestoreMode::Soft)),
+                    }
+                },
+            );
+            Ok((
+                outcome,
+                vec![
+                    InvalidationArea::Head,
+                    InvalidationArea::Refs,
+                    InvalidationArea::Index,
+                    InvalidationArea::Worktree,
+                    InvalidationArea::State,
+                ],
+                builder,
+            ))
+        },
+    )
+    .await;
+    finish_operation(&state, &operation_id, result.as_ref().err())?;
+    result
+}
