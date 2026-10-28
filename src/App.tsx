@@ -1,10 +1,11 @@
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
 import { CloneRepoDialog } from './components/CloneRepoDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { Home } from './components/Home'
 import { RepoBar } from './components/RepoBar'
+import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
@@ -33,6 +34,13 @@ import {
 import { useRepoEvents } from './hooks/useRepoEvents'
 import { useShortcuts } from './hooks/useShortcuts'
 import {
+  SIDEBAR_MAX,
+  SIDEBAR_MIN,
+  defaultLayout,
+  parseLayout,
+  type LayoutPreferences,
+} from './lib/layout'
+import {
   DEFAULT_SHORTCUTS,
   findConflicts,
   normalizeShortcut,
@@ -48,6 +56,7 @@ const ACTIVE_REPO_KEY = 'ui.activeRepo'
 const THEME_KEY = 'ui.theme'
 const SHORTCUTS_KEY = 'ui.shortcuts'
 const DENSITY_KEY = 'ui.density'
+const LAYOUT_KEY = 'ui.layout'
 
 type Theme = 'dark' | 'light' | 'system'
 type Density = 'compact' | 'comfortable'
@@ -95,6 +104,7 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>('dark')
   const [density, setDensity] = useState<Density>('comfortable')
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(DEFAULT_SHORTCUTS)
+  const [layout, setLayout] = useState<LayoutPreferences>(defaultLayout)
   const restored = useRef(false)
 
   const repo = repos.find((entry) => entry.repo.repoId === activeId) ?? null
@@ -137,6 +147,21 @@ export default function App() {
     }
   }, [hydrated, repos, activeId, persist])
 
+  // Resizing fires continuously; persist once the drag settles.
+  useEffect(() => {
+    if (!hydrated) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void preferenceSet(LAYOUT_KEY, JSON.stringify(layout))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [hydrated, layout])
+
+  const changeLayout = useCallback((patch: Partial<LayoutPreferences>) => {
+    setLayout((current) => ({ ...current, ...patch }))
+  }, [])
+
   useEffect(() => {
     void reloadRecent()
   }, [reloadRecent])
@@ -176,6 +201,10 @@ export default function App() {
         const densityRaw = await preferenceGet(DENSITY_KEY)
         if (densityRaw === 'compact' || densityRaw === 'comfortable') {
           setDensity(densityRaw)
+        }
+        const layoutRaw = await preferenceGet(LAYOUT_KEY)
+        if (layoutRaw) {
+          setLayout(parseLayout(layoutRaw))
         }
         const shortcutsRaw = await preferenceGet(SHORTCUTS_KEY)
         if (shortcutsRaw) {
@@ -485,6 +514,16 @@ export default function App() {
     setPaletteOpen(false)
   }, [])
 
+  const pickCloneDirectory = useCallback(async (defaultPath?: string) => {
+    const selected = await openNativeDialog({
+      title: 'Choisir le dossier de destination',
+      directory: true,
+      multiple: false,
+      defaultPath,
+    })
+    return typeof selected === 'string' ? selected : null
+  }, [])
+
   const openRepositoryDialog = useCallback(async () => {
     if (pickingRepository.current || busy) return
     pickingRepository.current = true
@@ -663,7 +702,10 @@ export default function App() {
     repo?.state.head?.kind === 'branch' ? repo.state.head.name : null
 
   return (
-    <div className={styles.app}>
+    <div
+      className={styles.app}
+      style={{ '--sidebar-width': `${layout.sidebar}px` } as CSSProperties}
+    >
       <a href="#main-content" className="skip-link">
         Aller au contenu principal
       </a>
@@ -709,6 +751,16 @@ export default function App() {
           onSelect={navigate}
         />
         <main id="main-content" tabIndex={-1} className={styles.main} aria-busy={busy}>
+          <Resizer
+            className={styles.sidebarResizer}
+            label="Redimensionner la navigation"
+            side="right"
+            value={layout.sidebar}
+            min={SIDEBAR_MIN}
+            max={SIDEBAR_MAX}
+            onChange={(sidebar) => changeLayout({ sidebar })}
+            onReset={() => changeLayout({ sidebar: 210 })}
+          />
           <div className={`${styles.viewbar} ${view === 'graph' && repo ? styles.compactViewbar : ''}`}>
             {view === 'diff' ? <button type="button" className={styles.back} onClick={() => navigate(previousView)}>← Retour</button> : null}
             <div className={styles.viewHeading}>
@@ -776,6 +828,7 @@ export default function App() {
                 recent={recent}
                 onOpen={(path) => void openRepo(path)}
                 onClone={cloneRepo}
+                onPickDirectory={pickCloneDirectory}
               />
             ) : (
               <Workbench
@@ -800,6 +853,8 @@ export default function App() {
                   setShortcuts(next)
                   void preferenceSet(SHORTCUTS_KEY, JSON.stringify(next))
                 }}
+                layout={layout}
+                onLayoutChange={changeLayout}
               />
             )}
           </div>
@@ -809,7 +864,7 @@ export default function App() {
 
       {cloneDialogOpen ? <CloneRepoDialog busy={busy} recent={recent} onClose={() => setCloneDialogOpen(false)}
         onClone={async (input) => { await cloneRepo(input); setCloneDialogOpen(false) }}
-        onOpen={(path) => void openRepo(path)} onOpenDialog={openRepositoryDialog} onNavigate={navigate} /> : null}
+        onOpen={(path) => void openRepo(path)} onOpenDialog={openRepositoryDialog} onNavigate={navigate} onPickDirectory={pickCloneDirectory} /> : null}
       <CommandPalette
         open={paletteOpen}
         commands={commands}

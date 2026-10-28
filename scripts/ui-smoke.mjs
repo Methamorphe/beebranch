@@ -129,19 +129,26 @@ function mockScript(commits, rows, diffLines) {
     repo_open: (args) => { (window.__repoOpenCalls ??= []).push(args.path); if (window.__repoOpenFailure) throw { code:'repo.not_git', message:'Le dossier choisi ne contient pas de dépôt Git.' }; return repo; },
     repo_clone: (args) => { (window.__cloneCalls ??= []).push(args.request); if (window.__cloneFailure) throw { code:'repo.clone_failed', message:'Le clonage a échoué.' }; return { ...repo, repo:{ ...repo.repo, repoId:'repo_cloned', name:'cloned-demo', worktree:args.request.destination }, state:{ ...repo.state, operation:null, conflicts:{ files:[] }, worktree:{ staged:0, unstaged:0, untracked:0, conflicted:0 } }, generation:2 }; },
     repo_list_open: () => [repo.repo],
-    repo_get_state: () => repo,
+    repo_get_state: (args) => {
+      (window.__stateCalls ??= []).push(args)
+      return {
+        ...repo,
+        generation: window.__generationOverride ?? repo.generation,
+        state: { ...repo.state, worktree: window.__worktreeOverride ?? repo.state.worktree },
+      };
+    },
     repo_refresh: () => repo,
     status_get: () => ({ data: status, generation: 1 }),
     refs_get: () => ({ data: refs, generation: 1 }),
     commit_get: () => ({ data: commit, generation: 1 }),
-    diff_get: () => ({ data: diff, generation: 1 }),
+    diff_get: (args) => { (window.__diffCalls ??= []).push(args); return { data: diff, generation: 1 } },
     graph_page: (args) => args.request && args.request.after
       ? { commits: [], rows: [], generation: 1, truncated: false }
       : { commits, rows, next: undefined, generation: 1, truncated: false },
     recovery_list: () => [],
     operation_journal: () => [],
     preference_get: () => null,
-    preference_set: () => null,
+    preference_set: (args) => { (window.__preferenceSets ??= []).push(args); return null },
     tools_detect: () => ({ editors: [], terminals: [], diffTools: [], mergeTools: [], configured: [] }),
     stash_list: () => [],
     worktree_list: () => ({ mainWorktree: '/tmp/beebranch-demo', entries: [
@@ -291,11 +298,30 @@ function mockScript(commits, rows, diffLines) {
     update_rollback: () => ({ previousVersion: '0.4.1', installedVersion: '0.4.0', restarting: true }),
     diagnostics_export: () => '{}',
     'plugin:dialog|open': (args) => { (window.__pickerCalls ??= []).push(args.options); if (window.__pickerDeferred) return new Promise((resolve) => { window.__pickerResolve = resolve }); return window.__pickerSelection ?? null; },
-    'plugin:event|listen': () => 1,
-    'plugin:event|unlisten': () => null,
+    'plugin:event|listen': (args) => {
+      const handlersByEvent = (window.__eventHandlers ??= new Map())
+      const list = handlersByEvent.get(args.event) ?? []
+      list.push(args.handler)
+      handlersByEvent.set(args.event, list)
+      return args.handler
+    },
+    'plugin:event|unlisten': (args) => {
+      const handlersByEvent = window.__eventHandlers
+      if (handlersByEvent) {
+        const list = handlersByEvent.get(args.event) ?? []
+        handlersByEvent.set(args.event, list.filter((id) => id !== args.eventId))
+      }
+      return null
+    },
   };
   let callbackId = 1;
   const callbacks = new Map();
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
+  window.__emitTauriEvent = (event, payload) => {
+    for (const id of [...(window.__eventHandlers?.get(event) ?? [])]) {
+      callbacks.get(id)?.callback({ event, id, payload })
+    }
+  };
   window.__TAURI_INTERNALS__ = {
     transformCallback(callback, once) {
       const id = callbackId++;
@@ -497,6 +523,43 @@ try {
     firstPage: performance.getEntriesByName('graph.first-page').length,
     rows: document.querySelector('canvas').getAttribute('aria-label'),
   })`)
+  // A filesystem change reported by the backend watcher must refresh the
+  // cached repository state, so the local-modifications row appears without a
+  // manual fetch.
+  const beforeStateCalls = await evaluate(client, `(() => {
+    window.__worktreeOverride = { staged: 2, unstaged: 1, untracked: 0, conflicted: 0 }
+    window.__generationOverride = 2
+    const before = (window.__stateCalls ?? []).length
+    window.__emitTauriEvent('repo://changed', {
+      repoId: 'repo_demo', generation: 2, areas: ['worktree', 'state'],
+    })
+    return before
+  })()`)
+  await waitFor(
+    client,
+    `document.body.innerText.includes('2 préparé(s) · 1 modifié(s) · 0 nouveau(x)')`,
+    'worktree summary refresh without fetch',
+  )
+  const afterStateCalls = await evaluate(client, `(window.__stateCalls ?? []).length`)
+  if (afterStateCalls <= beforeStateCalls) {
+    throw new Error(
+      'repo://changed on a worktree change must call repo_get_state: ' +
+        JSON.stringify({ beforeStateCalls, afterStateCalls }),
+    )
+  }
+  await evaluate(client, `(() => {
+    window.__worktreeOverride = null
+    window.__generationOverride = 3
+    window.__emitTauriEvent('repo://changed', {
+      repoId: 'repo_demo', generation: 3, areas: ['worktree', 'state'],
+    })
+  })()`)
+  await waitFor(
+    client,
+    `document.body.innerText.includes('8 préparé(s) · 16 modifié(s) · 5 nouveau(x)')`,
+    'worktree summary restored',
+  )
+  const repoChangeRefresh = { beforeStateCalls, afterStateCalls }
   await evaluate(client, `document.fonts.ready.then(() => true)`)
   const typography = await evaluate(client, `({
     body: getComputedStyle(document.body).fontFamily,
@@ -552,6 +615,87 @@ try {
     throw new Error('sidebar contrast below target: ' + JSON.stringify(contrast))
   }
   const graphPath = await screenshot(client, 'p0-graph.png')
+
+  const initialColumns = await evaluate(client, `(() => {
+    const columns = document.querySelector('canvas').parentElement.parentElement.firstElementChild
+    return {
+      author: columns.children[3].getBoundingClientRect().width,
+      authorHeader: columns.children[3].textContent,
+      date: columns.children[4].getBoundingClientRect().width,
+      dateHeader: columns.children[4].textContent,
+    }
+  })()`)
+  if (!(initialColumns.author >= 90 && initialColumns.authorHeader === 'Auteur' && initialColumns.date >= 84 && initialColumns.dateHeader === 'Date')) {
+    throw new Error('graph author/date columns missing at full width: ' + JSON.stringify(initialColumns))
+  }
+
+  // Picking two commits in the graph must offer an A→B comparison that asks
+  // the backend for a `range` diff and shows the comparison view.
+  const openGraphOptions = async () => evaluate(client, `(() => {
+    const trigger = document.querySelector('button[aria-label="Options d’affichage du graphe"]')
+    if (!trigger) return false
+    trigger.click()
+    return true
+  })()`)
+  const toggleMultiSelect = async () => evaluate(client, `(() => {
+    const label = [...document.querySelector('[popover]:popover-open').querySelectorAll('label')].find((item) => item.textContent.includes('Sélection multiple'))
+    const box = label?.querySelector('input[type="checkbox"]')
+    if (!box) return false
+    box.click()
+    return true
+  })()`)
+  if (!(await openGraphOptions())) throw new Error('graph display options missing')
+  await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'graph display options')
+  if (!(await toggleMultiSelect())) throw new Error('multi-select toggle missing')
+  await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage du graphe"]').click()`)
+  await waitFor(client, `document.querySelector('[popover]:popover-open') === null`, 'graph display options closed')
+  const pickCommitRow = async (index) => evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    const box = canvas.getBoundingClientRect()
+    const x = box.left + Math.max(120, box.width * 0.55)
+    const y = box.top + ${index} * 30 + 15
+    for (const type of ['pointerdown', 'pointerup']) {
+      canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true }))
+    }
+    return true
+  })()`)
+  await pickCommitRow(0)
+  await waitFor(client, `document.body.innerText.includes('1 commit(s) sélectionné(s)')`, 'first picked commit')
+  await pickCommitRow(1)
+  await waitFor(client, `document.body.innerText.includes('2 commit(s) sélectionné(s)')`, 'second picked commit')
+  const compareClicked = await evaluate(client, `(() => {
+    const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('Comparer') && item.textContent.includes('→'))
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!compareClicked) throw new Error('compare action missing for two picked commits')
+  await waitFor(client, `document.querySelector('main h1')?.textContent === 'Comparaison'`, 'comparison view')
+  await waitFor(client, `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range')`, 'range diff request')
+  const compareReport = await evaluate(client, `(() => {
+    const call = [...window.__diffCalls].reverse().find((entry) => entry.request?.target === 'range')
+    return {
+      base: call?.request.base,
+      target: call?.request.targetRef,
+      expectedBase: ${JSON.stringify(sha(1))},
+      expectedTarget: ${JSON.stringify(sha(2))},
+      label: document.body.innerText.includes(${JSON.stringify(sha(1).slice(0, 8) + '…' + sha(2).slice(0, 8))}),
+    }
+  })()`)
+  if (compareReport.base !== compareReport.expectedBase || compareReport.target !== compareReport.expectedTarget || !compareReport.label) {
+    throw new Error('two-commit comparison mismatch: ' + JSON.stringify(compareReport))
+  }
+  await screenshot(client, 'p0-compare.png')
+  await evaluate(client, `(() => {
+    const back = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('← Retour'))
+    if (back) back.click()
+  })()`)
+  await waitFor(client, `document.querySelector('canvas') !== null`, 'graph after comparison')
+  if (!(await openGraphOptions())) throw new Error('graph display options missing after comparison')
+  await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'graph display options reopened')
+  if (!(await toggleMultiSelect())) throw new Error('multi-select toggle missing after comparison')
+  await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage du graphe"]').click()`)
+  await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'picks cleared')
 
   await evaluate(client, `(() => {
     const button = [...document.querySelectorAll('aside button')].find((item) => !item.hasAttribute('aria-expanded') && [...item.querySelectorAll('span')].some((span) => span.textContent.trim() === 'Historique'))
@@ -940,11 +1084,84 @@ try {
   })()`)
   assertUI('density-at-least-20-commits', density.visibleCommits >= 20)
   assertUI('density-content-starts-above-220', density.firstCommitTop <= 220)
-  assertUI('density-reference-column-bounded', density.referencesWidth <= 150 && density.graphWidth <= 64)
+  assertUI('density-reference-column-bounded', density.referencesWidth <= 220 && density.graphWidth <= 64)
   assertUI('density-message-column-at-least-520', density.messageWidth >= 520)
-  assertUI('graph-author-column-visible', density.authorWidth >= 90 && density.authorHeader === 'Auteur')
-  assertUI('graph-date-column-hidden-by-default', density.dateWidth === 0 && density.dateHeader === '')
+  assertUI('graph-date-column-visible', density.dateWidth >= 84 && density.dateHeader === 'Date')
   assertUI('density-readable-files', density.fileTextSize >= 14 && density.fileRowHeight <= 30)
+
+  const readColumns = () => evaluate(client, `(() => {
+    const columns = document.querySelector('canvas').parentElement.parentElement.firstElementChild
+    return {
+      refs: columns.children[0].getBoundingClientRect().width,
+      graph: columns.children[1].getBoundingClientRect().width,
+      message: columns.children[2].getBoundingClientRect().width,
+      author: columns.children[3].getBoundingClientRect().width,
+      date: columns.children[4].getBoundingClientRect().width,
+    }
+  })()`)
+  const dragSeparator = async (label, dx) => {
+    const started = await evaluate(client, `(() => {
+      const handle = [...document.querySelectorAll('[role="separator"]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)})
+      if (!handle) return null
+      const rect = handle.getBoundingClientRect()
+      const x = rect.left + rect.width / 2
+      const y = rect.top + Math.min(12, rect.height / 2)
+      handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 9, isPrimary: true }))
+      return { x, y }
+    })()`)
+    if (!started) return false
+    await delay(90)
+    await evaluate(client, `window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: ${started.x + dx}, clientY: ${started.y}, pointerId: 9, isPrimary: true }))`)
+    await delay(90)
+    await evaluate(client, `window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: ${started.x + dx}, clientY: ${started.y}, pointerId: 9, isPrimary: true }))`)
+    await delay(150)
+    return true
+  }
+
+  const columnsBeforeResize = await readColumns()
+  assertUI('graph-refs-resizer-available', await dragSeparator('Largeur de la colonne Références', 40))
+  const columnsAfterRefs = await readColumns()
+  assertUI('graph-refs-column-resizes', columnsAfterRefs.refs - columnsBeforeResize.refs >= 32)
+  assertUI('graph-message-yields-width', columnsAfterRefs.message <= columnsBeforeResize.message - 32)
+
+  assertUI('graph-date-resizer-available', await dragSeparator('Largeur de la colonne Date', -24))
+  const columnsAfterDate = await readColumns()
+  assertUI('graph-date-column-resizes', columnsAfterDate.date - columnsAfterRefs.date >= 18)
+
+  const keyboardStart = await readColumns()
+  const keyboardFocused = await evaluate(client, `(() => {
+    const handle = [...document.querySelectorAll('[role="separator"]')].find((item) => item.getAttribute('aria-label') === 'Largeur de la colonne Références')
+    if (!handle) return false
+    handle.focus()
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    return document.activeElement === handle
+  })()`)
+  assertUI('graph-column-keyboard-focus', keyboardFocused)
+  await delay(120)
+  const keyboardAfter = await readColumns()
+  assertUI('graph-column-keyboard-resizes', keyboardAfter.refs - keyboardStart.refs >= 6)
+
+  const resetDispatched = await evaluate(client, `(() => {
+    const handle = [...document.querySelectorAll('[role="separator"]')].find((item) => item.getAttribute('aria-label') === 'Largeur de la colonne Date')
+    if (!handle) return false
+    handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    return true
+  })()`)
+  assertUI('graph-columns-reset-available', resetDispatched)
+  await delay(150)
+  const columnsReset = await readColumns()
+  assertUI('graph-columns-reset', columnsReset.date <= 110 && columnsReset.refs <= 160)
+
+  const panelBefore = await evaluate(client, `document.querySelector('[aria-label="Préparation du prochain commit"]').getBoundingClientRect().width`)
+  assertUI('inspector-resizer-available', await dragSeparator('Redimensionner le panneau latéral', -40))
+  const panelAfter = await evaluate(client, `document.querySelector('[aria-label="Préparation du prochain commit"]').getBoundingClientRect().width`)
+  assertUI('inspector-resizes', panelAfter - panelBefore >= 30)
+
+  const sidebarBefore = await evaluate(client, `document.querySelector('aside[aria-label="Navigation principale"]').getBoundingClientRect().width`)
+  assertUI('sidebar-resizer-available', await dragSeparator('Redimensionner la navigation', 24))
+  const sidebarAfter = await evaluate(client, `document.querySelector('aside[aria-label="Navigation principale"]').getBoundingClientRect().width`)
+  assertUI('sidebar-resizes', sidebarAfter - sidebarBefore >= 16)
+  await waitFor(client, `(window.__preferenceSets ?? []).some((entry) => entry.input?.key === 'ui.layout' && JSON.parse(entry.input.value).sidebar >= ${Math.round(sidebarAfter - 2)})`, 'layout preference persisted')
   await screenshot(client, 'ux-history.png')
   for (const [width, height] of [[1440, 900], [390, 844]]) {
     await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
@@ -1330,6 +1547,13 @@ try {
   await openCloneFromPlus()
   await evaluate(client, `(() => { const d = document.querySelector('[aria-labelledby="clone-repo-title"]'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('team/payment-platform')).click(); window.__cloneFailure = true; })()`)
   await delay(60)
+  const pickerCallsBeforeClone = await evaluate(client, 'window.__pickerCalls.length')
+  await evaluate(client, `window.__pickerSelection = '/tmp/choisi'`)
+  await evaluate(client, `(() => { const d = document.querySelector('[aria-labelledby="clone-repo-title"]'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('Parcourir')).click() })()`)
+  await waitFor(client, `document.querySelector('#clone-destination')?.value === '/tmp/choisi/payment-platform'`, 'clone destination from folder picker')
+  assertUI('clone-folder-picker-uses-native-directory-dialog', await evaluate(client, `(() => { const call = window.__pickerCalls.at(-1); return window.__pickerCalls.length === ${pickerCallsBeforeClone + 1} && call.directory === true && call.multiple === false })()`))
+  await fill('#clone-destination', '/tmp/payment-platform')
+  await evaluate(client, `window.__pickerSelection = null`)
   await evaluate(client, `document.querySelector('[aria-labelledby="clone-repo-title"] button[type="submit"]').click()`)
   await waitFor(client, `document.querySelector('[aria-labelledby="clone-repo-title"]').innerText.includes('Le clonage a échoué.')`, 'clone error feedback')
   assertUI('add-repo-clone-error-retains-dialog', await evaluate(client, `Boolean(document.querySelector('[aria-labelledby="clone-repo-title"] [role="alert"]'))`))
@@ -1669,6 +1893,7 @@ try {
     contrast,
     clone: projectPicker,
     graph: graphStats,
+    repoChangeRefresh,
     diff: diffStats,
     p1: { stagedLine, calls: p1Calls.slice(0, 2), viewChecks },
     screenshots: [graphPath, diffPath],

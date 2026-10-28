@@ -244,16 +244,25 @@ export type BranchIntegrationPreview = {
   currentBranch?: string
   requiresCheckout: boolean
   worktreeDirty: boolean
+  stashRequired: boolean
   checkedOutElsewhere?: string
   operation?: InProgressOperation
   blockedReason?: string
   applicable: boolean
 }
 
+export type AutoStashOutcome = {
+  selector: string
+  sha: string
+  popped: boolean
+  conflicts: string[]
+}
+
 export type BranchIntegrationOutcome = {
   preview: BranchIntegrationPreview
   checkedOutTarget: boolean
   originalBranch?: string
+  autoStash?: AutoStashOutcome
   outcome: HistoryOutcome
 }
 
@@ -375,6 +384,8 @@ export type GitlabSession = {
     displayName?: string
   }
   user?: GitlabUser
+  /** `keychain` for a token entered in the app, otherwise the Git-file origin. */
+  credentialSource?: string
 }
 
 export type Paged<T> = {

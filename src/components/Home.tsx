@@ -21,6 +21,7 @@ type Props = {
   onClone: (input: CloneInput) => Promise<void>
   cloneOnly?: boolean
   onCancelClone?: () => void
+  onPickDirectory?: (defaultPath?: string) => Promise<string | null>
 }
 
 function projectUrl(
@@ -31,6 +32,27 @@ function projectUrl(
     return project.sshUrlToRepo || project.httpUrlToRepo || ''
   }
   return project.httpUrlToRepo || project.sshUrlToRepo || ''
+}
+
+function parentDirectory(path: string): string | null {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return index > 0 ? trimmed.slice(0, index) : null
+}
+
+function repoNameFromUrl(url: string) {
+  const trimmed = url.trim().replace(/[\\/]+$/, '')
+  if (!trimmed) {
+    return ''
+  }
+  const path = trimmed.includes('://')
+    ? trimmed.replace(/^[a-z]+:\/\//i, '').replace(/^[^/]+\//, '')
+    : trimmed.includes('@') && trimmed.includes(':')
+      ? trimmed.slice(trimmed.indexOf(':') + 1)
+      : trimmed
+  const segments = path.split(/[\\/]/).filter(Boolean)
+  const last = segments[segments.length - 1] ?? ''
+  return last.endsWith('.git') ? last.slice(0, -4) : last
 }
 
 function suggestedDestination(
@@ -56,6 +78,7 @@ export function Home({
   onClone,
   cloneOnly = false,
   onCancelClone,
+  onPickDirectory,
 }: Props) {
   const [mode, setMode] = useState<'idle' | 'clone'>(cloneOnly ? 'clone' : 'idle')
   const [session, setSession] = useState<GitlabSession | null>(null)
@@ -142,6 +165,30 @@ export function Home({
     }
   }
 
+  const browseDestination = async () => {
+    if (!onPickDirectory) {
+      return
+    }
+    setError(null)
+    const current = destination.trim()
+    const start =
+      (current ? parentDirectory(current) : null) ??
+      (recent[0]?.path ? parentDirectory(recent[0].path) ?? recent[0].path : undefined)
+    try {
+      const parent = await onPickDirectory(start)
+      if (!parent) {
+        return
+      }
+      const name = selectedProject
+        ? (selectedProject.pathWithNamespace.split('/').pop() ?? selectedProject.name)
+        : repoNameFromUrl(url) || 'depot'
+      const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
+      setDestination(`${parent.replace(/[\\/]+$/, '')}${separator}${name}`)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    }
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!url.trim() || !destination.trim()) {
@@ -223,6 +270,15 @@ export function Home({
                   saisir une URL manuellement
                 </label>
               </div>
+
+              {session?.connected &&
+              session.credentialSource &&
+              session.credentialSource !== 'keychain' ? (
+                <p className={styles.hint}>
+                  Connecté avec un token déjà présent dans Git ({session.credentialSource}) :
+                  aucune configuration GitLab n’est nécessaire.
+                </p>
+              ) : null}
 
               {session?.connected && !manual ? (
                 <>
@@ -328,16 +384,35 @@ export function Home({
               </p>
             )}
 
-            <label className={styles.field}>
-              Dossier de destination (absolu, inexistant)
-              <input
-                value={destination}
-                onChange={(event) => setDestination(event.target.value)}
-                placeholder="/Users/vous/src/repo"
-                spellCheck={false}
-                required
-              />
-            </label>
+            <div className={styles.field}>
+              <label htmlFor="clone-destination">
+                Dossier de destination (absolu, inexistant)
+              </label>
+              <div className={styles.pathRow}>
+                <input
+                  id="clone-destination"
+                  value={destination}
+                  onChange={(event) => setDestination(event.target.value)}
+                  placeholder="/Users/vous/src/repo"
+                  spellCheck={false}
+                  required
+                />
+                {onPickDirectory ? (
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    onClick={() => void browseDestination()}
+                    disabled={busy}
+                  >
+                    Parcourir…
+                  </button>
+                ) : null}
+              </div>
+              <span className={styles.hint}>
+                « Parcourir… » ouvre le sélecteur de dossiers de l’OS ; le nom du
+                dépôt est ajouté au dossier choisi.
+              </span>
+            </div>
             <div className={styles.row}>
               <label className={styles.field}>
                 Branche (optionnel)

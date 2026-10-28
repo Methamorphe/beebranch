@@ -87,6 +87,24 @@
   color: var(--text);
 }
 
+.pathRow {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.pathRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pathRow .secondary {
+  flex: none;
+  min-height: 32px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;

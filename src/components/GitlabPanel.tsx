@@ -133,8 +133,10 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
           <p>
             REST v4, Personal Access Token (scopes <code>api</code>,{' '}
             <code>read_user</code>, et <code>read_repository</code> pour cloner
-            en HTTPS). Le token reste dans le keychain et n'est jamais renvoyé au
-            frontend.
+            en HTTPS). Le token est stocké dans le keychain et n'est jamais renvoyé au
+            frontend. Un token déjà présent dans la configuration Git
+            (<code>url.*.insteadOf</code> ou <code>~/.git-credentials</code>)
+            est détecté automatiquement et réutilisé.
           </p>
         </header>
 
@@ -148,6 +150,9 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
         {session?.connected && !editing ? (
           <div className={styles.identity}>
             <span className={styles.badge}>connecté</span>
+            {session.credentialSource && session.credentialSource !== 'keychain' ? (
+              <span className={styles.badge}>via Git</span>
+            ) : null}
             <strong>{session.user?.name ?? 'Instance GitLab connectée'}</strong>
             {session.user ? <code>@{session.user.username}</code> : null}
             <span>{session.instance?.baseUrl ?? 'instance active'}</span>
@@ -155,9 +160,11 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
               <button type="button" onClick={() => setEditing(true)} disabled={busy}>
                 Changer d'instance
               </button>
-              <button type="button" onClick={() => void disconnect()} disabled={busy}>
-                Déconnecter
-              </button>
+              {session.credentialSource && session.credentialSource !== 'keychain' ? null : (
+                <button type="button" onClick={() => void disconnect()} disabled={busy}>
+                  Déconnecter
+                </button>
+              )}
             </span>
           </div>
         ) : (
@@ -218,6 +225,16 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
             </span>
           </form>
         )}
+
+        {session?.connected &&
+        !editing &&
+        session.credentialSource &&
+        session.credentialSource !== 'keychain' ? (
+          <p className={styles.notice}>
+            Token lu depuis {session.credentialSource} ; il reste géré par Git.
+            « Changer d'instance » enregistre un token dans le keychain.
+          </p>
+        ) : null}
 
         {error ? (
           <p className={styles.error} role="alert">

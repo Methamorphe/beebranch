@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.5.0] — 2026-10-28
+
+### Ajouté
+
+- **Interface redimensionnable** : glisser les séparateurs pour ajuster la
+  navigation (180–420 px), la colonne Références, la largeur du graphe, les
+  colonnes Auteur et Date, ainsi que le panneau de détail ou de préparation du
+  commit (300–760 px). Les colonnes se réinitialisent par double-clic sur un
+  séparateur ou via « Réinitialiser les colonnes » ; toutes les largeurs sont
+  mémorisées et re-clampées à la taille de la fenêtre. Flèches ←/→ au clavier
+  sur un séparateur.
+- **Comparaison entre deux commits dans l’historique** : avec « Sélection
+  multiple » activée, cochez deux commits puis cliquez « Comparer A → B ». Le
+  sens du diff suit l’ordre de sélection (premier commit → second commit) et
+  s’ouvre dans la vue Comparaison, sans mutation du dépôt.
+- **Colonne Date dans l’historique** : la date du commit (committer, et non
+  l’auteur) est toujours affichée à droite de l’auteur. L’ancienne option
+  d’affichage « Date » disparaît.
+- **Connexion GitLab héritée de Git** : au démarrage, les identifiants HTTPS
+  déjà configurés pour Git sont détectés en lecture seule
+  (`url.<base>.insteadOf` et fichiers du helper `store`, dont
+  `~/.git-credentials`). Un `glpat-` existant suffit donc à lister les projets
+  et à cloner sans ressaisir de token ; le secret reste en mémoire, n'est ni
+  copié dans le keychain, ni journalisé. Un identifiant GitHub n'est jamais
+  confondu avec GitLab, et une instance configurée n'est jamais basculée vers
+  un autre hôte.
+- **Sélecteur de dossier natif pour le clone** : le champ de destination
+  propose « Parcourir… » (sélecteur de dossiers de l'OS) et ajoute le nom du
+  dépôt au dossier choisi ; la saisie manuelle reste possible.
+
+### Modifié
+
+- **Merge possible avec des changements en cours** : glisser une branche sur une
+  autre fusionne désormais même avec des modifications non commitées. Les
+  changements suivis sont stashés automatiquement (`BeeBranch auto-stash …`),
+  le merge s'exécute, puis le stash est réappliqué immédiatement. Si le merge
+  ou la réapplication entre en conflit, le stash est conservé et son sélecteur
+  est affiché ; l'undo réapplique le stash au lieu de perdre les modifications.
+  Le rebase reste refusé sur un worktree sale.
+- **Graphe et branches au plus près de GitKraken** : chaque commit est une
+  bande teintée par la couleur de sa branche, les références deviennent des
+  pastilles colorées par type (branche locale, distante, tag, HEAD), plusieurs
+  références s'affichent côte à côte avec un `+N` pour le reste, les nœuds ont
+  un anneau qui les détache des lanes (halo d'accent pour HEAD) et la colonne
+  des branches s'adapte à la longueur des libellés sans écraser le message.
+
+### Corrigé
+
+- **Modifications locales visibles sans fetch** : le veilleur de fichiers
+  invalide désormais l'état du dépôt, pas seulement la copie de travail, pour
+  chaque écriture de fichier et chaque modification de l'index. Le résumé
+  « Modifications locales » (préparé/modifié/nouveau) et la barre d'état se
+  rafraîchissent donc dès qu'un fichier est modifié ou qu'un `git add` externe
+  est exécuté, sans rafraîchissement manuel.
+
+### Vérifié
+
+- `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
+  warnings`, `cargo test --workspace` : 367 tests verts.
+- `npm run build`, `npm run lint`, `npm run ui:smoke` : colonnes
+  redimensionnables et mémorisées, colonne Date, sélection multiple et
+  comparaison A → B, rafraîchissement du résumé après un `repo://changed` de
+  type worktree, captures graphe et diff.
+- `npm run audit:telemetry` : aucune référence télémétrie.
+- `./target/debug/beebranch --version` répond `BeeBranch 0.5.0`.
+
 ## [0.4.4] — 2026-10-28
 
 ### Vérifié

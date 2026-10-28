@@ -1,8 +1,10 @@
 //! Branch lifecycle commands.
 
-use beebranch_core::{AppError, Confirmation, DestructiveAction};
+use beebranch_core::{AppError, Confirmation, DestructiveAction, InProgressOperation};
 use beebranch_git::branches::{self, BranchComparison, BranchPreflight};
-use beebranch_git::integration::{self, BranchIntegrationPreview, IntegrationMode};
+use beebranch_git::integration::{
+    self, AutoStashOutcome, BranchIntegrationPreview, IntegrationMode,
+};
 use beebranch_git::session::InvalidationArea;
 use beebranch_git::undo::{self, Fingerprint, RestoreMode, ReversibleAction};
 use serde::Deserialize;
@@ -34,6 +36,63 @@ fn ref_sha(fingerprint: &Fingerprint, reference: &str) -> Option<String> {
         .get(reference)
         .filter(|value| *value != "absent")
         .cloned()
+}
+
+/// Inverse plan for a branch integration.
+///
+/// The merge itself is undone by aborting it or by restoring the captured
+/// fingerprint. Local changes only live in the automatic stash, so they are
+/// re-applied from their SHA even when the pop already dropped the entry. Redo
+/// is deliberately unavailable: a hard restore would wipe those local changes.
+fn integration_undo(
+    before: &Fingerprint,
+    after: &Fingerprint,
+    target: &str,
+    operation: Option<&InProgressOperation>,
+    auto_stash: Option<&AutoStashOutcome>,
+) -> (ReversibleAction, Option<ReversibleAction>) {
+    let mut actions = Vec::new();
+    match operation {
+        Some(operation) => {
+            actions.push(ReversibleAction::AbortOperation {
+                operation: operation.clone(),
+            });
+            if before.head_branch.as_deref() != Some(target) {
+                actions.push(checkout_inverse(before));
+            }
+        }
+        None => actions.push(match (auto_stash, &before.head_sha) {
+            // The staged state lives in the stash; the index must stay equal to
+            // HEAD so that `stash apply --index` can run.
+            (Some(_), Some(head)) => ReversibleAction::RestoreHead {
+                target: undo::head_target(before),
+                sha: Some(head.clone()),
+                mode: RestoreMode::Hard,
+                index_tree: Some(head.clone()),
+            },
+            _ => undo::restore_to(before, RestoreMode::Hard),
+        }),
+    }
+    if let Some(stash) = auto_stash {
+        actions.push(ReversibleAction::ApplyStash {
+            selector: stash.selector.clone(),
+            expected_sha: stash.sha.clone(),
+            // A successful pop removed the entry; only a retained stash may be
+            // dropped after the verified reapplication.
+            drop: !stash.popped,
+            expected_status_hash: if stash.popped {
+                None
+            } else {
+                Some(before.status_hash.clone())
+            },
+        });
+    }
+    let redo = if operation.is_none() && auto_stash.is_none() {
+        Some(undo::restore_to(after, RestoreMode::Hard))
+    } else {
+        None
+    };
+    (sequence(actions), redo)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,21 +178,15 @@ pub async fn branch_integration_start(
             let builder_label = label.clone();
             let target = target.clone();
             let operation = result.outcome.state.operation.clone();
+            let auto_stash = result.auto_stash.clone();
             let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
-                let undo = match operation.clone() {
-                    Some(operation) => {
-                        let mut actions = vec![ReversibleAction::AbortOperation { operation }];
-                        if before.head_branch.as_deref() != Some(target.as_str()) {
-                            actions.push(checkout_inverse(before));
-                        }
-                        sequence(actions)
-                    }
-                    None => undo::restore_to(before, RestoreMode::Hard),
-                };
-                let redo = match operation {
-                    Some(_) => None,
-                    None => Some(undo::restore_to(after, RestoreMode::Hard)),
-                };
+                let (undo, redo) = integration_undo(
+                    before,
+                    after,
+                    &target,
+                    operation.as_ref(),
+                    auto_stash.as_ref(),
+                );
                 UndoDraft {
                     kind: "branch.integrate".to_owned(),
                     label: builder_label.clone(),
@@ -653,4 +706,123 @@ pub async fn branch_delete_many(
     .await;
     finish_destructive(&state, &operation_id, &detail, result.as_ref().err())?;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beebranch_git::discover::discover;
+    use beebranch_git::integration::{self, IntegrationMode};
+    use beebranch_git::stash;
+    use beebranch_git::{CommandSpec, GitRunner, GitSubcommand, StdinMode};
+    use std::path::Path;
+
+    fn git(runner: &GitRunner, dir: &Path, subcommand: GitSubcommand, args: &[&str], stdin: &[u8]) {
+        let outcome = runner
+            .run(
+                &CommandSpec::new(subcommand, dir)
+                    .args(args.iter().copied())
+                    .stdin(StdinMode::Bytes(stdin.to_vec())),
+            )
+            .expect("git");
+        assert!(
+            outcome.success(),
+            "{subcommand} {args:?}: {}",
+            outcome.stderr.text_lossy()
+        );
+    }
+
+    fn repository(dir: &Path, runner: &GitRunner) {
+        git(
+            runner,
+            dir,
+            GitSubcommand::Init,
+            &["--quiet", "--initial-branch=main"],
+            &[],
+        );
+        git(
+            runner,
+            dir,
+            GitSubcommand::Config,
+            &["user.email", "a@b.c"],
+            &[],
+        );
+        git(
+            runner,
+            dir,
+            GitSubcommand::Config,
+            &["user.name", "Alice"],
+            &[],
+        );
+        std::fs::write(dir.join("a.txt"), "one\n").expect("write");
+        std::fs::write(dir.join("notes.txt"), "note\n").expect("write");
+        git(runner, dir, GitSubcommand::Add, &["-A"], &[]);
+        git(runner, dir, GitSubcommand::Commit, &["-F", "-"], b"base\n");
+        git(runner, dir, GitSubcommand::Switch, &["-c", "feature"], &[]);
+        std::fs::write(dir.join("b.txt"), "feature\n").expect("write");
+        git(runner, dir, GitSubcommand::Add, &["-A"], &[]);
+        git(
+            runner,
+            dir,
+            GitSubcommand::Commit,
+            &["-F", "-"],
+            b"feature\n",
+        );
+        git(runner, dir, GitSubcommand::Switch, &["main"], &[]);
+    }
+
+    fn read(dir: &Path, name: &str) -> String {
+        std::fs::read_to_string(dir.join(name)).expect("read")
+    }
+
+    #[test]
+    fn undo_of_an_integration_restores_the_automatic_stash() {
+        let dir = tempfile::tempdir().expect("dir");
+        let runner = GitRunner::detect().expect("git");
+        repository(dir.path(), &runner);
+        std::fs::write(dir.path().join("notes.txt"), "local work\n").expect("write");
+        std::fs::write(dir.path().join("a.txt"), "staged local\n").expect("write");
+        git(&runner, dir.path(), GitSubcommand::Add, &["a.txt"], &[]);
+
+        let discovery = discover(&runner, dir.path()).expect("discover");
+        let before = undo::capture(&runner, &discovery, &[], &[]).expect("capture");
+        let result = integration::start(
+            &runner,
+            dir.path(),
+            "feature",
+            "main",
+            IntegrationMode::Merge,
+        )
+        .expect("integration");
+        assert!(dir.path().join("b.txt").exists());
+        assert_eq!(read(dir.path(), "notes.txt"), "local work\n");
+        let after = undo::capture(&runner, &discovery, &[], &[]).expect("capture");
+
+        let (action, redo) = integration_undo(
+            &before,
+            &after,
+            "main",
+            result.outcome.state.operation.as_ref(),
+            result.auto_stash.as_ref(),
+        );
+        assert!(redo.is_none(), "redo would wipe the restored local changes");
+        undo::apply(
+            &runner,
+            &discovery,
+            &action,
+            &mut |_: &undo::RestoreStep| Ok(()),
+        )
+        .expect("undo");
+
+        assert!(!dir.path().join("b.txt").exists());
+        assert_eq!(read(dir.path(), "notes.txt"), "local work\n");
+        assert_eq!(read(dir.path(), "a.txt"), "staged local\n");
+        assert!(stash::list(&runner, dir.path())
+            .expect("stash list")
+            .is_empty());
+        let restored = undo::capture(&runner, &discovery, &[], &[]).expect("capture");
+        assert_eq!(restored.head_sha, before.head_sha);
+        assert_eq!(restored.status_hash, before.status_hash);
+        assert_eq!(restored.index_tree, before.index_tree);
+    }
 }

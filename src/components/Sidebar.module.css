@@ -1,4 +1,4 @@
-.sidebar { display:flex; flex-direction:column; width:210px; min-height:0; border-right:1px solid var(--border); background:var(--surface); overflow-y:auto; overflow-x:hidden; }
+.sidebar { display:flex; flex-direction:column; width:var(--sidebar-width, 210px); min-height:0; border-right:1px solid var(--border); background:var(--surface); overflow-y:auto; overflow-x:hidden; }
 .caption { padding:22px 18px 6px; color:var(--muted); font-size:10px; letter-spacing:.12em; }
 .repoTitle { display:flex; align-items:center; gap:10px; padding:0 18px 20px; font-weight:600; }
 .repoTitle span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

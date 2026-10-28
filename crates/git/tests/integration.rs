@@ -120,7 +120,7 @@ fn rebase_drop_moves_the_target_onto_the_source() {
 }
 
 #[test]
-fn preview_blocks_dirty_worktree_identical_branches_and_other_worktrees() {
+fn preview_allows_a_dirty_merge_but_not_a_dirty_rebase() {
     let fixture = Fixture::new();
     fixture.commit("a.txt", "base\n", "base");
     let main = current_branch(&fixture);
@@ -146,8 +146,18 @@ fn preview_blocks_dirty_worktree_identical_branches_and_other_worktrees() {
         IntegrationMode::Merge,
     )
     .expect("dirty");
-    assert!(!dirty.applicable);
+    assert!(dirty.applicable);
     assert!(dirty.worktree_dirty);
+    assert!(dirty.stash_required);
+    let rebase = integration::preview(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Rebase,
+    )
+    .expect("dirty rebase");
+    assert!(!rebase.applicable);
     fixture.write("a.txt", "base\n");
 
     let target = fixture.path().join("wt-feature");
@@ -169,4 +179,125 @@ fn preview_blocks_dirty_worktree_identical_branches_and_other_worktrees() {
     )
     .expect("extracted");
     assert!(!extracted.applicable);
+}
+
+#[test]
+fn merge_with_dirty_worktree_stashes_then_restores_tracked_changes() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    fixture.commit("notes.txt", "note\n", "note");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    fixture.commit("b.txt", "feature\n", "feature");
+    fixture.switch(&main);
+
+    fixture.write("notes.txt", "note changed\n");
+    fixture.write("a.txt", "staged change\n");
+    fixture.run(GitSubcommand::Add, &["a.txt"], &[]);
+    let before = fixture.detect();
+    assert_eq!(before.worktree.staged, 1);
+    assert_eq!(before.worktree.unstaged, 1);
+
+    let result = integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+    )
+    .expect("merge");
+    assert!(!result.outcome.conflicted);
+    assert!(result.outcome.state.operation.is_none());
+    let stash = result.auto_stash.expect("auto stash");
+    assert!(stash.popped);
+    assert!(stash.conflicts.is_empty());
+    assert!(
+        beebranch_git::stash::list(fixture.runner(), fixture.path())
+            .expect("stash list")
+            .is_empty(),
+        "the automatic stash is popped"
+    );
+    assert_eq!(current_branch(&fixture), main);
+    assert!(fixture.path().join("b.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(fixture.path().join("a.txt")).expect("a.txt"),
+        "staged change\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.path().join("notes.txt")).expect("notes.txt"),
+        "note changed\n"
+    );
+    let after = fixture.detect();
+    assert_eq!(after.worktree.staged, 1);
+    assert_eq!(after.worktree.unstaged, 1);
+}
+
+#[test]
+fn merge_requiring_checkout_restores_the_stash_on_the_target() {
+    let fixture = Fixture::new();
+    fixture.commit("shared.txt", "base\n", "base");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    fixture.switch_new("other");
+    fixture.commit("other.txt", "other\n", "other");
+    fixture.switch("feature");
+    fixture.write("shared.txt", "local work\n");
+
+    let result = integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "other",
+        &main,
+        IntegrationMode::Merge,
+    )
+    .expect("merge");
+    assert!(result.checked_out_target);
+    assert!(!result.outcome.conflicted);
+    assert!(result.auto_stash.expect("auto stash").popped);
+    assert_eq!(current_branch(&fixture), main);
+    assert_eq!(
+        std::fs::read_to_string(fixture.path().join("shared.txt")).expect("shared.txt"),
+        "local work\n"
+    );
+    assert!(fixture.path().join("other.txt").exists());
+}
+
+#[test]
+fn conflicting_merge_keeps_the_auto_stash_until_abort() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    fixture.commit("notes.txt", "note\n", "note");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    fixture.commit("a.txt", "feature\n", "feature");
+    fixture.switch(&main);
+    fixture.commit("a.txt", "main\n", "main");
+    fixture.write("notes.txt", "local work\n");
+
+    let result = integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+    )
+    .expect("conflicted merge is an outcome");
+    assert!(result.outcome.conflicted);
+    let stash = result.auto_stash.expect("auto stash");
+    assert!(!stash.popped);
+    assert_eq!(
+        std::fs::read_to_string(fixture.path().join("notes.txt")).expect("notes.txt"),
+        "note\n",
+        "local changes wait in the stash during the conflict"
+    );
+    let entries = beebranch_git::stash::list(fixture.runner(), fixture.path()).expect("stash list");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].sha, stash.sha);
+
+    history::abort_operation(fixture.runner(), fixture.path()).expect("abort");
+    beebranch_git::stash::pop(fixture.runner(), fixture.path(), &stash.selector).expect("pop");
+    assert_eq!(
+        std::fs::read_to_string(fixture.path().join("notes.txt")).expect("notes.txt"),
+        "local work\n"
+    );
 }

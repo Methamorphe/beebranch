@@ -72,6 +72,7 @@ Légende : **Oui** = undo supporté ; **Partiel** = supporté avec conditions ; 
 | Renommage de branche | Oui | Renommer dans l'autre sens | ancien/nouveau nom | nouveau nom existe, ancien absent | Oui |
 | Merge en cours | Partiel | `git merge --abort` | état Git | `MERGE_HEAD` présent, confirmation (résolutions perdues) | Non |
 | Merge commit | Partiel | `reset --hard before` typé, worktree vérifié propre | `before/after`, arbres d'index | HEAD == `after`, worktree propre, pas d'opération | Oui |
+| Merge branche→branche avec stash automatique | Partiel | `merge --abort`/`reset --hard before` puis `stash apply --index <SHA>` ; drop seulement si le stash n'avait pas déjà été popé | `before/after`, sélecteur et SHA du stash | HEAD == `after` (ou `MERGE_HEAD` en cours) | Non |
 | Rebase en cours | Partiel | `git rebase --abort` | état Git | rebase en cours, confirmation | Non |
 | Rebase terminé | Partiel | `reset --hard before` typé, worktree vérifié propre | `before/after`, arbres d'index | HEAD == `after`, worktree propre | Oui |
 | Cherry-pick en cours | Partiel | `git cherry-pick --abort` | état Git | séquence en cours, confirmation | Non |

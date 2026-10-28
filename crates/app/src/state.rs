@@ -56,6 +56,9 @@ pub struct AppState {
     pub interrupted: Mutex<Vec<OperationRecord>>,
     pub gitlab: Mutex<Option<beebranch_gitlab::GitlabClient>>,
     pub gitlab_instance: Mutex<Option<beebranch_store::InstanceRow>>,
+    /// Credential read from the user's Git configuration when no token is
+    /// stored in the keychain. Kept in memory only, never persisted.
+    pub gitlab_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
     /// Cancel flags for long-running operations, keyed by operation id.
     pub operations: OperationRegistry,
 }
@@ -160,6 +163,7 @@ pub fn build_state(paths: AppPaths, store: Arc<Store>, secrets: Arc<dyn SecretSt
         interrupted: Mutex::new(Vec::new()),
         gitlab: Mutex::new(None),
         gitlab_instance: Mutex::new(None),
+        gitlab_credential: Mutex::new(None),
         operations: Arc::new(Mutex::new(HashMap::new())),
     }
 }

@@ -145,19 +145,30 @@ pub struct CloneRequest {
 }
 
 /// Use the active GitLab token only when the clone URL targets the same
-/// HTTPS host. Other hosts never receive the token.
+/// HTTPS host. Other hosts never receive the token. A credential discovered in
+/// the Git configuration is used when the keychain holds nothing for that host.
 fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
     let clone_url = normalize_url(url).ok()?;
-    let instance = state.gitlab_instance.lock().ok()?.clone()?;
-    let instance_url = normalize_url(&instance.base_url).ok()?;
-    if !clone_url.host.eq_ignore_ascii_case(&instance_url.host) {
+    if let Some(instance) = state.gitlab_instance.lock().ok()?.clone() {
+        if let Ok(instance_url) = normalize_url(&instance.base_url) {
+            if clone_url.host.eq_ignore_ascii_case(&instance_url.host) {
+                let account = format!("{}#{}", instance_url.host, instance.id);
+                if let Some(token) = state.secrets.get(&account).ok().flatten() {
+                    return Some(HttpsAuth {
+                        username: "oauth2".to_owned(),
+                        token,
+                    });
+                }
+            }
+        }
+    }
+    let credential = state.gitlab_credential.lock().ok()?.clone()?;
+    if !clone_url.host.eq_ignore_ascii_case(&credential.host) {
         return None;
     }
-    let account = format!("{}#{}", instance_url.host, instance.id);
-    let token = state.secrets.get(&account).ok().flatten()?;
     Some(HttpsAuth {
-        username: "oauth2".to_owned(),
-        token,
+        username: credential.username,
+        token: credential.password,
     })
 }
 

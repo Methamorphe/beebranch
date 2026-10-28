@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { ViewId } from '../data/navigation'
 import {
   branchCheckout,
@@ -23,6 +23,12 @@ import {
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { isCheckoutableRef, resolveGraphRef } from '../lib/graphRefs'
+import {
+  INSPECTOR_MAX,
+  INSPECTOR_MIN,
+  defaultInspectorWidth,
+  type LayoutPreferences,
+} from '../lib/layout'
 import { pipelineState } from '../lib/pipeline'
 import { useGraph } from '../hooks/useGraph'
 import type {
@@ -45,6 +51,7 @@ import { PatchesPanel } from './PatchesPanel'
 import { ProfilesPanel } from './ProfilesPanel'
 import { RebasePanel } from './RebasePanel'
 import { RefsAdminPanel } from './RefsAdminPanel'
+import { Resizer } from './Resizer'
 import { SubmodulesPanel } from './SubmodulesPanel'
 import { WorktreesPanel } from './WorktreesPanel'
 import { WorkspacesPanel } from './WorkspacesPanel'
@@ -61,6 +68,11 @@ import { SyncPanel } from './SyncPanel'
 import { ToolsPanel } from './ToolsPanel'
 import shared from './p1.module.css'
 import styles from './Workbench.module.css'
+
+/** A comparison label reads better with the 8-character form of a SHA. */
+function shortSha(revision: string) {
+  return /^[0-9a-f]{40}$/i.test(revision) ? revision.slice(0, 8) : revision
+}
 
 type Props = {
   repo: RepoView | null
@@ -80,6 +92,8 @@ type Props = {
   onDensityChange: (density: 'compact' | 'comfortable') => void
   shortcuts: import('../lib/shortcuts').ShortcutMap
   onShortcutsChange: (next: import('../lib/shortcuts').ShortcutMap) => void
+  layout: LayoutPreferences
+  onLayoutChange: (patch: Partial<LayoutPreferences>) => void
 }
 
 type ContextMenuState = {
@@ -118,7 +132,11 @@ function integrationConsequence(pending: PendingIntegration | null) {
   ]
   if (preview.fastForward) parts.push('fast-forward possible')
   if (preview.requiresCheckout) parts.push(`${target.name} sera extraite pendant l'opération`)
-  if (preview.worktreeDirty) parts.push('le worktree contient des modifications non commitées')
+  if (preview.stashRequired) {
+    parts.push('modifications locales stashées puis restaurées après la fusion')
+  } else if (preview.worktreeDirty) {
+    parts.push('fichiers non suivis laissés en place')
+  }
   if (preview.currentBranch && preview.currentBranch !== target.name) {
     parts.push(`branche courante : ${preview.currentBranch}`)
   }
@@ -151,6 +169,8 @@ export function Workbench({
   onDensityChange,
   shortcuts,
   onShortcutsChange,
+  layout,
+  onLayoutChange,
 }: Props) {
   const repoId = repo?.repo.repoId ?? null
   const [localDiff, setLocalDiff] = useState<DiffRequest | null>(null)
@@ -183,7 +203,6 @@ export function Workbench({
   const [filePath, setFilePath] = useState('')
   const checkoutPending = useRef(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
-  const [showDate, setShowDate] = useState(false)
   const [multiSelect, setMultiSelect] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
   const [branchTarget, setBranchTarget] = useState<string | null>(null)
@@ -464,10 +483,19 @@ export function Workbench({
         confirmation: { acknowledged: true },
       })
       setPendingIntegration(null)
+      const stash = result.data.autoStash
+      const stashNote = stash
+        ? stash.popped
+          ? ' Modifications locales restaurées.'
+          : stash.conflicts.length > 0
+            ? ` Le stash ${stash.selector} n'a pas pu être réappliqué (conflits) et il est conservé.`
+            : ` Modifications locales conservées dans ${stash.selector} (${stash.sha.slice(0, 8)}).`
+        : ''
       setActionNotice(
-        result.data.outcome.conflicted
+        (result.data.outcome.conflicted
           ? `Conflit pendant ${pending.mode === 'merge' ? 'la fusion' : 'le rebase'} : résolvez les fichiers puis poursuivez.`
-          : `${pending.mode === 'merge' ? 'Fusion' : 'Rebase'} de ${pending.source.name} appliqué.`,
+          : `${pending.mode === 'merge' ? 'Fusion' : 'Rebase'} de ${pending.source.name} appliqué.`) +
+          stashNote,
       )
       onMutated()
     } catch (cause) {
@@ -658,7 +686,7 @@ export function Workbench({
       : diffRequest.target === 'commit'
         ? `Commit ${diffRequest.base?.slice(0, 8) ?? ''}`
         : diffRequest.target === 'range'
-          ? `${diffRequest.base ?? 'HEAD'}…${diffRequest.targetRef ?? 'HEAD'}`
+          ? `${shortSha(diffRequest.base ?? 'HEAD')}…${shortSha(diffRequest.targetRef ?? 'HEAD')}`
           : diffRequest.target === 'index'
             ? 'Index (préparé)'
             : 'Modifications locales'
@@ -777,7 +805,6 @@ export function Workbench({
           ))}
         </select>
     <ActionMenu label="Options d’affichage du graphe">
-      <label className={styles.viewOption}><input type="checkbox" checked={showDate} onChange={(event) => setShowDate(event.target.checked)} />Date</label>
         <label className={styles.viewOption}>
           <input
             type="checkbox"
@@ -791,6 +818,11 @@ export function Workbench({
           />
           Sélection multiple
         </label>
+        {layout.graph ? (
+          <button type="button" onClick={() => onLayoutChange({ graph: null })}>
+            Réinitialiser les colonnes
+          </button>
+        ) : null}
     </ActionMenu>
   </div>
 
@@ -809,6 +841,16 @@ export function Workbench({
 
   const closeMenu = () => setContextMenu(null)
 
+  // Two picked commits are the A/B pair: the diff goes from the first picked
+  // commit to the second one, which is the order shown in the toolbar list.
+  const [compareBase, compareTarget] = picked
+  const canCompare =
+    picked.length === 2 &&
+    Boolean(compareBase && compareTarget && compareBase !== compareTarget)
+  const inspectorMax = Math.min(
+    INSPECTOR_MAX,
+    Math.max(INSPECTOR_MIN, Math.round(window.innerWidth * 0.6)),
+  )
 
   return (
     <div className={styles.content}>
@@ -816,6 +858,27 @@ export function Workbench({
         {picked.length > 0 ? (
           <>
             <span className={shared.notice}>{picked.length} commit(s) sélectionné(s)</span>
+            {picked.length === 1 ? (
+              <span className={shared.small}>
+                Sélectionnez un second commit pour comparer.
+              </span>
+            ) : null}
+            {canCompare ? (
+              <button
+                type="button"
+                className={shared.secondary}
+                title={`Comparer ${shortSha(compareBase!)} et ${shortSha(compareTarget!)} : modifications du premier vers le second`}
+                onClick={() =>
+                  onOpenDiff({
+                    target: 'range',
+                    base: compareBase,
+                    targetRef: compareTarget,
+                  })
+                }
+              >
+                Comparer {shortSha(compareBase!)} → {shortSha(compareTarget!)}
+              </button>
+            ) : null}
             <button
               type="button"
               className={shared.primary}
@@ -878,7 +941,7 @@ export function Workbench({
           {graph.error}
         </div>
       ) : null}
-      <div className={styles.graphLayout}>
+      <div className={styles.graphLayout} style={{ '--inspector-width': `${layout.inspector}px` } as CSSProperties}>
         <div className={styles.historyMain}>
           {localDiff ? worktreeRow : null}
           <div className={styles.graphRegion} hidden={Boolean(localDiff)}>
@@ -892,7 +955,8 @@ export function Workbench({
           <GraphCanvas
             worktreeRow={worktreeRow}
             headerTools={graphControls}
-            showDate={showDate}
+            columnWidths={layout.graph}
+            onColumnWidthsChange={(graph) => onLayoutChange({ graph })}
             commits={graph.commits}
             rows={graph.rows}
             selected={selected}
@@ -939,6 +1003,18 @@ export function Workbench({
         </div>
           </> : null}
         </div>
+        {selected || showWorktree ? (
+          <Resizer
+            className={styles.inspectorResizer}
+            label="Redimensionner le panneau latéral"
+            side="left"
+            value={layout.inspector}
+            min={INSPECTOR_MIN}
+            max={inspectorMax}
+            onChange={(inspector) => onLayoutChange({ inspector })}
+            onReset={() => onLayoutChange({ inspector: defaultInspectorWidth() })}
+          />
+        ) : null}
         {selected ? <CommitDetailPanel
           onClose={() => setSelected(undefined)}
           detail={detail && detail.summary.sha === selected ? detail : null}

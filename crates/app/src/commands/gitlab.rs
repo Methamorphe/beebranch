@@ -30,6 +30,10 @@ pub struct GitlabSessionDto {
     pub connected: bool,
     pub instance: Option<GitlabInstanceDto>,
     pub user: Option<GitlabUser>,
+    /// `keychain` for a token entered in the app, otherwise the origin of the
+    /// credential discovered in the Git configuration. `None` when nothing is
+    /// connected.
+    pub credential_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -89,6 +93,18 @@ fn session(state: &AppState) -> Result<GitlabSessionDto, AppError> {
         .lock()
         .map(|client| client.is_some())
         .unwrap_or(false);
+    let discovered_source = state
+        .gitlab_credential
+        .lock()
+        .ok()
+        .and_then(|credential| credential.as_ref().map(|value| value.source_label()));
+    let credential_source = if discovered_source.is_some() {
+        discovered_source
+    } else if connected {
+        Some("keychain".to_owned())
+    } else {
+        None
+    };
 
     let user = instance
         .as_ref()
@@ -103,58 +119,176 @@ fn session(state: &AppState) -> Result<GitlabSessionDto, AppError> {
             display_name: instance.display_name,
         }),
         user,
+        credential_source,
     })
 }
 
 /// Restore the last instance and its token from the keychain without any
-/// network access (startup must stay offline).
+/// network access (startup must stay offline). When the keychain holds no
+/// token, reuse an HTTPS credential already configured for Git so a workstation
+/// whose `git clone` works does not need to re-enter a GitLab token.
 pub fn restore(state: &mut AppState) {
-    let instances = match state.store.list_instances() {
-        Ok(instances) => instances,
-        Err(error) => {
-            tracing::warn!(%error, "GitLab instances could not be loaded");
-            return;
+    if let Ok(instances) = state.store.list_instances() {
+        if let Some(instance) = instances
+            .into_iter()
+            .max_by_key(|instance| instance.created_at)
+        {
+            if let Ok(mut slot) = state.gitlab_instance.lock() {
+                // Keep the instance visible even when the token is missing:
+                // the UI can prefill the URL and ask for a new token instead
+                // of looking disconnected.
+                *slot = Some(instance.clone());
+            }
+            if let Some(client) = client_from_keychain(state, &instance) {
+                if let Ok(mut slot) = state.gitlab.lock() {
+                    *slot = Some(client);
+                }
+                return;
+            }
         }
-    };
-    let Some(instance) = instances
-        .into_iter()
-        .max_by_key(|instance| instance.created_at)
-    else {
-        return;
-    };
-    let Ok(url) = normalize_url(&instance.base_url) else {
-        return;
-    };
-    // Keep the instance visible even when the token is missing: the UI can
-    // prefill the URL and ask for a new token instead of looking disconnected.
-    if let Ok(mut slot) = state.gitlab_instance.lock() {
-        *slot = Some(instance.clone());
     }
+    match detect_git_credentials(state) {
+        Ok(true) => tracing::info!("GitLab session restored from the Git configuration"),
+        Ok(false) => {}
+        Err(error) => tracing::warn!(%error, "Git credential discovery failed"),
+    }
+}
+
+fn client_from_keychain(
+    state: &AppState,
+    instance: &InstanceRow,
+) -> Option<beebranch_gitlab::GitlabClient> {
+    let Ok(url) = normalize_url(&instance.base_url) else {
+        return None;
+    };
     let account = account_for(&url.host, &instance.id);
     let Some(token) = state.secrets.get(&account).ok().flatten() else {
         tracing::info!("GitLab instance configured but no token in the secret store");
-        return;
+        return None;
     };
     let ca_bundle_pem = instance
         .ca_bundle_id
         .as_ref()
         .and_then(|id| state.store.ca_bundle(id).ok().flatten());
-
     match GitlabClient::new(GitlabConfig {
         base_url: instance.base_url.clone(),
         token,
         ca_bundle_pem,
         timeout: REQUEST_TIMEOUT,
     }) {
-        Ok(client) => {
-            let client = client
+        Ok(client) => Some(
+            client
                 .with_cache(Arc::new(SqliteCache::new(state.store.clone())))
-                .with_cache_ttl(DEFAULT_CACHE_TTL);
-            if let Ok(mut slot) = state.gitlab.lock() {
-                *slot = Some(client);
-            }
+                .with_cache_ttl(DEFAULT_CACHE_TTL),
+        ),
+        Err(error) => {
+            tracing::warn!(%error, "GitLab client restore failed");
+            None
         }
-        Err(error) => tracing::warn!(%error, "GitLab client restore failed"),
+    }
+}
+
+/// Look for an HTTPS credential already configured for Git and use it as the
+/// active GitLab session. Only a credential for the configured instance host,
+/// or a `glpat-` token when nothing is configured yet, is accepted: a random
+/// GitHub credential is never mistaken for a GitLab connection.
+///
+/// Nothing is written to the store or the keychain; the token stays in memory.
+pub fn detect_git_credentials(state: &AppState) -> Result<bool, AppError> {
+    let connected = state
+        .gitlab
+        .lock()
+        .map(|client| client.is_some())
+        .unwrap_or(true);
+    if connected {
+        return Ok(false);
+    }
+    let Some(runner) = state.runner.as_ref() else {
+        return Ok(false);
+    };
+    let credentials = beebranch_git::credentials::discover(runner, state.paths.data_dir())?;
+    if credentials.is_empty() {
+        return Ok(false);
+    }
+    let instance = state
+        .gitlab_instance
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone());
+    let instance_host = instance
+        .as_ref()
+        .and_then(|row| normalize_url(&row.base_url).ok())
+        .map(|url| url.host);
+    let Some(credential) = select_credential(credentials, instance_host.as_deref()) else {
+        return Ok(false);
+    };
+
+    let normalized =
+        normalize_url(&format!("https://{}", credential.host)).map_err(gitlab_error)?;
+    let instance_row = match instance {
+        Some(row) => row,
+        None => InstanceRow {
+            id: InstanceId::from_api_url(&normalized.api_url)
+                .as_str()
+                .to_owned(),
+            base_url: normalized.base_url.clone(),
+            api_url: normalized.api_url.clone(),
+            display_name: None,
+            ca_bundle_id: None,
+            created_at: beebranch_core::now_unix(),
+        },
+    };
+    let ca_bundle_pem = instance_row
+        .ca_bundle_id
+        .as_ref()
+        .and_then(|id| state.store.ca_bundle(id).ok().flatten());
+    let client = GitlabClient::new(GitlabConfig {
+        base_url: instance_row.base_url.clone(),
+        token: credential.password.clone(),
+        ca_bundle_pem,
+        timeout: REQUEST_TIMEOUT,
+    })
+    .map_err(gitlab_error)?
+    .with_cache(Arc::new(SqliteCache::new(state.store.clone())))
+    .with_cache_ttl(DEFAULT_CACHE_TTL);
+
+    tracing::info!(
+        host = %credential.host,
+        source = %credential.source_label(),
+        "GitLab credentials found in the Git configuration"
+    );
+    *state
+        .gitlab
+        .lock()
+        .map_err(|_| AppError::internal("verrou client GitLab"))? = Some(client);
+    *state
+        .gitlab_instance
+        .lock()
+        .map_err(|_| AppError::internal("verrou instance GitLab"))? = Some(instance_row);
+    *state
+        .gitlab_credential
+        .lock()
+        .map_err(|_| AppError::internal("verrou credentials GitLab"))? = Some(credential);
+    Ok(true)
+}
+
+/// Pick the credential that may represent GitLab on this machine.
+///
+/// With a configured instance, only a credential for that host is accepted so
+/// the instance is never silently switched. Without one, a GitLab-shaped token
+/// (`glpat-` and friends) is required so a GitHub credential is not mistaken
+/// for a GitLab connection.
+fn select_credential(
+    credentials: Vec<beebranch_git::credentials::DiscoveredCredential>,
+    instance_host: Option<&str>,
+) -> Option<beebranch_git::credentials::DiscoveredCredential> {
+    match instance_host {
+        Some(host) => credentials
+            .into_iter()
+            .find(|credential| credential.host.eq_ignore_ascii_case(host)),
+        None => credentials
+            .into_iter()
+            .find(|credential| credential.looks_like_gitlab_token()),
     }
 }
 
@@ -235,6 +369,10 @@ pub async fn configure(
         .gitlab_instance
         .lock()
         .map_err(|_| AppError::internal("verrou instance GitLab"))? = Some(instance);
+    *state
+        .gitlab_credential
+        .lock()
+        .map_err(|_| AppError::internal("verrou credentials GitLab"))? = None;
 
     session(state)
 }
@@ -248,7 +386,19 @@ pub async fn gitlab_configure(
 }
 
 #[tauri::command]
-pub fn gitlab_status(state: State<'_, AppState>) -> Result<GitlabSessionDto, AppError> {
+pub async fn gitlab_status(state: State<'_, AppState>) -> Result<GitlabSessionDto, AppError> {
+    let connected = state
+        .gitlab
+        .lock()
+        .map(|client| client.is_some())
+        .unwrap_or(false);
+    if !connected {
+        // Cheap, offline check: a token added to the Git configuration while
+        // the app is running is picked up without a restart.
+        if let Err(error) = detect_git_credentials(&state) {
+            tracing::warn!(%error, "Git credential discovery failed");
+        }
+    }
     session(&state)
 }
 
@@ -403,5 +553,60 @@ pub fn gitlab_disconnect(state: State<'_, AppState>) -> Result<bool, AppError> {
         .gitlab
         .lock()
         .map_err(|_| AppError::internal("verrou client GitLab"))? = None;
+    *state
+        .gitlab_credential
+        .lock()
+        .map_err(|_| AppError::internal("verrou credentials GitLab"))? = None;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use beebranch_git::credentials::{CredentialOrigin, DiscoveredCredential};
+
+    use super::select_credential;
+
+    fn credential(host: &str, password: &str) -> DiscoveredCredential {
+        DiscoveredCredential {
+            host: host.to_owned(),
+            username: "oauth2".to_owned(),
+            password: password.to_owned(),
+            origin: CredentialOrigin::GitConfigUrl,
+        }
+    }
+
+    #[test]
+    fn configured_instance_keeps_its_own_host() {
+        let credentials = vec![
+            credential("gitlab.example.test", "glpat-instance"),
+            credential("github.com", "ghp_unrelated"),
+        ];
+        let selected = select_credential(credentials, Some("gitlab.example.test"))
+            .expect("credential for the instance host");
+        assert_eq!(selected.password, "glpat-instance");
+    }
+
+    #[test]
+    fn no_instance_requires_a_gitlab_shaped_token() {
+        let selected = select_credential(
+            vec![
+                credential("github.com", "ghp_unrelated"),
+                credential("gitlab.example.test", "glpat-first"),
+            ],
+            None,
+        )
+        .expect("glpat token");
+        assert_eq!(selected.password, "glpat-first");
+
+        assert!(select_credential(vec![credential("github.com", "ghp_unrelated")], None).is_none());
+    }
+
+    #[test]
+    fn another_host_is_never_used_for_a_configured_instance() {
+        let credentials = vec![
+            credential("gitlab.other.test", "glpat-other"),
+            credential("github.com", "ghp_unrelated"),
+        ];
+        assert!(select_credential(credentials, Some("gitlab.example.test")).is_none());
+    }
 }

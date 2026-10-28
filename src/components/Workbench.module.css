@@ -13,7 +13,7 @@
 .worktreeHeading { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; padding:8px 14px; border-bottom:1px solid var(--border); font-size:14px; }
 .worktreeHeading strong { font-weight:600; }
 .worktreeHeading > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:55%; color:var(--accent-text); font-size:13px; }
-.worktreeRow { display:grid; grid-template-columns:var(--refs-width,0px) var(--graph-width,40px) minmax(0,1fr); align-items:center; gap:0; width:100%; height:32px; flex-shrink:0; padding:0; border:0; border-radius:0; text-align:left; color:var(--muted); background:var(--surface); }
+.worktreeRow { display:grid; grid-template-columns:var(--refs-width,0px) var(--graph-width,40px) minmax(0,1fr) var(--author-width,0px) var(--date-width,0px); align-items:center; gap:0; width:100%; height:32px; flex-shrink:0; padding:0; border:0; border-radius:0; text-align:left; color:var(--muted); background:var(--surface); }
 .worktreeRow[data-active='true'], .worktreeRow[data-active='true']:hover { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
 .wipRef { overflow:hidden; padding:0 10px; color:var(--muted); font-size:11px; white-space:nowrap; }
 .wipMarker { justify-self:center; color:var(--accent-text); font-size:23px; line-height:1; }
@@ -32,8 +32,9 @@
 .contextAction svg { flex:none; color:var(--muted); }
 .contextAction span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .contextAction:focus-visible { background:var(--surface-raised); outline-offset:-2px; }
+.inspectorResizer { position:relative; z-index:2; flex:none; width:6px; margin-left:-3px; margin-right:-3px; }
 @media(max-width:1200px) { .wipMessage > span { display:none; } }
-@media(max-width:1000px) { .graphLayout { flex-direction:column; overflow:auto; } .historyMain { flex:none; height:400px; min-height:300px; } .worktreePanel { width:100%; min-height:580px; flex-shrink:0; border-left:0; border-top:1px solid var(--border); } }
+@media(max-width:1000px) { .graphLayout { flex-direction:column; overflow:auto; } .inspectorResizer { display:none; } .historyMain { flex:none; height:400px; min-height:300px; } .worktreePanel { width:100%; min-height:580px; flex-shrink:0; border-left:0; border-top:1px solid var(--border); } }
 @media(max-width:600px) { .graphControls select { max-width:155px; font-size:11px; } }
 .wipRef { max-width:100%; padding:0; text-indent:10px; }
 

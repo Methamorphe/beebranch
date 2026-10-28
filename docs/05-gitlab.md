@@ -61,6 +61,31 @@ Règles :
 - Jamais dans SQLite, les logs, les URLs de remote, les crash reports ou le frontend.
 - Expiration : un `401` déclenche `gitlab://auth-expired` ; l'utilisateur remplace le token ; aucune suppression automatique.
 
+### Réutilisation des credentials Git
+
+Un poste où `git clone https://<instance>/…` fonctionne possède déjà un
+identifiant. BeeBranch le détecte **sans réseau** au démarrage et à chaque
+`gitlab_status` tant qu'aucune session n'est active :
+
+| Source | Lecture | Exemple |
+|---|---|---|
+| `url.<base>.insteadOf` (global et système) | la base de réécriture porte les identifiants | `https://oauth2:glpat-…@gitlab.example.com/` |
+| helper `store --file=<chemin>` | fichier indiqué par la configuration | `credential.helper = store --file=~/work/creds` |
+| fichiers par défaut du helper `store` | `$XDG_CONFIG_HOME/git/credentials`, `~/.git-credentials` | `https://oauth2:glpat-…@gitlab.example.com` |
+
+Règles de sûreté :
+
+- seules les entrées `https://user:password@host` avec un mot de passe sont
+  retenues ; SSH, `osxkeychain`, GCM et `http://` sont ignorés ;
+- une instance déjà configurée n'accepte que l'identifiant de **son** hôte ;
+  sans instance, seul un token de forme GitLab (`glpat-`, `gloas-`, …) est
+  utilisé — un token GitHub n'est jamais pris pour GitLab ;
+- le token n'est ni recopié dans le keychain, ni dans SQLite, ni journalisé ;
+  la session indique sa provenance (`credentialSource`) et « Déconnecter » est
+  masqué : le secret reste géré par Git ;
+- le clone HTTPS utilise ce même identifiant pour l'hôte correspondant, via le
+  helper `GIT_ASKPASS` existant (fichier temporaire 0600, jamais dans argv).
+
 ### TLS et réseau
 
 - Vérification TLS toujours active.

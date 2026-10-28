@@ -14,6 +14,7 @@ pub mod capability;
 pub mod clone;
 pub mod commit;
 pub mod conflict;
+pub mod credentials;
 pub mod diff;
 pub mod discover;
 mod environment;

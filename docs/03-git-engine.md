@@ -167,7 +167,7 @@ Toute mutation passe par la file du dépôt et un **préflight**.
 | Pull | `git pull --progress [--ff-only\|--rebase]` | worktree propre, upstream |
 | Push | `git push --progress <remote> <ref>` | upstream, non-fast-forward détecté |
 | Force push | `git push --force-with-lease=<ref>:<expected>` | confirmation explicite, ancien SHA enregistré |
-| Merge | `git merge --no-edit <ref>` | worktree propre, pas d'opération |
+| Merge | `git merge --no-edit <ref>` | worktree propre, pas d'opération (l'intégration branche→branche stashe les changements suivis) |
 | Rebase | `git rebase <upstream>` | worktree propre, pas de merge commits non gérés |
 | Cherry-pick | `git cherry-pick <sha>...` | worktree propre |
 | Revert | `git revert --no-edit <sha>...` | worktree propre |
@@ -177,6 +177,24 @@ Toute mutation passe par la file du dépôt et un **préflight**.
 | Worktree add | `git worktree add <path> <ref>` | chemin absent |
 | Worktree remove | `git worktree remove <path>` | pas de modifications non commitées |
 | Tag | `git tag -a <name> -m <msg> <ref>` | nom valide, pas de collision |
+
+### Intégration branche→branche
+
+Un drop de branche `source` sur `target` extrait `target` puis merge ou rebase
+`source` dans `target`. Si le worktree contient des changements suivis, un merge
+les protège automatiquement :
+
+1. `git stash push -m "BeeBranch auto-stash …"` (fichiers suivis uniquement) ;
+2. extraction de `target`, puis `git merge --no-edit <source>` ;
+3. `git stash pop` immédiatement après.
+
+Si le merge s'arrête sur des conflits, ou si le pop entre lui-même en conflit, le
+stash n'est pas supprimé : son sélecteur et son SHA sont renvoyés dans le
+résultat et affichés dans l'interface. Un échec d'extraction ou de merge restaure
+également le stash. Les fichiers non suivis ne sont ni stashés ni déplacés ; un
+checkout que Git refuse pour cette raison échoue explicitement. Un rebase reste
+refusé dès qu'un fichier suivi est modifié ; les fichiers non suivis ne le
+bloquent pas.
 
 ### Staging partiel
 

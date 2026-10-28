@@ -11,6 +11,14 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import type { CommitSummary, GraphRow, RefEntry } from '../types/git'
+import {
+  COLUMN_CEILINGS,
+  COLUMN_FLOORS,
+  MIN_MESSAGE_WIDTH,
+  clampColumnWidths,
+  type GraphColumnWidths,
+} from '../lib/layout'
+import { Resizer } from './Resizer'
 import { GraphRefPopover, type RefAnchor } from './GraphRefPopover'
 import {
   foldUpstreamRefs,
@@ -19,7 +27,6 @@ import {
   graphRefLabel,
   isCheckoutableRef,
   resolveGraphRef,
-  type GraphRefDecoration,
   type GraphRefKind,
 } from '../lib/graphRefs'
 import styles from './GraphCanvas.module.css'
@@ -33,7 +40,8 @@ export type MrBadge = {
 type Props = {
   worktreeRow?: ReactNode
   headerTools?: ReactNode
-  showDate?: boolean
+  columnWidths?: GraphColumnWidths | null
+  onColumnWidthsChange?: (widths: GraphColumnWidths | null) => void
   commits: CommitSummary[]
   rows: GraphRow[]
   selected?: string
@@ -68,15 +76,58 @@ const LANE_COLORS = [
   '#f0a45b',
   '#7cb518',
 ]
+const LIGHT_LANE_COLORS = [
+  '#2b6cb0',
+  '#6b4bb5',
+  '#136b46',
+  '#b93b48',
+  '#94470a',
+  '#4c6b0b',
+]
 
-function columns(width: number, lanes: number, withDate = false) {
-  const refs = width >= 640 ? 140 : width >= 480 ? 110 : 0
-  const graph = Math.min(width < 520 ? 64 : 150, Math.max(56, lanes * 18 + 22))
-  const date = withDate && width >= 720 ? 100 : 0
+const LANE_SPACING = 18
+
+/**
+ * Column layout. The reference column follows the longest label (between 96
+ * and 220 px) but always leaves at least 520 px to the message so a branch
+ * name never pushes the commit subject out of the viewport. The date column is
+ * always present; the user can resize every fixed column.
+ */
+function defaultColumns(
+  width: number,
+  lanes: number,
+  desiredRefs = 140,
+): GraphColumnWidths {
+  const graph = Math.min(width < 520 ? 64 : 150, Math.max(56, lanes * LANE_SPACING + 26))
+  const date = width >= 560 ? 100 : COLUMN_FLOORS.date
+  let refs = width >= 480 ? Math.min(desiredRefs, Math.round(width * 0.34)) : 0
+  if (refs > 0) {
+    // Keep 520 px for the message and 90 px for the author before widening the
+    // reference column; below that the labels fall back to a compact 96 px.
+    const budget = width - graph - date - 520 - 90
+    refs = Math.max(96, Math.min(refs, budget))
+  }
   // Keep at least 520 px for the message; the author column takes the rest.
   const room = width - refs - graph - date - 520
   const author = room >= 130 ? 130 : room >= 110 ? 110 : room >= 90 ? 90 : 0
-  return { refs, graph, author, date }
+  return clampColumnWidths(width, { refs, graph, author, date })
+}
+
+function hexToRgb(value: string): [number, number, number] | null {
+  const hex = value.trim().replace('#', '')
+  const full = hex.length === 3 ? hex.split('').map((digit) => digit + digit).join('') : hex
+  if (!/^[0-9a-f]{6}$/i.test(full)) return null
+  const number = Number.parseInt(full, 16)
+  return [(number >> 16) & 255, (number >> 8) & 255, number & 255]
+}
+
+/** Linear blend used for branch-tinted pills and rows. */
+function mix(color: string, target: string, ratio: number) {
+  const from = hexToRgb(color)
+  const to = hexToRgb(target)
+  if (!from || !to) return color
+  const channel = (index: number) => Math.round(from[index]! + (to[index]! - from[index]!) * ratio)
+  return `rgb(${channel(0)} ${channel(1)} ${channel(2)})`
 }
 function fitText(context: CanvasRenderingContext2D, text: string, width: number) {
   if (width <= 0) return ''
@@ -96,11 +147,11 @@ type FrameStats = {
   missed: number
 }
 
-/** Badge shown in the reference column: one primary ref plus the rest as `+N`. */
-type BadgeDecoration = GraphRefDecoration & {
+/** All refs shown on one row, in draw order. */
+type BadgeRef = {
+  raw: string
+  label: string
   kind: GraphRefKind
-  extra: number
-  count: number
 }
 
 const BADGE_ICON_WIDTH = 12
@@ -167,7 +218,8 @@ function percentile(values: number[], ratio: number): number {
 export function GraphCanvas({
   worktreeRow,
   headerTools,
-  showDate = false,
+  columnWidths = null,
+  onColumnWidthsChange,
   commits,
   rows,
   selected,
@@ -193,34 +245,60 @@ export function GraphCanvas({
 }: Props) {
   const [viewportWidth, setViewportWidth] = useState(1000)
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
-  const layout = columns(viewportWidth, maxLanes, showDate)
-  // Badge content per commit, computed off the draw path so scrolling stays
-  // allocation-free. A remote-tracking mirror of a local branch is folded out:
-  // `main` and `origin/main` on the same commit are one branch, not two.
+  // Every visible ref of a commit, in draw order. A remote-tracking mirror of
+  // a local branch is folded out: `main` and `origin/main` on the same commit
+  // are one branch, not two.
   const decorations = useMemo(() => {
-    const map = new Map<string, BadgeDecoration>()
+    const map = new Map<string, BadgeRef[]>()
     for (const commit of commits) {
       if (commit.refs.length === 0) continue
       const decorated = graphCommitRefs(commit, refEntries)
       const { visible } = foldUpstreamRefs(decorated)
-      const primary = visible[0] ?? decorated[0]
-      if (!primary) continue
-      map.set(commit.sha, {
-        ...primary,
-        kind: graphRefKind(primary.raw, primary.entry),
-        extra: Math.max(0, visible.length - 1),
-        count: visible.length,
-      })
+      const refs = visible.map((decoration) => ({
+        raw: decoration.raw,
+        label: graphRefLabel(decoration.raw),
+        kind: graphRefKind(decoration.raw, decoration.entry),
+      }))
+      if (refs.length > 0) map.set(commit.sha, refs)
     }
     return map
   }, [commits, refEntries])
+  const refsWidth = useMemo(() => {
+    let longest = 0
+    for (const refs of decorations.values()) {
+      for (const ref of refs) longest = Math.max(longest, ref.label.length)
+    }
+    return Math.min(220, Math.max(140, Math.round(longest * 7.1 + 58)))
+  }, [decorations])
+  const layout = useMemo(
+    () =>
+      clampColumnWidths(
+        viewportWidth,
+        columnWidths ?? defaultColumns(viewportWidth, maxLanes, refsWidth),
+      ),
+    [viewportWidth, columnWidths, maxLanes, refsWidth],
+  )
+  const columnBudget = viewportWidth - MIN_MESSAGE_WIDTH
+  const maxColumn = (key: keyof GraphColumnWidths) => {
+    const fixed =
+      layout.refs + layout.graph + layout.author + layout.date - layout[key]
+    return Math.max(
+      COLUMN_FLOORS[key],
+      Math.min(COLUMN_CEILINGS[key], columnBudget - fixed),
+    )
+  }
+  const resizeColumn = (key: keyof GraphColumnWidths, value: number) => {
+    onColumnWidthsChange?.(
+      clampColumnWidths(viewportWidth, { ...layout, [key]: value }),
+    )
+  }
   const [refHover, setRefHover] = useState<RefAnchor | null>(null)
   const dragStart = useRef<{ entry: RefEntry; x: number; y: number } | null>(null)
   const dragTargetRect = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
   const [drag, setDrag] = useState<{ entry: RefEntry; x: number; y: number; target: RefEntry | null } | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const refRects = useRef<{ commit: CommitSummary; raw: string; x:number; y:number; width:number; height:number }[]>([])
+  const refRects = useRef<{ commit: CommitSummary; raw: string; x:number; y:number; width:number; height:number; overflow?: boolean }[]>([])
   const cancelRefClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null } }
   const closeRefSoon = () => { cancelRefClose(); closeTimer.current = setTimeout(() => { if (!popupRef.current?.contains(document.activeElement)) setRefHover(null) }, 140) }
   const checkoutRef = (raw: string) => {
@@ -284,19 +362,21 @@ export function GraphCanvas({
     refRects.current = []
     context.textBaseline = 'middle'
     const computed = getComputedStyle(canvas)
-    const laneColors = computed.colorScheme === 'light' ? ['#2b6cb0', '#6b4bb5', '#136b46', '#b93b48', '#94470a', '#4c6b0b'] : LANE_COLORS
+    const light = computed.colorScheme === 'light'
+    const laneColors = light ? LIGHT_LANE_COLORS : LANE_COLORS
     const fontFamily = computed.getPropertyValue('--sans').trim()
     const textColor = computed.getPropertyValue('--text').trim() || '#e1e5ec'
     const mutedColor = computed.getPropertyValue('--muted').trim() || '#8992a2'
     const accentColor = computed.getPropertyValue('--accent').trim() || '#f5bb45'
     const accentTextColor =
       computed.getPropertyValue('--accent-text').trim() || accentColor
-    const accentSoft = computed.getPropertyValue('--accent-soft').trim() || '#f5bb4514'
-
+    const surfaceColor = computed.getPropertyValue('--surface').trim() || '#15181e'
+    const warningColor = computed.getPropertyValue('--warning').trim() || '#f0a45b'
+    const infoColor = computed.getPropertyValue('--info').trim() || '#81a9ef'
     const borderColor = computed.getPropertyValue('--border').trim()
     const raisedColor = computed.getPropertyValue('--surface-raised').trim()
-    const selectedColor = computed.getPropertyValue('--selection-bg').trim() || accentSoft
-    const col = columns(width, maxLanes, showDate)
+
+    const col = layout
     const scrollTop = scrollTopRef.current
     const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
     const last = Math.min(
@@ -304,12 +384,44 @@ export function GraphCanvas({
       Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN,
     )
 
-    const laneArea = col.graph - 28
+    // Lanes keep a constant pitch; the column only compresses when more lanes
+    // exist than it can hold.
+    const laneArea = Math.min(col.graph - 28, maxLanes * LANE_SPACING)
     const laneScale = laneArea / Math.max(1, maxLanes)
     const graphLeft = col.refs + 14
     const messageX = col.refs + col.graph + 14
     const messageRight = width - col.author - col.date
+    const stripInset = 3
+    const chipText = light ? '#101216' : '#F4F6FA'
 
+    // 1. Rows are tinted strips keyed on the branch color: the commit list
+    // reads as grouped branches without adding separators.
+    for (let index = first; index <= last; index += 1) {
+      const commit = commits[index]
+      const row = rows[index]
+      if (!commit || !row) continue
+      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
+      const isSelected = commit.sha === selected
+      const isPicked = picked.includes(commit.sha)
+      const isHovered = hoveredRef.current === index
+      const color = laneColors[row.nodeLane % laneColors.length]!
+      const rgb = hexToRgb(color)
+      const tint = isSelected ? 0.18 : isPicked ? 0.14 : isHovered ? 0.1 : light ? 0.05 : 0.06
+      if (rgb) {
+        context.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${tint})`
+        context.beginPath()
+        context.roundRect(6, y - ROW_HEIGHT / 2 + stripInset, Math.max(0, width - 12), ROW_HEIGHT - stripInset * 2, 4)
+        context.fill()
+      }
+      if (isSelected || isPicked) {
+        context.fillStyle = accentColor
+        context.fillRect(2, y - ROW_HEIGHT / 2 + stripInset, 2, ROW_HEIGHT - stripInset * 2)
+      }
+    }
+
+    // 2. Lanes, nodes, reference pills and text.
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
     for (let index = first; index <= last; index += 1) {
       const commit = commits[index]
       const row = rows[index]
@@ -318,23 +430,14 @@ export function GraphCanvas({
       }
       const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
       const isSelected = commit.sha === selected
-      const isPicked = picked.includes(commit.sha)
-
-      if (isSelected || isPicked || hoveredRef.current === index) {
-        context.fillStyle = isSelected ? selectedColor : isPicked ? accentSoft : raisedColor
-        context.fillRect(0, y - ROW_HEIGHT / 2, width, ROW_HEIGHT)
-      }
-      if (isPicked || isSelected) {
-        context.fillStyle = accentColor
-        context.fillRect(0, y - ROW_HEIGHT / 2, 2, ROW_HEIGHT)
-      }
+      const nodeColor = laneColors[row.nodeLane % laneColors.length]!
 
       context.lineWidth = 2
+      context.globalAlpha = 0.85
       for (const [start, end] of row.activeRanges) {
         for (let lane = start; lane <= end; lane += 1) {
           const x = graphLeft + lane * laneScale + laneScale / 2
           context.strokeStyle = laneColors[lane % laneColors.length]!
-          context.globalAlpha = 0.8
           context.beginPath()
           context.moveTo(x, y - ROW_HEIGHT / 2)
           context.lineTo(x, y + ROW_HEIGHT / 2)
@@ -356,35 +459,85 @@ export function GraphCanvas({
         context.stroke()
       }
 
+      // A surface-colored ring separates the node from the lanes; the HEAD
+      // commit adds an accent halo.
+      const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
+      const radius = isSelected ? 7 : 5.5
       context.beginPath()
-      context.fillStyle = laneColors[row.nodeLane % laneColors.length]!
-      context.arc(nodeX, y, isSelected ? 6 : 4.8, 0, Math.PI * 2)
+      context.arc(nodeX, y, radius, 0, Math.PI * 2)
+      context.fillStyle = nodeColor
       context.fill()
-
-      // References have their own clipped column; messages always start at the same x.
-      context.font = `600 13px ${fontFamily}`
-      const badge = decorations.get(commit.sha)
-      if (col.refs > 0 && badge) {
-        const label = graphRefLabel(badge.raw) + (badge.extra > 0 ? ` +${badge.extra}` : '')
-        const refText = fitText(context, label, col.refs - 32 - BADGE_ICON_WIDTH)
-        const badgeWidth = Math.min(col.refs - 16, context.measureText(refText).width + 20 + BADGE_ICON_WIDTH)
-        const active = badge.kind === 'head'
-        context.fillStyle = active ? accentSoft : raisedColor
+      context.lineWidth = 2.5
+      context.strokeStyle = surfaceColor
+      context.stroke()
+      if (headCommit) {
         context.beginPath()
-        context.roundRect(8, y - 11, badgeWidth, 22, 4)
-        context.fill()
-        const tint = active ? accentTextColor : mutedColor
-        drawRefIcon(context, badge.kind, 13, y, tint)
-        context.fillStyle = tint
-        context.fillText(refText, 13 + BADGE_ICON_WIDTH + 4, y)
-        refRects.current.push({ commit, raw: badge.raw, x:8, y:y - 11, width:badgeWidth, height:22 })
+        context.arc(nodeX, y, radius + 3.5, 0, Math.PI * 2)
+        context.lineWidth = 1.5
+        context.strokeStyle = accentColor
+        context.stroke()
       }
+
+      // References: every visible ref is a colored pill, overflow becomes `+N`.
+      const refs = decorations.get(commit.sha)
+      if (col.refs > 0 && refs) {
+        context.font = `600 12px ${fontFamily}`
+        let cursorX = 12
+        let drawn = 0
+        for (const ref of refs) {
+          const kindColor =
+            ref.kind === 'head'
+              ? accentColor
+              : ref.kind === 'tag'
+                ? warningColor
+                : ref.kind === 'remote'
+                  ? infoColor
+                  : ref.kind === 'local'
+                    ? nodeColor
+                    : mutedColor
+          const tone = ref.kind === 'head' ? accentTextColor : chipText
+          const available = col.refs - 10 - cursorX - BADGE_ICON_WIDTH - 14
+          if (available < 20) break
+          const label = fitText(context, ref.label, available)
+          const chipWidth = Math.min(
+            col.refs - 8 - cursorX,
+            context.measureText(label).width + BADGE_ICON_WIDTH + 16,
+          )
+          if (chipWidth < 24) break
+          context.fillStyle =
+            ref.kind === 'head' ? accentColor : mix(surfaceColor, kindColor, light ? 0.2 : 0.32)
+          context.beginPath()
+          context.roundRect(cursorX, y - 10, chipWidth, 20, 4)
+          context.fill()
+          drawRefIcon(context, ref.kind, cursorX + 5, y, tone)
+          context.fillStyle = tone
+          context.fillText(label, cursorX + 5 + BADGE_ICON_WIDTH + 4, y)
+          refRects.current.push({ commit, raw: ref.raw, x: cursorX, y: y - 10, width: chipWidth, height: 20 })
+          cursorX += chipWidth + 4
+          drawn += 1
+        }
+        const extra = refs.length - drawn
+        if (extra > 0) {
+          const label = `+${extra}`
+          const chipWidth = context.measureText(label).width + 12
+          if (cursorX + chipWidth <= col.refs - 8) {
+            context.fillStyle = raisedColor
+            context.beginPath()
+            context.roundRect(cursorX, y - 10, chipWidth, 20, 4)
+            context.fill()
+            context.fillStyle = mutedColor
+            context.fillText(label, cursorX + 6, y)
+            refRects.current.push({ commit, raw: refs[refs.length - 1]!.raw, x: cursorX, y: y - 10, width: chipWidth, height: 20, overflow: true })
+          }
+        }
+      }
+
       context.save()
       context.beginPath()
       context.rect(messageX, y - ROW_HEIGHT / 2, Math.max(0, messageRight - messageX - 12), ROW_HEIGHT)
       context.clip()
       let cursor = messageX
-      context.font = `15px ${fontFamily}`
+      context.font = `14px ${fontFamily}`
       if (mrBadges) {
         const badge = commit.refs.map((ref) => mrBadges[ref.replace('HEAD -> ', '').replace(/^origin\//, '')]).find(Boolean)
         if (badge) {
@@ -400,7 +553,7 @@ export function GraphCanvas({
       context.font = `12px ${fontFamily}`
       context.fillStyle = mutedColor
       if (col.author) context.fillText(fitText(context, commit.author.name, col.author - 20), width - col.author - col.date + 10, y)
-      if (col.date) context.fillText(new Date(commit.author.timestamp * 1000).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }), width - col.date + 8, y)
+      if (col.date) context.fillText(fitText(context, new Date(commit.committer.timestamp * 1000).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }), col.date - 16), width - col.date + 8, y)
 
     }
 
@@ -419,7 +572,7 @@ export function GraphCanvas({
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
 
-  }, [commits, rows, selected, mrBadges, picked, maxLanes, showDate, decorations])
+  }, [commits, rows, selected, mrBadges, picked, maxLanes, layout, decorations])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -567,7 +720,7 @@ export function GraphCanvas({
   const onCanvasPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.button === 0 && !branchTarget) {
       const hit = hitRef(event.clientX, event.clientY)
-      if (hit) {
+      if (hit && !hit.overflow) {
         const entry = resolveGraphRef(hit.raw, refEntries)
         if (entry && (entry.kind === 'branch' || entry.kind === 'remoteBranch')) {
           cancelRefClose()
@@ -598,13 +751,14 @@ export function GraphCanvas({
     const index = Math.floor((scrollTopRef.current + event.clientY - bounds.top) / ROW_HEIGHT)
     const hit = hitRef(event.clientX, event.clientY)
     if (hit) {
-      const badge = decorations.get(hit.commit.sha)
+      const refs = decorations.get(hit.commit.sha)
       // One real ref (a branch and its own remote mirror count as one) leaves
       // nothing to choose between: keep the tooltip, skip the menu.
-      if ((badge?.count ?? hit.commit.refs.length) < 2) {
+      if ((refs?.length ?? hit.commit.refs.length) < 2) {
         if (refHover) closeRefSoon()
-        event.currentTarget.title = badge
-          ? `${graphRefLabel(badge.raw)} · ${badge.kind === 'remote' ? 'distante' : badge.kind === 'tag' ? 'tag' : 'locale'}`
+        const ref = refs?.[0]
+        event.currentTarget.title = ref
+          ? `${ref.label} · ${ref.kind === 'remote' ? 'distante' : ref.kind === 'tag' ? 'tag' : 'locale'}`
           : ''
       } else {
         cancelRefClose()
@@ -705,7 +859,7 @@ export function GraphCanvas({
   }
 
   return (
-    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px` } as React.CSSProperties}>
+    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
       <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
         <div className={styles.refsHeader}>
           <span>{layout.refs ? 'Branches / tags' : ''}</span>
@@ -715,6 +869,36 @@ export function GraphCanvas({
         </div>
         <span>Graphe</span><div className={styles.messageHeader}><span>Message de commit</span>{headerTools}</div><span>{layout.author ? 'Auteur' : ''}</span><span>{layout.date ? 'Date' : ''}</span>
       </div>
+      {([
+        ['refs', 'Largeur de la colonne Références', 'right'],
+        ['graph', 'Largeur du graphe', 'right'],
+        ['author', 'Largeur de la colonne Auteur', 'left'],
+        ['date', 'Largeur de la colonne Date', 'left'],
+      ] as const).map(([key, label, side]) => {
+        if (key === 'author' && layout.author === 0) return null
+        const boundary =
+          key === 'refs'
+            ? layout.refs
+            : key === 'graph'
+              ? layout.refs + layout.graph
+              : key === 'author'
+                ? viewportWidth - layout.author - layout.date
+                : viewportWidth - layout.date
+        return (
+          <Resizer
+            key={key}
+            className={styles.columnResizer}
+            style={{ left: Math.max(4, boundary) }}
+            label={label}
+            side={side}
+            value={layout[key]}
+            min={COLUMN_FLOORS[key]}
+            max={maxColumn(key)}
+            onChange={(value) => resizeColumn(key, value)}
+            onReset={() => onColumnWidthsChange?.(null)}
+          />
+        )
+      })}
       {worktreeRow}
       <div className={styles.scroll} style={{ top: worktreeRow ? 64 : 32 }} ref={containerRef} onScroll={onScroll}>
         <div
@@ -761,7 +945,7 @@ export function GraphCanvas({
           }}
           onDoubleClick={(event) => {
             const hit = hitRef(event.clientX, event.clientY)
-            if (hit) { event.preventDefault(); checkoutRef(hit.commit.refs[0]!) }
+            if (hit && !hit.overflow) { event.preventDefault(); checkoutRef(hit.commit.refs[0]!) }
           }}
           onPointerDown={onCanvasPointerDown}
           onPointerUp={onCanvasPointerUp}

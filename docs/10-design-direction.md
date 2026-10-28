@@ -146,6 +146,27 @@ Profils et réglages ; les doublons sont refusés.
 
 Toute évolution visuelle doit respecter les garde-fous de la section 3.
 
+### Rendu du graphe (référence GitKraken)
+
+Le graphe suit les conventions de lecture GitKraken sans reprendre ses assets :
+
+- chaque ligne de commit est une **bande teintée** par la couleur de la branche
+  (6 % en sombre, 5 % en clair), avec 3 px de retrait haut/bas et des angles de
+  4 px ; la sélection et la multi-sélection renforcent la teinte et ajoutent une
+  barre d'accent à gauche ;
+- les références sont des **pastilles colorées par type** — accent pour HEAD,
+  couleur de lane pour une branche locale, `--info` pour une branche distante,
+  `--warning` pour un tag — avec l'icône correspondante (fourche, nuage,
+  étiquette) ; toutes les références visibles sont dessinées, le surplus devient
+  `+N` et ouvre le menu des références ;
+- les nœuds sont des disques de la couleur de lane, cerclés de `--surface` pour
+  se détacher des lignes ; HEAD reçoit un halo d'accent ;
+- l'espacement des lanes est fixe (18 px) et la colonne des branches suit le
+  libellé le plus long (96 à 220 px), en réservant 520 px au message et 90 px à
+  l'auteur pour ne jamais tronquer le sujet.
+
+Les contrastes texte/fond des pastilles restent ≥ 4,5:1 (mesuré ≥ 7:1 en sombre).
+
 ### Implémentation P3 (tokens complémentaires)
 
 | Famille | Tokens |

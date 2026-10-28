@@ -1,0 +1,29 @@
+.handle {
+  flex: none;
+  touch-action: none;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: background var(--duration-fast) var(--ease-out), width var(--duration-fast) var(--ease-out);
+}
+
+.handle:hover::after,
+.handle[data-dragging='true']::after,
+.handle:focus-visible::after {
+  width: 2px;
+  background: var(--accent);
+}
+
+.handle:focus-visible {
+  outline: none;
+}

@@ -588,7 +588,10 @@ fn areas_for(
         if let Ok(inner) = relative.strip_prefix(".git") {
             return git_areas(inner);
         }
-        return vec![InvalidationArea::Worktree];
+        // A worktree write changes the staged/unstaged/untracked summary and
+        // the conflict set carried by `RepoState`, not just the worktree read
+        // model: both must be recomputed without waiting for a manual refresh.
+        return vec![InvalidationArea::Worktree, InvalidationArea::State];
     }
     Vec::new()
 }
@@ -601,7 +604,8 @@ fn git_areas(relative: &Path) -> Vec<InvalidationArea> {
         .unwrap_or_default();
     match first.as_str() {
         "HEAD" => vec![InvalidationArea::Head],
-        "index" => vec![InvalidationArea::Index],
+        // Staging changes the staged/unstaged split cached in `RepoState`.
+        "index" => vec![InvalidationArea::Index, InvalidationArea::State],
         "index.lock" | "HEAD.lock" => vec![InvalidationArea::Busy],
         "refs" | "packed-refs" => vec![InvalidationArea::Refs],
         "MERGE_HEAD" | "CHERRY_PICK_HEAD" | "REVERT_HEAD" | "rebase-merge" | "rebase-apply"
@@ -799,6 +803,21 @@ mod tests {
         assert_eq!(session.generation(), start + 2);
     }
 
+    fn wait_for_areas(
+        receiver: &Receiver<RepoChange>,
+        wanted: &[InvalidationArea],
+    ) -> Option<RepoChange> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if let Ok(change) = receiver.recv_timeout(Duration::from_millis(100)) {
+                if wanted.iter().all(|area| change.areas.contains(area)) {
+                    return Some(change);
+                }
+            }
+        }
+        None
+    }
+
     #[test]
     fn external_change_invalidates_the_worktree() {
         let (dir, runner) = fixture();
@@ -818,17 +837,47 @@ mod tests {
         .expect("open");
 
         std::fs::write(dir.path().join("watched.txt"), "change").expect("write");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let mut seen = None;
-        while Instant::now() < deadline {
-            if let Ok(change) = receiver.recv_timeout(Duration::from_millis(100)) {
-                if change.areas.contains(&InvalidationArea::Worktree) {
-                    seen = Some(change);
-                    break;
-                }
-            }
-        }
-        assert!(seen.is_some(), "watcher must report a worktree change");
+        let change = wait_for_areas(
+            &receiver,
+            &[InvalidationArea::Worktree, InvalidationArea::State],
+        )
+        .expect("watcher must report a worktree change with the state area");
+        assert_eq!(
+            change.areas,
+            vec![InvalidationArea::Worktree, InvalidationArea::State],
+            "a worktree write must also invalidate the cached repository state"
+        );
+        session.shutdown();
+    }
+
+    #[test]
+    fn external_staging_invalidates_the_index_and_state() {
+        let (dir, runner) = fixture();
+        let (sender, receiver) = mpsc::channel();
+        let sink: ChangeSink = Arc::new(move |change| {
+            let _ = sender.send(change);
+        });
+        let session = RepoSession::open(
+            &runner,
+            dir.path(),
+            SessionOptions {
+                sink: Some(sink),
+                debounce: Some(Duration::from_millis(30)),
+                max_status_entries: None,
+            },
+        )
+        .expect("open");
+
+        std::fs::write(dir.path().join("a.txt"), "two\n").expect("write");
+        git(dir.path(), &["add", "a.txt"]);
+        assert!(
+            wait_for_areas(
+                &receiver,
+                &[InvalidationArea::Index, InvalidationArea::State]
+            )
+            .is_some(),
+            "staging outside the application must invalidate the index and the state"
+        );
         session.shutdown();
     }
 

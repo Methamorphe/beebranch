@@ -75,13 +75,25 @@ pub fn apply(
     worktree: &Path,
     selector: &str,
 ) -> Result<StashOutcome, AppError> {
-    run_apply(runner, worktree, selector, false)
+    run_apply(runner, worktree, selector, false, false)
 }
 
 /// Apply a stash and drop it only when the application succeeded without
 /// conflicts (Git's `stash pop` semantics).
 pub fn pop(runner: &GitRunner, worktree: &Path, selector: &str) -> Result<StashOutcome, AppError> {
-    run_apply(runner, worktree, selector, true)
+    run_apply(runner, worktree, selector, true, false)
+}
+
+/// Pop a stash while restoring the staged state recorded in it (`--index`).
+///
+/// Used for the automatic stash of a branch integration: the local changes must
+/// come back exactly as they were, staged files included.
+pub fn pop_indexed(
+    runner: &GitRunner,
+    worktree: &Path,
+    selector: &str,
+) -> Result<StashOutcome, AppError> {
+    run_apply(runner, worktree, selector, true, true)
 }
 
 fn run_apply(
@@ -89,17 +101,19 @@ fn run_apply(
     worktree: &Path,
     selector: &str,
     pop: bool,
+    index: bool,
 ) -> Result<StashOutcome, AppError> {
     validate_selector(selector)?;
-    let outcome = runner.run(
-        &CommandSpec::new(GitSubcommand::Stash, worktree)
-            .arg(if pop { "pop" } else { "apply" })
-            .arg(selector)
-            .capture_limits(CaptureLimits {
-                stdout: 1024 * 1024,
-                stderr: 1024 * 1024,
-            }),
-    )?;
+    let mut spec = CommandSpec::new(GitSubcommand::Stash, worktree)
+        .arg(if pop { "pop" } else { "apply" })
+        .capture_limits(CaptureLimits {
+            stdout: 1024 * 1024,
+            stderr: 1024 * 1024,
+        });
+    if index {
+        spec = spec.arg("--index");
+    }
+    let outcome = runner.run(&spec.arg(selector))?;
     let output = join_output(outcome.stdout.redacted(), outcome.stderr.redacted());
     let status = read_status(runner, worktree, None)?;
     let conflicts = status.conflicts();
