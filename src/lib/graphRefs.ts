@@ -30,15 +30,28 @@ export type GraphRefDecoration = {
   key: string
 }
 
+/**
+ * `origin/HEAD` (a symbolic ref pointing at the remote's default branch) is
+ * part of Git's decorations but names no branch of its own: the branch it
+ * points at is already decorated. Showing it doubles that branch on the badge
+ * and in the hover list, so it is dropped.
+ */
+function isRemoteHeadSymref(entry: RefEntry | undefined) {
+  return entry?.kind === 'remoteBranch' && Boolean(entry.symref)
+}
+
 /** Git's short decorations can repeat names; retain every distinct full ref. */
 export function graphCommitRefs(commit: CommitSummary, entries: RefEntry[]): GraphRefDecoration[] {
   const used = new Set<string>()
-  return commit.refs.map((raw, index) => {
-    const matches = candidates(raw, entries).filter((entry) => !used.has(entry.fullName))
-    const entry = matches.find((ref) => ref.targetOid === commit.sha) ?? matches[0]
-    if (entry) used.add(entry.fullName)
-    return { raw, entry, key:entry?.fullName ?? `${index}-${raw}` }
-  })
+  return commit.refs
+    .map((raw, index) => {
+      const matches = candidates(raw, entries).filter((entry) => !used.has(entry.fullName))
+      const entry = matches.find((ref) => ref.targetOid === commit.sha) ?? matches[0]
+      const decoration = { raw, entry, key: entry?.fullName ?? `${index}-${raw}` }
+      if (entry) used.add(entry.fullName)
+      return decoration
+    })
+    .filter(({ entry }) => !isRemoteHeadSymref(entry))
 }
 
 export function isCheckoutableRef(entry: RefEntry | undefined): entry is RefEntry {

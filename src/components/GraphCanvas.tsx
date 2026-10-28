@@ -38,10 +38,12 @@ export type MrBadge = {
 }
 
 /** Click modifiers that change what a row click means. Shift extends the
- * selection towards the previously picked commit so two commits can be
- * compared without leaving the graph. */
+ * selection towards the previously picked commit; the platform modifier
+ * (`⌘`/`Ctrl`) compares that commit with the clicked one only, skipping
+ * everything in between. */
 export type SelectModifiers = {
   shift: boolean
+  meta: boolean
 }
 
 type Props = {
@@ -901,7 +903,10 @@ export function GraphCanvas({
     )
     const commit = commits[index]
     if (commit) {
-      onSelect(commit.sha, { shift: event.shiftKey })
+      onSelect(commit.sha, {
+        shift: event.shiftKey,
+        meta: event.metaKey || event.ctrlKey,
+      })
     }
   }
 
@@ -925,7 +930,7 @@ export function GraphCanvas({
     )
     const commit = commits[index]
     if (commit) {
-      onSelect(commit.sha, { shift: false })
+      onSelect(commit.sha, { shift: false, meta: false })
       onContextMenu(commit, event.clientX, event.clientY)
     }
   }
@@ -946,7 +951,10 @@ export function GraphCanvas({
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? commits.length - 1 : Math.max(0, Math.min(commits.length - 1, current < 0 ? 0 : index + (event.key === 'ArrowDown' ? 1 : -1)))
       const commit = commits[next]
       if (commit) {
-        onSelect(commit.sha, { shift: event.shiftKey })
+        onSelect(commit.sha, {
+          shift: event.shiftKey,
+          meta: event.metaKey || event.ctrlKey,
+        })
         const container = containerRef.current
         if (container) {
           const top = next * ROW_HEIGHT
@@ -1067,7 +1075,7 @@ export function GraphCanvas({
         </div>
       ) : null}
       {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
-      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour sélectionner une plage · clic droit pour les actions'}</span></div>
+      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour sélectionner une plage · ⌘/Ctrl+clic pour comparer deux commits seulement · clic droit pour les actions'}</span></div>
       <span className={styles.srOnly} role="status">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )

@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.6.2] — 2026-10-28
+
+### Ajouté
+
+- **Comparaison de deux commits seulement (⌘/Ctrl+clic)** : après un clic sur
+  un commit, ⌘+clic (Ctrl+clic sous Windows/Linux) sur un autre ouvre le diff
+  A → B entre ces deux arbres, même si des commits se trouvent entre eux. La
+  comparaison ne liste que les deux extrémités et la sélection ne contient
+  qu'elles, ce qui vaut aussi pour Cherry-pick et Revert ; Maj+clic conserve la
+  sélection de plage.
+
+### Modifié
+
+- **Liste des branches au survol compacte** : l’en-tête (SHA) et le pied de
+  page disparaissent, le libellé de type quitte chaque ligne et seuls l’icône
+  et le nom restent, sur des rangées de 24 px et une largeur ajustée au nom le
+  plus long (260 px au maximum). Le type et le double-clic restent disponibles
+  dans l’infobulle et le libellé accessible de chaque ligne.
+
+### Corrigé
+
+- **Diff d'une comparaison A→B enfin lisible** : le patch n'est plus rendu sous
+  la liste des fichiers, dans l'inspecteur étroit où l'en-tête, les commits et
+  la liste ne lui laissaient que quelques pixels. La liste occupe désormais
+  toute la hauteur de l'inspecteur et défile.
+- **Un clic sur un fichier comparé ouvre son diff dans la région centrale**,
+  à la place du graphe, avec le chemin du fichier et sa fermeture ; un second
+  clic sur la même ligne, le bouton × ou un clic sur un commit ramène le graphe.
+  La comparaison et sa liste restent affichées à droite.
+- **`origin/HEAD` ne décore plus les commits** : cette référence symbolique
+  désigne la branche par défaut du remote, déjà affichée sur le même commit ;
+  Git l’inclut pourtant dans ses décorations. Les badges et la liste au survol
+  la masquent désormais, ce qui retire une ligne « distante » trompeuse.
+
 ## [0.6.1] — 2026-10-28
 
 ### Ajouté

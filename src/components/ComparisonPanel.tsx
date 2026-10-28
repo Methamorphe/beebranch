@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { shortRevision } from '../lib/graphRefs'
 import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
 import type { CommitSummary, DiffReport, FileDiff } from '../types/git'
-import { DiffViewer } from './DiffViewer'
 import styles from './ComparisonPanel.module.css'
 
 /** Stable identity: an inline `[]` would re-run memos on every render. */
@@ -19,6 +18,9 @@ type Props = {
   report: DiffReport | null
   loading: boolean
   error: string | null
+  /** Path whose patch is open in the history region, `null` when none is. */
+  activePath: string | null
+  onSelectPath: (path: string) => void
   onClose: () => void
   onSwap: () => void
   onFullScreen: () => void
@@ -26,10 +28,9 @@ type Props = {
 
 type FileView = 'path' | 'tree'
 
-/** A changed file plus the position it keeps in the flat report list. */
+/** A changed file with the path the diff request must target. */
 type FileEntry = {
   entry: FileDiff
-  index: number
   path: string
 }
 
@@ -131,9 +132,9 @@ function PathLabel({ path }: { path: string }) {
 }
 
 /**
- * A→B comparison docked in the history inspector: the commit tree stays
- * visible while the compared commits, the changed files and their patch are
- * read next to it.
+ * A→B comparison docked in the history inspector: the commit tree and the
+ * changed files stay listed next to the history, while the patch of the file
+ * picked here opens in the history region, where it has room to be read.
  */
 export function ComparisonPanel({
   base,
@@ -144,22 +145,15 @@ export function ComparisonPanel({
   report,
   loading,
   error,
+  activePath,
+  onSelectPath,
   onClose,
   onSwap,
   onFullScreen,
 }: Props) {
-  const [active, setActive] = useState(0)
   const [fileView, setFileView] = useState<FileView>('tree')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const files = report?.files ?? NO_FILES
-  const index = files.length === 0 ? -1 : Math.min(active, files.length - 1)
-  const file = index >= 0 ? files[index]! : null
-  // DiffViewer resets its own state whenever the report identity changes, so the
-  // single-file slice must stay referentially stable across renders.
-  const singleReport = useMemo(
-    () => (file ? { files: [file], truncated: report?.truncated ?? false } : null),
-    [file, report?.truncated],
-  )
   const totals = useMemo(
     () =>
       files.reduce(
@@ -173,9 +167,8 @@ export function ComparisonPanel({
   )
   const entries = useMemo<FileEntry[]>(
     () =>
-      files.map((entry, position) => ({
+      files.map((entry) => ({
         entry,
-        index: position,
         path: entry.newPath === '/dev/null' ? entry.oldPath : entry.newPath,
       })),
     [files],
@@ -184,11 +177,6 @@ export function ComparisonPanel({
     () => (fileView === 'tree' ? flattenTree(buildTree(entries), collapsed) : []),
     [entries, fileView, collapsed],
   )
-
-  // A new request replaces the list: the previous file index means nothing.
-  useEffect(() => {
-    setActive(0)
-  }, [report])
 
   const toggleDir = (path: string) =>
     setCollapsed((current) => {
@@ -202,7 +190,7 @@ export function ComparisonPanel({
     })
 
   const fileRow = (item: FileEntry, depth: number) => {
-    const current = item.index === index
+    const current = item.path === activePath
     return (
       <button
         key={`${item.entry.oldPath}->${item.entry.newPath}`}
@@ -217,7 +205,7 @@ export function ComparisonPanel({
               ? `${item.path} → ajouté`
               : `${item.entry.oldPath} → ${item.entry.newPath}`
         }`}
-        onClick={() => setActive(item.index)}
+        onClick={() => onSelectPath(item.path)}
       >
         <span className={styles.status} data-kind={item.entry.kind} aria-hidden="true">
           {STATUS_LETTERS[item.entry.kind]}
@@ -383,42 +371,6 @@ export function ComparisonPanel({
                   ),
                 )}
           </div>
-          {file && singleReport ? (
-            <div className={styles.diffArea}>
-              <div className={styles.diffHeader}>
-                <span className={styles.status} data-kind={file.kind} aria-hidden="true">
-                  {STATUS_LETTERS[file.kind]}
-                </span>
-                <span
-                  className={styles.diffPath}
-                  title={file.newPath === '/dev/null' ? file.oldPath : file.newPath}
-                >
-                  <PathLabel
-                    path={file.newPath === '/dev/null' ? file.oldPath : file.newPath}
-                  />
-                </span>
-                {file.binary ? (
-                  <span className={styles.stats}>binaire</span>
-                ) : (
-                  <span className={styles.stats}>
-                    <span className={styles.added}>+{file.additions}</span>
-                    <span className={styles.removed}>−{file.deletions}</span>
-                  </span>
-                )}
-                <span className={styles.hunkCount}>
-                  {file.hunks.length} hunk{file.hunks.length > 1 ? 's' : ''}
-                </span>
-              </div>
-              <div className={styles.diff} aria-label={`Diff de ${file.newPath}`}>
-                <DiffViewer
-                  key={`${file.oldPath}->${file.newPath}`}
-                  embedded
-                  report={singleReport}
-                  source=""
-                />
-              </div>
-            </div>
-          ) : null}
         </>
       ) : null}
     </aside>

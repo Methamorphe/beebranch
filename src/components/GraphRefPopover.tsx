@@ -31,19 +31,18 @@ export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose
   }, [anchor, elementRef])
   return createPortal(<div ref={elementRef} className={styles.popup} role="group" aria-label="Branches et tags de ce commit" onPointerEnter={onEnter} onPointerLeave={onLeave} onBlur={(event) => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) onLeave() }}
     onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
-    <header><strong>Branches et tags</strong><code>{anchor.commit.sha.slice(0, 8)}</code></header>
-    <div className={styles.list}>
-      {graphCommitRefs(anchor.commit, entries).map(({ raw, entry, key }) => {
-        const checkoutable = isCheckoutableRef(entry)
-        const kind = graphRefKind(raw, entry)
-        return <button key={key} type="button" className={styles.reference} data-ref={raw} data-kind={kind} disabled={disabled || !checkoutable || entry.isHead}
-          title={kind === 'tag' ? 'Tag' : entry?.isHead ? 'Branche active' : checkoutable ? 'Double-clic pour checkout · Entrée au clavier' : 'Référence symbolique'}
-          onDoubleClick={() => { if (checkoutable) onCheckout(entry!.fullName) }}
-          onKeyDown={(event) => { if (checkoutable && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onCheckout(entry!.fullName) } }}>
-          <ViewIcon view={kind === 'tag' ? 'tags' : kind === 'remote' ? 'remotes' : 'branch'} /><span>{graphRefLabel(raw)}</span><small>{entry?.isHead ? 'active' : kind === 'tag' ? 'tag' : kind === 'remote' ? 'distante' : 'locale'}</small>
-        </button>
-      })}
-    </div>
-    <footer>Double-clic sur une branche pour checkout</footer>
+    {graphCommitRefs(anchor.commit, entries).map(({ raw, entry, key }) => {
+      const checkoutable = isCheckoutableRef(entry)
+      const kind = graphRefKind(raw, entry)
+      const label = graphRefLabel(raw)
+      const kindLabel = entry?.isHead ? 'active' : kind === 'tag' ? 'tag' : kind === 'remote' ? 'distante' : 'locale'
+      return <button key={key} type="button" className={styles.reference} data-ref={raw} data-kind={kind} disabled={disabled || !checkoutable || entry.isHead}
+        title={kind === 'tag' ? 'Tag' : entry?.isHead ? 'Branche active' : checkoutable ? 'Double-clic pour checkout · Entrée au clavier' : 'Référence symbolique'}
+        aria-label={`${label} · ${kindLabel}`}
+        onDoubleClick={() => { if (checkoutable) onCheckout(entry!.fullName) }}
+        onKeyDown={(event) => { if (checkoutable && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onCheckout(entry!.fullName) } }}>
+        <ViewIcon view={kind === 'tag' ? 'tags' : kind === 'remote' ? 'remotes' : 'branch'} /><span>{label}</span>
+      </button>
+    })}
   </div>, document.body)
 }

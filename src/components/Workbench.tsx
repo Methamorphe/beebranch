@@ -198,7 +198,6 @@ export function Workbench({
 }: Props) {
   const repoId = repo?.repo.repoId ?? null
   const [localDiff, setLocalDiff] = useState<DiffRequest | null>(null)
-  const activeDiff = view === 'graph' || view === 'status' || view === 'commit' ? localDiff : diffRequest
   const [revision, setRevision] = useState('')
   const [allRefs, setAllRefs] = useState(true)
   const [refs, setRefs] = useState<RefsSnapshot | null>(null)
@@ -233,6 +232,8 @@ export function Workbench({
   const rangeAnchor = useRef<string | undefined>(undefined)
   // A→B comparison shown in the history inspector, without leaving the graph.
   const [comparison, setComparison] = useState<Comparison | null>(null)
+  /** File picked in the comparison list; its patch replaces the graph. */
+  const [comparePath, setComparePath] = useState<string | null>(null)
   const [compareReport, setCompareReport] = useState<DiffReport | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
@@ -244,6 +245,27 @@ export function Workbench({
       .map((sha) => bySha.get(sha))
       .filter((commit): commit is CommitSummary => commit !== undefined)
   }, [comparison, graph.commits])
+  /**
+   * The patch that replaces the history region: a local file, or the compared
+   * file picked in the inspector. Memoised so the diff effect only refetches
+   * when the request itself changes.
+   */
+  const previewDiff = useMemo<DiffRequest | null>(() => {
+    if (localDiff) return localDiff
+    if (comparison && comparePath) {
+      return {
+        target: 'range',
+        base: comparison.base,
+        targetRef: comparison.target,
+        path: comparePath,
+      }
+    }
+    return null
+  }, [localDiff, comparison, comparePath])
+  const activeDiff =
+    view === 'graph' || view === 'status' || view === 'commit'
+      ? previewDiff
+      : diffRequest
   const [branchTarget, setBranchTarget] = useState<string | null>(null)
   const [branchName, setBranchName] = useState('')
   const [refMenu, setRefMenu] = useState<RefMenuState | null>(null)
@@ -259,6 +281,8 @@ export function Workbench({
     if (previousWorktreeRequest.current === worktreeRequest) return
     previousWorktreeRequest.current = worktreeRequest
     setSelected(undefined)
+    setComparison(null)
+    setComparePath(null)
     setLocalDiff(null)
     setWorktreeSelected(hasChanges)
   }, [worktreeRequest, hasChanges])
@@ -471,6 +495,7 @@ export function Workbench({
     (base: string, target: string, commits: string[] = []) => {
       if (!base || !target || base === target) return
       setComparison({ base, target, commits })
+      setComparePath(null)
       setLocalDiff(null)
       setContextMenu(null)
       setRefMenu(null)
@@ -974,7 +999,7 @@ export function Workbench({
 
   const worktreeRow = hasChanges ? (
     <button type="button" className={styles.worktreeRow} data-active={showWorktree} aria-pressed={showWorktree}
-            onClick={() => { setSelected(undefined); setComparison(null); setLocalDiff(null); setWorktreeSelected((current) => !current) }}>
+            onClick={() => { setSelected(undefined); setComparison(null); setComparePath(null); setLocalDiff(null); setWorktreeSelected((current) => !current) }}>
             <span className={styles.wipRef}>En cours</span>
             <span className={styles.wipMarker} aria-hidden="true">◌</span>
             <span className={styles.wipMessage}><strong>Modifications locales</strong><span>{repo.state.worktree.staged} préparé(s) · {repo.state.worktree.unstaged} modifié(s) · {repo.state.worktree.untracked} nouveau(x)</span></span>
@@ -1005,7 +1030,8 @@ export function Workbench({
             <span className={shared.notice}>{picked.length} commit(s) sélectionné(s)</span>
             {picked.length === 1 ? (
               <span className={shared.small}>
-                Maj+clic sur un autre commit pour sélectionner la plage.
+                Maj+clic sur un autre commit pour sélectionner la plage,
+                ⌘/Ctrl+clic pour ne comparer que les deux extrémités.
               </span>
             ) : null}
             {canCompare ? (
@@ -1089,7 +1115,7 @@ export function Workbench({
       <div className={styles.graphLayout} style={{ '--inspector-width': `${layout.inspector}px` } as CSSProperties}>
         <div className={styles.historyMain}>
           {localDiff ? worktreeRow : null}
-          <div className={styles.graphRegion} hidden={Boolean(localDiff)}>
+          <div className={styles.graphRegion} hidden={Boolean(previewDiff)}>
         {graph.commits.length === 0 && !graph.loading ? (
           <div className={styles.emptyHistory}>
             {worktreeRow}
@@ -1114,6 +1140,24 @@ export function Workbench({
               setSelected(sha)
               setWorktreeSelected(false)
               setLocalDiff(null)
+              setComparePath(null)
+              if (modifiers.meta) {
+                // Endpoint comparison: the anchor and the clicked row only,
+                // whatever sits between them. The A→B diff keeps the click
+                // direction, and the picked pair drives Cherry-pick and Revert
+                // without dragging the commits in between along.
+                const anchor = rangeAnchor.current ?? selected
+                if (anchor && anchor !== sha) {
+                  const pair = graphOrder([anchor, sha])
+                  setPicked(pair)
+                  startComparison(anchor, sha, pair)
+                  return
+                }
+                rangeAnchor.current = sha
+                setPicked([])
+                setComparison(null)
+                return
+              }
               if (modifiers.shift) {
                 // Shift extends the selection from the anchor to the clicked
                 // row: every commit in between is picked, oldest first so the
@@ -1159,13 +1203,27 @@ export function Workbench({
           />
         )}
           </div>
-          {localDiff ? <>
+          {previewDiff ? <>
         <div className={styles.diffPreview} aria-label="Aperçu des modifications" aria-busy={diffLoading}>
-          {localDiff ? <div className={styles.previewHeading}><span>{localDiff.target === 'index' ? 'Prêt à committer' : 'Modification locale'}</span><code title={localDiff.path}>{localDiff.path}</code><button type="button" onClick={() => setLocalDiff(null)} aria-label="Fermer l’aperçu">×</button></div> : null}
+          <div className={styles.previewHeading}>
+            <span>{previewDiff.target === 'index'
+              ? 'Prêt à committer'
+              : previewDiff.target === 'range'
+                ? `Comparaison ${shortRevision(previewDiff.base ?? 'HEAD')} → ${shortRevision(previewDiff.targetRef ?? 'HEAD')}`
+                : 'Modification locale'}</span>
+            <code title={previewDiff.path}>{previewDiff.path}</code>
+            <button
+              type="button"
+              onClick={() => { setLocalDiff(null); setComparePath(null) }}
+              aria-label="Fermer l’aperçu"
+            >
+              ×
+            </button>
+          </div>
           {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
-          {diffLoading ? <div className={styles.placeholder} role="status">Chargement des modifications…</div> : report && localDiff ?
-            <DiffViewer embedded report={report} source="" staging={localDiff.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index') ? { repoId, target: localDiff.target, onMutated } : undefined} /> :
-            <div className={styles.placeholder}><span className={styles.emptyIcon} aria-hidden="true">±</span><h2>Chaque changement compte.</h2><p>Sélectionnez un fichier pour voir ses modifications.<br />Préparez les fichiers avec +, puis créez votre commit.</p></div>}
+          {diffLoading ? <div className={styles.placeholder} role="status">Chargement des modifications…</div> : report ?
+            <DiffViewer embedded report={report} source="" staging={localDiff && localDiff.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index') ? { repoId, target: localDiff.target, onMutated } : undefined} /> :
+            <div className={styles.placeholder}><h2>Chaque changement compte.</h2><p>Sélectionnez un fichier pour voir ses modifications.<br />Préparez les fichiers avec +, puis créez votre commit.</p></div>}
         </div>
           </> : null}
         </div>
@@ -1190,7 +1248,11 @@ export function Workbench({
           report={compareReport}
           loading={compareLoading}
           error={compareError}
-          onClose={() => setComparison(null)}
+          activePath={comparePath}
+          onSelectPath={(path) =>
+            setComparePath((current) => (current === path ? null : path))
+          }
+          onClose={() => { setComparison(null); setComparePath(null) }}
           onSwap={() => setComparison((current) => current ? { ...current, base: current.target, target: current.base } : current)}
           onFullScreen={() => onOpenDiff({ target: 'range', base: comparison.base, targetRef: comparison.target })}
         /> : selected ? <CommitDetailPanel

@@ -90,6 +90,8 @@ function mockScript(commits, rows, diffLines) {
       { fullName:'refs/remotes/origin/synced', name:'origin/synced', kind:'remoteBranch', remote:'origin', targetOid:commits[3].sha, objectType:'commit', isHead:false },
       // Remote-only branch: its badge must read as remote, not local.
       { fullName:'refs/remotes/origin/hotfix', name:'origin/hotfix', kind:'remoteBranch', remote:'origin', targetOid:commits[18].sha, objectType:'commit', isHead:false },
+      // Symbolic remote HEAD: an alias of origin/main, never a branch of its own.
+      { fullName:'refs/remotes/origin/HEAD', name:'origin/HEAD', kind:'remoteBranch', remote:'origin', targetOid:commits[0].sha, objectType:'commit', isHead:false, symref:'refs/remotes/origin/main' },
     ],
     remotes: ['origin'],
   };
@@ -452,7 +454,7 @@ const commits = Array.from({ length: count }, (_, index) => ({
   parents: index + 1 < count ? [sha(index + 2)] : [],
   author: { name: index % 3 === 0 ? 'Alice' : index % 3 === 1 ? 'Bob' : 'Chloé', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
   committer: { name: 'Alice', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
-  refs: index === 0 ? ['HEAD -> main', 'origin/main', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 3 ? ['synced', 'origin/synced'] : index === 18 ? ['origin/hotfix'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
+  refs: index === 0 ? ['HEAD -> main', 'origin/main', 'origin/HEAD', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 3 ? ['synced', 'origin/synced'] : index === 18 ? ['origin/hotfix'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
   subject: `Commit ${index + 1} — ${['fix graph lanes', 'add diff window', 'wire session watcher', 'document benchmarks'][index % 4]}`,
 }))
 // A deterministic two-lane history: a merge every six rows, with the side
@@ -700,13 +702,13 @@ try {
   if (!(await toggleMultiSelect())) throw new Error('multi-select toggle missing')
   await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage du graphe"]').click()`)
   await waitFor(client, `document.querySelector('[popover]:popover-open') === null`, 'graph display options closed')
-  const pickCommitRow = async (index, shift = false) => evaluate(client, `(() => {
+  const pickCommitRow = async (index, shift = false, meta = false) => evaluate(client, `(() => {
     const canvas = document.querySelector('canvas')
     const box = canvas.getBoundingClientRect()
     const x = box.left + Math.max(120, box.width * 0.55)
     const y = box.top + ${index} * 30 + 15
     for (const type of ['pointerdown', 'pointerup']) {
-      canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, shiftKey: ${shift} }))
+      canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, shiftKey: ${shift}, metaKey: ${meta} }))
     }
     return true
   })()`)
@@ -727,12 +729,13 @@ try {
   await waitFor(client, `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range')`, 'range diff request')
   const compareFrame = await evaluate(client, `({
     heading: document.querySelector('main h1')?.textContent,
-    graph: document.querySelector('canvas') !== null,
+    graph: document.querySelector('canvas')?.closest('[hidden]') === null,
     files: document.querySelectorAll('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button').length,
-    diff: document.querySelector('aside[aria-label="Comparaison"] [aria-label^="Diff de"]') !== null,
+    inlineDiff: document.querySelector('aside[aria-label="Comparaison"] [aria-label^="Diff de"]') !== null,
+    preview: document.querySelector('[aria-label="Aperçu des modifications"]') !== null,
   })`)
-  if (compareFrame.heading !== 'Historique' || !compareFrame.graph || compareFrame.files < 1 || !compareFrame.diff) {
-    throw new Error('comparison left the history view: ' + JSON.stringify(compareFrame))
+  if (compareFrame.heading !== 'Historique' || !compareFrame.graph || compareFrame.files < 1 || compareFrame.inlineDiff || compareFrame.preview) {
+    throw new Error('comparison must keep the history and leave its patch out of the inspector: ' + JSON.stringify(compareFrame))
   }
   const compareReport = await evaluate(client, `(() => {
     const call = [...window.__diffCalls].reverse().find((entry) => entry.request?.target === 'range')
@@ -747,6 +750,48 @@ try {
   if (compareReport.base !== compareReport.expectedBase || compareReport.target !== compareReport.expectedTarget || !compareReport.label) {
     throw new Error('two-commit comparison mismatch: ' + JSON.stringify(compareReport))
   }
+  // Picking a file opens its patch in the history region, where it has room to
+  // be read; the file list stays docked in the inspector.
+  const filePicked = await evaluate(client, `(() => {
+    const button = [...document.querySelectorAll('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button')]
+      .find((item) => item.title?.includes('src/pair.ts'))
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!filePicked) throw new Error('comparison file rows missing')
+  await waitFor(client, `document.querySelector('[aria-label="Aperçu des modifications"]')?.innerText.includes('src/pair.ts') ?? false`, 'comparison patch in the history region')
+  await waitFor(client, `performance.getEntriesByName('diff.first-paint').length > 0`, 'comparison diff render')
+  const patchFrame = await evaluate(client, `(() => {
+    const preview = document.querySelector('[aria-label="Aperçu des modifications"]')
+    const box = preview?.getBoundingClientRect()
+    const calls = (window.__diffCalls ?? []).filter((entry) => entry.request?.target === 'range' && entry.request.path === 'src/pair.ts')
+    return {
+      graphHidden: document.querySelector('canvas')?.closest('[hidden]') !== null,
+      width: Math.round(box?.width ?? 0),
+      path: calls.at(-1)?.request?.path ?? null,
+      emphasis: preview?.querySelectorAll('[data-diff-emphasis="word"]').length ?? 0,
+      listOpen: document.querySelector('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"]') !== null,
+      current: document.querySelector('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] [aria-current="true"]')?.title ?? null,
+    }
+  })()`)
+  if (!patchFrame.graphHidden || patchFrame.width < 600 || patchFrame.path !== 'src/pair.ts' || !patchFrame.listOpen) {
+    throw new Error('comparison patch did not take the history region: ' + JSON.stringify(patchFrame))
+  }
+  if (!patchFrame.current?.includes('src/pair.ts')) {
+    throw new Error('picked comparison file is not marked in the list: ' + JSON.stringify(patchFrame))
+  }
+  if (patchFrame.emphasis < 2) {
+    throw new Error('paired lines are not emphasised word by word: ' + JSON.stringify(patchFrame))
+  }
+  await screenshot(client, 'p0-compare-patch.png')
+  // Closing the patch restores the graph without dropping the comparison.
+  await evaluate(client, `document.querySelector('[aria-label="Aperçu des modifications"] button[aria-label="Fermer l’aperçu"]').click()`)
+  await waitFor(
+    client,
+    `document.querySelector('[aria-label="Aperçu des modifications"]') === null && document.querySelector('canvas')?.closest('[hidden]') === null && document.querySelector('aside[aria-label="Comparaison"]') !== null`,
+    'graph restored, comparison kept',
+  )
   await screenshot(client, 'p0-compare.png')
   await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
   await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'comparison closed')
@@ -782,7 +827,6 @@ try {
       newest: panel?.querySelector('[aria-label="Commits comparés"] li')?.textContent?.includes(${JSON.stringify(sha(1).slice(0, 8))}) ?? false,
       oldest: [...(panel?.querySelectorAll('[aria-label="Commits comparés"] li') ?? [])].pop()?.textContent?.includes(${JSON.stringify(sha(3).slice(0, 8))}) ?? false,
       treeDir: panel?.querySelector('[aria-label="Fichiers comparés"] button[aria-expanded]') !== null,
-      emphasis: panel?.querySelectorAll('[data-diff-emphasis="word"]').length ?? 0,
     }
   })()`)
   if (shiftReport.base !== shiftReport.expectedBase || shiftReport.target !== shiftReport.expectedTarget || !shiftReport.label) {
@@ -796,9 +840,6 @@ try {
     throw new Error('compared commits are not listed newest first: ' + JSON.stringify(shiftReport))
   }
   if (!shiftReport.treeDir) throw new Error('comparison files are not grouped as a tree')
-  if (shiftReport.emphasis < 2) {
-    throw new Error('paired lines are not emphasised word by word: ' + JSON.stringify(shiftReport))
-  }
   // Path/Tree toggle and directory collapse must reorganise the same list.
   const pathView = await evaluate(client, `(() => {
     const group = document.querySelector('aside[aria-label="Comparaison"] [aria-label="Présentation des fichiers"]')
@@ -840,6 +881,50 @@ try {
     if (clear) clear.click()
   })()`)
   await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'shift picks cleared')
+
+  // ⌘/Ctrl+click compares the anchor and the clicked commit only: the four
+  // commits in between are neither picked nor listed in the comparison.
+  await pickCommitRow(0)
+  await waitFor(client, `document.body.innerText.includes('Voir le diff complet')`, 'endpoint anchor selected')
+  await pickCommitRow(5, false, true)
+  await waitFor(client, `document.body.innerText.includes('2 commit(s) sélectionné(s)')`, 'endpoint pair picked')
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') !== null`, 'endpoint comparison panel')
+  await waitFor(
+    client,
+    `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range' && call.request.base === ${JSON.stringify(sha(1))} && call.request.targetRef === ${JSON.stringify(sha(6))})`,
+    'endpoint range diff request',
+  )
+  const endpointReport = await evaluate(client, `(() => {
+    const panel = document.querySelector('aside[aria-label="Comparaison"]')
+    const listed = [...(panel?.querySelectorAll('[aria-label="Commits comparés"] li') ?? [])]
+      .map((item) => item.querySelector('[title]')?.getAttribute('title'))
+    return {
+      title: panel?.querySelector('header span')?.textContent?.trim(),
+      commits: listed.length,
+      listedNewest: listed[0] === ${JSON.stringify(sha(1))},
+      listedOldest: listed[1] === ${JSON.stringify(sha(6))},
+      skippedMiddle: listed.includes(${JSON.stringify(sha(3))}),
+      picked: (document.body.innerText.match(/(\\d+) commit\\(s\\) sélectionné/g) ?? []).join(','),
+      preview: document.querySelector('[aria-label="Aperçu des modifications"]') !== null,
+    }
+  })()`)
+  if (endpointReport.title !== '2 commits sélectionnés' || endpointReport.commits !== 2) {
+    throw new Error('endpoint comparison does not list exactly two commits: ' + JSON.stringify(endpointReport))
+  }
+  if (!endpointReport.listedNewest || !endpointReport.listedOldest || endpointReport.skippedMiddle) {
+    throw new Error('endpoint comparison must list the two ends only: ' + JSON.stringify(endpointReport))
+  }
+  if (endpointReport.preview) {
+    throw new Error('endpoint comparison must wait for a file click before opening a patch: ' + JSON.stringify(endpointReport))
+  }
+  await screenshot(client, 'p0-compare-endpoints.png')
+  await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'endpoint comparison closed')
+  await evaluate(client, `(() => {
+    const clear = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Vider')
+    if (clear) clear.click()
+  })()`)
+  await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'endpoint picks cleared')
 
   // Shift+arrow extends the same range from the keyboard.
   await evaluate(client, `(() => {
@@ -1596,6 +1681,8 @@ try {
   }
   const firstPoint = await hoverRef()
   assertUI('graph-hover-shows-all-refs', await evaluate(client, `(() => { const p = document.querySelector('[aria-label="Branches et tags de ce commit"]'); return ['main', 'origin/main', 'feature/group', 'origin/feature/deep', 'origin/collision'].every(name => p.textContent.includes(name)) && p.querySelectorAll('button').length === 6 })()`))
+  assertUI('graph-remote-head-symref-hidden', await evaluate(client, `(() => { const p = document.querySelector('[aria-label="Branches et tags de ce commit"]'); return !p.textContent.includes('origin/HEAD') && !p.querySelector('[data-ref="origin/HEAD"]') })()`))
+  assertUI('graph-hover-list-compact', await evaluate(client, `(() => { const r = document.querySelector('[aria-label="Branches et tags de ce commit"]').getBoundingClientRect(); return r.width <= 260 && r.height < 220 })()`))
   const beforeRefCalls = await evaluate(client, 'window.__toolbarCalls.length')
   await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, x:firstPoint.x, y:firstPoint.y })
   await client.send('Input.dispatchMouseEvent', { type:'mouseReleased', button:'left', clickCount:1, x:firstPoint.x, y:firstPoint.y })
