@@ -1,0 +1,158 @@
+.root {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.root > :first-child {
+  margin-top: 0;
+}
+
+.root > :last-child {
+  margin-bottom: 0;
+}
+
+.root h1,
+.root h2,
+.root h3,
+.root h4,
+.root h5,
+.root h6 {
+  margin: 20px 0 8px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.root h1 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 20px;
+}
+
+.root h2 {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 16px;
+}
+
+.root h3 {
+  font-size: 14px;
+}
+
+.root h4,
+.root h5,
+.root h6 {
+  font-size: 13px;
+  color: var(--muted-strong);
+}
+
+.root p,
+.root ul,
+.root ol,
+.root blockquote,
+.root pre,
+.root table {
+  margin: 0 0 12px;
+}
+
+.root ul,
+.root ol {
+  padding-left: 20px;
+}
+
+.root li + li {
+  margin-top: 4px;
+}
+
+.root li > ul,
+.root li > ol {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.root blockquote {
+  padding: 2px 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted-strong);
+}
+
+.root hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.root code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.root pre {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.root pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.root table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.root th,
+.root td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.root th {
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.root img {
+  max-width: 100%;
+}
+
+.link {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.inactiveLink {
+  color: var(--muted-strong);
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+.blockedImage {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 11px;
+}

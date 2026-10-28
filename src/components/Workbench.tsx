@@ -19,6 +19,7 @@ import {
   branchUpstream,
   commitGet,
   diffGet,
+  fileContentGet,
   historyCherryPick,
   historyMerge,
   historyRevert,
@@ -27,6 +28,7 @@ import {
   gitlabStatus,
   openExternalUrl,
   refsGet,
+  syncPush,
   type DiffRequest,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
@@ -49,6 +51,7 @@ import type {
   RepoView,
 } from '../types/git'
 import { ActionMenu } from './ActionMenu'
+import { AmendDialog } from './AmendDialog'
 import { ContextMenu } from './ContextMenu'
 import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
@@ -66,7 +69,7 @@ import { WorktreesPanel } from './WorktreesPanel'
 import { WorkspacesPanel } from './WorkspacesPanel'
 import { MergeRequestsPanel } from './MergeRequestsPanel'
 import { CommitPanel } from './CommitPanel'
-import { DiffViewer } from './DiffViewer'
+import { DiffViewer, type DocumentReader } from './DiffViewer'
 import { GitlabPanel } from './GitlabPanel'
 import { GraphCanvas } from './GraphCanvas'
 import { RecoveryPanel } from './RecoveryPanel'
@@ -107,9 +110,6 @@ type Comparison = {
   /** Commits covered by the comparison, newest first, as the graph lists them. */
   commits: string[]
 }
-
-/** Past this, the ordered chip list gives way to a compact range summary. */
-const CHIP_LIMIT = 4
 
 type ContextMenuState = {
   commit: CommitSummary
@@ -173,6 +173,20 @@ type RefMenuState = {
   y: number
   renaming: boolean
   name: string
+  /** Remote-branch list shown in place of "Définir l'upstream…". */
+  pickingUpstream: boolean
+}
+
+/**
+ * Remote that receives a push of this local branch. The backend runs
+ * `git push <remote> <branch>`, so the pushed ref is always the local name;
+ * the upstream only selects the remote.
+ */
+function pushTarget(entry: RefEntry) {
+  const upstream = entry.upstream?.replace(/^refs\/remotes\//, '')
+  const [remote] = upstream?.split('/') ?? []
+  const name = remote || 'origin'
+  return { remote: name, target: `${name}/${entry.name}` }
 }
 
 export function Workbench({
@@ -221,6 +235,8 @@ export function Workbench({
   const [diffLoading, setDiffLoading] = useState(false)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  /** HEAD commit opened in the amend dialog, from the menu or the diff header. */
+  const [amendTarget, setAmendTarget] = useState<{ sha: string; subject: string } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
   const [filePath, setFilePath] = useState('')
@@ -262,6 +278,34 @@ export function Workbench({
     }
     return null
   }, [localDiff, comparison, comparePath])
+  /**
+   * Files are read at the revision the diff was computed for, so the rendered
+   * view never shows the working copy while the diff targets a commit.
+   */
+  const documentReader = useCallback(
+    (request: DiffRequest | null): DocumentReader | undefined => {
+      if (!repoId || !request) return undefined
+      const revision =
+        request.target === 'worktree'
+          ? 'worktree'
+          : request.target === 'index'
+            ? 'index'
+            : request.target === 'commit'
+              ? request.base
+              : request.targetRef ?? 'HEAD'
+      if (!revision) return undefined
+      return (path: string) => fileContentGet({ repoId, path, revision })
+    },
+    [repoId],
+  )
+  const readPreviewDocument = useMemo(
+    () => documentReader(previewDiff),
+    [documentReader, previewDiff],
+  )
+  const readDiffDocument = useMemo(
+    () => documentReader(diffRequest),
+    [documentReader, diffRequest],
+  )
   const activeDiff =
     view === 'graph' || view === 'status' || view === 'commit'
       ? previewDiff
@@ -547,6 +591,30 @@ export function Workbench({
     [onMutated],
   )
 
+  /**
+   * Git rewrites HEAD only, so the action is offered exactly for that commit
+   * and never while another operation owns the index.
+   */
+  const headSha = refs?.head?.oid
+  const amendBlocked =
+    Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)
+  const canAmend = (sha: string) =>
+    Boolean(repoId && headSha && sha === headSha && !amendBlocked)
+
+  const handleAmended = (sha: string) => {
+    setAmendTarget(null)
+    setSelected(sha)
+    setWorktreeSelected(false)
+    setLocalDiff(null)
+    setComparison(null)
+    setComparePath(null)
+    if (view === 'diff') {
+      onOpenDiff({ target: 'commit', base: sha, path: diffRequest?.path })
+    }
+    setActionNotice(`Commit ${sha.slice(0, 10)} amendé.`)
+    onMutated()
+  }
+
   const startBranchCreate = useCallback(
     (sha?: string | null) => {
       const start = sha ?? selected ?? graph.commits[0]?.sha
@@ -584,7 +652,24 @@ export function Workbench({
   }, [branchRequest, startBranchCreate, view])
 
   const openRefMenu = (entry: RefEntry, x: number, y: number) => {
-    setRefMenu({ entry, x, y, renaming: false, name: entry.name })
+    setRefMenu({ entry, x, y, renaming: false, name: entry.name, pickingUpstream: false })
+  }
+
+  const pushBranch = (entry: RefEntry) => {
+    if (!repoId) return
+    const { remote } = pushTarget(entry)
+    setRefMenu(null)
+    void runAction(`Branche ${entry.name} poussée vers ${remote}.`, () =>
+      syncPush({ repoId, remote, branch: entry.name }),
+    )
+  }
+
+  const applyUpstream = (branch: RefEntry, upstream: string) => {
+    if (!repoId) return
+    setRefMenu(null)
+    void runAction(`Upstream de ${branch.name} : ${upstream}.`, () =>
+      branchUpstream({ repoId, branch: branch.name, upstream }),
+    )
   }
 
   const handleRefDrop = (source: RefEntry, target: RefEntry, x: number, y: number) => {
@@ -726,6 +811,20 @@ export function Workbench({
     )
   }
 
+  // Amend is reachable from the graph menu and the diff view, so the dialog
+  // must be mounted by both branches of the render below.
+  const amendDialog = amendTarget ? (
+    <AmendDialog
+      repoId={repoId}
+      sha={amendTarget.sha}
+      subject={amendTarget.subject}
+      staged={repo.state.worktree.staged}
+      branch={repo.state.head?.kind === 'branch' ? repo.state.head.name : null}
+      onClose={() => setAmendTarget(null)}
+      onAmended={handleAmended}
+    />
+  ) : null
+
   if (view === 'sync') {
     return <SyncPanel repoId={repoId} generation={generation} onMutated={onMutated} />
   }
@@ -848,6 +947,7 @@ export function Workbench({
       diffRequest?.target === 'commit' && diffRequest.base
         ? graph.commits.find((entry) => entry.sha === diffRequest.base)
         : undefined
+    const diffSha = diffRequest?.target === 'commit' ? diffRequest.base : undefined
     const source = !diffRequest
       ? 'Aucune sélection'
       : diffRequest.target === 'commit'
@@ -892,6 +992,16 @@ export function Workbench({
                 : undefined
             }
             staging={staging}
+            onAmend={
+              diffSha && canAmend(diffSha)
+                ? () =>
+                    setAmendTarget({
+                      sha: diffSha,
+                      subject: diffCommit?.subject ?? shortRevision(diffSha),
+                    })
+                : undefined
+            }
+            readDocument={readDiffDocument}
           />
         ) : (
           <div className={styles.placeholder}>
@@ -902,6 +1012,7 @@ export function Workbench({
             </p>
           </div>
         )}
+        {amendDialog}
       </div>
     )
   }
@@ -1080,33 +1191,6 @@ export function Workbench({
       {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
       {actionNotice ? <div className={styles.actionNotice} role="status">{actionNotice}</div> : null}
 
-      {picked.length > 0 ? (
-        <div className={shared.row} style={{ padding: '4px 24px 0' }}>
-          <span className={shared.small}>Ordre :</span>
-          {picked.length <= CHIP_LIMIT ? picked.map((sha, index) => (
-            <span key={sha} className={shared.badge}>
-              {index + 1}. {sha.slice(0, 8)}
-              <button
-                type="button"
-                className={shared.small}
-                style={{ padding: '0 3px', marginLeft: 4 }}
-                aria-label={`Retirer ${sha.slice(0, 8)}`}
-                onClick={() =>
-                  setPicked((current) => current.filter((value) => value !== sha))
-                }
-              >
-                ×
-              </button>
-            </span>
-          )) : (
-            <span className={shared.badge}>
-              {picked.length} commits · {picked[0]!.slice(0, 8)} …{' '}
-              {picked[picked.length - 1]!.slice(0, 8)}
-            </span>
-          )}
-        </div>
-      ) : null}
-
       {graph.error ? (
         <div className={styles.error} role="alert">
           {graph.error}
@@ -1136,6 +1220,7 @@ export function Workbench({
             checkoutDisabled={checkoutBusy}
             onCheckoutRef={(raw) => void checkoutGraphRef(raw)}
             picked={picked}
+            footer={comparison === null}
             onSelect={(sha, modifiers) => {
               setSelected(sha)
               setWorktreeSelected(false)
@@ -1222,7 +1307,7 @@ export function Workbench({
           </div>
           {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
           {diffLoading ? <div className={styles.placeholder} role="status">Chargement des modifications…</div> : report ?
-            <DiffViewer embedded report={report} source="" staging={localDiff && localDiff.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index') ? { repoId, target: localDiff.target, onMutated } : undefined} /> :
+            <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument} staging={localDiff && localDiff.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index') ? { repoId, target: localDiff.target, onMutated } : undefined} /> :
             <div className={styles.placeholder}><h2>Chaque changement compte.</h2><p>Sélectionnez un fichier pour voir ses modifications.<br />Préparez les fichiers avec +, puis créez votre commit.</p></div>}
         </div>
           </> : null}
@@ -1311,6 +1396,21 @@ export function Workbench({
             >
               <ViewIcon view="branch" /><span>Créer une branche ici…</span>
             </button>
+            {canAmend(contextMenu.commit.sha) ? (
+              <button
+                type="button"
+                className={styles.contextAction}
+                role="menuitem"
+                title="Amender HEAD réécrit l’historique"
+                onClick={() => {
+                  const { sha, subject } = contextMenu.commit
+                  closeMenu()
+                  setAmendTarget({ sha, subject })
+                }}
+              >
+                <ViewIcon view="commit" /><span>Amender ce commit…</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className={styles.contextAction}
@@ -1428,6 +1528,8 @@ export function Workbench({
         onConfirm={() => void confirmIntegration()}
       />
 
+      {amendDialog}
+
       {refMenu ? (
         <ContextMenu
           x={refMenu.x}
@@ -1494,6 +1596,74 @@ export function Workbench({
                   <ViewIcon view="patches" /><span>Renommer…</span>
                 </button>
               )
+            ) : null}
+            {refMenu.entry.kind === 'branch' ? (
+              <>
+                <button
+                  type="button"
+                  className={styles.contextAction}
+                  role="menuitem"
+                  onClick={() => pushBranch(refMenu.entry)}
+                >
+                  <ViewIcon view="sync" /><span>Pousser vers {pushTarget(refMenu.entry).target}</span>
+                </button>
+                {refMenu.pickingUpstream ? (
+                  (() => {
+                    const remotes = (refs?.entries ?? []).filter(
+                      (entry) => entry.kind === 'remoteBranch' && !entry.name.endsWith('/HEAD'),
+                    )
+                    if (remotes.length === 0) {
+                      return (
+                        <button type="button" className={styles.contextAction} role="menuitem" disabled>
+                          <ViewIcon view="remotes" /><span>Aucune branche distante : lancez un fetch.</span>
+                        </button>
+                      )
+                    }
+                    return (
+                      <div role="group" aria-label="Branche distante à suivre">
+                        {remotes.map((remoteBranch) => (
+                          <button
+                            key={remoteBranch.fullName}
+                            type="button"
+                            className={styles.contextAction}
+                            role="menuitem"
+                            aria-current={
+                              remoteBranch.name === refMenu.entry.upstream ? 'true' : undefined
+                            }
+                            onClick={() => applyUpstream(refMenu.entry, remoteBranch.name)}
+                          >
+                            <ViewIcon view="remotes" />
+                            <span>
+                              {remoteBranch.name}
+                              {remoteBranch.name === refMenu.entry.upstream ? ' · actuel' : ''}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.contextAction}
+                    role="menuitem"
+                    onClick={() =>
+                      setRefMenu((current) =>
+                        current
+                          ? { ...current, pickingUpstream: true, renaming: false }
+                          : current,
+                      )
+                    }
+                  >
+                    <ViewIcon view="remotes" />
+                    <span>
+                      {refMenu.entry.upstream
+                        ? `Upstream : ${refMenu.entry.upstream}`
+                        : "Définir l'upstream…"}
+                    </span>
+                  </button>
+                )}
+              </>
             ) : null}
             {refMenu.entry.kind === 'branch' && !refMenu.entry.isHead ? (
               <>

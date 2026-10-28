@@ -88,6 +88,15 @@ function mockScript(commits, rows, diffLines) {
       { fullName: 'refs/heads/synced', name: 'synced', kind: 'branch', targetOid: commits[3].sha,
         objectType: 'commit', upstream: 'refs/remotes/origin/synced', isHead: false },
       { fullName:'refs/remotes/origin/synced', name:'origin/synced', kind:'remoteBranch', remote:'origin', targetOid:commits[3].sha, objectType:'commit', isHead:false },
+      // Local branch lagging behind its own remote-tracking ref.
+      { fullName: 'refs/heads/behind', name: 'behind', kind: 'branch', targetOid: commits[6].sha,
+        objectType: 'commit', upstream: 'refs/remotes/origin/behind', isHead: false },
+      { fullName:'refs/remotes/origin/behind', name:'origin/behind', kind:'remoteBranch', remote:'origin', targetOid:commits[7].sha, objectType:'commit', isHead:false },
+      // A remote branch sharing its commit with another local branch: the
+      // badge under the cursor decides which ref is checked out.
+      { fullName: 'refs/heads/other', name: 'other', kind: 'branch', targetOid: commits[8].sha,
+        objectType: 'commit', isHead: false },
+      { fullName:'refs/remotes/origin/topic', name:'origin/topic', kind:'remoteBranch', remote:'origin', targetOid:commits[8].sha, objectType:'commit', isHead:false },
       // Remote-only branch: its badge must read as remote, not local.
       { fullName:'refs/remotes/origin/hotfix', name:'origin/hotfix', kind:'remoteBranch', remote:'origin', targetOid:commits[18].sha, objectType:'commit', isHead:false },
       // Symbolic remote HEAD: an alias of origin/main, never a branch of its own.
@@ -153,13 +162,29 @@ function mockScript(commits, rows, diffLines) {
       return {
         ...repo,
         generation: window.__generationOverride ?? repo.generation,
-        state: { ...repo.state, worktree: window.__worktreeOverride ?? repo.state.worktree },
+        state: {
+          ...repo.state,
+          operation: window.__operationOverride === undefined ? repo.state.operation : window.__operationOverride,
+          conflicts: window.__conflictsOverride ?? repo.state.conflicts,
+          worktree: window.__worktreeOverride ?? repo.state.worktree,
+        },
       };
     },
-    repo_refresh: () => repo,
+    repo_refresh: () => ({
+      ...repo,
+      state: {
+        ...repo.state,
+        operation: window.__operationOverride === undefined ? repo.state.operation : window.__operationOverride,
+        conflicts: window.__conflictsOverride ?? repo.state.conflicts,
+        worktree: window.__worktreeOverride ?? repo.state.worktree,
+      },
+    }),
     status_get: () => ({ data: status, generation: 1 }),
     refs_get: () => ({ data: refs, generation: 1 }),
-    commit_get: () => ({ data: commit, generation: 1 }),
+    commit_get: (args) => ({
+      data: { ...commit, summary: { ...commit.summary, sha: args.sha ?? commit.summary.sha } },
+      generation: 1,
+    }),
     diff_get: (args) => {
       (window.__diffCalls ??= []).push(args)
       const path = args.request?.path
@@ -173,6 +198,17 @@ function mockScript(commits, rows, diffLines) {
           }]
         : diff.files
       return { data: { ...diff, files }, generation: 1 }
+    },
+    file_content_get: (args) => {
+      (window.__contentCalls ??= []).push(args)
+      return {
+        path: args.request.path,
+        revision: args.request.revision ?? 'worktree',
+        content: '# Notes du fichier\\n\\nUn paragraphe **important** avec du \`code\`.\\n\\n- premier point\\n- second point\\n\\n| Clé | Valeur |\\n| --- | --- |\\n| rendu | Markdown |\\n\\n[documentation](https://example.test/doc)\\n\\n![capture](https://example.test/capture.png)\\n\\n<script>window.__markdownInjected = true</script>\\n',
+        bytes: 320,
+        truncated: false,
+        binary: false,
+      }
     },
     graph_page: (args) => args.request && args.request.after
       ? { commits: [], rows: [], generation: 1, truncated: false }
@@ -217,6 +253,19 @@ function mockScript(commits, rows, diffLines) {
     operation_cancel: () => true,
     conflict_save: (args) => { (window.__p2Calls ??= []).push(['conflict_save', args]); return { data: { path: 'src/main.rs', eol: 'lf', hasMarkers: false, markerLines: [], resolved: true, binary: false, tooLarge: false, ours: { content: 'ours\\n', bytes: 5, truncated: false }, theirs: { content: 'theirs\\n', bytes: 7, truncated: false }, working: { content: 'ours\\n', bytes: 5, truncated: false } }, generation: 2, state: repo.state }; },
     commit_config: () => ({ name: 'Alice', email: 'alice@example.test', signing: false }),
+    commit_create: (args) => {
+      (window.__amendCalls ??= []).push(args.request)
+      return {
+        data: {
+          sha: commits[8].sha,
+          output: 'Amended HEAD',
+          signed: false,
+          config: { name: 'Alice', email: 'alice@example.test', signing: false },
+        },
+        generation: 2,
+        state: repo.state,
+      };
+    },
     index_stage: (args) => { (window.__p1Calls ??= []).push(['stage', args]); return { data: { files: ['src/module-1.ts'], hunks: 1, patchBytes: 42 }, generation: 2, state: repo.state }; },
     index_unstage: (args) => { (window.__p1Calls ??= []).push(['unstage', args]); return { data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state }; },
     index_discard: () => ({ data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state }),
@@ -325,7 +374,7 @@ function mockScript(commits, rows, diffLines) {
       rollbackEndpoint: 'https://updates.beebranch.fr/rollback.json',
       signatureRequired: true, platform: 'macos-aarch64',
     }),
-    update_check: () => (window.__scenarioUpdateAvailable ? { currentVersion: '0.4.0', version: '0.4.1', publishedAt: '2026-10-28T10:00:00Z', notes: 'Références du graphe.', downloadUrl: 'https://example.test/BeeBranch.app.tar.gz', rollback: false } : null),
+    update_check: () => (window.__scenarioUpdateAvailable ? { currentVersion: '0.4.0', version: '0.4.1', publishedAt: '2026-10-28T10:00:00Z', notes: '## BeeBranch 0.4.1\\n\\n- **Graphe** plus lisible\\n- rendu \`Markdown\` des notes', downloadUrl: 'https://example.test/BeeBranch.app.tar.gz', rollback: false } : null),
     update_install: () => {
       (window.__p3Calls ??= []).push(['update_install', null])
       setTimeout(() => window.__emitTauriEvent?.('update://progress', { downloaded: 64, total: 256 }), 60)
@@ -454,7 +503,7 @@ const commits = Array.from({ length: count }, (_, index) => ({
   parents: index + 1 < count ? [sha(index + 2)] : [],
   author: { name: index % 3 === 0 ? 'Alice' : index % 3 === 1 ? 'Bob' : 'Chloé', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
   committer: { name: 'Alice', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
-  refs: index === 0 ? ['HEAD -> main', 'origin/main', 'origin/HEAD', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 3 ? ['synced', 'origin/synced'] : index === 18 ? ['origin/hotfix'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
+  refs: index === 0 ? ['HEAD -> main', 'origin/main', 'origin/HEAD', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 3 ? ['synced', 'origin/synced'] : index === 6 ? ['behind'] : index === 7 ? ['origin/behind'] : index === 8 ? ['other', 'origin/topic'] : index === 18 ? ['origin/hotfix'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
   subject: `Commit ${index + 1} — ${['fix graph lanes', 'add diff window', 'wire session watcher', 'document benchmarks'][index % 4]}`,
 }))
 // A deterministic two-lane history: a merge every six rows, with the side
@@ -702,6 +751,11 @@ try {
   if (!(await toggleMultiSelect())) throw new Error('multi-select toggle missing')
   await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage du graphe"]').click()`)
   await waitFor(client, `document.querySelector('[popover]:popover-open') === null`, 'graph display options closed')
+  const uxChecks = {}
+  const assertUI = (name, value) => {
+    uxChecks[name] = Boolean(value)
+    if (!value) throw new Error('UX regression: ' + name)
+  }
   const pickCommitRow = async (index, shift = false, meta = false) => evaluate(client, `(() => {
     const canvas = document.querySelector('canvas')
     const box = canvas.getBoundingClientRect()
@@ -714,6 +768,7 @@ try {
   })()`)
   await pickCommitRow(0)
   await waitFor(client, `document.body.innerText.includes('1 commit(s) sélectionné(s)')`, 'first picked commit')
+  assertUI('selection-has-no-order-bar', await evaluate(client, `!document.body.innerText.includes('Ordre :')`))
   await pickCommitRow(1)
   await waitFor(client, `document.body.innerText.includes('2 commit(s) sélectionné(s)')`, 'second picked commit')
   const compareClicked = await evaluate(client, `(() => {
@@ -726,6 +781,13 @@ try {
   // The comparison must not leave the history: the tree stays rendered and the
   // A→B panel docks in the inspector, like a git client's right-hand pane.
   await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') !== null`, 'comparison inspector')
+  // The comparison gets the graph's height: its status line steps aside.
+  assertUI('comparison-hides-graph-footer', await evaluate(client, `!document.body.innerText.includes('commits chargés') && !document.body.innerText.includes('Glissez une branche sur une autre')`))
+  assertUI('comparison-graph-fills-footer-space', await evaluate(client, `(() => {
+    const wrap = document.querySelector('canvas').closest('div[class*=wrap]')
+    const scroll = wrap.querySelector('div[class*=scroll]')
+    return Math.abs(wrap.getBoundingClientRect().bottom - scroll.getBoundingClientRect().bottom) < 1
+  })()`))
   await waitFor(client, `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range')`, 'range diff request')
   const compareFrame = await evaluate(client, `({
     heading: document.querySelector('main h1')?.textContent,
@@ -795,6 +857,7 @@ try {
   await screenshot(client, 'p0-compare.png')
   await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
   await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'comparison closed')
+  assertUI('graph-footer-restored-after-comparison', await evaluate(client, `document.body.innerText.includes('commits chargés')`))
   if (!(await evaluate(client, `document.querySelector('canvas') !== null`))) throw new Error('graph lost after closing the comparison')
   if (!(await openGraphOptions())) throw new Error('graph display options missing after comparison')
   await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'graph display options reopened')
@@ -1107,11 +1170,6 @@ try {
   await delay(200)
   await screenshot(client, 'p2-tags.png')
 
-  const uxChecks = {}
-  const assertUI = (name, value) => {
-    uxChecks[name] = Boolean(value)
-    if (!value) throw new Error('UX regression: ' + name)
-  }
   const go = async (view) => {
     const target = view === 'status' ? 'graph' : view
     const found = await evaluate(client, `(() => {
@@ -1476,6 +1534,77 @@ try {
   assertUI('commit-diff-file-stats-contained', commitDiff.statsInside)
   assertUI('commit-diff-code-scrolls', commitDiff.horizontalScroll && commitDiff.codeWhiteSpace === 'pre' && commitDiff.codeEllipsis !== 'ellipsis')
   await screenshot(client, 'ux-commit-diff.png')
+
+  // Amending rewrites HEAD. The diff header exposes it once the repository is
+  // clean, and the dialog reuses the regular amend path with the full message.
+  await evaluate(client, `(() => {
+    window.__operationOverride = null
+    window.__conflictsOverride = { files: [] }
+    window.__generationOverride = 4
+    window.__emitTauriEvent('repo://changed', { repoId: 'repo_demo', generation: 4, areas: ['state'] })
+  })()`)
+  await waitFor(client, `!document.body.innerText.includes('Opération en cours')`, 'clean repository state')
+  await waitFor(client, `document.querySelector('button[aria-label^="Amender le commit"]') !== null`, 'amendable commit header')
+  const amendHeader = await evaluate(client, `(() => {
+    const button = document.querySelector('button[aria-label^="Amender le commit"]')
+    return { label: button?.getAttribute('aria-label'), title: button?.getAttribute('title') }
+  })()`)
+  assertUI('commit-diff-amend-affordance', amendHeader.label?.startsWith('Amender le commit') && amendHeader.title.includes('réécrit'))
+  await evaluate(client, `document.querySelector('button[aria-label^="Amender le commit"]').click()`)
+  await waitFor(client, `document.querySelector('[role="dialog"] h2')?.textContent?.startsWith('Amender')`, 'amend dialog')
+  await waitFor(client, `document.querySelector('textarea[aria-label="Message du commit à amender"]')?.value.includes('Corps du commit')`, 'amend message prefilled')
+  const amendDialog = await evaluate(client, `(() => {
+    const dialog = document.querySelector('[role="dialog"]')
+    return {
+      warning: dialog.innerText.includes('réécrit l’historique') && dialog.innerText.includes('force-with-lease'),
+      staged: dialog.innerText.includes('8 fichiers préparés seront inclus'),
+      branch: dialog.innerText.includes('branche main'),
+    }
+  })()`)
+  assertUI('amend-warns-history-rewrite', amendDialog.warning)
+  assertUI('amend-includes-staged-files', amendDialog.staged)
+  assertUI('amend-names-current-branch', amendDialog.branch)
+  await screenshot(client, 'ux-amend-dialog.png')
+  await evaluate(client, `([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === 'Annuler')).click()`)
+  await waitFor(client, `document.querySelector('[role="dialog"]') === null`, 'amend dialog closed')
+
+  // The same action is reachable from the commit context menu, and submitting
+  // goes through commit_create with amend=true.
+  await go('graph')
+  await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    const box = canvas.getBoundingClientRect()
+    const x = box.left + Math.max(120, box.width * 0.55)
+    const y = box.top + 15
+    for (const type of ['pointerdown', 'pointerup']) {
+      canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true }))
+    }
+    canvas.focus()
+    canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }))
+  })()`)
+  await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'commit context menu')
+  assertUI('commit-menu-amend-head', await evaluate(client, `[...document.querySelectorAll('[role="menu"] button')].some((b) => b.textContent.includes('Amender ce commit'))`))
+  await evaluate(client, `([...document.querySelectorAll('[role="menu"] button')].find((b) => b.textContent.includes('Amender ce commit'))).click()`)
+  await waitFor(client, `document.querySelector('textarea[aria-label="Message du commit à amender"]') !== null`, 'amend dialog from context menu')
+  await fill('textarea[aria-label="Message du commit à amender"]', 'fix graph lanes\n\nMessage corrigé depuis le menu.\n')
+  assertUI('amend-submit-enables-on-new-message', await evaluate(client, `(() => {
+    const button = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.includes('Amender le commit'))
+    return Boolean(button && !button.disabled)
+  })()`))
+  await evaluate(client, `([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.includes('Amender le commit'))).click()`)
+  await waitFor(client, `(window.__amendCalls ?? []).length > 0`, 'amend commit call')
+  const amendCall = await evaluate(client, `window.__amendCalls[0]`)
+  assertUI('amend-calls-commit-create', amendCall.amend === true && amendCall.keepMessage === false && amendCall.message.includes('Message corrigé'))
+  await waitFor(client, `document.querySelector('[role="dialog"]') === null`, 'amend dialog closed after submit')
+  await waitFor(client, `document.body.innerText.includes('amendé')`, 'amend notice')
+  await evaluate(client, `(() => {
+    delete window.__operationOverride
+    delete window.__conflictsOverride
+    window.__generationOverride = 5
+    window.__emitTauriEvent('repo://changed', { repoId: 'repo_demo', generation: 5, areas: ['state'] })
+  })()`)
+  await waitFor(client, `document.body.innerText.includes('Opération en cours')`, 'operation banner restored')
+
   await go('graph')
   await evaluate(client, `document.querySelector('canvas').focus()`)
   await key('ArrowDown')
@@ -1488,6 +1617,27 @@ try {
   await go('graph')
   await go('status')
   assertUI('draft-survives-navigation', await evaluate(client, `document.querySelector('textarea').value === 'fix: conserver mon brouillon'`))
+  await evaluate(client, `document.querySelector('section[aria-label="À préparer"] button[title="notes/file-0.md"]').click()`)
+  await waitFor(client, `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Rendu') && document.querySelector('[data-markdown-view]') === null`, 'markdown render toggle')
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Rendu'); button?.click() })()`)
+  await waitFor(client, `Boolean(document.querySelector('[data-markdown-view] h1'))`, 'markdown rendered')
+  assertUI('markdown-file-rendered', await evaluate(client, `(() => {
+    const view = document.querySelector('[data-markdown-view]')
+    return view.querySelector('h1')?.textContent === 'Notes du fichier'
+      && view.querySelector('strong')?.textContent === 'important'
+      && view.querySelector('table') !== null
+      && view.querySelector('a')?.getAttribute('href') === 'https://example.test/doc'
+      && view.textContent.includes('Image bloquée')
+      && view.querySelector('script') === null
+      && !window.__markdownInjected
+  })()`))
+  assertUI('markdown-file-reads-diff-revision', await evaluate(client, `(() => {
+    const calls = window.__contentCalls ?? []
+    return calls.length > 0 && calls.every((call) => call.request.revision === 'worktree')
+  })()`))
+  await screenshot(client, 'p0-markdown-rendered.png')
+  await evaluate(client, `document.querySelector('button[aria-label="Fermer l’aperçu"]').click()`)
+  await waitFor(client, `!document.querySelector('[data-markdown-view]')`, 'markdown preview closed')
   await evaluate(client, `document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]').click()`)
   await waitFor(client, `document.querySelector('input[aria-label="Sélectionner cette ligne"]') !== null`, 'inline worktree diff')
   assertUI('diff-stays-in-changes', await evaluate(client, `document.querySelector('main h1').textContent === 'Historique' && document.querySelector('textarea') !== null`))
@@ -1702,6 +1852,37 @@ try {
   const beforeDirect = await evaluate(client, 'window.__toolbarCalls.length')
   await directDoubleClick(featurePoint)
   assertUI('graph-visible-branch-double-click-checkout', await evaluate(client, `window.__toolbarCalls.slice(${beforeDirect}).filter(([command, args]) => command === 'branch_checkout' && args.request.name === 'feature').length === 1`))
+  // Double-clicking a remote branch whose tracked local branch lags behind
+  // must move that local branch onto the remote commit before checking it out.
+  const behindPoint = await moveToBadge(7)
+  assertUI('graph-remote-desync-tooltip', await evaluate(client, `document.querySelector('canvas').title === 'origin/behind · distante'`))
+  const beforeDesync = await evaluate(client, 'window.__toolbarCalls.length')
+  await directDoubleClick(behindPoint)
+  assertUI('graph-remote-desync-resets-local', await evaluate(client, `(() => {
+    const calls = window.__toolbarCalls.slice(${beforeDesync})
+    return calls.some(([command, args]) => command === 'branch_checkout_at' && args.request.name === 'behind' && args.request.start === 'refs/remotes/origin/behind')
+      && !calls.some(([command]) => command === 'branch_checkout')
+  })()`))
+  // A commit can carry several refs: the badge under the cursor, not the
+  // first decoration of the row, decides which branch is checked out.
+  await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
+  await delay(60)
+  const topicPoint = await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    const bounds = canvas.getBoundingClientRect()
+    const family = getComputedStyle(canvas).getPropertyValue('--sans').trim()
+    const context = document.createElement('canvas').getContext('2d')
+    context.font = '600 12px ' + family
+    const firstWidth = context.measureText('other').width + 12 + 16
+    return { x: bounds.left + 12 + firstWidth + 4 + 8, y: bounds.top + 8 * 30 + 15 }
+  })()`)
+  const beforeTopic = await evaluate(client, 'window.__toolbarCalls.length')
+  await directDoubleClick(topicPoint)
+  assertUI('graph-remote-badge-below-first-ref-checkout', await evaluate(client, `(() => {
+    const calls = window.__toolbarCalls.slice(${beforeTopic})
+    return calls.some(([command, args]) => command === 'branch_create' && args.request.name === 'topic' && args.request.start === 'refs/remotes/origin/topic' && args.request.checkout === true)
+      && !calls.some(([command, args]) => command === 'branch_checkout' && args.request.name === 'other')
+  })()`))
   await hoverRef()
   const beforeRemote = await evaluate(client, 'window.__toolbarCalls.length')
   await evaluate(client, `document.querySelector('[data-ref="origin/feature/deep"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
@@ -1728,6 +1909,27 @@ try {
   const refKinds = await evaluate(client, `(() => { const p = document.querySelector('[aria-label="Branches et tags de ce commit"]'); return { local: Boolean(p.querySelector('[data-kind="local"]')), remote: Boolean(p.querySelector('[data-kind="remote"]')), tag: Boolean(p.querySelector('[data-kind="tag"]')) } })()`)
   assertUI('graph-menu-distinguishes-local-remote-tag', refKinds.local && refKinds.remote && refKinds.tag)
   assertUI('graph-upstream-mirror-keeps-branch-row', await evaluate(client, `Boolean(document.querySelector('[data-ref="origin/main"]'))`))
+  // Right-clicking a local branch offers a push and upstream wiring.
+  const openBranchRefMenu = async (point) => {
+    await evaluate(client, `(() => { document.querySelector('canvas').dispatchEvent(new MouseEvent('contextmenu', { bubbles:true, cancelable:true, clientX:${point.x}, clientY:${point.y} })) })()`)
+    await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'branch context menu')
+  }
+  const menuButton = (needle) => `[...document.querySelector('[role="menu"]').querySelectorAll('button')].find((b) => b.textContent.includes(${JSON.stringify(needle)}))`
+  const featureMenu = await moveToBadge(12)
+  await openBranchRefMenu(featureMenu)
+  assertUI('branch-menu-offers-push', await evaluate(client, `Boolean(${menuButton('Pousser vers origin/feature')})`))
+  assertUI('branch-menu-offers-upstream', await evaluate(client, `Boolean(${menuButton('Définir l')})`))
+  await evaluate(client, `${menuButton('Pousser vers origin/feature')}.click()`)
+  await delay(120)
+  assertUI('branch-menu-push-connected', await evaluate(client, `window.__toolbarCalls.some(([command, args]) => command === 'sync_push' && args.request.remote === 'origin' && args.request.branch === 'feature' && args.request.setUpstream !== true)`))
+  await openBranchRefMenu(featureMenu)
+  await evaluate(client, `${menuButton('Définir l')}.click()`)
+  await delay(60)
+  assertUI('branch-menu-lists-remote-branches', await evaluate(client, `Boolean(${menuButton('origin/main')}) && !document.querySelector('[role="menu"]').innerText.includes('origin/HEAD')`))
+  await evaluate(client, `${menuButton('origin/main')}.click()`)
+  await delay(120)
+  assertUI('branch-menu-upstream-connected', await evaluate(client, `window.__toolbarCalls.some(([command, args]) => command === 'branch_upstream' && args.request.branch === 'feature' && args.request.upstream === 'origin/main')`))
+  await screenshot(client, 'ux-branch-menu.png')
   // Badge glyphs are canvas pixels: compare the ink signature of a local
   // branch, a tag and a remote-only branch, and require readable ink in each.
   await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
@@ -2099,6 +2301,15 @@ try {
   await waitFor(client, `document.body.innerText.includes('Mises à jour signées')`, 'updates settings')
   await evaluate(client, `(() => { const button = [...document.querySelectorAll('main button')].find((b) => b.textContent.includes('Vérifier les mises à jour')); button?.click() })()`)
   await waitFor(client, `document.body.innerText.includes('Mise à jour 0.4.1 disponible')`, 'update offered')
+  assertUI('release-notes-rendered', await evaluate(client, `(() => {
+    const notes = [...document.querySelectorAll('[data-markdown="rendered"]')].find((node) => node.textContent.includes('Graphe'))
+    return Boolean(notes)
+      && notes.querySelector('h2')?.textContent.includes('BeeBranch 0.4.1')
+      && notes.querySelector('strong')?.textContent === 'Graphe'
+      && notes.querySelector('code')?.textContent === 'Markdown'
+      && !notes.textContent.includes('**')
+  })()`))
+  await screenshot(client, 'p3-release-notes.png')
   await evaluate(client, `(() => { const button = [...document.querySelectorAll('main button')].find((b) => b.textContent.trim() === 'Installer'); button?.click() })()`)
   await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'install confirmation')
   assertUI('install-confirmation-mentions-auto-restart', await evaluate(client, `document.querySelector('[role="alertdialog"]').innerText.includes('redémarre automatiquement')`))

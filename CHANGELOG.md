@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.6.3] — 2026-10-28
+
+### Ajouté
+
+- **Amendement depuis le graphe ou le diff** : le menu contextuel d’un commit
+  HEAD et son nom dans le diff proposent « Amender ce commit… ». La boîte de
+  dialogue reprend le message (éditable), inclut les fichiers préparés, signale
+  la réécriture d’historique et passe par le flux amend existant (hooks,
+  signature, undo). L’action n’apparaît que pour HEAD et hors opération Git.
+- **Fichiers Markdown rendus** : dans le diff d’un fichier `.md`, le bouton
+  « Rendu » affiche le document mis en forme (titres, listes, tableaux, code)
+  au lieu du patch. Le contenu est lu à la révision du diff — copie de travail,
+  index, commit ou extrémité d’une comparaison — et le retour à « Diff » est
+  immédiat. Le HTML brut est ignoré, les images restent bloquées et seuls les
+  liens `https` s’ouvrent dans le navigateur système.
+
+### Modifié
+
+- **Comparaison A→B : le pied du graphe s’efface** : pendant une comparaison,
+  la ligne de statut sous les commits disparaît pour laisser toute la hauteur
+  utile à l’inspecteur et au patch, puis revient à la fermeture de la
+  comparaison.
+
+### Corrigé
+
+- **Notes de version rendues en Markdown** : le manifeste signé transporte les
+  notes de `docs/releases/*.md`, mais les réglages les affichaient telles
+  quelles. Elles sont désormais rendues : titres, listes, gras et code, sans
+  jamais injecter de HTML brut.
+- **Double-clic sur une branche distante d’un commit partagé** : le double-clic
+  dans le graphe activait la première référence décorant la ligne au lieu du
+  badge visé, donc parfois une autre branche locale à son commit courant. Le
+  badge sous le curseur est désormais résolu ; une branche locale de suivi en
+  retard reste replacée sur le commit distant avant la checkout.
+- **Un fichier cliqué dans un commit ouvre son propre diff** : le chemin était
+  bien transmis par le détail du commit, mais la commande de diff l’ignorait
+  pour la cible `commit` et renvoyait le patch entier du commit, dont la vue
+  affichait toujours le premier fichier. Le chemin filtre désormais la sortie,
+  commit racine sans parent compris.
+
 ## [0.6.2] — 2026-10-28
 
 ### Ajouté

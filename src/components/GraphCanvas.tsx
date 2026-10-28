@@ -73,6 +73,8 @@ type Props = {
   generation: number
   theme?: string
   picked?: string[]
+  /** The status line under the rows; hidden while a comparison docks beside it. */
+  footer?: boolean
 }
 
 const ROW_HEIGHT = 30
@@ -278,6 +280,7 @@ export function GraphCanvas({
   generation,
   theme,
   picked = [],
+  footer = true,
 }: Props) {
   const [viewportWidth, setViewportWidth] = useState(1000)
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
@@ -969,7 +972,7 @@ export function GraphCanvas({
   }
 
   return (
-    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
+    <div className={styles.wrap} data-footer={footer ? undefined : 'false'} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
       <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
         <div className={styles.refsHeader}>
           <span>{layout.refs ? 'Branches / tags' : ''}</span>
@@ -1055,7 +1058,7 @@ export function GraphCanvas({
           }}
           onDoubleClick={(event) => {
             const hit = hitRef(event.clientX, event.clientY)
-            if (hit && !hit.overflow) { event.preventDefault(); checkoutRef(hit.commit.refs[0]!) }
+            if (hit && !hit.overflow) { event.preventDefault(); checkoutRef(hit.raw) }
           }}
           onPointerDown={onCanvasPointerDown}
           onPointerUp={onCanvasPointerUp}
@@ -1075,7 +1078,7 @@ export function GraphCanvas({
         </div>
       ) : null}
       {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
-      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour sélectionner une plage · ⌘/Ctrl+clic pour comparer deux commits seulement · clic droit pour les actions'}</span></div>
+      {footer ? <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour sélectionner une plage · ⌘/Ctrl+clic pour comparer deux commits seulement · clic droit pour les actions'}</span></div> : null}
       <span className={styles.srOnly} role="status">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )

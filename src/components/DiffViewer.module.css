@@ -162,6 +162,37 @@
   font-size: 11px;
 }
 
+.commitLink {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.commitLink:hover {
+  background: var(--surface-raised);
+}
+
+.commitLink:hover .commitSubject {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.commitLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .commitSubject {
   min-width: 0;
   overflow: hidden;
@@ -268,6 +299,25 @@
   font-size: 13px;
   line-height: 24px;
   tab-size: 4;
+}
+
+.document {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 28px;
+  background: var(--bg);
+  font-family: var(--sans, inherit);
+}
+
+.document > .banner {
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.document > .empty {
+  padding: 0;
 }
 
 .rows {

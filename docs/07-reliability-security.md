@@ -98,7 +98,7 @@ Les hooks ne sont pas versionnés, mais peuvent exister localement. Leur sortie 
 
 ### Contenu distant
 
-- Markdown rendu avec un sanitizer ; aucune balise HTML brute.
+- Markdown rendu en éléments React : aucune balise HTML brute n'est injectée.
 - Images distantes bloquées par défaut (évite le tracking IP) ; activation explicite par instance ou par MR.
 - Liens ouverts dans le navigateur système, schémas `https` uniquement.
 - Aucune exécution de script dans la webview.

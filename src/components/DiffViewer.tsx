@@ -5,11 +5,12 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { DiffHunk, DiffLine, DiffReport, FileDiff, HunkSelection, PathSelection } from '../types/git'
+import type { DiffHunk, DiffLine, DiffReport, FileContent, FileDiff, HunkSelection, PathSelection } from '../types/git'
 import { indexDiscard, indexStage, indexUnstage } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Markdown } from './Markdown'
 import shared from './p1.module.css'
 import styles from './DiffViewer.module.css'
 
@@ -262,13 +263,22 @@ type CommitContext = {
   timestamp: number
 }
 
+/** Loads one file at the revision the current diff was computed for. */
+export type DocumentReader = (path: string) => Promise<FileContent>
+
 type Props = {
   report: DiffReport
   source: string
   commit?: CommitContext
   embedded?: boolean
   staging?: Staging
+  /** Present when the commit is HEAD and can be amended; click opens it. */
+  onAmend?: () => void
+  /** Present when the caller can resolve files at the diff revision. */
+  readDocument?: DocumentReader
 }
+
+const MARKDOWN_PATH = /\.(md|markdown|mdown|mkd|mdx)$/i
 
 const MODE_LABELS: Record<Mode, string> = {
   hunk: 'Changements',
@@ -332,7 +342,7 @@ function PathParts({ path }: { path: string }) {
   )
 }
 
-export function DiffViewer({ report, source, commit, staging, embedded = false }: Props) {
+export function DiffViewer({ report, source, commit, staging, embedded = false, onAmend, readDocument }: Props) {
   const [mode, setMode] = useState<Mode>('inline')
   const [active, setActive] = useState(0)
   const [scrollTop, setScrollTop] = useState(0)
@@ -342,6 +352,14 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [rendered, setRendered] = useState(false)
+  const [documentState, setDocumentState] = useState<
+    | { kind: 'loading' }
+    | { kind: 'ready'; value: FileContent }
+    | { kind: 'error'; message: string }
+    | null
+  >(null)
+  const documentCache = useRef<WeakMap<DiffReport, Map<string, FileContent>>>(new WeakMap())
   const [pendingDiscard, setPendingDiscard] = useState<{
     selection: PathSelection
     path: string
@@ -353,6 +371,46 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
     () => (file ? buildRows(file, mode) : []),
     [file, mode],
   )
+  /** Path at the target side of the diff, or the removed path when deleted. */
+  const documentPath = file
+    ? file.newPath === '/dev/null'
+      ? file.oldPath
+      : file.newPath
+    : ''
+  const markdown = Boolean(readDocument && documentPath && MARKDOWN_PATH.test(documentPath))
+
+  useEffect(() => {
+    if (!rendered || !readDocument || !markdown) {
+      setDocumentState(null)
+      return
+    }
+    // A new diff report means the target revision or the working copy changed:
+    // the cache is scoped to it so a render never survives a refresh.
+    let cache = documentCache.current.get(report)
+    if (!cache) {
+      cache = new Map()
+      documentCache.current.set(report, cache)
+    }
+    const scopedCache = cache
+    const cached = scopedCache.get(documentPath)
+    if (cached) {
+      setDocumentState({ kind: 'ready', value: cached })
+      return
+    }
+    let cancelled = false
+    setDocumentState({ kind: 'loading' })
+    readDocument(documentPath)
+      .then((value) => {
+        scopedCache.set(documentPath, value)
+        if (!cancelled) setDocumentState({ kind: 'ready', value })
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setDocumentState({ kind: 'error', message: errorMessage(cause) })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [documentPath, markdown, readDocument, rendered, report])
 
   useEffect(() => {
     setActive(0)
@@ -617,8 +675,23 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
           <div className={styles.headerText}>
             {commit ? (
               <span className={styles.source} title={`${commit.sha} · ${commit.subject}`}>
-                <code className={styles.commitSha}>{commit.sha.slice(0, 8)}</code>
-                <span className={styles.commitSubject}>{commit.subject}</span>
+                {onAmend ? (
+                  <button
+                    type="button"
+                    className={styles.commitLink}
+                    onClick={onAmend}
+                    title="Amender ce commit — réécrit l’historique"
+                    aria-label={`Amender le commit ${commit.sha.slice(0, 8)} : ${commit.subject}`}
+                  >
+                    <code className={styles.commitSha}>{commit.sha.slice(0, 8)}</code>
+                    <span className={styles.commitSubject}>{commit.subject}</span>
+                  </button>
+                ) : (
+                  <>
+                    <code className={styles.commitSha}>{commit.sha.slice(0, 8)}</code>
+                    <span className={styles.commitSubject}>{commit.subject}</span>
+                  </>
+                )}
                 <span className={styles.commitMeta}>
                   {commit.author} ·{' '}
                   {new Date(commit.timestamp * 1000).toLocaleDateString('fr-FR')}
@@ -632,30 +705,56 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
           </div>
           ) : null}
           <div className={styles.tools}>
-            <div className={styles.modes} role="group" aria-label="Mode de diff">
-              {(['hunk', 'inline', 'split'] as const).map((value) => (
+            {markdown ? (
+              <div className={styles.modes} role="group" aria-label="Affichage du fichier">
                 <button
-                  key={value}
                   type="button"
-                  className={mode === value ? styles.modeActive : styles.mode}
-                  aria-pressed={mode === value}
-                  title={MODE_TITLES[value]}
-                  onClick={() => {
-                    setMode(value)
-                    setScrollTop(0)
-                    scrollRef.current?.scrollTo({ top: 0 })
-                  }}
+                  className={rendered ? styles.mode : styles.modeActive}
+                  aria-pressed={!rendered}
+                  title="Afficher les changements"
+                  onClick={() => setRendered(false)}
                 >
-                  {MODE_LABELS[value]}
+                  Diff
                 </button>
-              ))}
-            </div>
-            <button type="button" className={styles.mode} onClick={() => jump(-1)} aria-label="Hunk précédent" title="Hunk précédent">
-              ↑
-            </button>
-            <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label="Hunk suivant" title="Hunk suivant">
-              ↓
-            </button>
+                <button
+                  type="button"
+                  className={rendered ? styles.modeActive : styles.mode}
+                  aria-pressed={rendered}
+                  title="Afficher le Markdown rendu"
+                  onClick={() => setRendered(true)}
+                >
+                  Rendu
+                </button>
+              </div>
+            ) : null}
+            {!rendered ? (
+              <>
+                <div className={styles.modes} role="group" aria-label="Mode de diff">
+                  {(['hunk', 'inline', 'split'] as const).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={mode === value ? styles.modeActive : styles.mode}
+                      aria-pressed={mode === value}
+                      title={MODE_TITLES[value]}
+                      onClick={() => {
+                        setMode(value)
+                        setScrollTop(0)
+                        scrollRef.current?.scrollTo({ top: 0 })
+                      }}
+                    >
+                      {MODE_LABELS[value]}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" className={styles.mode} onClick={() => jump(-1)} aria-label="Hunk précédent" title="Hunk précédent">
+                  ↑
+                </button>
+                <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label="Hunk suivant" title="Hunk suivant">
+                  ↓
+                </button>
+              </>
+            ) : null}
           </div>
         </header>
         {!embedded ? (
@@ -682,6 +781,35 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
           </span>
         </div>
         ) : null}
+        {rendered && markdown ? (
+          <div className={styles.document} data-markdown-view={documentPath}>
+            {documentState?.kind === 'loading' ? (
+              <p className={styles.empty} role="status">Chargement du fichier…</p>
+            ) : null}
+            {documentState?.kind === 'error' ? (
+              <p className={shared.danger} role="alert">{documentState.message}</p>
+            ) : null}
+            {documentState?.kind === 'ready' && documentState.value.path === documentPath ? (
+              documentState.value.content !== null ? (
+                <>
+                  {documentState.value.truncated ? (
+                    <p className={styles.banner} role="status">
+                      Fichier tronqué au plafond de lecture ; le rendu est partiel.
+                    </p>
+                  ) : null}
+                  <Markdown source={documentState.value.content} />
+                </>
+              ) : (
+                <p className={styles.empty}>
+                  {documentState.value.binary
+                    ? 'Fichier binaire — aucun rendu textuel.'
+                    : 'Fichier absent à cette révision.'}
+                </p>
+              )
+            ) : null}
+          </div>
+        ) : (
+          <>
         {mode === 'split' ? (
           <div className={styles.splitHeader} aria-hidden="true">
             <span>Ancien</span>
@@ -849,10 +977,26 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
             </div>
           </div>
         </div>
+          </>
+        )}
         <footer className={styles.footer}>
-          {rows.length.toLocaleString('fr-FR')} lignes
-          {report.files.length > 1 ? ` · fichier ${active + 1}/${report.files.length}` : ''}
-          {capped ? ' · diff tronqué' : ''}
+          {rendered && markdown ? (
+            <>
+              {documentState?.kind === 'ready' && documentState.value.path === documentPath
+                ? `${documentState.value.bytes.toLocaleString('fr-FR')} octets`
+                : 'Rendu Markdown'}
+              {report.files.length > 1 ? ` · fichier ${active + 1}/${report.files.length}` : ''}
+              {documentState?.kind === 'ready' && documentState.value.path === documentPath && documentState.value.truncated
+                ? ' · tronqué'
+                : ''}
+            </>
+          ) : (
+            <>
+              {rows.length.toLocaleString('fr-FR')} lignes
+              {report.files.length > 1 ? ` · fichier ${active + 1}/${report.files.length}` : ''}
+              {capped ? ' · diff tronqué' : ''}
+            </>
+          )}
         </footer>
       </section>
       <ConfirmDialog

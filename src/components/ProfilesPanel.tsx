@@ -32,6 +32,7 @@ import {
   type ShortcutMap,
 } from '../lib/shortcuts'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Markdown } from './Markdown'
 import p2 from './p2.module.css'
 import styles from './ProfilesPanel.module.css'
 
@@ -241,12 +242,10 @@ export function ProfilesPanel({
           </div>
         </div>
         {available?.notes ? (
-          <div className={p2.setting}>
-            <div>
-              <strong>Notes de version</strong>
-              <pre className={p2.pre}>{available.notes}</pre>
-            </div>
-          </div>
+          <section className={styles.notes} aria-label="Notes de version">
+            <strong>Notes de version</strong>
+            <Markdown source={available.notes} />
+          </section>
         ) : null}
         <div className={p2.setting}>
           <div>

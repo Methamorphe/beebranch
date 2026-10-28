@@ -18,6 +18,8 @@
   overflow-x: hidden;
 }
 
+.wrap[data-footer='false'] .scroll { bottom: 0; }
+
 .spacer {
   grid-area: 1 / 1;
   width: 1px;

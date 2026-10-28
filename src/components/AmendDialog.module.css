@@ -1,0 +1,14 @@
+.warning {
+  padding: 8px 10px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.warning code {
+  color: var(--accent-text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}

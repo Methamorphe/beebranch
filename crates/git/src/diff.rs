@@ -169,15 +169,20 @@ pub fn read_root_patch(
     runner: &GitRunner,
     worktree: &Path,
     sha: &str,
+    paths: &[String],
     limits: DiffLimits,
 ) -> Result<DiffReport, AppError> {
     crate::log::validate_revision(sha)?;
-    let spec = CommandSpec::new(GitSubcommand::DiffTree, worktree)
+    let mut spec = CommandSpec::new(GitSubcommand::DiffTree, worktree)
         .args(["--no-commit-id", "-p", "--root", sha])
         .capture_limits(CaptureLimits {
             stdout: limits.max_bytes.saturating_add(1024 * 1024),
             stderr: 16 * 1024,
         });
+    for path in paths {
+        validate_relative_path(path)?;
+        spec = spec.path(path);
+    }
     let outcome = runner.run(&spec)?;
     let outcome = outcome.ensure_success()?;
     let mut report = parse_diff(&outcome.stdout.text_lossy(), limits)

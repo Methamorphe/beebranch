@@ -205,6 +205,21 @@ pub fn head_content(
     blob(runner, worktree, &format!("HEAD:{path}"))
 }
 
+/// Content of a path at an arbitrary revision (`git show <revision>:<path>`).
+///
+/// The revision is validated by the same rules as every other revspec so a
+/// caller can never turn it into an option or a shell argument.
+pub fn revision_content(
+    runner: &GitRunner,
+    worktree: &Path,
+    revision: &str,
+    path: &str,
+) -> Result<Option<Vec<u8>>, AppError> {
+    crate::diff::validate_relative_path(path)?;
+    crate::log::validate_revision(revision)?;
+    blob(runner, worktree, &format!("{revision}:{path}"))
+}
+
 fn blob(runner: &GitRunner, worktree: &Path, spec: &str) -> Result<Option<Vec<u8>>, AppError> {
     let outcome = runner.run(
         &CommandSpec::new(GitSubcommand::Show, worktree)

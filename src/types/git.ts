@@ -215,6 +215,16 @@ export type DiffReport = {
   truncated: boolean
 }
 
+export type FileContent = {
+  path: string
+  revision: string
+  /** `null` when the path is absent at that revision or the bytes are binary. */
+  content: string | null
+  bytes: number
+  truncated: boolean
+  binary: boolean
+}
+
 export type OperationRecord = {
   id: string
   kind: string

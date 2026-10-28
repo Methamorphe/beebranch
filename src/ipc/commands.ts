@@ -5,6 +5,7 @@ import type {
 import type {
   CommitDetail,
   DiffReport,
+  FileContent,
   Generation,
   GitlabProject,
   GitlabSession,
@@ -118,6 +119,27 @@ export function diffGet(
   request: DiffRequest,
 ): Promise<Generation<DiffReport>> {
   return call<Generation<DiffReport>>('diff_get', { repoId, request })
+}
+
+/**
+ * Read one text file for the in-app renderer.
+ *
+ * `revision` is `worktree` (default), `index`, `head`, or any Git revspec.
+ */
+export function fileContentGet(input: {
+  repoId: string
+  path: string
+  revision?: string
+  maxBytes?: number
+}): Promise<FileContent> {
+  return call<FileContent>('file_content_get', {
+    repoId: input.repoId,
+    request: {
+      path: input.path,
+      revision: input.revision,
+      maxBytes: input.maxBytes,
+    },
+  })
 }
 
 export function recoveryList(): Promise<

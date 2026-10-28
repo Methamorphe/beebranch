@@ -432,6 +432,7 @@ fn range_and_root_patches_are_available() {
         fixture.runner(),
         fixture.path(),
         &first,
+        &[],
         DiffLimits::default(),
     )
     .expect("root patch");

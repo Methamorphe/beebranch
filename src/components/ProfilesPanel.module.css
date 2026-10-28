@@ -43,3 +43,16 @@
 }
 
 .instanceButton { justify-self: start; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+
+.notes {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.notes > strong {
+  font-size: 14px;
+  font-weight: 600;
+}
