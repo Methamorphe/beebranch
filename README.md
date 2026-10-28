@@ -77,14 +77,33 @@ Décisions de la révision 1 **conservées** : local-first, Tauri 2, rendu canva
 
 ## 5. Distribution et mises à jour
 
-- Packaging Windows/macOS/Linux via `npm run tauri build` ; la CI
-  `release.yml` signe, notarise et vérifie chaque plateforme.
-- Mises à jour signées (minisign) : la clé publique est dans
-  `src-tauri/tauri.conf.json`, la clé privée reste dans les secrets CI.
-  Voir [docs/releases/README.md](docs/releases/README.md).
+- Packaging via `npm run tauri build` ; `release.yml` construit les trois OS et
+  signe/notarise quand les secrets `APPLE_*` et `TAURI_WINDOWS_CERTIFICATE`
+  existent. Les releases actuelles sont produites en local (macOS arm64) et ne
+  sont **pas notariées**. Voir [docs/releases/README.md](docs/releases/README.md).
 - `latest.json` et `rollback.json` sont générés par
   `scripts/update-manifest.mjs` et `scripts/merge-manifests.mjs`.
 - Aucune télémétrie : `npm run audit:telemetry` vérifie les sources.
+
+### Installer une build (macOS, Apple Silicon)
+
+1. Télécharger le DMG de la dernière release :
+   <https://github.com/Methamorphe/beebranch-releases/releases/latest>
+   (`BeeBranch_<version>_aarch64.dmg`). Le dépôt public suffit : aucun accès au
+   code source n'est nécessaire.
+2. Ouvrir le DMG, glisser `BeeBranch.app` dans `/Applications`.
+3. La build n'est pas notariée : macOS tue le premier lancement (signal 9).
+   Deux voies, au choix :
+   - Réglages Système → Confidentialité et sécurité → « Ouvrir quand même »,
+     puis relancer l'application ;
+   - ou en terminal : `xattr -dr com.apple.quarantine /Applications/BeeBranch.app`.
+4. Contrôle : `/Applications/BeeBranch.app/Contents/MacOS/beebranch --version`
+   doit afficher `BeeBranch <version>`.
+
+Limites de la matrice publiée : `darwin-aarch64` uniquement (pas de build Intel),
+aucun installateur Windows/Linux. Prérequis d'usage : Git ≥ 2.34. Les mises à
+jour suivantes sont installées par l'application, après vérification de la
+signature minisign de l'artefact.
 
 ## 6. Règles de lecture pour un agent de développement
 
