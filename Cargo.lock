@@ -270,7 +270,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "beebranch"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "beebranch-app",
  "serde_json",
@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-app"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "beebranch-core",
  "beebranch-git",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-bench"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "beebranch-core",
  "beebranch-git",
@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-git"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "beebranch-core",
  "libc",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-gitlab"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "beebranch-core",
  "reqwest 0.12.28",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-store"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "beebranch-core",
  "keyring",

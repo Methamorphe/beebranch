@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import type { ViewId } from '../data/navigation'
 import {
   branchCheckout,
@@ -97,7 +104,12 @@ type Props = {
 type Comparison = {
   base: string
   target: string
+  /** Commits covered by the comparison, newest first, as the graph lists them. */
+  commits: string[]
 }
+
+/** Past this, the ordered chip list gives way to a compact range summary. */
+const CHIP_LIMIT = 4
 
 type ContextMenuState = {
   commit: CommitSummary
@@ -217,11 +229,21 @@ export function Workbench({
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [multiSelect, setMultiSelect] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
+  /** Graph row that started a shift-click range, until a plain click moves it. */
+  const rangeAnchor = useRef<string | undefined>(undefined)
   // A→B comparison shown in the history inspector, without leaving the graph.
   const [comparison, setComparison] = useState<Comparison | null>(null)
   const [compareReport, setCompareReport] = useState<DiffReport | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
+  // Graph rows keep the comparison readable: subject, date, author, sha.
+  const comparisonCommits = useMemo(() => {
+    if (!comparison) return []
+    const bySha = new Map(graph.commits.map((commit) => [commit.sha, commit]))
+    return comparison.commits
+      .map((sha) => bySha.get(sha))
+      .filter((commit): commit is CommitSummary => commit !== undefined)
+  }, [comparison, graph.commits])
   const [branchTarget, setBranchTarget] = useState<string | null>(null)
   const [branchName, setBranchName] = useState('')
   const [refMenu, setRefMenu] = useState<RefMenuState | null>(null)
@@ -445,14 +467,45 @@ export function Workbench({
    * Comparing never leaves the history: the pair opens in the inspector next to
    * the tree, where the changed files and their patch stay readable.
    */
-  const startComparison = useCallback((base: string, target: string) => {
-    if (!base || !target || base === target) return
-    setComparison({ base, target })
-    setLocalDiff(null)
-    setContextMenu(null)
-    setRefMenu(null)
-    setDropMenu(null)
-  }, [])
+  const startComparison = useCallback(
+    (base: string, target: string, commits: string[] = []) => {
+      if (!base || !target || base === target) return
+      setComparison({ base, target, commits })
+      setLocalDiff(null)
+      setContextMenu(null)
+      setRefMenu(null)
+      setDropMenu(null)
+    },
+    [],
+  )
+
+  /** Every commit between two graph rows, newest row first. */
+  const graphRange = useCallback(
+    (anchor: string, sha: string) => {
+      const first = graph.commits.findIndex((commit) => commit.sha === anchor)
+      const second = graph.commits.findIndex((commit) => commit.sha === sha)
+      if (first < 0 || second < 0) return null
+      return graph.commits
+        .slice(Math.min(first, second), Math.max(first, second) + 1)
+        .map((commit) => commit.sha)
+    },
+    [graph.commits],
+  )
+
+  /** Sort a selection the way the graph displays it: newest row first. */
+  const graphOrder = useCallback(
+    (shas: string[]) => {
+      const position = new Map(
+        graph.commits.map((commit, index) => [commit.sha, index]),
+      )
+      return [...shas].sort(
+        (left, right) =>
+          (position.get(left) ?? Number.MAX_SAFE_INTEGER) -
+          (position.get(right) ?? Number.MAX_SAFE_INTEGER),
+      )
+    },
+    [graph.commits],
+  )
 
   const runAction = useCallback(
     async (label: string, action: () => Promise<unknown>) => {
@@ -934,12 +987,11 @@ export function Workbench({
 
   const closeMenu = () => setContextMenu(null)
 
-  // Two picked commits are the A/B pair: the diff goes from the first picked
-  // commit to the second one, which is the order shown in the toolbar list.
-  const [compareBase, compareTarget] = picked
-  const canCompare =
-    picked.length === 2 &&
-    Boolean(compareBase && compareTarget && compareBase !== compareTarget)
+  // The first and last picked commits are the A/B pair: a shift range is picked
+  // oldest first, so the diff reads as chronology instead of click order.
+  const canCompare = picked.length >= 2
+  const compareBase = picked[0]
+  const compareTarget = picked[picked.length - 1]
   const inspectorMax = Math.min(
     INSPECTOR_MAX,
     Math.max(INSPECTOR_MIN, Math.round(window.innerWidth * 0.6)),
@@ -953,7 +1005,7 @@ export function Workbench({
             <span className={shared.notice}>{picked.length} commit(s) sélectionné(s)</span>
             {picked.length === 1 ? (
               <span className={shared.small}>
-                Maj+clic sur un second commit pour comparer.
+                Maj+clic sur un autre commit pour sélectionner la plage.
               </span>
             ) : null}
             {canCompare ? (
@@ -961,8 +1013,8 @@ export function Workbench({
                 type="button"
                 className={shared.secondary}
                 aria-pressed={comparison !== null}
-                title={`Comparer ${shortRevision(compareBase!)} et ${shortRevision(compareTarget!)} : modifications du premier vers le second, affichées à droite du graphe`}
-                onClick={() => startComparison(compareBase!, compareTarget!)}
+                title={`Comparer ${shortRevision(compareBase!)} et ${shortRevision(compareTarget!)} : ${picked.length} commit(s) de A vers B, affichés à droite du graphe`}
+                onClick={() => startComparison(compareBase!, compareTarget!, graphOrder(picked))}
               >
                 Comparer {shortRevision(compareBase!)} → {shortRevision(compareTarget!)}
               </button>
@@ -1005,7 +1057,7 @@ export function Workbench({
       {picked.length > 0 ? (
         <div className={shared.row} style={{ padding: '4px 24px 0' }}>
           <span className={shared.small}>Ordre :</span>
-          {picked.map((sha, index) => (
+          {picked.length <= CHIP_LIMIT ? picked.map((sha, index) => (
             <span key={sha} className={shared.badge}>
               {index + 1}. {sha.slice(0, 8)}
               <button
@@ -1020,7 +1072,12 @@ export function Workbench({
                 ×
               </button>
             </span>
-          ))}
+          )) : (
+            <span className={shared.badge}>
+              {picked.length} commits · {picked[0]!.slice(0, 8)} …{' '}
+              {picked[picked.length - 1]!.slice(0, 8)}
+            </span>
+          )}
         </div>
       ) : null}
 
@@ -1058,20 +1115,23 @@ export function Workbench({
               setWorktreeSelected(false)
               setLocalDiff(null)
               if (modifiers.shift) {
-                // Shift turns the click into a comparison endpoint: the commit
-                // selected (or picked last) becomes A, the clicked commit B, and
-                // the A→B comparison opens in the inspector of this same view.
-                const anchor = picked.length > 0
-                  ? picked[picked.length - 1]!
-                  : selected
-                if (anchor && anchor !== sha) {
-                  setPicked([anchor, sha])
-                  startComparison(anchor, sha)
+                // Shift extends the selection from the anchor to the clicked
+                // row: every commit in between is picked, oldest first so the
+                // action list applies in history order, while the A→B diff
+                // keeps the click direction.
+                const anchor = rangeAnchor.current ?? selected
+                const range =
+                  anchor && anchor !== sha ? graphRange(anchor, sha) : null
+                if (anchor && range && range.length > 0) {
+                  setPicked([...range].reverse())
+                  startComparison(anchor, sha, range)
                   return
                 }
                 setPicked([sha])
+                setComparison(null)
                 return
               }
+              rangeAnchor.current = sha
               setComparison(null)
               if (multiSelect) {
                 setPicked((current) =>
@@ -1126,11 +1186,12 @@ export function Workbench({
           target={comparison.target}
           baseLabel={revisionLabel(comparison.base)}
           targetLabel={revisionLabel(comparison.target)}
+          commits={comparisonCommits}
           report={compareReport}
           loading={compareLoading}
           error={compareError}
           onClose={() => setComparison(null)}
-          onSwap={() => setComparison((current) => current ? { base: current.target, target: current.base } : current)}
+          onSwap={() => setComparison((current) => current ? { ...current, base: current.target, target: current.base } : current)}
           onFullScreen={() => onOpenDiff({ target: 'range', base: comparison.base, targetRef: comparison.target })}
         /> : selected ? <CommitDetailPanel
           onClose={() => setSelected(undefined)}

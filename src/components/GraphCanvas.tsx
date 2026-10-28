@@ -946,7 +946,7 @@ export function GraphCanvas({
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? commits.length - 1 : Math.max(0, Math.min(commits.length - 1, current < 0 ? 0 : index + (event.key === 'ArrowDown' ? 1 : -1)))
       const commit = commits[next]
       if (commit) {
-        onSelect(commit.sha, { shift: false })
+        onSelect(commit.sha, { shift: event.shiftKey })
         const container = containerRef.current
         if (container) {
           const top = next * ROW_HEIGHT
@@ -1067,7 +1067,7 @@ export function GraphCanvas({
         </div>
       ) : null}
       {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
-      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour comparer deux commits · clic droit pour les actions'}</span></div>
+      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour sélectionner une plage · clic droit pour les actions'}</span></div>
       <span className={styles.srOnly} role="status">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )

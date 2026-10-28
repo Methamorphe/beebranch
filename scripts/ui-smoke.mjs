@@ -95,12 +95,29 @@ function mockScript(commits, rows, diffLines) {
   };
   const lines = ${JSON.stringify(diffLines)};
   const diff = {
-    files: [{ oldPath: 'src/main.rs', newPath: 'src/main.rs', kind: 'modified',
-      binary: false, additions: lines.length, deletions: 0, truncated: false,
-      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: lines.length,
-        section: 'fn main', lines: lines.map((content, index) => ({
-          kind: 'added', oldLineno: null, newLineno: index + 1, content,
-          noNewline: false })) }] }],
+    files: [
+      {
+        oldPath: 'src/pair.ts', newPath: 'src/pair.ts', kind: 'modified',
+        binary: false, additions: 1, deletions: 1, truncated: false,
+        hunks: [{
+          oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, section: 'value',
+          lines: [
+            { kind: 'removed', oldLineno: 1, newLineno: null,
+              content: '    render_row(7, "windowed diff payload"); // ' +
+                'horizontal-scroll-probe '.repeat(20) + 'old', noNewline: false },
+            { kind: 'added', oldLineno: null, newLineno: 1,
+              content: '    render_row(7, "windowed diff payload"); // ' +
+                'horizontal-scroll-probe '.repeat(20) + 'new', noNewline: false },
+          ],
+        }],
+      },
+      { oldPath: 'src/main.rs', newPath: 'src/main.rs', kind: 'modified',
+        binary: false, additions: lines.length, deletions: 0, truncated: false,
+        hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: lines.length,
+          section: 'fn main', lines: lines.map((content, index) => ({
+            kind: 'added', oldLineno: null, newLineno: index + 1, content,
+            noNewline: false })) }] },
+    ],
     truncated: false,
   };
   const commit = {
@@ -141,7 +158,20 @@ function mockScript(commits, rows, diffLines) {
     status_get: () => ({ data: status, generation: 1 }),
     refs_get: () => ({ data: refs, generation: 1 }),
     commit_get: () => ({ data: commit, generation: 1 }),
-    diff_get: (args) => { (window.__diffCalls ??= []).push(args); return { data: diff, generation: 1 } },
+    diff_get: (args) => {
+      (window.__diffCalls ??= []).push(args)
+      const path = args.request?.path
+      // A path filter returns exactly that file, like the backend does, so the
+      // embedded preview never repeats the file sidebar.
+      const files = path
+        ? [{
+            ...(diff.files.find((file) => file.newPath === path || file.oldPath === path) ?? diff.files[0]),
+            oldPath: path,
+            newPath: path,
+          }]
+        : diff.files
+      return { data: { ...diff, files }, generation: 1 }
+    },
     graph_page: (args) => args.request && args.request.after
       ? { commits: [], rows: [], generation: 1, truncated: false }
       : { commits, rows, next: undefined, generation: 1, truncated: false },
@@ -727,15 +757,18 @@ try {
   await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage du graphe"]').click()`)
   await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'picks cleared')
 
-  // Shift-clicking a commit after selecting another one must compare them
-  // (previous → clicked) in the graph inspector, without touching the options menu.
+  // Shift-clicking a commit after selecting another one must select every
+  // commit in between and compare the range (anchor → clicked) in the graph
+  // inspector, without touching the options menu.
   await pickCommitRow(0)
   await pickCommitRow(2, true)
+  await waitFor(client, `document.body.innerText.includes('3 commit(s) sélectionné(s)')`, 'shift range selection')
   await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]')?.innerText.includes(${JSON.stringify(sha(1).slice(0, 8) + '…' + sha(3).slice(0, 8))}) ?? false`, 'shift comparison panel')
   await waitFor(client, `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range' && call.request.base === ${JSON.stringify(sha(1))})`, 'shift range diff request')
   const shiftReport = await evaluate(client, `(() => {
     const calls = (window.__diffCalls ?? []).filter((entry) => entry.request?.target === 'range')
     const call = calls[calls.length - 1]
+    const panel = document.querySelector('aside[aria-label="Comparaison"]')
     return {
       base: call?.request.base,
       target: call?.request.targetRef,
@@ -743,20 +776,93 @@ try {
       expectedTarget: ${JSON.stringify(sha(3))},
       label: document.body.innerText.includes('…'),
       graph: document.querySelector('canvas') !== null,
+      title: panel?.querySelector('header span')?.textContent?.trim(),
+      caption: panel?.innerText.includes('Diff de 3 commits') ?? false,
+      commits: panel?.querySelectorAll('[aria-label="Commits comparés"] li').length,
+      newest: panel?.querySelector('[aria-label="Commits comparés"] li')?.textContent?.includes(${JSON.stringify(sha(1).slice(0, 8))}) ?? false,
+      oldest: [...(panel?.querySelectorAll('[aria-label="Commits comparés"] li') ?? [])].pop()?.textContent?.includes(${JSON.stringify(sha(3).slice(0, 8))}) ?? false,
+      treeDir: panel?.querySelector('[aria-label="Fichiers comparés"] button[aria-expanded]') !== null,
+      emphasis: panel?.querySelectorAll('[data-diff-emphasis="word"]').length ?? 0,
     }
   })()`)
   if (shiftReport.base !== shiftReport.expectedBase || shiftReport.target !== shiftReport.expectedTarget || !shiftReport.label) {
     throw new Error('shift-click comparison mismatch: ' + JSON.stringify(shiftReport))
   }
   if (!shiftReport.graph) throw new Error('shift-click comparison left the history view')
+  if (shiftReport.title !== '3 commits sélectionnés' || !shiftReport.caption || shiftReport.commits !== 3) {
+    throw new Error('comparison does not list the selected commits: ' + JSON.stringify(shiftReport))
+  }
+  if (!shiftReport.newest || !shiftReport.oldest) {
+    throw new Error('compared commits are not listed newest first: ' + JSON.stringify(shiftReport))
+  }
+  if (!shiftReport.treeDir) throw new Error('comparison files are not grouped as a tree')
+  if (shiftReport.emphasis < 2) {
+    throw new Error('paired lines are not emphasised word by word: ' + JSON.stringify(shiftReport))
+  }
+  // Path/Tree toggle and directory collapse must reorganise the same list.
+  const pathView = await evaluate(client, `(() => {
+    const group = document.querySelector('aside[aria-label="Comparaison"] [aria-label="Présentation des fichiers"]')
+    const button = [...(group?.querySelectorAll('button') ?? [])].find((item) => item.textContent.trim() === 'Chemin')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!pathView) throw new Error('path/tree toggle missing')
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button[aria-expanded]') === null`, 'flat file list')
+  const flatPaths = await evaluate(client, `[...document.querySelectorAll('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button')].map((item) => item.title)`)
+  if (!flatPaths.some((title) => title.includes('src/main.rs'))) {
+    throw new Error('flat file list lost the full path: ' + JSON.stringify(flatPaths))
+  }
+  await evaluate(client, `(() => {
+    const group = document.querySelector('aside[aria-label="Comparaison"] [aria-label="Présentation des fichiers"]')
+    const button = [...group.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Arborescence')
+    if (button) button.click()
+  })()`)
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button[aria-expanded="true"]') !== null`, 'tree view restored')
+  const collapsed = await evaluate(client, `(() => {
+    const group = document.querySelector('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"]')
+    const dir = group.querySelector('button[aria-expanded="true"]')
+    const before = group.querySelectorAll('button').length
+    dir.click()
+    return { before }
+  })()`)
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button[aria-expanded="false"]') !== null`, 'directory collapsed')
+  const afterCollapse = await evaluate(client, `document.querySelectorAll('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button').length`)
+  if (!(afterCollapse < collapsed.before)) {
+    throw new Error('collapsing a directory does not hide its files: ' + JSON.stringify({ ...collapsed, afterCollapse }))
+  }
+  await screenshot(client, 'p0-compare-range.png')
   await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
   await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'shift comparison closed')
-  await waitFor(client, `document.querySelector('canvas') !== null && document.body.innerText.includes('2 commit(s) sélectionné(s)')`, 'shift pair kept in graph')
+  await waitFor(client, `document.querySelector('canvas') !== null && document.body.innerText.includes('3 commit(s) sélectionné(s)')`, 'shift range kept in graph')
   await evaluate(client, `(() => {
     const clear = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Vider')
     if (clear) clear.click()
   })()`)
   await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'shift picks cleared')
+
+  // Shift+arrow extends the same range from the keyboard.
+  await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    canvas.focus()
+    canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    return true
+  })()`)
+  await delay(80)
+  await evaluate(client, `(() => {
+    document.querySelector('canvas').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true }),
+    )
+    return true
+  })()`)
+  await waitFor(client, `document.body.innerText.includes('2 commit(s) sélectionné(s)') && document.querySelector('aside[aria-label="Comparaison"]') !== null`, 'keyboard range selection')
+  await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'keyboard comparison closed')
+  await evaluate(client, `(() => {
+    const clear = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Vider')
+    if (clear) clear.click()
+  })()`)
+  await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'keyboard picks cleared')
 
   await evaluate(client, `(() => {
     const button = [...document.querySelectorAll('aside button')].find((item) => !item.hasAttribute('aria-expanded') && [...item.querySelectorAll('span')].some((span) => span.textContent.trim() === 'Historique'))

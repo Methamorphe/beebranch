@@ -25,6 +25,9 @@ type Row =
       leftIndex?: number
       rightIndex?: number
       tone: 'context' | 'added' | 'removed' | 'mixed'
+      /** Emphasis for a paired line: computed when a change block has both sides. */
+      leftWords?: WordDiff
+      rightWords?: WordDiff
     }
 
 const LINE_HEIGHT = 24
@@ -151,17 +154,56 @@ function buildRows(file: FileDiff, mode: Mode): Row[] {
       return
     }
     if (mode === 'inline') {
+      // Removed and added lines are emitted in git order, but each pair shares
+      // its prefix/suffix so the changed words stand out inside the line.
+      let block: Array<{ line: DiffLine; index: number }> = []
+      const flushBlock = () => {
+        const removed = block.filter((entry) => entry.line.kind === 'removed')
+        const added = block.filter((entry) => entry.line.kind === 'added')
+        const paired = Math.min(removed.length, added.length)
+        let removedSeen = 0
+        let addedSeen = 0
+        for (const entry of block) {
+          const isRemoved = entry.line.kind === 'removed'
+          const position = isRemoved ? removedSeen++ : addedSeen++
+          const words =
+            position < paired
+              ? wordDiff(
+                  removed[position]!.line.content,
+                  added[position]!.line.content,
+                )
+              : undefined
+          rows.push({
+            kind: 'line',
+            hunk: hunkIndex,
+            left: isRemoved ? entry.line : undefined,
+            right: isRemoved ? undefined : entry.line,
+            leftIndex: isRemoved ? entry.index : undefined,
+            rightIndex: isRemoved ? undefined : entry.index,
+            tone: isRemoved ? 'removed' : 'added',
+            leftWords: isRemoved ? words : undefined,
+            rightWords: isRemoved ? undefined : words,
+          })
+        }
+        block = []
+      }
       hunk.lines.forEach((line, lineIndex) => {
-        rows.push({
-          kind: 'line',
-          hunk: hunkIndex,
-          left: line.kind === 'added' ? undefined : line,
-          right: line.kind === 'removed' ? undefined : line,
-          leftIndex: line.kind === 'added' ? undefined : lineIndex,
-          rightIndex: line.kind === 'removed' ? undefined : lineIndex,
-          tone: line.kind,
-        })
+        if (line.kind === 'context') {
+          flushBlock()
+          rows.push({
+            kind: 'line',
+            hunk: hunkIndex,
+            left: line,
+            right: line,
+            leftIndex: lineIndex,
+            rightIndex: lineIndex,
+            tone: 'context',
+          })
+          return
+        }
+        block.push({ line, index: lineIndex })
       })
+      flushBlock()
       return
     }
 
@@ -749,7 +791,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
                             <span className={styles.code} title={row.left?.content}>
                               {row.left
                                 ? words
-                                  ? <>{highlight(words.prefix, file.oldPath)}<span className={styles.word}>{highlight(words.left, file.oldPath)}</span>{highlight(words.suffix, file.oldPath)}</>
+                                  ? <>{highlight(words.prefix, file.oldPath)}<span className={styles.word} data-diff-emphasis="word">{highlight(words.left, file.oldPath)}</span>{highlight(words.suffix, file.oldPath)}</>
                                   : highlight(row.left.content, file.oldPath)
                                 : ''}
                             </span>
@@ -761,7 +803,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
                             <span className={styles.code} title={row.right?.content}>
                               {row.right
                                 ? words
-                                  ? <>{highlight(words.prefix, file.newPath)}<span className={styles.word}>{highlight(words.right, file.newPath)}</span>{highlight(words.suffix, file.newPath)}</>
+                                  ? <>{highlight(words.prefix, file.newPath)}<span className={styles.word} data-diff-emphasis="word">{highlight(words.right, file.newPath)}</span>{highlight(words.suffix, file.newPath)}</>
                                   : highlight(row.right.content, file.newPath)
                                 : ''}
                             </span>
@@ -778,10 +820,26 @@ export function DiffViewer({ report, source, commit, staging, embedded = false }
                           {row.tone === 'added' ? '+' : row.tone === 'removed' ? '−' : ' '}
                         </span>
                         <span className={styles.code}>
-                          {highlight(
-                            (row.right ?? row.left)?.content ?? '',
-                            row.tone === 'removed' ? file.oldPath : file.newPath,
-                          )}
+                          {(() => {
+                            const words =
+                              row.tone === 'removed' ? row.leftWords : row.rightWords
+                            const path =
+                              row.tone === 'removed' ? file.oldPath : file.newPath
+                            const content = (row.right ?? row.left)?.content ?? ''
+                            if (!words) {
+                              return highlight(content, path)
+                            }
+                            const part = row.tone === 'removed' ? words.left : words.right
+                            return (
+                              <>
+                                {highlight(words.prefix, path)}
+                                <span className={styles.word} data-diff-emphasis="word">
+                                  {highlight(part, path)}
+                                </span>
+                                {highlight(words.suffix, path)}
+                              </>
+                            )
+                          })()}
                         </span>
                       </span>
                     )}

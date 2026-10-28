@@ -1,7 +1,7 @@
 {
   "name": "beebranch",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,8 @@
     "tauri": "tauri",
     "ui:smoke": "node scripts/ui-smoke.mjs",
     "audit:telemetry": "node scripts/audit-no-telemetry.mjs",
-    "release:manifest": "node scripts/update-manifest.mjs"
+    "release:manifest": "node scripts/update-manifest.mjs",
+    "release:build": "bash scripts/release-build.sh"
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.3.0",
