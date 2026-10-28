@@ -4,6 +4,11 @@
 
 ### Modifié
 
+- **Historique / saisie du commit** : canvas maintenu dans le viewport par
+  positionnement sticky, sans translation différée après défilement. Évite
+  les images transitoires décalées lors des repeints du panneau de commit.
+  Régression contrôlée avant le prochain redessin et pendant la saisie.
+
 - **Réglages / Profils** : profils enregistrés présentés séparément, identité
   et préférences regroupées dans un formulaire à deux colonnes, contrôles
   alignés et actions en pied de formulaire. Édition avec accès direct au

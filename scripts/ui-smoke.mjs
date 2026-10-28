@@ -308,9 +308,14 @@ function mockScript(commits, rows, diffLines) {
 `
 }
 
-async function connect(port) {
+async function connect(port, state) {
   let target
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (state?.exit) {
+      throw new Error(
+        `Chrome exited (${JSON.stringify(state.exit)}) before exposing DevTools: ${state.stderr.trim().slice(-1500) || 'no stderr'}`,
+      )
+    }
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
       target = list.find((entry) => entry.type === 'page')
@@ -318,7 +323,11 @@ async function connect(port) {
     } catch {}
     await delay(100)
   }
-  if (!target) throw new Error('Chrome DevTools target not found')
+  if (!target) {
+    throw new Error(
+      `Chrome DevTools target not found after 30s: ${state?.stderr.trim().slice(-1500) || 'no stderr'}`,
+    )
+  }
   const socket = new WebSocket(target.webSocketDebuggerUrl)
   await new Promise((resolveOpen, reject) => {
     socket.onopen = resolveOpen
@@ -405,20 +414,28 @@ await new Promise((ready) => debugProbe.listen(0, '127.0.0.1', ready))
 const debugPort = debugProbe.address().port
 await new Promise((closed) => debugProbe.close(closed))
 const profile = join(outDir, 'chrome-profile')
+const browserState = { stderr: '', exit: null }
 const browser = spawn(chrome, [
   '--headless=new',
   '--disable-gpu',
   '--no-sandbox',
+  '--disable-dev-shm-usage',
   '--no-first-run',
   '--no-default-browser-check',
   '--hide-scrollbars',
   `--remote-debugging-port=${debugPort}`,
   `--user-data-dir=${profile}`,
   'about:blank',
-], { stdio: 'ignore' })
+], { stdio: ['ignore', 'ignore', 'pipe'] })
+browser.stderr.on('data', (chunk) => {
+  browserState.stderr = `${browserState.stderr}${chunk}`.slice(-4000)
+})
+browser.on('exit', (code, signal) => {
+  browserState.exit = { code, signal }
+})
 
 try {
-  const client = await connect(debugPort)
+  const client = await connect(debugPort, browserState)
   await client.send('Page.enable')
   await client.send('Runtime.enable')
   await client.send('Emulation.setDeviceMetricsOverride', {
@@ -869,6 +886,45 @@ try {
   })()`)
   if (!(graphComposer.top > 0 && graphComposer.bottom < graphComposer.viewport)) console.log('composer layout', JSON.stringify(graphComposer))
   assertUI('composer-visible-next-to-graph', graphComposer.top > 0 && graphComposer.bottom < graphComposer.viewport)
+  // The viewport canvas must stay pinned even before the next drawing frame.
+  // This catches the scroll/transform race that editor repaints could expose.
+  const graphWhileTyping = await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    const scroll = canvas.parentElement
+    scroll.scrollTop = 180
+    const before = canvas.getBoundingClientRect()
+    scroll.scrollTop = 240
+    const after = canvas.getBoundingClientRect()
+    return { before:before.top, after:after.top, scroll:scroll.scrollTop }
+  })()`)
+  assertUI('graph-pinned-before-scroll-redraw', graphWhileTyping.scroll === 240 && Math.abs(graphWhileTyping.before - graphWhileTyping.after) < 1)
+  await delay(50)
+  await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    const scroll = canvas.parentElement
+    const editor = document.querySelector('textarea[aria-label="Message de commit"]')
+    window.__commitTypingSamples = []
+    window.__sampleCommitTyping = true
+    window.__typingCanvas = canvas
+    const sample = () => {
+      if (!window.__sampleCommitTyping) return
+      const rect = canvas.getBoundingClientRect()
+      window.__commitTypingSamples.push({ top:rect.top, left:rect.left, width:rect.width, height:rect.height, scroll:scroll.scrollTop, focus:document.activeElement === editor, sameCanvas:document.querySelector('canvas') === canvas })
+      requestAnimationFrame(sample)
+    }
+    editor.focus()
+    requestAnimationFrame(sample)
+  })()`)
+  for (const text of ['fix: ', 'stabiliser ', 'le graphe ', 'pendant la saisie']) {
+    await client.send('Input.insertText', { text })
+    await delay(30)
+  }
+  const typingFrames = await evaluate(client, `window.__sampleCommitTyping = false; window.__commitTypingSamples`)
+  assertUI('commit-typing-keeps-graph-stable', typingFrames.length > 0 && typingFrames.every((sample) => sample.focus && sample.sameCanvas && sample.scroll === typingFrames[0].scroll && Math.abs(sample.top - typingFrames[0].top) < 1 && Math.abs(sample.left - typingFrames[0].left) < 1 && sample.width === typingFrames[0].width && sample.height === typingFrames[0].height))
+  await screenshot(client, 'ux-commit-typing-stable.png')
+  await fill('textarea[aria-label="Message de commit"]', '')
+  await evaluate(client, `document.querySelector('canvas').parentElement.scrollTop = 0`)
+
   assertUI('no-dedicated-changes-tab', await evaluate(client, `!document.querySelector('aside button[data-view="status"]')`))
   const density = await evaluate(client, `(() => {
     const canvas = document.querySelector('canvas')

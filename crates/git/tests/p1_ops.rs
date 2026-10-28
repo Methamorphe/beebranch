@@ -322,36 +322,34 @@ fn stages_rename_as_a_whole_file() {
     assert!(!status.stdout.text_lossy().starts_with("1"));
 }
 
+#[cfg(unix)]
 #[test]
 fn commit_runs_hooks_and_keeps_the_message_on_failure() {
     let fixture = dirty_fixture();
     fixture.write("a.txt", "next\n");
     fixture.add_all();
     let hook = fixture.path().join(".git/hooks/pre-commit");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::write(&hook, "#!/bin/sh\necho hook failure\nexit 1\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let options = CommitOptions {
-            message: "should not commit".into(),
-            ..CommitOptions::default()
-        };
-        let error =
-            commit::create(fixture.runner(), fixture.path(), &options).expect_err("hook must fail");
-        assert!(error.message.contains("commit") || error.detail.is_some());
-        assert!(error.detail.unwrap_or_default().contains("hook failure"));
-        let head = fixture.rev_parse(&["HEAD"]);
-        assert_eq!(head, fixture.rev_parse(&["HEAD"]));
-        assert_eq!(fixture.detect().worktree.staged, 1);
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(&hook, "#!/bin/sh\necho hook failure\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let options = CommitOptions {
+        message: "should not commit".into(),
+        ..CommitOptions::default()
+    };
+    let error =
+        commit::create(fixture.runner(), fixture.path(), &options).expect_err("hook must fail");
+    assert!(error.message.contains("commit") || error.detail.is_some());
+    assert!(error.detail.unwrap_or_default().contains("hook failure"));
+    let head = fixture.rev_parse(&["HEAD"]);
+    assert_eq!(head, fixture.rev_parse(&["HEAD"]));
+    assert_eq!(fixture.detect().worktree.staged, 1);
 
-        std::fs::write(&hook, "#!/bin/sh\necho hook ok\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let outcome = commit::create(fixture.runner(), fixture.path(), &options).expect("commit");
-        assert!(outcome.output.contains("hook ok"));
-        assert_ne!(outcome.sha, "base");
-        assert_eq!(fixture.detect().worktree.staged, 0);
-    }
+    std::fs::write(&hook, "#!/bin/sh\necho hook ok\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let outcome = commit::create(fixture.runner(), fixture.path(), &options).expect("commit");
+    assert!(outcome.output.contains("hook ok"));
+    assert_ne!(outcome.sha, "base");
+    assert_eq!(fixture.detect().worktree.staged, 0);
 }
 
 #[test]
@@ -589,7 +587,8 @@ fn fetch_and_push_stream_against_a_local_bare_remote() {
         .run(
             &CommandSpec::new(GitSubcommand::Init, bare.path())
                 .arg("--quiet")
-                .arg("--bare"),
+                .arg("--bare")
+                .arg("--initial-branch=main"),
         )
         .expect("init bare")
         .ensure_success()

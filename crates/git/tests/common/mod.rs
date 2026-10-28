@@ -36,7 +36,14 @@ impl Fixture {
     }
 
     pub fn init(&self) {
-        self.run(GitSubcommand::Init, &["--quiet"], &[]);
+        // `--initial-branch` pins the branch name: without it the fixture
+        // follows the runner's `init.defaultBranch`, and CI defaults to
+        // `master` while the tests address `main`.
+        self.run(
+            GitSubcommand::Init,
+            &["--quiet", "--initial-branch=main"],
+            &[],
+        );
     }
 
     pub fn run(&self, subcommand: GitSubcommand, args: &[&str], stdin: &[u8]) {

@@ -188,7 +188,10 @@ export function GraphCanvas({
       canvas.width = Math.floor(width * ratio)
       canvas.height = Math.floor(height * ratio)
     }
-    canvas.style.transform = `translateY(${scrollTopRef.current}px)`
+    // The canvas stays pinned by CSS while the spacer supplies the full
+    // history height. Avoid deferred scroll compensation so a repaint of
+    // the neighbouring commit editor cannot expose a displaced frame.
+    canvas.style.height = `${height}px`
 
     const context = canvas.getContext('2d')
     if (!context) {

@@ -9,6 +9,9 @@
 }
 
 .scroll {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   position: absolute;
   inset:32px 0 24px;
   overflow-y: auto;
@@ -16,15 +19,17 @@
 }
 
 .spacer {
+  grid-area: 1 / 1;
   width: 1px;
 }
 
 .canvas {
-  position: absolute;
-  inset: 0;
+  grid-area: 1 / 1;
+  position: sticky;
+  top: 0;
+  align-self: start;
   width: 100%;
-  height: 100%;
-  will-change: transform;
+  height: 0;
   cursor: pointer;
   outline: none;
 }
