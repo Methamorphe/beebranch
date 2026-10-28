@@ -44,6 +44,7 @@ Contraintes :
 | HTTPS | Un endpoint non HTTPS est refusé (`update.invalid_endpoint`), sauf loopback pour tester un manifeste local. |
 | Panne | GitHub indisponible ⇒ `update.timeout` / `update.failed` ; aucune installation n'est tentée. |
 | Signature Apple/Windows | Optionnelle : sans les secrets `APPLE_*` / `TAURI_WINDOWS_CERTIFICATE`, la CI construit un bundle non signé par l'OS (avertissement, Gatekeeper/SmartScreen) mais conserve la signature d'update obligatoire. |
+| Matrice | `macos-latest` est arm64 : seul `darwin-aarch64` est publié (pas de build Intel), plus `linux-x86_64` et `windows-x86_64`. |
 
 La signature minisign reste la barrière : compromettre le dépôt public ou l'URL
 ne suffit pas à installer un binaire non signé.
