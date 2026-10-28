@@ -421,13 +421,29 @@ const commits = Array.from({ length: count }, (_, index) => ({
   refs: index === 0 ? ['HEAD -> main', 'origin/main', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 3 ? ['synced', 'origin/synced'] : index === 18 ? ['origin/hotfix'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
   subject: `Commit ${index + 1} — ${['fix graph lanes', 'add diff window', 'wire session watcher', 'document benchmarks'][index % 4]}`,
 }))
-const rows = commits.map((commit) => ({
-  nodeLane: 0,
-  laneCount: 1,
-  activeRanges: commit.parents.length > 0 ? [[0, 0]] : [],
-  parentLanes: commit.parents.length > 0 ? [0] : [],
-  overflow: false,
-}))
+// A deterministic two-lane history: a merge every six rows, with the side
+// branch shown on lane 1 until it converges back into lane 0. The layout is
+// what the Rust lane algorithm emits, so the graph proof covers forks and
+// merges instead of a single straight line.
+const rows = commits.map((commit, index) => {
+  const phase = index % 6
+  if (commit.parents.length === 0) {
+    return { nodeLane: 0, laneCount: 1, activeRanges: [], parentLanes: [], overflow: false }
+  }
+  if (phase === 0) {
+    return { nodeLane: 0, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [0, 1], overflow: false }
+  }
+  if (phase === 2) {
+    return { nodeLane: 1, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [1], overflow: false }
+  }
+  if (phase === 4) {
+    return { nodeLane: 1, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [0], overflow: false }
+  }
+  if (phase === 5) {
+    return { nodeLane: 0, laneCount: 1, activeRanges: [[0, 0]], parentLanes: [0], overflow: false }
+  }
+  return { nodeLane: 0, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [0], overflow: false }
+})
 const diffLines = Array.from({ length: 4000 }, (_, index) =>
   index === 3
     ? `    // ${'horizontal-scroll-probe '.repeat(40)}`
@@ -649,13 +665,13 @@ try {
   if (!(await toggleMultiSelect())) throw new Error('multi-select toggle missing')
   await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage du graphe"]').click()`)
   await waitFor(client, `document.querySelector('[popover]:popover-open') === null`, 'graph display options closed')
-  const pickCommitRow = async (index) => evaluate(client, `(() => {
+  const pickCommitRow = async (index, shift = false) => evaluate(client, `(() => {
     const canvas = document.querySelector('canvas')
     const box = canvas.getBoundingClientRect()
     const x = box.left + Math.max(120, box.width * 0.55)
     const y = box.top + ${index} * 30 + 15
     for (const type of ['pointerdown', 'pointerup']) {
-      canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true }))
+      canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, shiftKey: ${shift} }))
     }
     return true
   })()`)
@@ -696,6 +712,38 @@ try {
   if (!(await toggleMultiSelect())) throw new Error('multi-select toggle missing after comparison')
   await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage du graphe"]').click()`)
   await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'picks cleared')
+
+  // Shift-clicking a commit after selecting another one must compare them
+  // (previous → clicked) and open the diff without touching the options menu.
+  await pickCommitRow(0)
+  await pickCommitRow(2, true)
+  await waitFor(client, `document.querySelector('main h1')?.textContent === 'Comparaison'`, 'shift comparison view')
+  await waitFor(client, `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range' && call.request.base === ${JSON.stringify(sha(1))})`, 'shift range diff request')
+  const shiftReport = await evaluate(client, `(() => {
+    const calls = (window.__diffCalls ?? []).filter((entry) => entry.request?.target === 'range')
+    const call = calls[calls.length - 1]
+    return {
+      base: call?.request.base,
+      target: call?.request.targetRef,
+      expectedBase: ${JSON.stringify(sha(1))},
+      expectedTarget: ${JSON.stringify(sha(3))},
+      label: document.body.innerText.includes('…'),
+    }
+  })()`)
+  if (shiftReport.base !== shiftReport.expectedBase || shiftReport.target !== shiftReport.expectedTarget || !shiftReport.label) {
+    throw new Error('shift-click comparison mismatch: ' + JSON.stringify(shiftReport))
+  }
+  await evaluate(client, `(() => {
+    const back = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('← Retour'))
+    if (back) back.click()
+  })()`)
+  await waitFor(client, `document.querySelector('canvas') !== null`, 'graph after shift comparison')
+  await waitFor(client, `document.body.innerText.includes('2 commit(s) sélectionné(s)')`, 'shift pair kept in graph')
+  await evaluate(client, `(() => {
+    const clear = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Vider')
+    if (clear) clear.click()
+  })()`)
+  await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'shift picks cleared')
 
   await evaluate(client, `(() => {
     const button = [...document.querySelectorAll('aside button')].find((item) => !item.hasAttribute('aria-expanded') && [...item.querySelectorAll('span')].some((span) => span.textContent.trim() === 'Historique'))

@@ -860,7 +860,7 @@ export function Workbench({
             <span className={shared.notice}>{picked.length} commit(s) sélectionné(s)</span>
             {picked.length === 1 ? (
               <span className={shared.small}>
-                Sélectionnez un second commit pour comparer.
+                Maj+clic sur un second commit pour comparer.
               </span>
             ) : null}
             {canCompare ? (
@@ -965,17 +965,34 @@ export function Workbench({
             checkoutDisabled={checkoutBusy}
             onCheckoutRef={(raw) => void checkoutGraphRef(raw)}
             picked={picked}
-            onSelect={(sha) => {
+            onSelect={(sha, modifiers) => {
               setSelected(sha)
               setWorktreeSelected(false)
               setLocalDiff(null)
+              if (modifiers.shift) {
+                // Shift turns the click into a comparison endpoint: the commit
+                // selected (or picked last) becomes A, the clicked commit B, and
+                // the A→B diff opens immediately like in other git clients.
+                const anchor = picked.length > 0
+                  ? picked[picked.length - 1]!
+                  : selected
+                if (anchor && anchor !== sha) {
+                  setPicked([anchor, sha])
+                  onOpenDiff({ target: 'range', base: anchor, targetRef: sha })
+                  return
+                }
+                setPicked([sha])
+                return
+              }
               if (multiSelect) {
                 setPicked((current) =>
                   current.includes(sha)
                     ? current.filter((value) => value !== sha)
                     : [...current, sha],
                 )
+                return
               }
+              setPicked([])
             }}
             onContextMenu={openContextMenu}
             onRefContextMenu={openRefMenu}

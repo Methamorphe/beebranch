@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.5.1] — 2026-10-28
+
+### Ajouté
+
+- **Comparer deux commits par Maj+clic** : après avoir sélectionné un commit,
+  Maj+clic sur un second ouvre directement le diff A → B dans la vue
+  Comparaison, sans passer par « Sélection multiple ». Le premier commit
+  sélectionné (ou le dernier coché) sert de base ; le couple reste sélectionné
+  dans le graphe.
+
+### Modifié
+
+- **Graphe de l’historique redessiné** : les couleurs de branche restent
+  confinées à la colonne du graphe. Les bandes teintées qui coloraient la ligne
+  entière disparaissent ; la sélection se marque par un léger relief de surface
+  et le repère accent à gauche de la ligne. Les voies sont tracées d’un seul
+  trait continu, sans transparence superposée : les fourches ne forment plus de
+  taches plus sombres là où une courbe recouvrait une voie. Les courbes de
+  parenté sont lissées, les pastilles de commit sont dessinées après toutes les
+  arêtes (aucune voie ne les recouvre plus) et le halo gris clair qui entourait
+  chaque pastille est remplacé par un anneau à la couleur du fond, qui
+  interrompt proprement la voie.
+
+### Corrigé
+
+- **Étiquette de branche courante (HEAD) illisible dans le graphe** : le texte
+  et l’icône étaient peints dans le jaune d’accent sur un fond jaune d’accent
+  (contraste ≈ 1,2:1). Ils utilisent désormais `--accent-contrast`, comme tous
+  les contrôles remplis d’accent de l’application (contraste ≈ 10:1).
+
+### Distribution
+
+- **Build macOS signé et notarié** : signature `Developer ID Application:
+  beecoming (JFSQ98955P)` avec hardened runtime, notarisation Apple et
+  agrafage de l'app et du DMG. Gatekeeper n'exige plus de contournement au
+  premier lancement.
+- La notarisation CI utilise une clé API App Store Connect
+  (`APPLE_API_KEY` / `APPLE_API_ISSUER` / `APPLE_API_KEY_P8`) au lieu d'un mot
+  de passe d'application.
+- L'identité de signature change par rapport aux versions précédentes : macOS
+  peut redemander l'accès au trousseau et aux dossiers choisis au premier
+  lancement.
+
+### Interne
+
+- La preuve visuelle headless (`scripts/ui-smoke.mjs`) rend un historique à deux
+  voies avec un merge toutes les six lignes : les fourches, les courbes et les
+  pastilles sont couvertes par les captures, et non plus une seule ligne droite.
+
 ## [0.5.0] — 2026-10-28
 
 ### Ajouté
@@ -11,10 +60,11 @@
   séparateur ou via « Réinitialiser les colonnes » ; toutes les largeurs sont
   mémorisées et re-clampées à la taille de la fenêtre. Flèches ←/→ au clavier
   sur un séparateur.
-- **Comparaison entre deux commits dans l’historique** : avec « Sélection
-  multiple » activée, cochez deux commits puis cliquez « Comparer A → B ». Le
-  sens du diff suit l’ordre de sélection (premier commit → second commit) et
-  s’ouvre dans la vue Comparaison, sans mutation du dépôt.
+- **Comparaison entre deux commits dans l’historique** : sélectionnez un
+  commit puis Maj+clic sur un second : le diff s’ouvre immédiatement dans la
+  vue Comparaison. Avec « Sélection multiple » activée, cochez deux commits
+  puis cliquez « Comparer A → B ». Le sens du diff suit l’ordre de sélection
+  (premier commit → second commit), sans mutation du dépôt.
 - **Colonne Date dans l’historique** : la date du commit (committer, et non
   l’auteur) est toujours affichée à droite de l’auteur. L’ancienne option
   d’affichage « Date » disparaît.

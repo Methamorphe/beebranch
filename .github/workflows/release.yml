@@ -87,6 +87,9 @@ jobs:
           APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_SECRET: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER_SECRET: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8_SECRET: ${{ secrets.APPLE_API_KEY_P8 }}
           WINDOWS_CERTIFICATE_SECRET: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD_SECRET: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
           UPDATER_KEY_SECRET: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -104,6 +107,26 @@ jobs:
           export_if_present APPLE_ID "$APPLE_ID_SECRET"
           export_if_present APPLE_PASSWORD "$APPLE_PASSWORD_SECRET"
           export_if_present APPLE_TEAM_ID "$APPLE_TEAM_ID_SECRET"
+          # Notarization via App Store Connect API key: Tauri expects the Key ID
+          # and issuer in the environment, and the .p8 private key on disk.
+          if [ -n "$APPLE_API_KEY_SECRET" ] || [ -n "$APPLE_API_ISSUER_SECRET" ] || [ -n "$APPLE_API_KEY_P8_SECRET" ]; then
+            if [ -z "$APPLE_API_KEY_SECRET" ] || [ -z "$APPLE_API_ISSUER_SECRET" ] || [ -z "$APPLE_API_KEY_P8_SECRET" ]; then
+              echo "::error title=Clé API Apple incomplète::APPLE_API_KEY, APPLE_API_ISSUER et APPLE_API_KEY_P8 doivent être définis ensemble."
+              exit 1
+            fi
+            key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_SECRET}.p8"
+            printf '%s\n' "$APPLE_API_KEY_P8_SECRET" | tr -d '\r' > "$key_path"
+            chmod 600 "$key_path"
+            export_if_present APPLE_API_KEY "$APPLE_API_KEY_SECRET"
+            export_if_present APPLE_API_ISSUER "$APPLE_API_ISSUER_SECRET"
+            printf 'APPLE_API_KEY_PATH=%s\n' "$key_path" >> "$GITHUB_ENV"
+          fi
+          # Signing without notarization still fails the spctl check below;
+          # report the missing pair instead of a cryptic Gatekeeper error.
+          if [ -n "$APPLE_CERTIFICATE_SECRET" ] && [ -z "$APPLE_API_KEY_SECRET" ] && [ -z "$APPLE_ID_SECRET" ]; then
+            echo "::error title=Notarisation absente::un certificat est fourni sans credentials de notarisation (clé API Apple ou Apple ID)."
+            exit 1
+          fi
           export_if_present TAURI_WINDOWS_CERTIFICATE "$WINDOWS_CERTIFICATE_SECRET"
           export_if_present TAURI_WINDOWS_CERTIFICATE_PASSWORD "$WINDOWS_CERTIFICATE_PASSWORD_SECRET"
           export_if_present TAURI_SIGNING_PRIVATE_KEY "$UPDATER_KEY_SECRET"
@@ -121,6 +144,27 @@ jobs:
           # the newest non-draft, non-prerelease release of the public mirror.
           BEEBRANCH_UPDATE_ENDPOINT: https://github.com/${{ env.RELEASES_REPO }}/releases/latest/download/latest.json
         run: npm run tauri build
+
+      # Tauri notarizes and staples the .app; the DMG itself is only signed.
+      # Without this, a quarantined DMG is rejected by Gatekeeper.
+      - name: Notarize and staple DMG (macOS)
+        if: matrix.platform == 'macos' && env.APPLE_SIGNING_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          dmg=$(find target/release/bundle/dmg -name '*.dmg' | head -1)
+          test -n "$dmg"
+          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            xcrun notarytool submit "$dmg" \
+              --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          elif [ -n "${APPLE_ID:-}" ]; then
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          else
+            echo "::error title=Notarisation DMG impossible::aucun credential Apple disponible."
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          spctl --assess --type open --context context:primary-signature -vv "$dmg"
 
       - name: Install smoke (macOS)
         if: matrix.platform == 'macos'

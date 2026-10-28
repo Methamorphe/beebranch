@@ -37,6 +37,13 @@ export type MrBadge = {
   state: string
 }
 
+/** Click modifiers that change what a row click means. Shift extends the
+ * selection towards the previously picked commit so two commits can be
+ * compared without leaving the graph. */
+export type SelectModifiers = {
+  shift: boolean
+}
+
 type Props = {
   worktreeRow?: ReactNode
   headerTools?: ReactNode
@@ -49,7 +56,7 @@ type Props = {
   refEntries?: RefEntry[]
   checkoutDisabled?: boolean
   onCheckoutRef?: (raw: string) => void
-  onSelect: (sha: string) => void
+  onSelect: (sha: string, modifiers: SelectModifiers) => void
   onContextMenu?: (commit: CommitSummary, x: number, y: number) => void
   onRefContextMenu?: (entry: RefEntry, x: number, y: number) => void
   onRefDrop?: (source: RefEntry, target: RefEntry, x: number, y: number) => void
@@ -370,11 +377,17 @@ export function GraphCanvas({
     const accentColor = computed.getPropertyValue('--accent').trim() || '#f5bb45'
     const accentTextColor =
       computed.getPropertyValue('--accent-text').trim() || accentColor
+    // Text drawn *on* the accent fill (the HEAD pill) needs the dark accent
+    // contrast color; `--accent-text` is the accent hue meant for dark
+    // backgrounds and would be unreadable on top of it.
+    const accentContrastColor =
+      computed.getPropertyValue('--accent-contrast').trim() || '#171a1f'
     const surfaceColor = computed.getPropertyValue('--surface').trim() || '#15181e'
     const warningColor = computed.getPropertyValue('--warning').trim() || '#f0a45b'
     const infoColor = computed.getPropertyValue('--info').trim() || '#81a9ef'
     const borderColor = computed.getPropertyValue('--border').trim()
     const raisedColor = computed.getPropertyValue('--surface-raised').trim()
+    const bgColor = computed.getPropertyValue('--bg').trim() || '#181b22'
 
     const col = layout
     const scrollTop = scrollTopRef.current
@@ -394,34 +407,98 @@ export function GraphCanvas({
     const stripInset = 3
     const chipText = light ? '#101216' : '#F4F6FA'
 
-    // 1. Rows are tinted strips keyed on the branch color: the commit list
-    // reads as grouped branches without adding separators.
+    const laneX = (lane: number) => graphLeft + lane * laneScale + laneScale / 2
+    const laneColor = (lane: number) => laneColors[lane % laneColors.length]!
+    const emphasisFor = (sha: string, index: number) =>
+      sha === selected ? 0.5 : picked.includes(sha) ? 0.34 : hoveredRef.current === index ? 0.18 : 0
+
+    // 1. Row emphasis stays neutral: only the graph column carries the branch
+    // colors, so a selected row lifts the surface instead of tinting the row.
     for (let index = first; index <= last; index += 1) {
       const commit = commits[index]
-      const row = rows[index]
-      if (!commit || !row) continue
+      if (!commit) continue
       const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
-      const isSelected = commit.sha === selected
-      const isPicked = picked.includes(commit.sha)
-      const isHovered = hoveredRef.current === index
-      const color = laneColors[row.nodeLane % laneColors.length]!
-      const rgb = hexToRgb(color)
-      const tint = isSelected ? 0.18 : isPicked ? 0.14 : isHovered ? 0.1 : light ? 0.05 : 0.06
-      if (rgb) {
-        context.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${tint})`
+      const emphasis = emphasisFor(commit.sha, index)
+      if (emphasis > 0) {
+        context.globalAlpha = emphasis
+        context.fillStyle = raisedColor
         context.beginPath()
         context.roundRect(6, y - ROW_HEIGHT / 2 + stripInset, Math.max(0, width - 12), ROW_HEIGHT - stripInset * 2, 4)
         context.fill()
+        context.globalAlpha = 1
       }
-      if (isSelected || isPicked) {
+      if (commit.sha === selected || picked.includes(commit.sha)) {
         context.fillStyle = accentColor
         context.fillRect(2, y - ROW_HEIGHT / 2 + stripInset, 2, ROW_HEIGHT - stripInset * 2)
       }
     }
 
-    // 2. Lanes, nodes, reference pills and text.
+    // 2. Lane lines and parent edges. Every segment is stroked once at full
+    // opacity: the previous alpha layering darkened each fork into a blotch.
     context.lineCap = 'round'
     context.lineJoin = 'round'
+    context.lineWidth = 2
+    for (let index = first; index <= last; index += 1) {
+      const row = rows[index]
+      if (!row) continue
+      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
+      for (const [start, end] of row.activeRanges) {
+        for (let lane = start; lane <= end; lane += 1) {
+          const x = laneX(lane)
+          context.strokeStyle = laneColor(lane)
+          context.beginPath()
+          context.moveTo(x, y - ROW_HEIGHT / 2)
+          context.lineTo(x, y + ROW_HEIGHT / 2)
+          context.stroke()
+        }
+      }
+      for (const parentLane of row.parentLanes) {
+        if (parentLane === row.nodeLane) {
+          continue
+        }
+        const fromX = laneX(row.nodeLane)
+        const toX = laneX(parentLane)
+        context.strokeStyle = laneColor(parentLane)
+        context.beginPath()
+        context.moveTo(fromX, y)
+        context.bezierCurveTo(fromX, y + ROW_HEIGHT / 2, toX, y + ROW_HEIGHT / 2, toX, y + ROW_HEIGHT)
+        context.stroke()
+      }
+    }
+
+    // 3. Commit nodes are drawn after every edge, so no line overpaints a dot.
+    // A background-colored gap ring keeps each dot readable on its lane and the
+    // HEAD commit gets an accent ring.
+    for (let index = first; index <= last; index += 1) {
+      const commit = commits[index]
+      const row = rows[index]
+      if (!commit || !row) continue
+      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
+      const nodeX = laneX(row.nodeLane)
+      const isSelected = commit.sha === selected
+      const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
+      const radius = isSelected ? 5.25 : 4.5
+      const rowBackground = mix(bgColor, raisedColor, emphasisFor(commit.sha, index))
+      if (isSelected || headCommit) {
+        context.fillStyle = rowBackground
+        context.beginPath()
+        context.arc(nodeX, y, radius + 2.4, 0, Math.PI * 2)
+        context.fill()
+      }
+      context.fillStyle = laneColor(row.nodeLane)
+      context.beginPath()
+      context.arc(nodeX, y, radius, 0, Math.PI * 2)
+      context.fill()
+      if (isSelected || headCommit) {
+        context.strokeStyle = accentColor
+        context.lineWidth = 1.5
+        context.beginPath()
+        context.arc(nodeX, y, radius + 3.2, 0, Math.PI * 2)
+        context.stroke()
+      }
+    }
+
+    // 4. Reference pills, message and columns.
     for (let index = first; index <= last; index += 1) {
       const commit = commits[index]
       const row = rows[index]
@@ -429,54 +506,7 @@ export function GraphCanvas({
         continue
       }
       const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
-      const isSelected = commit.sha === selected
-      const nodeColor = laneColors[row.nodeLane % laneColors.length]!
-
-      context.lineWidth = 2
-      context.globalAlpha = 0.85
-      for (const [start, end] of row.activeRanges) {
-        for (let lane = start; lane <= end; lane += 1) {
-          const x = graphLeft + lane * laneScale + laneScale / 2
-          context.strokeStyle = laneColors[lane % laneColors.length]!
-          context.beginPath()
-          context.moveTo(x, y - ROW_HEIGHT / 2)
-          context.lineTo(x, y + ROW_HEIGHT / 2)
-          context.stroke()
-        }
-      }
-      context.globalAlpha = 1
-
-      const nodeX = graphLeft + row.nodeLane * laneScale + laneScale / 2
-      for (const parentLane of row.parentLanes) {
-        if (parentLane === row.nodeLane) {
-          continue
-        }
-        const parentX = graphLeft + parentLane * laneScale + laneScale / 2
-        context.strokeStyle = laneColors[parentLane % laneColors.length]!
-        context.beginPath()
-        context.moveTo(nodeX, y)
-        context.bezierCurveTo(nodeX, y + ROW_HEIGHT / 2, parentX, y + ROW_HEIGHT / 2, parentX, y + ROW_HEIGHT)
-        context.stroke()
-      }
-
-      // A surface-colored ring separates the node from the lanes; the HEAD
-      // commit adds an accent halo.
-      const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
-      const radius = isSelected ? 7 : 5.5
-      context.beginPath()
-      context.arc(nodeX, y, radius, 0, Math.PI * 2)
-      context.fillStyle = nodeColor
-      context.fill()
-      context.lineWidth = 2.5
-      context.strokeStyle = surfaceColor
-      context.stroke()
-      if (headCommit) {
-        context.beginPath()
-        context.arc(nodeX, y, radius + 3.5, 0, Math.PI * 2)
-        context.lineWidth = 1.5
-        context.strokeStyle = accentColor
-        context.stroke()
-      }
+      const nodeColor = laneColor(row.nodeLane)
 
       // References: every visible ref is a colored pill, overflow becomes `+N`.
       const refs = decorations.get(commit.sha)
@@ -495,7 +525,7 @@ export function GraphCanvas({
                   : ref.kind === 'local'
                     ? nodeColor
                     : mutedColor
-          const tone = ref.kind === 'head' ? accentTextColor : chipText
+          const tone = ref.kind === 'head' ? accentContrastColor : chipText
           const available = col.refs - 10 - cursorX - BADGE_ICON_WIDTH - 14
           if (available < 20) break
           const label = fitText(context, ref.label, available)
@@ -799,7 +829,7 @@ export function GraphCanvas({
     )
     const commit = commits[index]
     if (commit) {
-      onSelect(commit.sha)
+      onSelect(commit.sha, { shift: event.shiftKey })
     }
   }
 
@@ -823,7 +853,7 @@ export function GraphCanvas({
     )
     const commit = commits[index]
     if (commit) {
-      onSelect(commit.sha)
+      onSelect(commit.sha, { shift: false })
       onContextMenu(commit, event.clientX, event.clientY)
     }
   }
@@ -844,7 +874,7 @@ export function GraphCanvas({
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? commits.length - 1 : Math.max(0, Math.min(commits.length - 1, current < 0 ? 0 : index + (event.key === 'ArrowDown' ? 1 : -1)))
       const commit = commits[next]
       if (commit) {
-        onSelect(commit.sha)
+        onSelect(commit.sha, { shift: false })
         const container = containerRef.current
         if (container) {
           const top = next * ROW_HEIGHT
@@ -965,7 +995,7 @@ export function GraphCanvas({
         </div>
       ) : null}
       {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
-      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · clic droit pour les actions'}</span></div>
+      <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour comparer deux commits · clic droit pour les actions'}</span></div>
       <span className={styles.srOnly} role="status">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )

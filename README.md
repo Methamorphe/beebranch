@@ -79,8 +79,9 @@ Décisions de la révision 1 **conservées** : local-first, Tauri 2, rendu canva
 
 - Packaging via `npm run tauri build` ; `release.yml` construit les trois OS et
   signe/notarise quand les secrets `APPLE_*` et `TAURI_WINDOWS_CERTIFICATE`
-  existent. Les releases actuelles sont produites en local (macOS arm64) et ne
-  sont **pas notariées**. Voir [docs/releases/README.md](docs/releases/README.md).
+  existent. Depuis 0.5.1, le build macOS Apple Silicon est signé
+  `Developer ID Application`, notarié et agrafé (app et DMG) ; les releases
+  restent produites en local. Voir [docs/releases/README.md](docs/releases/README.md).
 - `latest.json` et `rollback.json` sont générés par
   `scripts/update-manifest.mjs` et `scripts/merge-manifests.mjs`.
 - Aucune télémétrie : `npm run audit:telemetry` vérifie les sources.
@@ -92,8 +93,9 @@ Décisions de la révision 1 **conservées** : local-first, Tauri 2, rendu canva
    (`BeeBranch_<version>_aarch64.dmg`). Le dépôt public suffit : aucun accès au
    code source n'est nécessaire.
 2. Ouvrir le DMG, glisser `BeeBranch.app` dans `/Applications`.
-3. La build n'est pas notariée : macOS tue le premier lancement (signal 9).
-   Deux voies, au choix :
+3. Depuis 0.5.1, la build est signée et notariée : Gatekeeper l'accepte sans
+   contournement. Pour une version antérieure (non notariée), macOS tue le
+   premier lancement (signal 9) ; deux voies, au choix :
    - Réglages Système → Confidentialité et sécurité → « Ouvrir quand même »,
      puis relancer l'application ;
    - ou en terminal : `xattr -dr com.apple.quarantine /Applications/BeeBranch.app`.

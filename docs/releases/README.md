@@ -61,8 +61,19 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat src-tauri/keys/release.key.pass
 export BEEBRANCH_UPDATE_ENDPOINT="https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json"
 # Identité de signature stable : sans elle, macOS redemande l'accès au trousseau
 # à chaque build (une signature ad-hoc change à chaque compilation).
-export APPLE_SIGNING_IDENTITY="Apple Distribution: Nala Multimedia (FVD8259QJ4)"
+export APPLE_SIGNING_IDENTITY="Developer ID Application: beecoming (JFSQ98955P)"
+# Notarisation par clé API App Store Connect (voir « Notarisation macOS »).
+export APPLE_API_KEY="<Key ID>"
+export APPLE_API_ISSUER="<Issuer ID>"
+export APPLE_API_KEY_PATH="$PWD/AuthKey_<Key ID>.p8"
 npm run tauri build
+
+# Tauri notarise et agrafe l'app ; le DMG doit être soumis séparément.
+DMG="target/release/bundle/dmg/BeeBranch_<version>_aarch64.dmg"
+xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY_PATH" \
+  --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+xcrun stapler staple "$DMG"
+spctl --assess --type open --context context:primary-signature -vv "$DMG"
 
 node scripts/update-manifest.mjs --dir target/release/bundle --target darwin-aarch64 \
   --version <version> --notes "docs/releases/<version>.md" \
@@ -100,8 +111,45 @@ locale il ne sert que de repère. Une release publiée en `--draft` ou
 | `TAURI_SIGNING_PRIVATE_KEY` | contenu de `src-tauri/keys/release.key` (clé privée minisign) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | mot de passe de `release.key` |
 | `RELEASE_REPO_TOKEN` | PAT fine-grained, `Contents: Read and write` sur `Methamorphe/beebranch-releases` uniquement — **nécessaire seulement pour publier depuis la CI** (une publication locale utilise l'auth `gh` du poste) |
-| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | signature et notarisation macOS (optionnel : sans eux, bundle non signé) |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | signature macOS : `.p12` **Developer ID Application** en base64, son mot de passe, et l'identité exacte (`security find-identity -v -p codesigning`) |
+| `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` | notarisation via clé API App Store Connect (recommandé) : Key ID, Issuer ID, contenu du `.p8`. La CI écrit le fichier et exporte `APPLE_API_KEY_PATH`. |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | alternative de notarisation via Apple ID (`APPLE_PASSWORD` = mot de passe d'application) |
 | `TAURI_WINDOWS_CERTIFICATE`, `TAURI_WINDOWS_CERTIFICATE_PASSWORD` | signature Authenticode Windows (optionnel : sans eux, installateur non signé) |
+
+Sans certificat, la CI produit un bundle non signé (avertissement) et conserve la
+signature d'update. Avec un certificat, les credentials de notarisation sont
+obligatoires : `spctl --assess` échouerait sur un binaire non notarié.
+
+### Notarisation macOS (clé API App Store Connect)
+
+Prérequis : compte Apple Developer payant ; rôle **Account Holder** ou **Admin**
+pour créer la clé.
+
+1. App Store Connect → **Users and Access** → **Integrations** → **Team Keys** →
+   **+**. Nom libre, accès **Developer**, puis *Generate*.
+2. Relever l'**Issuer ID** (UUID affiché au-dessus du tableau) et le **Key ID**
+   (10 caractères, colonne *Key ID*).
+3. Télécharger la clé privée `AuthKey_<Key ID>.p8` : le téléchargement n'est
+   proposé **qu'une seule fois**. La conserver hors du dépôt.
+4. Valider les credentials sans soumettre de build :
+
+   ```sh
+   xcrun notarytool history \
+     --key AuthKey_<Key ID>.p8 --key-id <Key ID> --issuer <Issuer ID>
+   ```
+
+5. Poser les secrets GitHub (le `.p8` est multiligne, `gh secret set` lit stdin) :
+
+   ```sh
+   gh secret set APPLE_API_KEY --body "<Key ID>"
+   gh secret set APPLE_API_ISSUER --body "<Issuer ID>"
+   gh secret set APPLE_API_KEY_P8 < AuthKey_<Key ID>.p8
+   ```
+
+Le certificat de signature reste distinct : il faut un **Developer ID
+Application** (Certificates → + → *Developer ID Application*), exporté en `.p12`
+avec sa clé privée, puis encodé en base64 pour `APPLE_CERTIFICATE`. Un certificat
+*Apple Distribution* ne convient pas à une distribution hors App Store.
 
 La clé publique `release.key.pub` est embarquée dans
 `src-tauri/tauri.conf.json`. Ne jamais publier la clé privée.
