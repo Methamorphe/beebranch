@@ -1,7 +1,7 @@
 import { useLayoutEffect, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { CommitSummary, RefEntry } from '../types/git'
-import { graphCommitRefs, graphRefLabel, isCheckoutableRef } from '../lib/graphRefs'
+import { graphCommitRefs, graphRefKind, graphRefLabel, isCheckoutableRef } from '../lib/graphRefs'
 import { ViewIcon } from './ViewIcon'
 import styles from './GraphRefPopover.module.css'
 
@@ -35,12 +35,12 @@ export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose
     <div className={styles.list}>
       {graphCommitRefs(anchor.commit, entries).map(({ raw, entry, key }) => {
         const checkoutable = isCheckoutableRef(entry)
-        const tag = entry?.kind === 'tag' || raw.startsWith('tag: ') || raw.startsWith('refs/tags/')
-        return <button key={key} type="button" className={styles.reference} data-ref={raw} disabled={disabled || !checkoutable || entry.isHead}
-          title={tag ? 'Tag' : entry?.isHead ? 'Branche active' : checkoutable ? 'Double-clic pour checkout · Entrée au clavier' : 'Référence symbolique'}
+        const kind = graphRefKind(raw, entry)
+        return <button key={key} type="button" className={styles.reference} data-ref={raw} data-kind={kind} disabled={disabled || !checkoutable || entry.isHead}
+          title={kind === 'tag' ? 'Tag' : entry?.isHead ? 'Branche active' : checkoutable ? 'Double-clic pour checkout · Entrée au clavier' : 'Référence symbolique'}
           onDoubleClick={() => { if (checkoutable) onCheckout(entry!.fullName) }}
           onKeyDown={(event) => { if (checkoutable && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onCheckout(entry!.fullName) } }}>
-          <ViewIcon view={tag ? 'tags' : 'branch'} /><span>{graphRefLabel(raw)}</span><small>{entry?.isHead ? 'active' : tag ? 'tag' : entry?.kind === 'remoteBranch' ? 'distante' : 'locale'}</small>
+          <ViewIcon view={kind === 'tag' ? 'tags' : kind === 'remote' ? 'remotes' : 'branch'} /><span>{graphRefLabel(raw)}</span><small>{entry?.isHead ? 'active' : kind === 'tag' ? 'tag' : kind === 'remote' ? 'distante' : 'locale'}</small>
         </button>
       })}
     </div>

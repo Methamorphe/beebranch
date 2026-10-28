@@ -4,6 +4,13 @@
 
 ### Modifié
 
+- **Références du graphe** : une branche locale et son miroir distant posés sur
+  le même commit (`main`, `origin/main`) comptent pour une seule référence —
+  plus de `+1` ni de menu au survol, le nom et le type restant dans l'infobulle.
+  Badge et menu distinguent local, distant et tag par une icône (fourche, nuage,
+  étiquette). Une branche en avance ou en retard reste affichée aux deux commits
+  concernés, chacun avec son badge.
+
 - **Historique / saisie du commit** : canvas maintenu dans le viewport par
   positionnement sticky, sans translation différée après défilement. Évite
   les images transitoires décalées lors des repeints du panneau de commit.

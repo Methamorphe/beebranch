@@ -12,7 +12,16 @@ import {
 } from 'react'
 import type { CommitSummary, GraphRow, RefEntry } from '../types/git'
 import { GraphRefPopover, type RefAnchor } from './GraphRefPopover'
-import { isCheckoutableRef, resolveGraphRef } from '../lib/graphRefs'
+import {
+  foldUpstreamRefs,
+  graphCommitRefs,
+  graphRefKind,
+  graphRefLabel,
+  isCheckoutableRef,
+  resolveGraphRef,
+  type GraphRefDecoration,
+  type GraphRefKind,
+} from '../lib/graphRefs'
 import styles from './GraphCanvas.module.css'
 
 export type MrBadge = {
@@ -87,6 +96,59 @@ type FrameStats = {
   missed: number
 }
 
+/** Badge shown in the reference column: one primary ref plus the rest as `+N`. */
+type BadgeDecoration = GraphRefDecoration & {
+  kind: GraphRefKind
+  extra: number
+  count: number
+}
+
+const BADGE_ICON_WIDTH = 12
+
+/** Drawn on every badge: fork for a local branch, cloud for a remote-tracking
+ * ref, tag for a tag. Shapes match the sidebar icon set so the two agree. */
+function drawRefIcon(context: CanvasRenderingContext2D, kind: GraphRefKind, x: number, y: number, color: string) {
+  if (kind === 'other') return
+  context.save()
+  context.strokeStyle = color
+  context.fillStyle = color
+  context.lineWidth = 1.3
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.beginPath()
+  if (kind === 'local' || kind === 'head') {
+    context.moveTo(x + 2.5, y + 4)
+    context.lineTo(x + 2.5, y - 4)
+    context.moveTo(x + 2.5, y)
+    context.bezierCurveTo(x + 7, y, x + 7, y - 1.5, x + 7, y - 4)
+    context.stroke()
+    context.beginPath()
+    context.arc(x + 2.5, y - 4, 1.5, 0, Math.PI * 2)
+    context.arc(x + 2.5, y + 4, 1.5, 0, Math.PI * 2)
+    context.arc(x + 7, y - 4, 1.5, 0, Math.PI * 2)
+    context.fill()
+  } else if (kind === 'remote') {
+    context.moveTo(x, y + 3.4)
+    context.bezierCurveTo(x - 2.6, y + 3.4, x - 2.8, y - 0.4, x + 0.6, y - 0.6)
+    context.bezierCurveTo(x + 0.8, y - 4.6, x + 6.6, y - 4.8, x + 7, y - 1.2)
+    context.bezierCurveTo(x + 10.4, y - 1.6, x + 11, y + 3.4, x + 8.6, y + 3.4)
+    context.closePath()
+    context.stroke()
+  } else {
+    context.moveTo(x + 1, y - 4.5)
+    context.lineTo(x + 4.4, y - 4.5)
+    context.lineTo(x + 9.2, y)
+    context.lineTo(x + 5, y + 4.5)
+    context.lineTo(x + 1, y)
+    context.closePath()
+    context.stroke()
+    context.beginPath()
+    context.arc(x + 3.6, y - 2.6, 0.9, 0, Math.PI * 2)
+    context.fill()
+  }
+  context.restore()
+}
+
 declare global {
   interface Window {
     __beebranchGraphStats?: FrameStats
@@ -132,6 +194,26 @@ export function GraphCanvas({
   const [viewportWidth, setViewportWidth] = useState(1000)
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
   const layout = columns(viewportWidth, maxLanes, showDate)
+  // Badge content per commit, computed off the draw path so scrolling stays
+  // allocation-free. A remote-tracking mirror of a local branch is folded out:
+  // `main` and `origin/main` on the same commit are one branch, not two.
+  const decorations = useMemo(() => {
+    const map = new Map<string, BadgeDecoration>()
+    for (const commit of commits) {
+      if (commit.refs.length === 0) continue
+      const decorated = graphCommitRefs(commit, refEntries)
+      const { visible } = foldUpstreamRefs(decorated)
+      const primary = visible[0] ?? decorated[0]
+      if (!primary) continue
+      map.set(commit.sha, {
+        ...primary,
+        kind: graphRefKind(primary.raw, primary.entry),
+        extra: Math.max(0, visible.length - 1),
+        count: visible.length,
+      })
+    }
+    return map
+  }, [commits, refEntries])
   const [refHover, setRefHover] = useState<RefAnchor | null>(null)
   const dragStart = useRef<{ entry: RefEntry; x: number; y: number } | null>(null)
   const dragTargetRect = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
@@ -281,18 +363,21 @@ export function GraphCanvas({
 
       // References have their own clipped column; messages always start at the same x.
       context.font = `600 13px ${fontFamily}`
-      if (col.refs > 0 && commit.refs.length > 0) {
-        const ref = commit.refs[0]!
-        const label = ref.replace('HEAD -> ', '').replace('refs/heads/', '') + (commit.refs.length > 1 ? ` +${commit.refs.length - 1}` : '')
-        const refText = fitText(context, label, col.refs - 32)
-        const badgeWidth = Math.min(col.refs - 16, context.measureText(refText).width + 14)
-        context.fillStyle = ref.startsWith('HEAD') ? accentSoft : raisedColor
+      const badge = decorations.get(commit.sha)
+      if (col.refs > 0 && badge) {
+        const label = graphRefLabel(badge.raw) + (badge.extra > 0 ? ` +${badge.extra}` : '')
+        const refText = fitText(context, label, col.refs - 32 - BADGE_ICON_WIDTH)
+        const badgeWidth = Math.min(col.refs - 16, context.measureText(refText).width + 20 + BADGE_ICON_WIDTH)
+        const active = badge.kind === 'head'
+        context.fillStyle = active ? accentSoft : raisedColor
         context.beginPath()
         context.roundRect(8, y - 11, badgeWidth, 22, 4)
         context.fill()
-        context.fillStyle = ref.startsWith('HEAD') ? accentTextColor : mutedColor
-        context.fillText(refText, 15, y)
-        refRects.current.push({ commit, raw: ref, x:8, y:y - 11, width:badgeWidth, height:22 })
+        const tint = active ? accentTextColor : mutedColor
+        drawRefIcon(context, badge.kind, 13, y, tint)
+        context.fillStyle = tint
+        context.fillText(refText, 13 + BADGE_ICON_WIDTH + 4, y)
+        refRects.current.push({ commit, raw: badge.raw, x:8, y:y - 11, width:badgeWidth, height:22 })
       }
       context.save()
       context.beginPath()
@@ -334,7 +419,7 @@ export function GraphCanvas({
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
 
-  }, [commits, rows, selected, mrBadges, picked, maxLanes, showDate])
+  }, [commits, rows, selected, mrBadges, picked, maxLanes, showDate, decorations])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -513,9 +598,19 @@ export function GraphCanvas({
     const index = Math.floor((scrollTopRef.current + event.clientY - bounds.top) / ROW_HEIGHT)
     const hit = hitRef(event.clientX, event.clientY)
     if (hit) {
-      cancelRefClose()
-      event.currentTarget.title = ''
-      setRefHover((current) => current?.commit.sha === hit.commit.sha ? current : { commit:hit.commit, left:bounds.left + hit.x, top:bounds.top + hit.y, bottom:bounds.top + hit.y + hit.height })
+      const badge = decorations.get(hit.commit.sha)
+      // One real ref (a branch and its own remote mirror count as one) leaves
+      // nothing to choose between: keep the tooltip, skip the menu.
+      if ((badge?.count ?? hit.commit.refs.length) < 2) {
+        if (refHover) closeRefSoon()
+        event.currentTarget.title = badge
+          ? `${graphRefLabel(badge.raw)} · ${badge.kind === 'remote' ? 'distante' : badge.kind === 'tag' ? 'tag' : 'locale'}`
+          : ''
+      } else {
+        cancelRefClose()
+        event.currentTarget.title = ''
+        setRefHover((current) => current?.commit.sha === hit.commit.sha ? current : { commit:hit.commit, left:bounds.left + hit.x, top:bounds.top + hit.y, bottom:bounds.top + hit.y + hit.height })
+      }
     } else {
       if (refHover) closeRefSoon()
       const commit = commits[index]

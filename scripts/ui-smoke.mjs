@@ -84,6 +84,12 @@ function mockScript(commits, rows, diffLines) {
       { fullName:'refs/tags/main', name:'main', kind:'tag', targetOid:commits[0].sha, objectType:'commit', isHead:false },
       { fullName: 'refs/tags/v0.1', name: 'v0.1', kind: 'tag', targetOid: commits[5].sha,
         objectType: 'commit', isHead: false },
+      // Local branch and its remote mirror on the same commit: one branch.
+      { fullName: 'refs/heads/synced', name: 'synced', kind: 'branch', targetOid: commits[3].sha,
+        objectType: 'commit', upstream: 'refs/remotes/origin/synced', isHead: false },
+      { fullName:'refs/remotes/origin/synced', name:'origin/synced', kind:'remoteBranch', remote:'origin', targetOid:commits[3].sha, objectType:'commit', isHead:false },
+      // Remote-only branch: its badge must read as remote, not local.
+      { fullName:'refs/remotes/origin/hotfix', name:'origin/hotfix', kind:'remoteBranch', remote:'origin', targetOid:commits[18].sha, objectType:'commit', isHead:false },
     ],
     remotes: ['origin'],
   };
@@ -386,7 +392,7 @@ const commits = Array.from({ length: count }, (_, index) => ({
   parents: index + 1 < count ? [sha(index + 2)] : [],
   author: { name: index % 3 === 0 ? 'Alice' : index % 3 === 1 ? 'Bob' : 'Chloé', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
   committer: { name: 'Alice', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
-  refs: index === 0 ? ['HEAD -> main', 'origin/main', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
+  refs: index === 0 ? ['HEAD -> main', 'origin/main', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 3 ? ['synced', 'origin/synced'] : index === 18 ? ['origin/hotfix'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
   subject: `Commit ${index + 1} — ${['fix graph lanes', 'add diff window', 'wire session watcher', 'document benchmarks'][index % 4]}`,
 }))
 const rows = commits.map((commit) => ({
@@ -1184,11 +1190,16 @@ try {
   await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'repo selector')
   assertUI('toolbar-repo-selector', await evaluate(client, `document.querySelector('[popover]:popover-open').innerText.includes('beebranch-demo') && document.querySelector('[popover]:popover-open').innerText.includes('Ouvrir un autre dépôt')`))
   await key('Escape')
-  const hoverRef = async (index = 0) => {
+  const moveToBadge = async (index = 0) => {
     await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
     await delay(60)
     const point = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left + 20, y:b.top + ${index} * 30 + 15 } })()`)
     await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:point.x, y:point.y })
+    await delay(120)
+    return point
+  }
+  const hoverRef = async (index = 0) => {
+    const point = await moveToBadge(index)
     await waitFor(client, `document.querySelector('[aria-label="Branches et tags de ce commit"]') !== null`, 'branch list hover')
     return point
   }
@@ -1214,7 +1225,9 @@ try {
   await evaluate(client, `document.querySelector('[data-ref="feature/group"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
   await delay(120)
   assertUI('graph-hidden-local-double-click-checkout', await evaluate(client, `window.__toolbarCalls.slice(${beforeRefCalls}).some(([command, args]) => command === 'branch_checkout' && args.request.name === 'feature/group')`))
-  const featurePoint = await hoverRef(12)
+  const featurePoint = await moveToBadge(12)
+  assertUI('graph-single-ref-has-no-menu', await evaluate(client, `!document.querySelector('[aria-label="Branches et tags de ce commit"]')`))
+  assertUI('graph-single-ref-tooltip-names-kind', await evaluate(client, `document.querySelector('canvas').title === 'feature · locale'`))
   const beforeDirect = await evaluate(client, 'window.__toolbarCalls.length')
   await directDoubleClick(featurePoint)
   assertUI('graph-visible-branch-double-click-checkout', await evaluate(client, `window.__toolbarCalls.slice(${beforeDirect}).filter(([command, args]) => command === 'branch_checkout' && args.request.name === 'feature').length === 1`))
@@ -1234,6 +1247,44 @@ try {
   await hoverRef()
   await evaluate(client, `document.querySelector('canvas').parentElement.dispatchEvent(new Event('scroll'))`)
   assertUI('graph-hover-closes-on-scroll', await evaluate(client, `!document.querySelector('[aria-label="Branches et tags de ce commit"]')`))
+  // A branch and its own remote mirror share a commit: no menu to disambiguate.
+  await moveToBadge(3)
+  assertUI('graph-upstream-mirror-has-no-menu', await evaluate(client, `!document.querySelector('[aria-label="Branches et tags de ce commit"]')`))
+  assertUI('graph-upstream-mirror-shows-name-and-kind', await evaluate(client, `document.querySelector('canvas').title === 'synced · locale'`))
+  await screenshot(client, 'ux-branch-synced.png')
+  // Any other multi-ref commit keeps the menu, and its rows carry the ref kind.
+  await hoverRef()
+  const refKinds = await evaluate(client, `(() => { const p = document.querySelector('[aria-label="Branches et tags de ce commit"]'); return { local: Boolean(p.querySelector('[data-kind="local"]')), remote: Boolean(p.querySelector('[data-kind="remote"]')), tag: Boolean(p.querySelector('[data-kind="tag"]')) } })()`)
+  assertUI('graph-menu-distinguishes-local-remote-tag', refKinds.local && refKinds.remote && refKinds.tag)
+  assertUI('graph-upstream-mirror-keeps-branch-row', await evaluate(client, `Boolean(document.querySelector('[data-ref="origin/main"]'))`))
+  // Badge glyphs are canvas pixels: compare the ink signature of a local
+  // branch, a tag and a remote-only branch, and require readable ink in each.
+  await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
+  await delay(120)
+  const glyphs = await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    const context = canvas.getContext('2d')
+    const scale = canvas.width / canvas.getBoundingClientRect().width
+    const ink = (row) => {
+      const x = Math.round(13 * scale)
+      const y = Math.round((row * 30 + 10) * scale)
+      const width = Math.round(11 * scale)
+      const height = Math.round(10 * scale)
+      const data = context.getImageData(x, y, width, height).data
+      const background = [data[0], data[1], data[2]]
+      let count = 0, hash = 7
+      for (let index = 0; index < data.length; index += 4) {
+        const delta = Math.abs(data[index] - background[0]) + Math.abs(data[index + 1] - background[1]) + Math.abs(data[index + 2] - background[2])
+        if (delta > 40) { count += 1; hash = (hash * 33 + index) % 1000003 }
+      }
+      return { count, hash }
+    }
+    return { local: ink(0), tag: ink(5), remote: ink(18) }
+  })()`)
+  assertUI('graph-badge-icons-have-ink', glyphs.local.count >= 6 && glyphs.tag.count >= 6 && glyphs.remote.count >= 6)
+  assertUI('graph-badge-icons-differ-by-kind', new Set([glyphs.local.hash, glyphs.tag.hash, glyphs.remote.hash]).size === 3)
+  await moveToBadge(18)
+  assertUI('graph-remote-only-badge-tooltip', await evaluate(client, `document.querySelector('canvas').title === 'origin/hotfix · distante' && !document.querySelector('[aria-label="Branches et tags de ce commit"]')`))
   for (const width of [900, 390]) {
     await client.send('Emulation.setDeviceMetricsOverride', { width, height:900, deviceScaleFactor:1, mobile:false })
     await delay(80)
