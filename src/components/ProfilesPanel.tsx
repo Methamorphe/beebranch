@@ -278,7 +278,8 @@ export function ProfilesPanel({
         <h2 className={p2.sectionTitle}>Raccourcis clavier</h2>
         <p className={p2.notice}>
           Format : Mod+Shift+F (Mod = ⌘ ou Ctrl). Escape ferme toujours les
-          dialogues. Les doublons sont refusés explicitement.
+          dialogues. Les doublons sont refusés explicitement. ⌘/Ctrl + « + » ou
+          « - » ajuste le zoom de l’interface, ⌘/Ctrl + « 0 » le réinitialise.
         </p>
         {(Object.keys(SHORTCUT_LABELS) as ShortcutAction[]).map((action) => (
           <div key={action} className={p2.setting}>

@@ -19,6 +19,7 @@ type Props = {
   onOpen: (path: string) => void
   onOpenDialog: () => void
   onClone: (input: CloneInput) => Promise<void>
+  onCreate?: () => void
   cloneOnly?: boolean
   onCancelClone?: () => void
   onPickDirectory?: (defaultPath?: string) => Promise<string | null>
@@ -76,6 +77,7 @@ export function Home({
   onOpen,
   onOpenDialog,
   onClone,
+  onCreate,
   cloneOnly = false,
   onCancelClone,
   onPickDirectory,
@@ -233,6 +235,16 @@ export function Home({
           >
             Ouvrir un dépôt local…
           </button>
+          {onCreate ? (
+            <button
+              type="button"
+              className={styles.secondary}
+              onClick={onCreate}
+              disabled={busy}
+            >
+              Créer un dépôt…
+            </button>
+          ) : null}
           <button
             type="button"
             className={styles.secondary}
@@ -501,8 +513,8 @@ export function Home({
           </div>
         ) : (
           <div className={styles.empty}>
-            Ouvrez un dossier existant ou clonez un dépôt distant pour
-            commencer.
+            Ouvrez un dossier existant, créez un dépôt local ou clonez un
+            dépôt distant pour commencer.
           </div>
         )}
       </section>

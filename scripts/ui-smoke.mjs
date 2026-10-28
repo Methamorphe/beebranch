@@ -156,6 +156,14 @@ function mockScript(commits, rows, diffLines) {
     repo_list_recent: () => [{ repoId: 'repo_demo', path: '/tmp/beebranch-demo', name: 'beebranch-demo', lastOpenedAt: 1 }],
     repo_open: (args) => { (window.__repoOpenCalls ??= []).push(args.path); if (window.__repoOpenFailure) throw { code:'repo.not_git', message:'Le dossier choisi ne contient pas de dépôt Git.' }; return repo; },
     repo_clone: (args) => { (window.__cloneCalls ??= []).push(args.request); if (window.__cloneFailure) throw { code:'repo.clone_failed', message:'Le clonage a échoué.' }; return { ...repo, repo:{ ...repo.repo, repoId:'repo_cloned', name:'cloned-demo', worktree:args.request.destination }, state:{ ...repo.state, operation:null, conflicts:{ files:[] }, worktree:{ staged:0, unstaged:0, untracked:0, conflicted:0 } }, generation:2 }; },
+    repo_init: (args) => {
+      (window.__initCalls ??= []).push(args.request)
+      if (window.__initFailure) throw { code:'init.failed', message:'La création du dépôt a échoué.' }
+      return { ...repo,
+        repo: { ...repo.repo, repoId:'repo_initialized', name: args.request.destination.split(/[\\\\/]/).pop(), worktree: args.request.destination },
+        state: { ...repo.state, operation:null, conflicts:{ files:[] }, worktree:{ staged:0, unstaged:0, untracked:0, conflicted:0 } },
+        generation: 3 }
+    },
     repo_list_open: () => [repo.repo],
     repo_get_state: (args) => {
       (window.__stateCalls ??= []).push(args)
@@ -579,6 +587,8 @@ try {
   await client.send('Page.addScriptToEvaluateOnNewDocument', { source: injected })
   await client.send('Page.navigate', { url: `http://127.0.0.1:${port}/` })
   await waitFor(client, `document.body.innerText.includes('Ouvrir un dépôt')`, 'home')
+  const homeCreateAction = await evaluate(client, `[...document.querySelectorAll('button')].some((item) => item.textContent.includes('Créer un dépôt…'))`)
+  if (!homeCreateAction) throw new Error('create repository action missing from the empty state')
   const cloneForm = await evaluate(client, `(() => {
     const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('Cloner un dépôt'))
     if (!button) return false
@@ -1980,7 +1990,7 @@ try {
   assertUI('add-repo-plus-centered-on-tabs', plusAlignment <= 1)
   await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
   await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'add repository menu')
-  assertUI('add-repo-menu-local-or-clone', await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); return m.innerText.includes('Ouvrir un dépôt local') && m.innerText.includes('Cloner un dépôt') })()`))
+  assertUI('add-repo-menu-local-or-clone', await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); return m.innerText.includes('Créer un dépôt local') && m.innerText.includes('Ouvrir un dépôt local') && m.innerText.includes('Cloner un dépôt') })()`))
   await screenshot(client, 'ux-add-repo-menu.png')
   const beforePlusPicker = await evaluate(client, 'window.__pickerCalls.length')
   await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); [...m.querySelectorAll('button')].find(b => b.textContent.includes('Ouvrir un dépôt local')).click() })()`)
@@ -2018,6 +2028,38 @@ try {
   await waitFor(client, `!document.querySelector('[aria-labelledby="clone-repo-title"]') && document.querySelector('header').innerText.includes('cloned-demo')`, 'cloned repository tab')
   assertUI('add-repo-clone-opens-new-tab', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeClone + 1} && document.querySelector('header').innerText.includes('beebranch-demo')`))
   assertUI('add-repo-clone-request', await evaluate(client, `window.__cloneCalls.at(-1).destination === '/tmp/payment-platform' && window.__cloneCalls.at(-1).url.includes('team/payment-platform.git')`))
+  const tabsBeforeInit = await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length`)
+  const openInitFromPlus = async () => {
+    await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
+    await delay(40)
+    await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); [...m.querySelectorAll('button')].find(b => b.textContent.includes('Créer un dépôt local')).click() })()`)
+    await waitFor(client, `document.querySelector('[aria-labelledby="init-repo-title"]') !== null`, 'init dialog')
+  }
+  await openInitFromPlus()
+  assertUI('add-repo-init-focus-trapped', await evaluate(client, `document.querySelector('[aria-labelledby="init-repo-title"]').contains(document.activeElement)`))
+  await waitFor(client, `document.querySelector('input[aria-label="Dossier parent"]')?.value === '/tmp'`, 'init default parent')
+  await screenshot(client, 'ux-init-dialog.png')
+  await fill('input[aria-label="Nom du dépôt"]', 'bad/name')
+  await waitFor(client, `document.querySelector('input[aria-label="Nom du dépôt"]')?.getAttribute('aria-invalid') === 'true'`, 'init invalid name state')
+  assertUI('add-repo-init-invalid-name', await evaluate(client, `(() => { const submit = document.querySelector('[aria-labelledby="init-repo-title"] button[type="submit"]'); return submit.disabled && !document.body.innerText.includes('/tmp/bad/name') })()`))
+  const pickerCallsBeforeInit = await evaluate(client, 'window.__pickerCalls.length')
+  await evaluate(client, `window.__pickerSelection = '/tmp/choisi'`)
+  await evaluate(client, `(() => { const d = document.querySelector('[aria-labelledby="init-repo-title"]'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('Parcourir')).click() })()`)
+  await waitFor(client, `document.querySelector('input[aria-label="Dossier parent"]')?.value === '/tmp/choisi'`, 'init parent from folder picker')
+  assertUI('add-repo-init-folder-picker', await evaluate(client, `(() => { const call = window.__pickerCalls.at(-1); return window.__pickerCalls.length === ${pickerCallsBeforeInit + 1} && call.directory === true && call.multiple === false && call.title === 'Choisir le dossier parent' })()`))
+  await fill('input[aria-label="Nom du dépôt"]', 'nouveau-projet')
+  await fill('input[aria-label="Branche initiale"]', 'main')
+  assertUI('add-repo-init-preview', await evaluate(client, `document.querySelector('[aria-labelledby="init-repo-title"]').innerText.includes('/tmp/choisi/nouveau-projet')`))
+  await evaluate(client, `window.__initFailure = true`)
+  await evaluate(client, `document.querySelector('[aria-labelledby="init-repo-title"] button[type="submit"]').click()`)
+  await waitFor(client, `document.querySelector('[aria-labelledby="init-repo-title"]').innerText.includes('La création du dépôt a échoué.')`, 'init error feedback')
+  assertUI('add-repo-init-error-retains-dialog', await evaluate(client, `Boolean(document.querySelector('[aria-labelledby="init-repo-title"] [role="alert"]'))`))
+  await evaluate(client, `window.__initFailure = false`)
+  await evaluate(client, `document.querySelector('[aria-labelledby="init-repo-title"] button[type="submit"]').click()`)
+  await waitFor(client, `!document.querySelector('[aria-labelledby="init-repo-title"]') && document.querySelector('header').innerText.includes('nouveau-projet')`, 'initialised repository tab')
+  assertUI('add-repo-init-opens-new-tab', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeInit + 1}`))
+  assertUI('add-repo-init-request', await evaluate(client, `window.__initCalls.at(-1).destination === '/tmp/choisi/nouveau-projet' && window.__initCalls.at(-1).initialBranch === 'main'`))
+  await evaluate(client, `window.__pickerSelection = null`)
   // --- P3: undo, drag and drop, workspaces, design system, accessibility ---
   await go('graph')
   const undoClicked = await evaluate(client, `(() => {

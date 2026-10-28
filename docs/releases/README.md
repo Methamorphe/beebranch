@@ -113,6 +113,43 @@ Le tag `v<version>` n'est nécessaire que pour déclencher la CI ; en publicatio
 locale il ne sert que de repère. Une release publiée en `--draft` ou
 `--prerelease` ne devient pas `latest` et n'est donc jamais servie aux clients.
 
+## Publication locale Windows (rattrapage d'une plateforme)
+
+Quand une release ne porte que les artefacts macOS, le bundle Windows se
+produit depuis une machine Windows avec `scripts/release-windows.ps1` : il
+vérifie que HEAD est bien le tag et que `tauri.conf.json`, `package.json` et
+`Cargo.toml` annoncent la même version, compile avec l'endpoint du mirror et la
+clé minisign, contrôle la signature contre la clé **embarquée** dans
+`tauri.conf.json` (`scripts/verify-update-signature.mjs`), installe le paquet en
+silence et lance `BeeBranch --version`, reconstruit `latest.json` en conservant
+les entrées darwin/linux déjà publiées, puis téléverse les artefacts **puis** le
+manifeste dans `Methamorphe/beebranch-releases`.
+
+Prérequis : Node 22, Rust MSVC (Visual Studio Build Tools, charge de travail
+C++), `gh` authentifié avec un droit d'écriture sur `beebranch-releases`, et
+`src-tauri/keys/release.key` + `release.key.password` copiés hors git — à
+supprimer de la machine après usage.
+
+```powershell
+git clone git@github.com:Methamorphe/beebranch.git C:\src\beebranch
+cd C:\src\beebranch
+git checkout v0.6.2
+.\scripts\release-windows.ps1 -Version 0.6.2
+```
+
+| Option | Effet |
+|---|---|
+| `-Version <v>` | version à rattraper (défaut : celle de `tauri.conf.json`) |
+| `-NoUpload` | s'arrête après le manifeste et affiche les commandes `gh` |
+| `-SkipSmoke` | saute l'installation silencieuse et `--version` |
+| `-SkipBuild` | réutilise `target/release/bundle` existant |
+| `-AllowVersionMismatch` | publie un manifeste windows uniquement alors que le manifeste publié est d'une autre version |
+| `-SkipCleanCheck` | autorise un arbre sale (le binaire ne correspond alors plus au tag) |
+
+Le script refuse de publier un `latest.json` qui ne pointerait pas sur le nouvel
+artefact ou dont la signature ne serait pas celle de la clé embarquée.
+`rollback.json` n'est jamais modifié.
+
 ## Secrets requis
 
 | Secret | Usage |

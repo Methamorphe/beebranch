@@ -139,6 +139,9 @@ npm run tauri dev
 
 Fonctionnalités P1 disponibles dans l'application :
 
+- **Dépôts** : ouverture locale, clone GitLab ou URL, création par `git init`
+  dans un nouveau dossier ou un dossier existant non versionné, avec branche
+  initiale optionnelle.
 - **Status** : fichiers staged/unstaged/untracked/conflits, stage/unstage
   fichier-hunk-ligne (diff interactif), discard confirmé, ignore explicite,
   éditeur/merge tool externes.

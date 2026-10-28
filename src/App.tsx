@@ -5,6 +5,7 @@ import { CommandPalette, type PaletteCommand } from './components/CommandPalette
 import { CloneRepoDialog } from './components/CloneRepoDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { Home } from './components/Home'
+import { InitRepoDialog } from './components/InitRepoDialog'
 import { RepoBar } from './components/RepoBar'
 import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
@@ -18,9 +19,10 @@ import {
   gitlabStatus,
   preferenceGet,
   preferenceSet,
-  repoClone,
   repoCloseChecked,
+  repoClone,
   repoGetState,
+  repoInit,
   repoListRecent,
   repoOpen,
   repoRefresh,
@@ -51,7 +53,7 @@ import {
   type ShortcutMap,
 } from './lib/shortcuts'
 import type { ChangeEvent, RecentRepo, RepoView, UndoStatus } from './types/git'
-import type { CloneInput } from './ipc/commands'
+import type { CloneInput, InitInput } from './ipc/commands'
 import styles from './App.module.css'
 
 const OPEN_REPOS_KEY = 'ui.openRepos'
@@ -100,6 +102,7 @@ export default function App() {
   const [pendingClose, setPendingClose] = useState<RepoView | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
+  const [initDialogOpen, setInitDialogOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [previousView, setPreviousView] = useState<ViewId>('graph')
   const pickingRepository = useRef(false)
@@ -116,6 +119,15 @@ export default function App() {
 
   const repo = repos.find((entry) => entry.repo.repoId === activeId) ?? null
   const repoId = repo?.repo.repoId ?? null
+  const initParent = useMemo(() => {
+    const path = recent[0]?.path
+    if (!path) {
+      return ''
+    }
+    const trimmed = path.replace(/[\\/]+$/, '')
+    const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+    return index > 0 ? trimmed.slice(0, index) : ''
+  }, [recent])
 
   const reloadRecent = useCallback(async () => {
     try {
@@ -470,6 +482,20 @@ export default function App() {
     }
   }
 
+  const initRepo = async (input: InitInput) => {
+    setBusy(true)
+    try {
+      const opened = await repoInit(input)
+      upsert(opened)
+      setDiffRequest(null)
+      setView('graph')
+      setInitDialogOpen(false)
+      await reloadRecent()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const activate = async (target: string) => {
     const existing = repos.find((entry) => entry.repo.repoId === target)
     if (!existing) {
@@ -596,6 +622,18 @@ export default function App() {
     })
     return typeof selected === 'string' ? selected : null
   }, [])
+
+  const pickInitParent = useCallback(async (defaultPath?: string) => {
+    const selected = await openNativeDialog({
+      title: 'Choisir le dossier parent',
+      directory: true,
+      multiple: false,
+      defaultPath,
+    })
+    return typeof selected === 'string' ? selected : null
+  }, [])
+
+  const openInitDialog = useCallback(() => setInitDialogOpen(true), [])
 
   const openRepositoryDialog = useCallback(async () => {
     if (pickingRepository.current || busy) return
@@ -746,6 +784,12 @@ export default function App() {
         run: () => navigate('profiles'),
       },
       {
+        id: 'action-init-repo',
+        label: 'Créer un dépôt local',
+        group: 'Système',
+        run: () => openInitDialog(),
+      },
+      {
         id: 'action-close',
         label: 'Fermer le dépôt actif',
         group: 'Système',
@@ -754,7 +798,7 @@ export default function App() {
       },
     )
     return items
-  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, undoState, performUndo])
+  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, undoState, performUndo])
 
   useShortcuts({
     palette: () => setPaletteOpen(true),
@@ -790,6 +834,7 @@ export default function App() {
         onClose={requestClose}
         onOpenDialog={() => openRepositoryDialog()}
         onClone={() => setCloneDialogOpen(true)}
+        onInit={openInitDialog}
         onSettings={() => navigate('profiles')}
         updateVersion={availableUpdate}
         updateBusy={installingUpdate}
@@ -911,6 +956,7 @@ export default function App() {
                 recent={recent}
                 onOpen={(path) => void openRepo(path)}
                 onClone={cloneRepo}
+                onCreate={openInitDialog}
                 onPickDirectory={pickCloneDirectory}
               />
             ) : (
@@ -948,6 +994,13 @@ export default function App() {
       {cloneDialogOpen ? <CloneRepoDialog busy={busy} recent={recent} onClose={() => setCloneDialogOpen(false)}
         onClone={async (input) => { await cloneRepo(input); setCloneDialogOpen(false) }}
         onOpen={(path) => void openRepo(path)} onOpenDialog={openRepositoryDialog} onNavigate={navigate} onPickDirectory={pickCloneDirectory} /> : null}
+      {initDialogOpen ? <InitRepoDialog
+        busy={busy}
+        defaultParent={initParent}
+        onClose={() => setInitDialogOpen(false)}
+        onCreate={initRepo}
+        onPickParent={pickInitParent}
+      /> : null}
       <CommandPalette
         open={paletteOpen}
         commands={commands}

@@ -97,6 +97,8 @@ fn remediation_for(operation: &OperationRecord) -> String {
         "clone" => {
             "Un répertoire partiel peut subsister ; vérifiez-le avant de recommencer.".to_owned()
         }
+        "init" => "Si le dossier a été créé, ouvrez-le ; sinon choisissez un autre emplacement."
+            .to_owned(),
         _ => "Revalidez l'état du dépôt avant de poursuivre.".to_owned(),
     }
 }

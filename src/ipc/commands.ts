@@ -35,6 +35,15 @@ export function repoOpen(path: string): Promise<RepoView> {
   return call<RepoView>('repo_open', { path })
 }
 
+export type InitInput = {
+  destination: string
+  initialBranch?: string
+}
+
+export function repoInit(input: InitInput): Promise<RepoView> {
+  return call<RepoView>('repo_init', { request: input })
+}
+
 export type CloneInput = {
   url: string
   destination: string

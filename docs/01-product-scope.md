@@ -107,6 +107,7 @@ Objectif : un développeur réalise son workflow quotidien sans revenir à GitKr
 | P1-13 | GitLab — statut CI et badge MR | Statut pipeline sur la MR et dans le graphe ; rafraîchissement ; états inconnus gérés | P1-12 |
 | P1-14 | Sécurité des opérations destructives | Confirmation avec conséquences exactes ; actions destructives déclarées **irréversibles** ; aucune suppression silencieuse ; fichiers non suivis jamais supprimés par l'application ; refus si état incohérent | P1-03, P1-05, P1-07 |
 | P1-15 | Outils externes | Ouvrir éditeur, terminal, diff/merge tool configurés ; échec explicite si absent | P0-01 |
+| P1-16 | Création de dépôt local | `git init` sur un dossier absolu, nouveau ou existant non versionné ; branche initiale optionnelle ; refus d'un dépôt existant (y compris bare) ; ouverture immédiate ; fichiers existants conservés et non suivis | P0-03 |
 
 **Critère de sortie P1 :** un développeur volontaire effectue une journée de travail complète (branche, staging partiel, commit, push, MR, review simple, merge) sans GitKraken ni terminal, hors opérations explicitement P2.
 

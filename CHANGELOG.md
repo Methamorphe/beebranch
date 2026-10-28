@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.4] — 2026-10-28
+
+### Ajouté
+
+- **Création de dépôt local** : « Créer un dépôt local… » initialise un dépôt
+  Git dans un dossier nouveau ou existant non versionné, avec branche initiale
+  optionnelle et aperçu du chemin. Les fichiers présents restent non suivis ;
+  un dépôt existant (worktree ou bare) est refusé. Le dépôt s’ouvre aussitôt
+  dans un nouvel onglet.
+- **Zoom de l’interface** : ⌘/Ctrl + `+` ou `-` ajuste le zoom natif par paliers
+  de 20 %, ⌘/Ctrl + `0` le réinitialise. Ctrl + molette fonctionne aussi sur
+  macOS et Linux ; les raccourcis sont rappelés dans les réglages.
+
 ## [0.6.3] — 2026-10-28
 
 ### Ajouté

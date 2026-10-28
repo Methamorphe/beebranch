@@ -12,6 +12,7 @@ type Props = {
   onClose: (repoId: string) => void
   onOpenDialog: () => void
   onClone: () => void
+  onInit: () => void
   onSettings: () => void
   updateVersion?: string | null
   updateBusy?: boolean
@@ -19,7 +20,7 @@ type Props = {
   user?: string | null
 }
 
-export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialog, onClone, onSettings, updateVersion, updateBusy = false, onInstallUpdate, user }: Props) {
+export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialog, onClone, onInit, onSettings, updateVersion, updateBusy = false, onInstallUpdate, user }: Props) {
   return <header className={styles.topbar}>
     <button type="button" className={styles.iconButton} onClick={onOpenDialog} aria-label="Ouvrir un dépôt" title="Ouvrir un dépôt · ⌘O"><ToolbarIcon name="folder" /></button>
     <div className={styles.brandSlot}><Brand /></div>
@@ -32,6 +33,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialo
       </div>)}
     </div>
       <ActionMenu label="Ajouter un dépôt" triggerClassName={styles.add} disabled={busy} triggerContent={<ToolbarIcon name="plus" />}>
+        <button type="button" onClick={onInit}><ToolbarIcon name="plus" />Créer un dépôt local…</button>
         <button type="button" onClick={onOpenDialog}><ToolbarIcon name="folder" />Ouvrir un dépôt local…</button>
         <button type="button" onClick={onClone}><ToolbarIcon name="clone" />Cloner un dépôt…</button>
       </ActionMenu>

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use beebranch_core::{AppError, RepoId, RepoState};
 use beebranch_git::clone::{CloneOptions, HttpsAuth};
+use beebranch_git::init::{init as init_repository, InitOptions};
 use beebranch_git::session::{ChangeSink, RepoChange, RepoSession, SessionOptions};
 use beebranch_gitlab::normalize_url;
 use serde::{Deserialize, Serialize};
@@ -129,6 +130,38 @@ pub async fn repo_open(
     path: String,
 ) -> Result<RepoView, AppError> {
     open_path(&app, &state, path).await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitRequest {
+    pub destination: String,
+    #[serde(default)]
+    pub initial_branch: Option<String>,
+}
+
+/// Create a local repository, then open it in a new tab.
+#[tauri::command]
+pub async fn repo_init(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: InitRequest,
+) -> Result<RepoView, AppError> {
+    let runner = state.runner()?.clone();
+    let operation_id = new_operation_id("init");
+    begin_operation(&state, &operation_id, "init", "", &request.destination)?;
+    let destination = request.destination.clone();
+    let options = InitOptions {
+        initial_branch: request.initial_branch.clone(),
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        init_repository(&runner, &destination, &options)
+    })
+    .await
+    .map_err(join_error)?;
+    finish_operation(&state, &operation_id, result.as_ref().err())?;
+    let path = result?;
+    open_path(&app, &state, path.display().to_string()).await
 }
 
 #[derive(Debug, Clone, Deserialize)]
