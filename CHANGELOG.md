@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.4] — 2026-10-28
+
+### Vérifié
+
+- Seconde release de contrôle, sans changement fonctionnel : confirme sur machine
+  réelle l'icône de mise à jour dans l'en-tête (elle n'apparaissait pas en 0.4.3,
+  qui était déjà la dernière version publiée), le redémarrage automatique après
+  installation et la persistance de l'autorisation du trousseau d'une version à
+  l'autre.
+
 ## [0.4.3] — 2026-10-28
 
 ### Vérifié
