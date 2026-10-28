@@ -17,6 +17,9 @@
    - fusionne les fragments, génère `latest.json` et `rollback.json` ;
    - publie les artefacts signés et les manifestes.
 
+   Si la CI est indisponible (quota Actions épuisé, facturation en échec),
+   publier depuis le poste : voir « Publication locale (sans CI) » plus bas.
+
 ## Hébergement des manifestes (dépôt public `beebranch-releases`)
 
 Le code source reste privé. Le job `publish` publie dans
@@ -55,20 +58,26 @@ Le pipeline n'est pas indispensable : la publication se fait depuis le poste qui
 détient les clés, avec `gh` authentifié. Utile quand le quota Actions est épuisé
 ou pour une plateforme isolée.
 
-```sh
-export TAURI_SIGNING_PRIVATE_KEY="$(cat src-tauri/keys/release.key)"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat src-tauri/keys/release.key.password)"
-export BEEBRANCH_UPDATE_ENDPOINT="https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json"
-# Identité de signature stable : sans elle, macOS redemande l'accès au trousseau
-# à chaque build (une signature ad-hoc change à chaque compilation).
-export APPLE_SIGNING_IDENTITY="Developer ID Application: beecoming (JFSQ98955P)"
-# Notarisation par clé API App Store Connect (voir « Notarisation macOS »).
-export APPLE_API_KEY="<Key ID>"
-export APPLE_API_ISSUER="<Issuer ID>"
-export APPLE_API_KEY_PATH="$PWD/AuthKey_<Key ID>.p8"
-npm run tauri build
+Les credentials vivent dans `.env` (ignoré par git, modèle dans `.env.example`) :
+identité de signature macOS, Key ID + Issuer ID + chemin du `.p8` de
+notarisation, chemins de la clé minisign et de son mot de passe, endpoint de
+mise à jour. `npm run release:build` les exporte puis lance `tauri build` :
 
-# Tauri notarise et agrafe l'app ; le DMG doit être soumis séparément.
+```sh
+cp .env.example .env   # une fois, puis renseigner les valeurs
+npm run release:build  # signe l'app, la notarie et l'agraphe, signe l'update
+```
+
+Le script refuse de builder si une variable, la clé de notarisation ou la clé
+minisign manque. Les secrets eux-mêmes ne sont jamais recopiés dans `.env` :
+il ne contient que les chemins des fichiers de clé, dont le contenu est lu au
+moment du build.
+
+Notarisation et publication du DMG (Tauri notarie et agraphe l'app ; le DMG est
+soumis séparément) :
+
+```sh
+set -a; . ./.env; set +a
 DMG="target/release/bundle/dmg/BeeBranch_<version>_aarch64.dmg"
 xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY_PATH" \
   --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
