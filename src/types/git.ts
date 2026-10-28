@@ -138,11 +138,19 @@ export type CommitSummary = {
   subject: string
 }
 
+/** One vertical lane segment inside a row. `fromTop`/`toBottom` tell where the
+ * segment starts and stops, so a lane can open or close on a commit. */
+export type LaneSpan = {
+  lane: number
+  fromTop: boolean
+  toBottom: boolean
+}
+
 export type GraphRow = {
   nodeLane: number
   laneCount: number
-  activeRanges: [number, number][]
-  parentLanes: number[]
+  rails: LaneSpan[]
+  parents: number[]
   overflow: boolean
 }
 

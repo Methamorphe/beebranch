@@ -22,11 +22,11 @@ export const COLUMN_FLOORS: GraphColumnWidths = {
   refs: 0,
   graph: 56,
   author: 0,
-  date: 84,
+  date: 112,
 }
 export const COLUMN_CEILINGS: GraphColumnWidths = {
   refs: 260,
-  graph: 320,
+  graph: 420,
   author: 240,
   date: 200,
 }

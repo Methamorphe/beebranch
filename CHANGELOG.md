@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.6.0] — 2026-10-28
+
+### Ajouté
+
+- **Mise à jour installée depuis l'en-tête** : une notification propose la
+  version signée dès sa publication, avec la progression réelle du
+  téléchargement et un report possible ; l'icône de mise à jour de la barre
+  supérieure lance directement le paquet signé puis le redémarrage. La page
+  Profils conserve son flux explicite avec confirmation.
+- **Comparaison A→B dans l'historique** : Maj+clic sur un second commit (ou
+  « Comparer A→B » en sélection multiple) ouvre le diff dans l'inspecteur, à
+  droite du graphe, sans quitter la vue Historique. L'inversion A↔B et
+  l'ouverture en plein écran restent disponibles.
+- **Date et heure dans l'historique** : la colonne Date affiche l'heure locale
+  du commit en plus du jour (`28 oct. 2026 14:32`). Largeur par défaut portée à
+  128 px et plancher à 112 px pour que l'horodatage tienne sur une ligne ;
+  toujours redimensionnable et réinitialisable.
+
+### Modifié
+
+- **Graphe au niveau de GitKraken** : pas constant de 22 px et colonne élargie
+  avec l'historique (jusqu'à 420 px) au lieu d'écraser dix-huit voies dans
+  150 px. Les arêtes de parenté quittent la pastille à l'horizontale et
+  rejoignent leur voie par une équerre arrondie de 7 px, au lieu d'une courbe
+  en S traversant toute la ligne. Chaque voie porte ses extrémités (`rails`) :
+  elle s'ouvre sur le commit qui la crée et s'arrête sur celui qu'elle atteint.
+  Pastilles de commit à 11 px, palette de huit voies saturée (contraste ≥ 4,9:1
+  sur le fond sombre comme sur le clair) et tracé borné à la colonne du graphe.
+- **Infobulle de commit** : le survol n'ouvre plus de popup quand le sujet tient
+  dans la colonne ; il ne s'affiche que si le sujet est tronqué au rendu, après
+  chaque redimensionnement.
+
+### Corrigé
+
+- **Fusion réduite à un fast-forward** : « Fusionner » avançait la cible sans
+  créer de commit de fusion dès qu'un fast-forward était possible, si bien que
+  le graphe ne montrait pas que la branche avait rejoint l'autre. « Fusionner »
+  passe désormais `--no-ff` et produit un vrai commit de fusion ; l'entrée
+  « Avancer » reste disponible pour un fast-forward explicite. L'aperçu de
+  confirmation annonce lequel des deux aura lieu.
+- **Double-clic sur une branche distante désynchronisée** : si une branche
+  locale suit déjà cette référence, son sommet est replacé sur le commit
+  distant avant la checkout, puis la branche est activée — y compris lorsqu'elle
+  est déjà la branche courante. L'opération reste annulable (sommet précédent et
+  branche active restaurés). Un checkout qui écraserait des modifications
+  locales est refusé par Git.
+- **Progression de mise à jour** : le plugin rapporte la taille de chaque
+  fragment reçu, pas le total ; les fragments sont désormais cumulés pour
+  afficher un pourcentage exact.
+
 ## [0.5.1] — 2026-10-28
 
 ### Ajouté

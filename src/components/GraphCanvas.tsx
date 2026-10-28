@@ -75,24 +75,43 @@ type Props = {
 
 const ROW_HEIGHT = 30
 const OVERSCAN = 8
+/** Reused across rows and frames: Intl formatters are expensive to build. */
+const DATE_FORMAT = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
+const TIME_FORMAT = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' })
+
+/** Commit date and local time shown in the history date column. */
+function commitDateLabel(timestamp: number) {
+  const date = new Date(timestamp * 1000)
+  return `${DATE_FORMAT.format(date)} ${TIME_FORMAT.format(date)}`
+}
+/** Constant distance between two lanes: the graph column grows with the lane
+ * count instead of squeezing every lane into a fixed width, which used to turn
+ * a branched history into an unreadable ladder. */
+const LANE_PITCH = 22
+/** Commit dot radius, measured from GitKraken: 11 px across on a 28 px row. */
+const NODE_RADIUS = 5.5
+/** Radius of the corner that turns a parent edge into its lane. */
+const ELBOW_RADIUS = 7
 const LANE_COLORS = [
-  '#81a9ef',
-  '#a48ae0',
-  '#52c993',
-  '#e66b75',
-  '#f0a45b',
-  '#7cb518',
+  '#4c8dff',
+  '#a970ff',
+  '#2fd39a',
+  '#ff5d6c',
+  '#ffa236',
+  '#ffd257',
+  '#2bc3d9',
+  '#f472b6',
 ]
 const LIGHT_LANE_COLORS = [
-  '#2b6cb0',
-  '#6b4bb5',
-  '#136b46',
-  '#b93b48',
-  '#94470a',
-  '#4c6b0b',
+  '#1f5fd0',
+  '#6b3fc0',
+  '#0d7a4f',
+  '#c02a3a',
+  '#9a4a05',
+  '#7a6200',
+  '#0a6b7a',
+  '#a01f6b',
 ]
-
-const LANE_SPACING = 18
 
 /**
  * Column layout. The reference column follows the longest label (between 96
@@ -105,8 +124,16 @@ function defaultColumns(
   lanes: number,
   desiredRefs = 140,
 ): GraphColumnWidths {
-  const graph = Math.min(width < 520 ? 64 : 150, Math.max(56, lanes * LANE_SPACING + 26))
-  const date = width >= 560 ? 100 : COLUMN_FLOORS.date
+  // Lanes need 22 px each plus a 9 px gutter on both sides: a two-lane history
+  // stays at the 64 px floor, nine lanes take 216 px. The column grows with the
+  // history instead of squeezing the lanes together.
+  const graph =
+    width < 520
+      ? 64
+      : Math.min(COLUMN_CEILINGS.graph, Math.max(64, lanes * LANE_PITCH + 18))
+  // Date and time on one line: 128 px fits the widest month (`28 mars 2026
+  // 23:59`, 110 px at 12 px) with room for the padding.
+  const date = width >= 560 ? 128 : COLUMN_FLOORS.date
   let refs = width >= 480 ? Math.min(desiredRefs, Math.round(width * 0.34)) : 0
   if (refs > 0) {
     // Keep 520 px for the message and 90 px for the author before widening the
@@ -306,6 +333,10 @@ export function GraphCanvas({
   const popupRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refRects = useRef<{ commit: CommitSummary; raw: string; x:number; y:number; width:number; height:number; overflow?: boolean }[]>([])
+  /** Commits whose subject does not fit the message column, filled by `draw`.
+   * Only those rows deserve the hover tooltip: a subject that is fully
+   * readable already makes the popup noise. */
+  const truncatedSubjects = useRef<Set<string>>(new Set())
   const cancelRefClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null } }
   const closeRefSoon = () => { cancelRefClose(); closeTimer.current = setTimeout(() => { if (!popupRef.current?.contains(document.activeElement)) setRefHover(null) }, 140) }
   const checkoutRef = (raw: string) => {
@@ -367,6 +398,7 @@ export function GraphCanvas({
     context.setTransform(ratio, 0, 0, ratio, 0, 0)
     context.clearRect(0, 0, width, height)
     refRects.current = []
+    truncatedSubjects.current.clear()
     context.textBaseline = 'middle'
     const computed = getComputedStyle(canvas)
     const light = computed.colorScheme === 'light'
@@ -397,17 +429,23 @@ export function GraphCanvas({
       Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN,
     )
 
-    // Lanes keep a constant pitch; the column only compresses when more lanes
-    // exist than it can hold.
-    const laneArea = Math.min(col.graph - 28, maxLanes * LANE_SPACING)
-    const laneScale = laneArea / Math.max(1, maxLanes)
-    const graphLeft = col.refs + 14
+    // Constant pitch, centred in the column: lanes never hug the labels and
+    // never compress unless the column itself was dragged narrower.
+    const pitch = Math.min(
+      LANE_PITCH,
+      Math.max(10, (col.graph - 16) / Math.max(1, maxLanes)),
+    )
+    const graphLeft =
+      col.refs + Math.max(8, (col.graph - pitch * maxLanes) / 2) + pitch / 2
     const messageX = col.refs + col.graph + 14
     const messageRight = width - col.author - col.date
     const stripInset = 3
     const chipText = light ? '#101216' : '#F4F6FA'
 
-    const laneX = (lane: number) => graphLeft + lane * laneScale + laneScale / 2
+    const laneX = (lane: number) => graphLeft + lane * pitch
+    /** Corner radius for an elbow, capped by half the run and half a row. */
+    const corner = (from: number, to: number) =>
+      Math.min(ELBOW_RADIUS, Math.abs(to - from) / 2, ROW_HEIGHT / 2 - 1)
     const laneColor = (lane: number) => laneColors[lane % laneColors.length]!
     const emphasisFor = (sha: string, index: number) =>
       sha === selected ? 0.5 : picked.includes(sha) ? 0.34 : hoveredRef.current === index ? 0.18 : 0
@@ -433,42 +471,62 @@ export function GraphCanvas({
       }
     }
 
-    // 2. Lane lines and parent edges. Every segment is stroked once at full
-    // opacity: the previous alpha layering darkened each fork into a blotch.
+    // 2. Lane rails. Each span carries its own extents, so a lane opens on the
+    // elbow of the commit that created it and stops on the commit it reaches
+    // instead of running through the whole row.
     context.lineCap = 'round'
     context.lineJoin = 'round'
     context.lineWidth = 2
+    context.save()
+    context.beginPath()
+    context.rect(col.refs, 0, col.graph, height)
+    context.clip()
     for (let index = first; index <= last; index += 1) {
       const row = rows[index]
       if (!row) continue
-      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
-      for (const [start, end] of row.activeRanges) {
-        for (let lane = start; lane <= end; lane += 1) {
-          const x = laneX(lane)
-          context.strokeStyle = laneColor(lane)
-          context.beginPath()
-          context.moveTo(x, y - ROW_HEIGHT / 2)
-          context.lineTo(x, y + ROW_HEIGHT / 2)
-          context.stroke()
-        }
-      }
-      for (const parentLane of row.parentLanes) {
-        if (parentLane === row.nodeLane) {
-          continue
-        }
-        const fromX = laneX(row.nodeLane)
-        const toX = laneX(parentLane)
-        context.strokeStyle = laneColor(parentLane)
+      const top = index * ROW_HEIGHT - scrollTop
+      const center = top + ROW_HEIGHT / 2
+      const nodeX = laneX(row.nodeLane)
+      for (const rail of row.rails) {
+        const x = laneX(rail.lane)
+        // A rail opened by a parent edge starts after the elbow's corner; the
+        // node lane stops on the dot.
+        const start = rail.fromTop ? top : center + corner(x, nodeX)
+        const end = rail.toBottom ? top + ROW_HEIGHT : center
+        if (end - start < 0.5) continue
+        context.strokeStyle = laneColor(rail.lane)
         context.beginPath()
-        context.moveTo(fromX, y)
-        context.bezierCurveTo(fromX, y + ROW_HEIGHT / 2, toX, y + ROW_HEIGHT / 2, toX, y + ROW_HEIGHT)
+        context.moveTo(x, start)
+        context.lineTo(x, end)
         context.stroke()
       }
     }
 
-    // 3. Commit nodes are drawn after every edge, so no line overpaints a dot.
-    // A background-colored gap ring keeps each dot readable on its lane and the
-    // HEAD commit gets an accent ring.
+    // 3. Parent edges: the horizontal run sits on the commit's centerline and
+    // turns into the parent lane with a rounded corner, the shape GitKraken
+    // uses, instead of a full-row S-curve crossing every other lane.
+    for (let index = first; index <= last; index += 1) {
+      const row = rows[index]
+      if (!row) continue
+      const center = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
+      const nodeX = laneX(row.nodeLane)
+      for (const parentLane of row.parents) {
+        if (parentLane === row.nodeLane) continue
+        const x = laneX(parentLane)
+        const radius = corner(nodeX, x)
+        const sign = x > nodeX ? 1 : -1
+        context.strokeStyle = laneColor(parentLane)
+        context.beginPath()
+        context.moveTo(nodeX, center)
+        context.lineTo(x - sign * radius, center)
+        context.arcTo(x, center, x, center + radius, radius)
+        context.stroke()
+      }
+    }
+
+    // 4. Commit nodes are drawn after every edge, so no line overpaints a dot.
+    // The gap ring keeps the dot readable where a rail touches it and the HEAD
+    // commit gets an accent ring.
     for (let index = first; index <= last; index += 1) {
       const commit = commits[index]
       const row = rows[index]
@@ -477,7 +535,7 @@ export function GraphCanvas({
       const nodeX = laneX(row.nodeLane)
       const isSelected = commit.sha === selected
       const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
-      const radius = isSelected ? 5.25 : 4.5
+      const radius = isSelected ? NODE_RADIUS + 1 : NODE_RADIUS
       const rowBackground = mix(bgColor, raisedColor, emphasisFor(commit.sha, index))
       if (isSelected || headCommit) {
         context.fillStyle = rowBackground
@@ -495,10 +553,12 @@ export function GraphCanvas({
         context.beginPath()
         context.arc(nodeX, y, radius + 3.2, 0, Math.PI * 2)
         context.stroke()
+        context.lineWidth = 2
       }
     }
+    context.restore()
 
-    // 4. Reference pills, message and columns.
+    // 5. Reference pills, message and columns.
     for (let index = first; index <= last; index += 1) {
       const commit = commits[index]
       const row = rows[index]
@@ -577,13 +637,17 @@ export function GraphCanvas({
           cursor += context.measureText(badgeText).width + 12
         }
       }
+      const subjectWidth = messageRight - cursor - 16
+      if (context.measureText(commit.subject).width > subjectWidth) {
+        truncatedSubjects.current.add(commit.sha)
+      }
       context.fillStyle = textColor
-      context.fillText(fitText(context, commit.subject, messageRight - cursor - 16), cursor, y)
+      context.fillText(fitText(context, commit.subject, subjectWidth), cursor, y)
       context.restore()
       context.font = `12px ${fontFamily}`
       context.fillStyle = mutedColor
       if (col.author) context.fillText(fitText(context, commit.author.name, col.author - 20), width - col.author - col.date + 10, y)
-      if (col.date) context.fillText(fitText(context, new Date(commit.committer.timestamp * 1000).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }), col.date - 16), width - col.date + 8, y)
+      if (col.date) context.fillText(fitText(context, commitDateLabel(commit.committer.timestamp), col.date - 16), width - col.date + 8, y)
 
     }
 
@@ -732,6 +796,9 @@ export function GraphCanvas({
   const onScroll = () => {
     cancelRefClose()
     setRefHover(null)
+    // Rows moved under a still cursor: drop the tooltip measured for the
+    // previous offset instead of leaving a stale subject on screen.
+    if (canvasRef.current) canvasRef.current.title = ''
     const container = containerRef.current
     if (!container) {
       return
@@ -798,7 +865,12 @@ export function GraphCanvas({
     } else {
       if (refHover) closeRefSoon()
       const commit = commits[index]
-      event.currentTarget.title = commit ? `${commit.subject}\n${commit.author.name} · ${commit.sha.slice(0, 12)}` : ''
+      // No tooltip on a readable row: only a subject cut by the message column
+      // needs the popup to reveal its full text.
+      event.currentTarget.title =
+        commit && truncatedSubjects.current.has(commit.sha)
+          ? `${commit.subject}\n${commit.author.name} · ${commit.sha.slice(0, 12)}`
+          : ''
     }
     if (hoveredRef.current !== index) { hoveredRef.current = index; scheduleDraw() }
   }

@@ -1,5 +1,10 @@
 import type { CommitSummary, RefEntry } from '../types/git'
 
+/** A comparison label reads better with the 8-character form of a SHA. */
+export function shortRevision(revision: string) {
+  return /^[0-9a-f]{40}$/i.test(revision) ? revision.slice(0, 8) : revision
+}
+
 export function graphRefLabel(raw: string) {
   return raw.replace(/^HEAD -> /, '').replace(/^refs\/(heads|remotes|tags)\//, '').replace(/^tag: /, '')
 }

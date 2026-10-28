@@ -201,12 +201,16 @@ pub fn preview(
 /// Tracked changes are stashed before the checkout and popped once the merge
 /// completes. The stash is left in place when the merge pauses on conflicts or
 /// when the pop itself conflicts, and the outcome says so.
+///
+/// `no_ff` only applies to a merge: it turns a fast-forwardable merge into a
+/// real merge commit, which is what the graph needs to show the branch join.
 pub fn start(
     runner: &GitRunner,
     worktree: &Path,
     source: &str,
     target: &str,
     mode: IntegrationMode,
+    no_ff: bool,
 ) -> Result<BranchIntegrationOutcome, AppError> {
     let preview = preview(runner, worktree, source, target, mode)?;
     if let Some(reason) = preview.blocked_reason.clone() {
@@ -234,7 +238,7 @@ pub fn start(
         checked_out = true;
     }
     let result = match mode {
-        IntegrationMode::Merge => history::merge(runner, worktree, source, false),
+        IntegrationMode::Merge => history::merge(runner, worktree, source, no_ff),
         IntegrationMode::Rebase => history::rebase(runner, worktree, source),
     };
     match result {

@@ -45,11 +45,54 @@ fn merge_preview_and_start_are_consistent() {
         "feature",
         &main,
         IntegrationMode::Merge,
+        false,
     )
     .expect("merge");
     assert!(!result.outcome.conflicted);
     assert!(fixture.path().join("b.txt").exists());
     assert_eq!(current_branch(&fixture), main);
+    assert_eq!(
+        fixture.rev_parse(&["--verify", "HEAD"]),
+        fixture.rev_parse(&["--verify", "feature"]),
+        "without no_ff the target fast-forwards and no merge commit exists"
+    );
+}
+
+#[test]
+fn no_ff_merge_creates_a_merge_commit_even_when_fast_forward_is_possible() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    let feature = fixture.commit("b.txt", "feature\n", "feature");
+    fixture.switch(&main);
+
+    let preview = integration::preview(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+    )
+    .expect("preview");
+    assert!(preview.fast_forward);
+
+    let result = integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+        true,
+    )
+    .expect("merge");
+    assert!(!result.outcome.conflicted);
+    assert_eq!(current_branch(&fixture), main);
+    assert_eq!(
+        fixture.rev_parse(&["--verify", "HEAD^2"]),
+        feature,
+        "HEAD is a merge commit whose second parent is the source branch"
+    );
 }
 
 #[test]
@@ -68,6 +111,7 @@ fn merge_conflict_keeps_a_typed_abort_path() {
         "feature",
         &main,
         IntegrationMode::Merge,
+        false,
     )
     .expect("conflicted merge is an outcome");
     assert!(result.outcome.conflicted);
@@ -109,6 +153,7 @@ fn rebase_drop_moves_the_target_onto_the_source() {
         "feature",
         &main,
         IntegrationMode::Rebase,
+        false,
     )
     .expect("rebase");
     assert!(!result.outcome.conflicted);
@@ -204,6 +249,7 @@ fn merge_with_dirty_worktree_stashes_then_restores_tracked_changes() {
         "feature",
         &main,
         IntegrationMode::Merge,
+        false,
     )
     .expect("merge");
     assert!(!result.outcome.conflicted);
@@ -249,6 +295,7 @@ fn merge_requiring_checkout_restores_the_stash_on_the_target() {
         "other",
         &main,
         IntegrationMode::Merge,
+        false,
     )
     .expect("merge");
     assert!(result.checked_out_target);
@@ -280,6 +327,7 @@ fn conflicting_merge_keeps_the_auto_stash_until_abort() {
         "feature",
         &main,
         IntegrationMode::Merge,
+        false,
     )
     .expect("conflicted merge is an outcome");
     assert!(result.outcome.conflicted);

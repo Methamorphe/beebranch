@@ -277,6 +277,14 @@ export function branchCheckout(input: {
   return call<MutationResult<null>>('branch_checkout', { request: input })
 }
 
+export function branchCheckoutAt(input: {
+  repoId: string
+  name: string
+  start: string
+}): Promise<MutationResult<null>> {
+  return call<MutationResult<null>>('branch_checkout_at', { request: input })
+}
+
 export function branchRename(input: {
   repoId: string
   old: string
@@ -342,6 +350,7 @@ export function branchIntegrationStart(input: {
   source: string
   target: string
   mode: IntegrationMode
+  noFf?: boolean
   confirmation: Confirmation
 }): Promise<MutationResult<BranchIntegrationOutcome>> {
   return call<MutationResult<BranchIntegrationOutcome>>(

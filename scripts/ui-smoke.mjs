@@ -294,7 +294,11 @@ function mockScript(commits, rows, diffLines) {
       signatureRequired: true, platform: 'macos-aarch64',
     }),
     update_check: () => (window.__scenarioUpdateAvailable ? { currentVersion: '0.4.0', version: '0.4.1', publishedAt: '2026-10-28T10:00:00Z', notes: 'Références du graphe.', downloadUrl: 'https://example.test/BeeBranch.app.tar.gz', rollback: false } : null),
-    update_install: () => ({ previousVersion: '0.4.0', installedVersion: '0.4.1', restarting: true }),
+    update_install: () => {
+      (window.__p3Calls ??= []).push(['update_install', null])
+      setTimeout(() => window.__emitTauriEvent?.('update://progress', { downloaded: 64, total: 256 }), 60)
+      return new Promise((resolve) => setTimeout(() => resolve({ previousVersion: '0.4.0', installedVersion: '0.4.1', restarting: true }), 300))
+    },
     update_rollback: () => ({ previousVersion: '0.4.1', installedVersion: '0.4.0', restarting: true }),
     diagnostics_export: () => '{}',
     'plugin:dialog|open': (args) => { (window.__pickerCalls ??= []).push(args.options); if (window.__pickerDeferred) return new Promise((resolve) => { window.__pickerResolve = resolve }); return window.__pickerSelection ?? null; },
@@ -425,24 +429,25 @@ const commits = Array.from({ length: count }, (_, index) => ({
 // branch shown on lane 1 until it converges back into lane 0. The layout is
 // what the Rust lane algorithm emits, so the graph proof covers forks and
 // merges instead of a single straight line.
+const rail = (lane, fromTop, toBottom) => ({ lane, fromTop, toBottom })
 const rows = commits.map((commit, index) => {
   const phase = index % 6
   if (commit.parents.length === 0) {
-    return { nodeLane: 0, laneCount: 1, activeRanges: [], parentLanes: [], overflow: false }
+    return { nodeLane: 0, laneCount: 1, rails: [rail(0, true, false)], parents: [], overflow: false }
   }
   if (phase === 0) {
-    return { nodeLane: 0, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [0, 1], overflow: false }
+    return { nodeLane: 0, laneCount: 2, rails: [rail(0, false, true), rail(1, false, true)], parents: [0, 1], overflow: false }
   }
   if (phase === 2) {
-    return { nodeLane: 1, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [1], overflow: false }
+    return { nodeLane: 1, laneCount: 2, rails: [rail(0, true, true), rail(1, true, true)], parents: [1], overflow: false }
   }
   if (phase === 4) {
-    return { nodeLane: 1, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [0], overflow: false }
+    return { nodeLane: 1, laneCount: 2, rails: [rail(0, true, true), rail(1, true, false)], parents: [0], overflow: false }
   }
   if (phase === 5) {
-    return { nodeLane: 0, laneCount: 1, activeRanges: [[0, 0]], parentLanes: [0], overflow: false }
+    return { nodeLane: 0, laneCount: 2, rails: [rail(0, true, true)], parents: [0], overflow: false }
   }
-  return { nodeLane: 0, laneCount: 2, activeRanges: [[0, 1]], parentLanes: [0], overflow: false }
+  return { nodeLane: 0, laneCount: 2, rails: [rail(0, true, true), rail(1, true, true)], parents: [0], overflow: false }
 })
 const diffLines = Array.from({ length: 4000 }, (_, index) =>
   index === 3
@@ -641,7 +646,7 @@ try {
       dateHeader: columns.children[4].textContent,
     }
   })()`)
-  if (!(initialColumns.author >= 90 && initialColumns.authorHeader === 'Auteur' && initialColumns.date >= 84 && initialColumns.dateHeader === 'Date')) {
+  if (!(initialColumns.author >= 90 && initialColumns.authorHeader === 'Auteur' && initialColumns.date >= 120 && initialColumns.dateHeader === 'Date')) {
     throw new Error('graph author/date columns missing at full width: ' + JSON.stringify(initialColumns))
   }
 
@@ -686,8 +691,19 @@ try {
     return true
   })()`)
   if (!compareClicked) throw new Error('compare action missing for two picked commits')
-  await waitFor(client, `document.querySelector('main h1')?.textContent === 'Comparaison'`, 'comparison view')
+  // The comparison must not leave the history: the tree stays rendered and the
+  // A→B panel docks in the inspector, like a git client's right-hand pane.
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') !== null`, 'comparison inspector')
   await waitFor(client, `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range')`, 'range diff request')
+  const compareFrame = await evaluate(client, `({
+    heading: document.querySelector('main h1')?.textContent,
+    graph: document.querySelector('canvas') !== null,
+    files: document.querySelectorAll('aside[aria-label="Comparaison"] [aria-label="Fichiers comparés"] button').length,
+    diff: document.querySelector('aside[aria-label="Comparaison"] [aria-label^="Diff de"]') !== null,
+  })`)
+  if (compareFrame.heading !== 'Historique' || !compareFrame.graph || compareFrame.files < 1 || !compareFrame.diff) {
+    throw new Error('comparison left the history view: ' + JSON.stringify(compareFrame))
+  }
   const compareReport = await evaluate(client, `(() => {
     const call = [...window.__diffCalls].reverse().find((entry) => entry.request?.target === 'range')
     return {
@@ -702,11 +718,9 @@ try {
     throw new Error('two-commit comparison mismatch: ' + JSON.stringify(compareReport))
   }
   await screenshot(client, 'p0-compare.png')
-  await evaluate(client, `(() => {
-    const back = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('← Retour'))
-    if (back) back.click()
-  })()`)
-  await waitFor(client, `document.querySelector('canvas') !== null`, 'graph after comparison')
+  await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'comparison closed')
+  if (!(await evaluate(client, `document.querySelector('canvas') !== null`))) throw new Error('graph lost after closing the comparison')
   if (!(await openGraphOptions())) throw new Error('graph display options missing after comparison')
   await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'graph display options reopened')
   if (!(await toggleMultiSelect())) throw new Error('multi-select toggle missing after comparison')
@@ -714,10 +728,10 @@ try {
   await waitFor(client, `!document.body.innerText.includes('commit(s) sélectionné(s)')`, 'picks cleared')
 
   // Shift-clicking a commit after selecting another one must compare them
-  // (previous → clicked) and open the diff without touching the options menu.
+  // (previous → clicked) in the graph inspector, without touching the options menu.
   await pickCommitRow(0)
   await pickCommitRow(2, true)
-  await waitFor(client, `document.querySelector('main h1')?.textContent === 'Comparaison'`, 'shift comparison view')
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]')?.innerText.includes(${JSON.stringify(sha(1).slice(0, 8) + '…' + sha(3).slice(0, 8))}) ?? false`, 'shift comparison panel')
   await waitFor(client, `(window.__diffCalls ?? []).some((call) => call.request?.target === 'range' && call.request.base === ${JSON.stringify(sha(1))})`, 'shift range diff request')
   const shiftReport = await evaluate(client, `(() => {
     const calls = (window.__diffCalls ?? []).filter((entry) => entry.request?.target === 'range')
@@ -728,17 +742,16 @@ try {
       expectedBase: ${JSON.stringify(sha(1))},
       expectedTarget: ${JSON.stringify(sha(3))},
       label: document.body.innerText.includes('…'),
+      graph: document.querySelector('canvas') !== null,
     }
   })()`)
   if (shiftReport.base !== shiftReport.expectedBase || shiftReport.target !== shiftReport.expectedTarget || !shiftReport.label) {
     throw new Error('shift-click comparison mismatch: ' + JSON.stringify(shiftReport))
   }
-  await evaluate(client, `(() => {
-    const back = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('← Retour'))
-    if (back) back.click()
-  })()`)
-  await waitFor(client, `document.querySelector('canvas') !== null`, 'graph after shift comparison')
-  await waitFor(client, `document.body.innerText.includes('2 commit(s) sélectionné(s)')`, 'shift pair kept in graph')
+  if (!shiftReport.graph) throw new Error('shift-click comparison left the history view')
+  await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
+  await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'shift comparison closed')
+  await waitFor(client, `document.querySelector('canvas') !== null && document.body.innerText.includes('2 commit(s) sélectionné(s)')`, 'shift pair kept in graph')
   await evaluate(client, `(() => {
     const clear = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Vider')
     if (clear) clear.click()
@@ -1134,7 +1147,7 @@ try {
   assertUI('density-content-starts-above-220', density.firstCommitTop <= 220)
   assertUI('density-reference-column-bounded', density.referencesWidth <= 220 && density.graphWidth <= 64)
   assertUI('density-message-column-at-least-520', density.messageWidth >= 520)
-  assertUI('graph-date-column-visible', density.dateWidth >= 84 && density.dateHeader === 'Date')
+  assertUI('graph-date-column-visible', density.dateWidth >= 120 && density.dateHeader === 'Date')
   assertUI('density-readable-files', density.fileTextSize >= 14 && density.fileRowHeight <= 30)
 
   const readColumns = () => evaluate(client, `(() => {
@@ -1198,7 +1211,7 @@ try {
   assertUI('graph-columns-reset-available', resetDispatched)
   await delay(150)
   const columnsReset = await readColumns()
-  assertUI('graph-columns-reset', columnsReset.date <= 110 && columnsReset.refs <= 160)
+  assertUI('graph-columns-reset', columnsReset.date <= 130 && columnsReset.refs <= 160)
 
   const panelBefore = await evaluate(client, `document.querySelector('[aria-label="Préparation du prochain commit"]').getBoundingClientRect().width`)
   assertUI('inspector-resizer-available', await dragSeparator('Redimensionner le panneau latéral', -40))
@@ -1431,7 +1444,7 @@ try {
     const original = window.__TAURI_INTERNALS__.invoke
     window.__toolbarCalls = []
     window.__TAURI_INTERNALS__.invoke = (command, args) => {
-      if (['sync_fetch', 'sync_pull', 'sync_push', 'tool_open', 'branch_checkout', 'branch_create', 'branch_upstream', 'branch_rename', 'branch_delete', 'history_merge'].includes(command)) {
+      if (['sync_fetch', 'sync_pull', 'sync_push', 'tool_open', 'branch_checkout', 'branch_checkout_at', 'branch_create', 'branch_upstream', 'branch_rename', 'branch_delete', 'history_merge'].includes(command)) {
         window.__toolbarCalls.push([command, args]); return Promise.resolve({ data:null, generation:1 })
       }
       return original(command, args)
@@ -1849,24 +1862,56 @@ try {
   await waitFor(client, `document.body.innerText.includes('BeeBranch est à jour')`, 'update check')
   await a11yAudit('profiles')
   await screenshot(client, 'p3-updates.png')
-  // A release published after startup must surface in the header, and installing
-  // it must relaunch the app instead of asking the user to quit.
+  // A release published after startup must surface both in the header and as a
+  // notification, and the header action installs it without a settings detour.
   await evaluate(client, `window.__scenarioUpdateAvailable = true; window.dispatchEvent(new Event('focus'))`)
-  await waitFor(client, `Boolean(document.querySelector('[data-update]'))`, 'header update badge')
+  await waitFor(client, `Boolean(document.querySelector('[data-update]')) && Boolean(document.querySelector('[data-update-notice]'))`, 'header update badge and notice')
   assertUI('header-update-badge-version', await evaluate(client, `document.querySelector('[data-update]').dataset.update === '0.4.1' && document.querySelector('[data-update]').getAttribute('aria-label').includes('0.4.1')`))
+  assertUI('header-update-notice-content', await evaluate(client, `(() => {
+    const notice = document.querySelector('[data-update-notice]')
+    return notice.dataset.updateNotice === '0.4.1'
+      && notice.innerText.includes('Mise à jour 0.4.1 disponible')
+      && [...notice.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Installer')
+  })()`))
   await go('graph')
   assertUI('header-update-badge-survives-navigation', await evaluate(client, `Boolean(document.querySelector('[data-update]'))`))
+  assertUI('header-update-notice-survives-navigation', await evaluate(client, `Boolean(document.querySelector('[data-update-notice]'))`))
+  await a11yAudit('update-notice')
+  assertUI('header-update-notice-in-viewport', await evaluate(client, `(() => {
+    const rect = document.querySelector('[data-update-notice]').getBoundingClientRect()
+    return rect.width > 0 && rect.top >= 43 && rect.right <= innerWidth && rect.left >= 0
+  })()`))
+  await screenshot(client, 'p3-update-notice.png')
+
+  const installsBefore = await evaluate(client, `((window.__p3Calls ?? []).filter(([name]) => name === 'update_install')).length`)
   await evaluate(client, `document.querySelector('[data-update]').click()`)
-  await waitFor(client, `document.body.innerText.includes('Mises à jour signées')`, 'updates via header')
-  await evaluate(client, `(() => { const button = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Vérifier les mises à jour')); button?.click() })()`)
+  await waitFor(client, `(document.querySelector('[data-update-notice]')?.innerText ?? '').includes('Téléchargement 25 %')`, 'update download progress')
+  await waitFor(client, `((window.__p3Calls ?? []).filter(([name]) => name === 'update_install')).length === ${installsBefore + 1}`, 'install from header')
+  await waitFor(client, `document.body.innerText.includes('installée. Redémarrage…')`, 'header install completed')
+  assertUI('header-installs-without-settings', await evaluate(client, `!document.body.innerText.includes('Mises à jour signées') && !document.querySelector('[data-update]') && !document.querySelector('[data-update-notice]')`))
+  await screenshot(client, 'p3-update-installed.png')
+
+  // The next check offers the release again; the notification can be postponed
+  // while the header button keeps offering the install.
+  await evaluate(client, `window.dispatchEvent(new Event('focus'))`)
+  await waitFor(client, `Boolean(document.querySelector('[data-update]')) && Boolean(document.querySelector('[data-update-notice]'))`, 'update offered again')
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('[data-update-notice] button')].find((b) => b.textContent.trim() === 'Plus tard'); button?.click() })()`)
+  assertUI('header-update-notice-dismissible', await evaluate(client, `!document.querySelector('[data-update-notice]') && Boolean(document.querySelector('[data-update]'))`))
+  await evaluate(client, `window.dispatchEvent(new Event('focus'))`)
+  await delay(120)
+  assertUI('header-update-notice-stays-dismissed', await evaluate(client, `!document.querySelector('[data-update-notice]') && Boolean(document.querySelector('[data-update]'))`))
+
+  // The settings page keeps its explicit confirm-then-install flow.
+  await go('profiles')
+  await waitFor(client, `document.body.innerText.includes('Mises à jour signées')`, 'updates settings')
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('main button')].find((b) => b.textContent.includes('Vérifier les mises à jour')); button?.click() })()`)
   await waitFor(client, `document.body.innerText.includes('Mise à jour 0.4.1 disponible')`, 'update offered')
-  await evaluate(client, `(() => { const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Installer'); button?.click() })()`)
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('main button')].find((b) => b.textContent.trim() === 'Installer'); button?.click() })()`)
   await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'install confirmation')
   assertUI('install-confirmation-mentions-auto-restart', await evaluate(client, `document.querySelector('[role="alertdialog"]').innerText.includes('redémarre automatiquement')`))
   await evaluate(client, `(() => { const button = [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.includes('Télécharger et installer')); button.click() })()`)
-  await waitFor(client, `document.body.innerText.includes('Redémarrage…')`, 'restart notice')
-  assertUI('install-restarts-without-user-action', await evaluate(client, `document.body.innerText.includes('installée. Redémarrage…') && [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Redémarrage…') || b.textContent.includes('Vérifier les mises à jour')).disabled`))
-  await screenshot(client, 'p3-update-installed.png')
+  await waitFor(client, `[...document.querySelectorAll('main button')].some((b) => b.disabled && b.textContent.includes('Redémarrage…'))`, 'restart notice')
+  assertUI('install-restarts-without-user-action', await evaluate(client, `document.body.innerText.includes('installée. Redémarrage…')`))
   await evaluate(client, `window.__scenarioUpdateAvailable = false`)
 
   const contrastAudit = await evaluate(client, `(() => {

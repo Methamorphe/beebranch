@@ -14,11 +14,12 @@ type Props = {
   onClone: () => void
   onSettings: () => void
   updateVersion?: string | null
-  onOpenUpdates?: () => void
+  updateBusy?: boolean
+  onInstallUpdate?: () => void
   user?: string | null
 }
 
-export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialog, onClone, onSettings, updateVersion, onOpenUpdates, user }: Props) {
+export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialog, onClone, onSettings, updateVersion, updateBusy = false, onInstallUpdate, user }: Props) {
   return <header className={styles.topbar}>
     <button type="button" className={styles.iconButton} onClick={onOpenDialog} aria-label="Ouvrir un dépôt" title="Ouvrir un dépôt · ⌘O"><ToolbarIcon name="folder" /></button>
     <div className={styles.brandSlot}><Brand /></div>
@@ -37,9 +38,11 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onOpenDialo
     </div>
     <div className={styles.spacer} />
     {updateVersion ? (
-      <button type="button" className={styles.updateButton} onClick={onOpenUpdates} data-update={updateVersion}
-        aria-label={`Mise à jour ${updateVersion} disponible`} title={`Mise à jour ${updateVersion} disponible · installer`}>
-        <ToolbarIcon name="update" /><span className={styles.updateDot} aria-hidden="true" />
+      <button type="button" className={styles.updateButton} onClick={onInstallUpdate} data-update={updateVersion}
+        disabled={updateBusy} aria-busy={updateBusy || undefined}
+        aria-label={updateBusy ? `Installation de la mise à jour ${updateVersion} en cours` : `Mise à jour ${updateVersion} disponible, installer`}
+        title={updateBusy ? `Installation de la mise à jour ${updateVersion}…` : `Mise à jour ${updateVersion} disponible · cliquer pour installer`}>
+        <ToolbarIcon name="update" />{updateBusy ? null : <span className={styles.updateDot} aria-hidden="true" />}
       </button>
     ) : null}
     <button type="button" className={styles.iconButton} onClick={onSettings} aria-label="Profils et réglages" title="Profils et réglages · ⌘,"><ToolbarIcon name="settings" /></button>

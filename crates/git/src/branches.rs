@@ -120,6 +120,30 @@ pub fn checkout(
     Ok(())
 }
 
+/// Check out `name`, resetting it to `start` when it already exists.
+///
+/// `git switch -C` creates the branch if needed, otherwise moves its tip to
+/// `start`. Uncommitted changes are carried over when Git can do so and the
+/// switch fails rather than overwrite them.
+pub fn checkout_reset(
+    runner: &GitRunner,
+    worktree: &Path,
+    name: &str,
+    start: &str,
+) -> Result<(), AppError> {
+    validate_branch_name(runner, worktree, name)?;
+    crate::log::validate_revision(start)?;
+    runner
+        .run(
+            &CommandSpec::new(GitSubcommand::Switch, worktree)
+                .arg("-C")
+                .arg(name)
+                .arg(start),
+        )?
+        .ensure_success()?;
+    Ok(())
+}
+
 /// Rename a local branch.
 pub fn rename(runner: &GitRunner, worktree: &Path, old: &str, new: &str) -> Result<(), AppError> {
     validate_branch_name(runner, worktree, old)?;

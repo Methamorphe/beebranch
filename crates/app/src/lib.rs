@@ -46,6 +46,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::branches::branch_integration_start,
             commands::branches::branch_create,
             commands::branches::branch_checkout,
+            commands::branches::branch_checkout_at,
             commands::branches::branch_rename,
             commands::branches::branch_delete,
             commands::branches::branch_delete_many,

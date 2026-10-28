@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import type { ViewId } from '../data/navigation'
 import {
   branchCheckout,
+  branchCheckoutAt,
   branchCreate,
   branchDelete,
   branchDeleteRemote,
@@ -22,7 +23,7 @@ import {
   type DiffRequest,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
-import { isCheckoutableRef, resolveGraphRef } from '../lib/graphRefs'
+import { isCheckoutableRef, resolveGraphRef, shortRevision } from '../lib/graphRefs'
 import {
   INSPECTOR_MAX,
   INSPECTOR_MIN,
@@ -44,6 +45,7 @@ import { ActionMenu } from './ActionMenu'
 import { ContextMenu } from './ContextMenu'
 import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
+import { ComparisonPanel } from './ComparisonPanel'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
@@ -69,11 +71,6 @@ import { ToolsPanel } from './ToolsPanel'
 import shared from './p1.module.css'
 import styles from './Workbench.module.css'
 
-/** A comparison label reads better with the 8-character form of a SHA. */
-function shortSha(revision: string) {
-  return /^[0-9a-f]{40}$/i.test(revision) ? revision.slice(0, 8) : revision
-}
-
 type Props = {
   repo: RepoView | null
   generation: number
@@ -94,6 +91,12 @@ type Props = {
   onShortcutsChange: (next: import('../lib/shortcuts').ShortcutMap) => void
   layout: LayoutPreferences
   onLayoutChange: (patch: Partial<LayoutPreferences>) => void
+}
+
+/** The two revisions of an A→B comparison, as git revspecs. */
+type Comparison = {
+  base: string
+  target: string
 }
 
 type ContextMenuState = {
@@ -120,17 +123,26 @@ type PendingIntegration = {
   source: RefEntry
   target: RefEntry
   mode: 'merge' | 'rebase'
+  noFf: boolean
   preview: BranchIntegrationPreview
 }
 
 function integrationConsequence(pending: PendingIntegration | null) {
   if (!pending) return ''
-  const { source, target, mode, preview } = pending
+  const { source, target, mode, noFf, preview } = pending
   const parts = [
     `${preview.ahead} commit(s) de ${source.name} à intégrer`,
     `${preview.behind} commit(s) de retard`,
   ]
-  if (preview.fastForward) parts.push('fast-forward possible')
+  if (preview.fastForward) {
+    parts.push(
+      noFf
+        ? 'commit de fusion créé au lieu d’un fast-forward'
+        : 'fast-forward, aucun commit de fusion',
+    )
+  } else if (mode === 'merge') {
+    parts.push('commit de fusion créé')
+  }
   if (preview.requiresCheckout) parts.push(`${target.name} sera extraite pendant l'opération`)
   if (preview.stashRequired) {
     parts.push('modifications locales stashées puis restaurées après la fusion')
@@ -205,6 +217,11 @@ export function Workbench({
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [multiSelect, setMultiSelect] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
+  // A→B comparison shown in the history inspector, without leaving the graph.
+  const [comparison, setComparison] = useState<Comparison | null>(null)
+  const [compareReport, setCompareReport] = useState<DiffReport | null>(null)
+  const [compareLoading, setCompareLoading] = useState(false)
+  const [compareError, setCompareError] = useState<string | null>(null)
   const [branchTarget, setBranchTarget] = useState<string | null>(null)
   const [branchName, setBranchName] = useState('')
   const [refMenu, setRefMenu] = useState<RefMenuState | null>(null)
@@ -366,6 +383,77 @@ export function Workbench({
     }
   }, [repoId, activeDiff, generation])
 
+  useEffect(() => {
+    if (!repoId || !comparison) {
+      setCompareReport(null)
+      setCompareLoading(false)
+      setCompareError(null)
+      return
+    }
+    let cancelled = false
+    setCompareReport(null)
+    setCompareLoading(true)
+    setCompareError(null)
+    void diffGet(repoId, {
+      target: 'range',
+      base: comparison.base,
+      targetRef: comparison.target,
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setCompareReport(result.data)
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setCompareError(errorMessage(cause))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCompareLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [repoId, comparison, generation])
+
+  /** Branch or tag name pointing at a revision, else its short form. */
+  const revisionLabel = useCallback(
+    (revision: string) => {
+      if (revision === 'HEAD') return 'HEAD'
+      const entries = refs?.entries ?? []
+      const exact = entries.filter(
+        (entry) => entry.name === revision || entry.fullName === revision,
+      )
+      const atRevision = entries.filter((entry) => entry.targetOid === revision)
+      const pick =
+        exact.find((entry) => entry.kind === 'branch') ??
+        exact.find((entry) => entry.kind === 'remoteBranch') ??
+        atRevision.find((entry) => entry.kind === 'branch' && entry.isHead) ??
+        atRevision.find((entry) => entry.kind === 'branch') ??
+        atRevision.find((entry) => entry.kind === 'tag') ??
+        exact[0] ??
+        atRevision[0]
+      return pick?.name ?? shortRevision(revision)
+    },
+    [refs],
+  )
+
+  /**
+   * Comparing never leaves the history: the pair opens in the inspector next to
+   * the tree, where the changed files and their patch stay readable.
+   */
+  const startComparison = useCallback((base: string, target: string) => {
+    if (!base || !target || base === target) return
+    setComparison({ base, target })
+    setLocalDiff(null)
+    setContextMenu(null)
+    setRefMenu(null)
+    setDropMenu(null)
+  }, [])
+
   const runAction = useCallback(
     async (label: string, action: () => Promise<unknown>) => {
       setActionError(null)
@@ -446,7 +534,7 @@ export function Workbench({
       .catch(() => undefined)
   }
 
-  const requestIntegration = async (mode: 'merge' | 'rebase') => {
+  const requestIntegration = async (mode: 'merge' | 'rebase', noFf = false) => {
     const menu = dropMenu
     if (!menu || !repoId) return
     setDropMenu(null)
@@ -463,7 +551,7 @@ export function Workbench({
         setActionError(preview.blockedReason ?? 'Intégration impossible pour ces branches.')
         return
       }
-      setPendingIntegration({ source: menu.source, target: menu.target, mode, preview })
+      setPendingIntegration({ source: menu.source, target: menu.target, mode, noFf, preview })
     } catch (cause) {
       setActionError(errorMessage(cause))
     }
@@ -480,6 +568,7 @@ export function Workbench({
         source: pending.source.name,
         target: pending.target.name,
         mode: pending.mode,
+        noFf: pending.noFf,
         confirmation: { acknowledged: true },
       })
       setPendingIntegration(null)
@@ -494,7 +583,7 @@ export function Workbench({
       setActionNotice(
         (result.data.outcome.conflicted
           ? `Conflit pendant ${pending.mode === 'merge' ? 'la fusion' : 'le rebase'} : résolvez les fichiers puis poursuivez.`
-          : `${pending.mode === 'merge' ? 'Fusion' : 'Rebase'} de ${pending.source.name} appliqué.`) +
+          : `${pending.mode === 'merge' ? 'Fusion' : 'Rebase'} de ${pending.source.name} appliqué${pending.mode === 'merge' && pending.noFf ? ' (commit de fusion)' : ''}.`) +
           stashNote,
       )
       onMutated()
@@ -686,7 +775,7 @@ export function Workbench({
       : diffRequest.target === 'commit'
         ? `Commit ${diffRequest.base?.slice(0, 8) ?? ''}`
         : diffRequest.target === 'range'
-          ? `${shortSha(diffRequest.base ?? 'HEAD')}…${shortSha(diffRequest.targetRef ?? 'HEAD')}`
+          ? `${shortRevision(diffRequest.base ?? 'HEAD')}…${shortRevision(diffRequest.targetRef ?? 'HEAD')}`
           : diffRequest.target === 'index'
             ? 'Index (préparé)'
             : 'Modifications locales'
@@ -763,10 +852,14 @@ export function Workbench({
       } else {
         const localBranches = refs?.entries.filter((ref) => ref.kind === 'branch') ?? []
         const tracking = localBranches.find((ref) => ref.upstream?.replace(/^refs\/remotes\//, '') === entry.name)
-        if (tracking?.isHead) return
         if (tracking) {
+          if (tracking.isHead && tracking.targetOid === entry.targetOid) return
           activeBranch = tracking.name
-          await branchCheckout({ repoId, name:tracking.name })
+          if (tracking.targetOid === entry.targetOid) {
+            await branchCheckout({ repoId, name:tracking.name })
+          } else {
+            await branchCheckoutAt({ repoId, name:tracking.name, start:entry.fullName })
+          }
         } else {
           const remote = entry.remote ?? entry.name.split('/')[0]!
           const name = entry.name.slice(remote.length + 1)
@@ -828,7 +921,7 @@ export function Workbench({
 
   const worktreeRow = hasChanges ? (
     <button type="button" className={styles.worktreeRow} data-active={showWorktree} aria-pressed={showWorktree}
-            onClick={() => { setSelected(undefined); setLocalDiff(null); setWorktreeSelected((current) => !current) }}>
+            onClick={() => { setSelected(undefined); setComparison(null); setLocalDiff(null); setWorktreeSelected((current) => !current) }}>
             <span className={styles.wipRef}>En cours</span>
             <span className={styles.wipMarker} aria-hidden="true">◌</span>
             <span className={styles.wipMessage}><strong>Modifications locales</strong><span>{repo.state.worktree.staged} préparé(s) · {repo.state.worktree.unstaged} modifié(s) · {repo.state.worktree.untracked} nouveau(x)</span></span>
@@ -867,16 +960,11 @@ export function Workbench({
               <button
                 type="button"
                 className={shared.secondary}
-                title={`Comparer ${shortSha(compareBase!)} et ${shortSha(compareTarget!)} : modifications du premier vers le second`}
-                onClick={() =>
-                  onOpenDiff({
-                    target: 'range',
-                    base: compareBase,
-                    targetRef: compareTarget,
-                  })
-                }
+                aria-pressed={comparison !== null}
+                title={`Comparer ${shortRevision(compareBase!)} et ${shortRevision(compareTarget!)} : modifications du premier vers le second, affichées à droite du graphe`}
+                onClick={() => startComparison(compareBase!, compareTarget!)}
               >
-                Comparer {shortSha(compareBase!)} → {shortSha(compareTarget!)}
+                Comparer {shortRevision(compareBase!)} → {shortRevision(compareTarget!)}
               </button>
             ) : null}
             <button
@@ -972,18 +1060,19 @@ export function Workbench({
               if (modifiers.shift) {
                 // Shift turns the click into a comparison endpoint: the commit
                 // selected (or picked last) becomes A, the clicked commit B, and
-                // the A→B diff opens immediately like in other git clients.
+                // the A→B comparison opens in the inspector of this same view.
                 const anchor = picked.length > 0
                   ? picked[picked.length - 1]!
                   : selected
                 if (anchor && anchor !== sha) {
                   setPicked([anchor, sha])
-                  onOpenDiff({ target: 'range', base: anchor, targetRef: sha })
+                  startComparison(anchor, sha)
                   return
                 }
                 setPicked([sha])
                 return
               }
+              setComparison(null)
               if (multiSelect) {
                 setPicked((current) =>
                   current.includes(sha)
@@ -1020,7 +1109,7 @@ export function Workbench({
         </div>
           </> : null}
         </div>
-        {selected || showWorktree ? (
+        {comparison || selected || showWorktree ? (
           <Resizer
             className={styles.inspectorResizer}
             label="Redimensionner le panneau latéral"
@@ -1032,7 +1121,18 @@ export function Workbench({
             onReset={() => onLayoutChange({ inspector: defaultInspectorWidth() })}
           />
         ) : null}
-        {selected ? <CommitDetailPanel
+        {comparison ? <ComparisonPanel
+          base={comparison.base}
+          target={comparison.target}
+          baseLabel={revisionLabel(comparison.base)}
+          targetLabel={revisionLabel(comparison.target)}
+          report={compareReport}
+          loading={compareLoading}
+          error={compareError}
+          onClose={() => setComparison(null)}
+          onSwap={() => setComparison((current) => current ? { base: current.target, target: current.base } : current)}
+          onFullScreen={() => onOpenDiff({ target: 'range', base: comparison.base, targetRef: comparison.target })}
+        /> : selected ? <CommitDetailPanel
           onClose={() => setSelected(undefined)}
           detail={detail && detail.summary.sha === selected ? detail : null}
           loading={detailLoading && !(detail && detail.summary.sha === selected)}
@@ -1095,7 +1195,7 @@ export function Workbench({
               onClick={() => {
                 const sha = contextMenu.commit.sha
                 closeMenu()
-                onOpenDiff({ target: 'range', base: sha, targetRef: 'HEAD' })
+                startComparison(sha, 'HEAD')
               }}
             >
               <ViewIcon view="status" /><span>Comparer à la branche courante</span>
@@ -1152,7 +1252,7 @@ export function Workbench({
                 type="button"
                 className={styles.contextAction}
                 role="menuitem"
-                title={`Avancer ${dropMenu.target.name} sur ${dropMenu.source.name}`}
+                title={`Avancer ${dropMenu.target.name} sur ${dropMenu.source.name} sans commit de fusion`}
                 onClick={() => void requestIntegration('merge')}
               >
                 <ViewIcon view="sync" /><span>Avancer {dropMenu.target.name} sur {dropMenu.source.name}</span>
@@ -1162,8 +1262,8 @@ export function Workbench({
               type="button"
               className={styles.contextAction}
               role="menuitem"
-              title={`Fusionner ${dropMenu.source.name} dans ${dropMenu.target.name}`}
-              onClick={() => void requestIntegration('merge')}
+              title={`Fusionner ${dropMenu.source.name} dans ${dropMenu.target.name} avec un commit de fusion`}
+              onClick={() => void requestIntegration('merge', true)}
             >
               <ViewIcon view="mrs" /><span>Fusionner {dropMenu.source.name} dans {dropMenu.target.name}</span>
             </button>
@@ -1182,8 +1282,7 @@ export function Workbench({
               role="menuitem"
               onClick={() => {
                 const { source, target } = dropMenu
-                setDropMenu(null)
-                onOpenDiff({ target: 'range', base: source.name, targetRef: target.name })
+                startComparison(source.name, target.name)
               }}
             >
               <ViewIcon view="diff" /><span>Comparer {dropMenu.source.name} et {dropMenu.target.name}</span>
@@ -1321,8 +1420,7 @@ export function Workbench({
               role="menuitem"
               onClick={() => {
                 const name = refMenu.entry.name
-                setRefMenu(null)
-                onOpenDiff({ target: 'range', base: name, targetRef: 'HEAD' })
+                startComparison(name, 'HEAD')
               }}
             >
               <ViewIcon view="diff" /><span>Comparer à HEAD</span>
@@ -1380,7 +1478,7 @@ export function Workbench({
       <ConfirmDialog
         open={pendingMerge !== null}
         title={`Fusionner ${pendingMerge?.name ?? ''}`}
-        consequence={`${pendingMerge?.name ?? 'La branche'} sera fusionnée dans la branche courante. Un conflit laissera l'opération visible dans toute l'application.`}
+        consequence={`${pendingMerge?.name ?? 'La branche'} sera fusionnée dans la branche courante avec un commit de fusion. Un conflit laissera l'opération visible dans toute l'application.`}
         confirmLabel="Fusionner"
         onCancel={() => setPendingMerge(null)}
         onConfirm={() => {
@@ -1388,7 +1486,7 @@ export function Workbench({
           setPendingMerge(null)
           if (repoId && entry) {
             void runAction(`Merge de ${entry.name}.`, () =>
-              historyMerge({ repoId, target: entry.name }),
+              historyMerge({ repoId, target: entry.name, noFf: true }),
             )
           }
         }}

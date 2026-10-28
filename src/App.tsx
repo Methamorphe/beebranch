@@ -1,3 +1,4 @@
+import { listen } from '@tauri-apps/api/event'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
@@ -9,6 +10,7 @@ import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
+import { UpdateNotice } from './components/UpdateNotice'
 import { Workbench } from './components/Workbench'
 import { navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
 import { errorMessage } from './ipc/client'
@@ -30,6 +32,7 @@ import {
   undoApply,
   undoStatus,
   updateCheck,
+  updateInstall,
 } from './ipc/commands'
 import { useRepoEvents } from './hooks/useRepoEvents'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -83,6 +86,10 @@ export default function App() {
   const [view, setView] = useState<ViewId>('graph')
   // Latest version offered by the signed manifest, surfaced in the header.
   const [availableUpdate, setAvailableUpdate] = useState<string | null>(null)
+  const [dismissedUpdate, setDismissedUpdate] = useState<string | null>(null)
+  const [installingUpdate, setInstallingUpdate] = useState(false)
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null)
+  const installingUpdateRef = useRef(false)
   const [worktreeRequest, setWorktreeRequest] = useState(0)
   const [branchRequest, setBranchRequest] = useState(0)
   const [generation, setGeneration] = useState(0)
@@ -283,11 +290,77 @@ export default function App() {
 
   useRepoEvents(activeId, onRepoChanged)
 
+  // Installing from the header (or the notification) needs no detour through
+  // the settings page: the signed package is verified, installed, and the app
+  // relaunches on its own.
+  const installUpdate = useCallback(async () => {
+    if (installingUpdateRef.current) {
+      return
+    }
+    installingUpdateRef.current = true
+    setInstallingUpdate(true)
+    setUpdateProgress(null)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await updateInstall()
+      setAvailableUpdate(null)
+      setNotice(
+        result.restarting
+          ? `Version ${result.installedVersion} installée. Redémarrage…`
+          : `Version ${result.installedVersion} installée.`,
+      )
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      installingUpdateRef.current = false
+      setInstallingUpdate(false)
+      setUpdateProgress(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!installingUpdate) {
+      return
+    }
+    let disposed = false
+    let stop: (() => void) | undefined
+    void listen<{ downloaded: number; total: number | null }>(
+      'update://progress',
+      (event) => {
+        if (disposed) {
+          return
+        }
+        const { downloaded, total } = event.payload
+        setUpdateProgress(
+          total && total > 0
+            ? Math.min(100, Math.round((downloaded / total) * 100))
+            : null,
+        )
+      },
+    )
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten()
+        } else {
+          stop = unlisten
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      disposed = true
+      stop?.()
+    }
+  }, [installingUpdate])
+
   // One quiet check at startup, then when the window regains focus and every
   // six hours: the header offers an update without opening the settings page.
   useEffect(() => {
     let cancelled = false
     const check = async () => {
+      if (installingUpdateRef.current) {
+        return
+      }
       try {
         const next = await updateCheck()
         if (!cancelled) setAvailableUpdate(next?.version ?? null)
@@ -719,9 +792,19 @@ export default function App() {
         onClone={() => setCloneDialogOpen(true)}
         onSettings={() => navigate('profiles')}
         updateVersion={availableUpdate}
-        onOpenUpdates={() => navigate('profiles')}
+        updateBusy={installingUpdate}
+        onInstallUpdate={() => void installUpdate()}
         user={gitlabUser}
       />
+      {availableUpdate && dismissedUpdate !== availableUpdate ? (
+        <UpdateNotice
+          version={availableUpdate}
+          installing={installingUpdate}
+          progress={updateProgress}
+          onInstall={() => void installUpdate()}
+          onDismiss={() => setDismissedUpdate(availableUpdate)}
+        />
+      ) : null}
       <RepoBar
         repo={repo}
         repos={repos}

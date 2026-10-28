@@ -429,6 +429,59 @@ fn checkout_refuses_to_overwrite_local_changes() {
 }
 
 #[test]
+fn checkout_reset_moves_a_behind_branch_and_refuses_overwrites() {
+    let fixture = dirty_fixture();
+    fixture.switch_new("remote-work");
+    let remote = fixture.commit("a.txt", "remote\n", "remote");
+    fixture.switch("main");
+    fixture.branch("feature");
+    fixture.commit("a.txt", "main\n", "main");
+    fixture.run(
+        GitSubcommand::UpdateRef,
+        &["refs/remotes/origin/feature", &remote],
+        &[],
+    );
+    assert_ne!(
+        fixture.rev_parse(&["--verify", "refs/heads/feature"]),
+        remote,
+        "the local branch starts behind the remote tip"
+    );
+
+    fixture.write("a.txt", "dirty\n");
+    let error = branches::checkout_reset(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        "refs/remotes/origin/feature",
+    )
+    .expect_err("dirty checkout reset");
+    assert!(matches!(
+        error.code,
+        "git.dirty_worktree" | "git.exit_unknown"
+    ));
+    assert_eq!(
+        fixture.rev_parse(&["--abbrev-ref", "HEAD"]),
+        "main",
+        "a refused reset leaves HEAD untouched"
+    );
+
+    fixture.run(GitSubcommand::Restore, &["a.txt"], &[]);
+    branches::checkout_reset(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        "refs/remotes/origin/feature",
+    )
+    .expect("clean checkout reset");
+    assert_eq!(fixture.rev_parse(&["--abbrev-ref", "HEAD"]), "feature");
+    assert_eq!(
+        fixture.rev_parse(&["--verify", "refs/heads/feature"]),
+        remote
+    );
+    assert_eq!(file_content(&fixture, "HEAD:a.txt"), "remote\n");
+}
+
+#[test]
 fn merge_conflict_can_be_resolved_and_continued() {
     let fixture = dirty_fixture();
     fixture.switch_new("feature");

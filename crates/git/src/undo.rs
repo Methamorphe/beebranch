@@ -245,6 +245,17 @@ pub enum ReversibleAction {
     Checkout {
         target: HeadTarget,
     },
+    /// Check out `branch` while resetting its tip to `sha`.
+    CheckoutReset {
+        branch: String,
+        sha: String,
+    },
+    /// Move an existing ref from `expected` back to `sha`.
+    UpdateRef {
+        reference: String,
+        expected: String,
+        sha: String,
+    },
     CreateRef {
         reference: String,
         sha: String,
@@ -378,6 +389,59 @@ pub fn apply(
             on_step,
         ),
         ReversibleAction::Checkout { target } => checkout(runner, worktree, target, on_step),
+        ReversibleAction::CheckoutReset { branch, sha } => exec(
+            runner,
+            CommandSpec::new(GitSubcommand::Switch, worktree)
+                .arg("-C")
+                .arg(branch)
+                .arg(sha),
+            "checkout-reset",
+            format!("git switch -C {branch} {sha}"),
+            Some(sha.clone()),
+            on_step,
+        ),
+        ReversibleAction::UpdateRef {
+            reference,
+            expected,
+            sha,
+        } => {
+            let current = rev_parse(runner, worktree, reference).map_err(|_| {
+                failure(
+                    "update-ref",
+                    format!("git update-ref {reference} {sha}"),
+                    Some(sha.clone()),
+                    AppError::new(
+                        "undo.precondition",
+                        ErrorCategory::GitState,
+                        "La référence n'existe plus.",
+                    )
+                    .with_detail(reference.clone()),
+                )
+            })?;
+            if &current != expected {
+                return Err(failure(
+                    "update-ref",
+                    format!("git update-ref {reference} {sha}"),
+                    Some(sha.clone()),
+                    AppError::new(
+                        "undo.precondition",
+                        ErrorCategory::GitState,
+                        "La référence ne pointe plus au commit attendu.",
+                    )
+                    .with_detail(format!("attendu {expected}, actuel {current}")),
+                ));
+            }
+            exec(
+                runner,
+                CommandSpec::new(GitSubcommand::UpdateRef, worktree)
+                    .arg(reference)
+                    .arg(sha),
+                "update-ref",
+                format!("git update-ref {reference} {sha}"),
+                Some(sha.clone()),
+                on_step,
+            )
+        }
         ReversibleAction::CreateRef {
             reference,
             sha,

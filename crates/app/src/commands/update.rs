@@ -144,6 +144,19 @@ fn updater_error(error: tauri_plugin_updater::Error) -> AppError {
     )
 }
 
+/// `download_and_install` reports the length of each received chunk, not the
+/// running total: accumulate it so the UI can show a truthful percentage.
+fn progress_emitter(app: AppHandle) -> impl FnMut(usize, Option<u64>) {
+    let mut downloaded = 0_u64;
+    move |chunk, total| {
+        downloaded += chunk as u64;
+        let _ = app.emit(
+            "update://progress",
+            serde_json::json!({ "downloaded": downloaded, "total": total }),
+        );
+    }
+}
+
 fn ensure_confirmed(confirmation: &Confirmation) -> Result<(), AppError> {
     if confirmation.acknowledged {
         Ok(())
@@ -211,17 +224,8 @@ pub async fn update_install(
         })?;
     let current_version = update.current_version.clone();
     let installed_version = update.version.clone();
-    let handle = app.clone();
     update
-        .download_and_install(
-            move |chunk, total| {
-                let _ = handle.emit(
-                    "update://progress",
-                    serde_json::json!({ "downloaded": chunk, "total": total }),
-                );
-            },
-            || {},
-        )
+        .download_and_install(progress_emitter(app.clone()), || {})
         .await
         .map_err(updater_error)?;
     schedule_restart(&app);
@@ -259,17 +263,8 @@ pub async fn update_rollback(
         })?;
     let current_version = update.current_version.clone();
     let installed_version = update.version.clone();
-    let handle = app.clone();
     update
-        .download_and_install(
-            move |chunk, total| {
-                let _ = handle.emit(
-                    "update://progress",
-                    serde_json::json!({ "downloaded": chunk, "total": total }),
-                );
-            },
-            || {},
-        )
+        .download_and_install(progress_emitter(app.clone()), || {})
         .await
         .map_err(updater_error)?;
     schedule_restart(&app);

@@ -38,6 +38,53 @@ fn ref_sha(fingerprint: &Fingerprint, reference: &str) -> Option<String> {
         .cloned()
 }
 
+/// Inverse plan for a checkout that moves a branch tip.
+///
+/// The branch keeps its upstream when it already existed. A branch created by
+/// the same switch is deleted again, and a branch that was checked out returns
+/// to its previous tip with `git switch -C`.
+fn checkout_reset_inverse(
+    name: &str,
+    reference: &str,
+    before: &Fingerprint,
+    after: &Fingerprint,
+) -> (ReversibleAction, ReversibleAction) {
+    let previous = ref_sha(before, reference);
+    let current = ref_sha(after, reference);
+    let undo = match (previous.as_deref(), current.as_deref()) {
+        (Some(previous), Some(_)) if before.head_branch.as_deref() == Some(name) => {
+            ReversibleAction::CheckoutReset {
+                branch: name.to_owned(),
+                sha: previous.to_owned(),
+            }
+        }
+        (Some(previous), Some(current)) => sequence(vec![
+            checkout_inverse(before),
+            ReversibleAction::UpdateRef {
+                reference: reference.to_owned(),
+                expected: current.to_owned(),
+                sha: previous.to_owned(),
+            },
+        ]),
+        (None, Some(current)) => sequence(vec![
+            checkout_inverse(before),
+            ReversibleAction::DeleteRef {
+                reference: reference.to_owned(),
+                expected: current.to_owned(),
+            },
+        ]),
+        _ => checkout_inverse(before),
+    };
+    let redo = match current {
+        Some(sha) => ReversibleAction::CheckoutReset {
+            branch: name.to_owned(),
+            sha,
+        },
+        None => checkout_inverse(after),
+    };
+    (undo, redo)
+}
+
 /// Inverse plan for a branch integration.
 ///
 /// The merge itself is undone by aborting it or by restoring the captured
@@ -141,6 +188,9 @@ pub struct IntegrationStartRequest {
     pub source: String,
     pub target: String,
     pub mode: IntegrationMode,
+    /// Create a merge commit even when a fast-forward is possible.
+    #[serde(default)]
+    pub no_ff: bool,
     #[serde(default)]
     pub confirmation: Confirmation,
 }
@@ -174,7 +224,14 @@ pub async fn branch_integration_start(
         },
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
-            let result = integration::start(runner, worktree, &source, &target, request.mode)?;
+            let result = integration::start(
+                runner,
+                worktree,
+                &source,
+                &target,
+                request.mode,
+                request.no_ff,
+            )?;
             let builder_label = label.clone();
             let target = target.clone();
             let operation = result.outcome.state.operation.clone();
@@ -216,6 +273,14 @@ pub struct CheckoutRequest {
     pub repo_id: String,
     pub name: Option<String>,
     pub detached_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutAtRequest {
+    pub repo_id: String,
+    pub name: String,
+    pub start: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -368,6 +433,57 @@ pub async fn branch_checkout(
                 label,
                 undo: checkout_inverse(before),
                 redo: Some(checkout_inverse(after)),
+            });
+            Ok((
+                (),
+                vec![
+                    InvalidationArea::Refs,
+                    InvalidationArea::Head,
+                    InvalidationArea::Worktree,
+                    InvalidationArea::Index,
+                    InvalidationArea::State,
+                ],
+                builder,
+            ))
+        },
+    )
+    .await
+}
+
+/// Check out `name`, moving its tip to `start` (for example a remote-tracking
+/// branch tip). An existing branch keeps its upstream.
+#[tauri::command]
+pub async fn branch_checkout_at(
+    state: State<'_, AppState>,
+    request: CheckoutAtRequest,
+) -> Result<MutationResult<()>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    let store = state.store.clone();
+    let reference = format!("refs/heads/{}", request.name);
+    let name = request.name.clone();
+    let start = request.start.clone();
+    run_undoable_mutation(
+        session,
+        store,
+        UndoMeta {
+            kind: "branch.checkout-at",
+            label: format!("checkout de {name} sur {start}"),
+            touched_refs: vec![reference.clone()],
+            affected_files: Vec::new(),
+        },
+        move |runner, discovery| {
+            let worktree = discovery.worktree()?;
+            branches::checkout_reset(runner, worktree, &name, &start)?;
+            let label = format!("checkout de {name} sur {start}");
+            let reference = reference.clone();
+            let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
+                let (undo, redo) = checkout_reset_inverse(&name, &reference, before, after);
+                UndoDraft {
+                    kind: "branch.checkout-at".to_owned(),
+                    label,
+                    undo,
+                    redo: Some(redo),
+                }
             });
             Ok((
                 (),
@@ -792,6 +908,7 @@ mod tests {
             "feature",
             "main",
             IntegrationMode::Merge,
+            false,
         )
         .expect("integration");
         assert!(dir.path().join("b.txt").exists());
@@ -824,5 +941,101 @@ mod tests {
         assert_eq!(restored.head_sha, before.head_sha);
         assert_eq!(restored.status_hash, before.status_hash);
         assert_eq!(restored.index_tree, before.index_tree);
+    }
+
+    fn rev_parse(dir: &Path, runner: &GitRunner, reference: &str) -> String {
+        let outcome = runner
+            .run(
+                &CommandSpec::new(GitSubcommand::RevParse, dir)
+                    .arg("--verify")
+                    .arg(reference),
+            )
+            .expect("rev-parse");
+        assert!(outcome.success(), "rev-parse {reference}");
+        outcome.stdout.text_lossy().trim().to_owned()
+    }
+
+    fn current_branch(dir: &Path, runner: &GitRunner) -> String {
+        let outcome = runner
+            .run(
+                &CommandSpec::new(GitSubcommand::RevParse, dir)
+                    .arg("--abbrev-ref")
+                    .arg("HEAD"),
+            )
+            .expect("rev-parse");
+        assert!(outcome.success(), "rev-parse --abbrev-ref HEAD");
+        outcome.stdout.text_lossy().trim().to_owned()
+    }
+
+    #[test]
+    fn checkout_reset_moves_the_tracking_branch_and_is_reversible() {
+        let dir = tempfile::tempdir().expect("dir");
+        let runner = GitRunner::detect().expect("git");
+        repository(dir.path(), &runner);
+        let discovery = discover(&runner, dir.path()).expect("discover");
+        let reference = "refs/heads/feature";
+        let feature_sha = rev_parse(dir.path(), &runner, reference);
+        let main_sha = rev_parse(dir.path(), &runner, "refs/heads/main");
+        git(
+            &runner,
+            dir.path(),
+            GitSubcommand::UpdateRef,
+            &["refs/remotes/origin/feature", &main_sha],
+            &[],
+        );
+
+        let touched = [reference.to_owned()];
+        let before = undo::capture(&runner, &discovery, &touched, &[]).expect("capture");
+        branches::checkout_reset(
+            &runner,
+            dir.path(),
+            "feature",
+            "refs/remotes/origin/feature",
+        )
+        .expect("checkout reset");
+        assert_eq!(current_branch(dir.path(), &runner), "feature");
+        assert_eq!(rev_parse(dir.path(), &runner, reference), main_sha);
+        let after = undo::capture(&runner, &discovery, &touched, &[]).expect("capture");
+
+        let (inverse, redo) = checkout_reset_inverse("feature", reference, &before, &after);
+        undo::apply(&runner, &discovery, &inverse, &mut |_| Ok(())).expect("undo");
+        assert_eq!(current_branch(dir.path(), &runner), "main");
+        assert_eq!(rev_parse(dir.path(), &runner, reference), feature_sha);
+        assert_eq!(rev_parse(dir.path(), &runner, "HEAD"), main_sha);
+
+        undo::apply(&runner, &discovery, &redo, &mut |_| Ok(())).expect("redo");
+        assert_eq!(current_branch(dir.path(), &runner), "feature");
+        assert_eq!(rev_parse(dir.path(), &runner, reference), main_sha);
+
+        // Now the moved branch is the current one: undo must reset it back and
+        // restore the working tree in the same step.
+        let before = undo::capture(&runner, &discovery, &touched, &[]).expect("capture");
+        git(
+            &runner,
+            dir.path(),
+            GitSubcommand::UpdateRef,
+            &["refs/remotes/origin/feature", &feature_sha],
+            &[],
+        );
+        branches::checkout_reset(
+            &runner,
+            dir.path(),
+            "feature",
+            "refs/remotes/origin/feature",
+        )
+        .expect("checkout reset");
+        assert_eq!(rev_parse(dir.path(), &runner, reference), feature_sha);
+        assert!(dir.path().join("b.txt").exists());
+        let after = undo::capture(&runner, &discovery, &touched, &[]).expect("capture");
+
+        let (inverse, redo) = checkout_reset_inverse("feature", reference, &before, &after);
+        undo::apply(&runner, &discovery, &inverse, &mut |_| Ok(())).expect("undo");
+        assert_eq!(current_branch(dir.path(), &runner), "feature");
+        assert_eq!(rev_parse(dir.path(), &runner, reference), main_sha);
+        assert!(!dir.path().join("b.txt").exists());
+
+        undo::apply(&runner, &discovery, &redo, &mut |_| Ok(())).expect("redo");
+        assert_eq!(rev_parse(dir.path(), &runner, reference), feature_sha);
+        assert!(dir.path().join("b.txt").exists());
     }
 }
