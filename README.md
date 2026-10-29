@@ -199,5 +199,7 @@ BeeBranch est distribué sous **GNU Affero General Public License v3.0**
 (`AGPL-3.0-only`, voir [LICENSE](LICENSE)). Toute version modifiée distribuée ou
 exposée comme service doit publier son code source correspondant.
 
+Copyright © 2026 Methamorphe.
+
 Les marques, le logo et les assets visuels BeeBranch ne sont pas couverts par la
 licence du code : leur réutilisation doit être demandée aux mainteneurs.

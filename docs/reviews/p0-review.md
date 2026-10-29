@@ -118,7 +118,7 @@ documenté ci-dessus ; il sera réévalué avec une mesure ciblée.
 
 ### SP-05 GitLab — validé en live et en mock
 
-Instance réelle `https://gitlab.beelan.fr/` (19.2.9, certificat public) :
+Instance réelle self-hosted (anonymisée, 19.2.9, certificat public) :
 `GET /user` → identité, 90 projets paginés, cache ETag (`304`), token
 `[REDACTED]`, 401 → `auth.failed`, SQLite et diagnostics sans token, keychain
 macOS réel. Détail : [p0-gitlab-live.md](p0-gitlab-live.md).

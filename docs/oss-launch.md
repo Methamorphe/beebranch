@@ -11,9 +11,9 @@ licence, de gouvernance, de CI et d'historique sont déjà en place.
 - [ ] Vérifier que `src-tauri/keys/` et `.env` restent locaux (ignorés).
 - [ ] Vérifier que l'historique ne contient plus l'adresse professionnelle :
       `git log --all --format='%ae%n%ce' | sort -u`.
-- [ ] Confirmer le titulaire du copyright (LICENSE : `Methamorphe`) et la
-      licence AGPL-3.0-only auprès de l'employeur si le code a été produit dans
-      un cadre salarié.
+- [ ] Confirmer le titulaire du copyright déclaré dans le README et
+      `src-tauri/tauri.conf.json` (`Beecoming`) et la licence AGPL-3.0-only
+      auprès de l'employeur si le code a été produit dans un cadre salarié.
 - [ ] Vérifier les marques et assets : le logo et la palette ne sont pas
       couverts par la licence du code (voir README).
 

@@ -12,7 +12,7 @@
       1. checks HEAD is the release tag and the tree is clean;
       2. checks the version agrees across tauri.conf.json, package.json,
          Cargo.toml and the tag;
-      3. builds the NSIS bundle with the mirror update endpoint baked in and
+      3. builds the NSIS bundle with the release update endpoint baked in and
          the minisign key from src-tauri/keys;
       4. verifies the updater signature against the pubkey embedded in
          tauri.conf.json, which is the one installed clients trust;
@@ -20,8 +20,8 @@
          uninstalls it;
       6. rebuilds latest.json from the manifest currently published plus the
          new windows-x86_64 fragment, so the darwin/linux entries survive;
-      7. uploads the artifacts, then the manifest, to the public mirror, and
-         checks the published URL and size.
+      7. uploads the artifacts, then the manifest, to the release repository,
+         and checks the published URL and size.
 
     rollback.json is never touched: it keeps pointing at the previous signed
     version.
@@ -34,7 +34,7 @@
 
 .PARAMETER Tag
     Release tag, defaults to v<Version>. HEAD must be that commit and the
-    release must already exist on the mirror.
+    release must already exist in -Repo.
 
 .PARAMETER Repo
     Repository that hosts the releases, defaults to Methamorphe/beebranch.
@@ -416,7 +416,7 @@ Note "platforms publiees : $($platforms -join ', ')"
 Note 'rollback.json inchange'
 
 # --- 7. publication --------------------------------------------------------
-Step 'Publication sur le mirror'
+Step 'Publication sur le depot de release'
 
 $assets = @($bundle.Assets)
 foreach ($asset in $assets) { Note "asset : $(Split-Path -Leaf $asset)" }
