@@ -31,7 +31,13 @@ fn creates_a_new_directory_on_the_requested_branch() {
         )
         .expect("open initialized repository");
     assert!(created_session);
-    assert_eq!(session.worktree(), created);
+    assert_eq!(
+        session
+            .worktree()
+            .canonicalize()
+            .expect("canonical session worktree"),
+        created
+    );
 }
 
 #[test]
