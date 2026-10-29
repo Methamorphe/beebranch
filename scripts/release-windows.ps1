@@ -146,12 +146,32 @@ function Get-BundleArtifacts {
   Assert (Test-Path -LiteralPath $nsisDir) "bundle NSIS absent : $nsisDir (lancer sans -SkipBuild)"
 
   $installer = Get-ChildItem -LiteralPath $nsisDir -Filter '*setup.exe' -File | Select-Object -First 1
-  $updater = Get-ChildItem -LiteralPath $nsisDir -File |
+  Assert ($null -ne $installer) "aucun installateur *setup.exe dans $nsisDir"
+
+  # Updater artifact layout depends on `bundle.createUpdaterArtifacts`:
+  #   true           -> the NSIS installer itself, signed as `<installer>.sig`
+  #   "v1Compatible" -> an extra `<installer>.nsis.zip` archive, signed as .zip.sig
+  # BeeBranch uses `true`, so the installer IS the updater artifact; the .zip
+  # is still accepted so an older checkout keeps working.
+  $updater = $installer
+  $legacy = Get-ChildItem -LiteralPath $nsisDir -File |
     Where-Object { $_.Name -like '*.nsis.zip' } |
     Select-Object -First 1
-  Assert ($null -ne $installer) "aucun installateur *setup.exe dans $nsisDir"
-  Assert ($null -ne $updater) "aucun artefact d'update *.nsis.zip dans $nsisDir"
-  Assert (Test-Path -LiteralPath "$($updater.FullName).sig") "signature manquante : $($updater.Name).sig"
+  if ($null -ne $legacy) { $updater = $legacy }
+
+  $signature = "$($updater.FullName).sig"
+  if (-not (Test-Path -LiteralPath $signature)) {
+    $produced = @(Get-ChildItem -LiteralPath $nsisDir -File | Select-Object -ExpandProperty Name) -join ', '
+    # Single-quoted here-string on purpose: it must never expand a secret.
+    $hint = @'
+Tauri ne signe l'artefact d'update que si TAURI_SIGNING_PRIVATE_KEY est
+defini au moment du build. Verifier dans la meme session PowerShell :
+  $env:TAURI_SIGNING_PRIVATE_KEY.Length
+  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+puis relancer sans -SkipBuild.
+'@
+    throw "signature d'update manquante : $(Split-Path -Leaf $signature)`ncontenu de ${nsisDir} : $produced`n`n$hint"
+  }
   Assert ($installer.Name -like "*_${Version}_*") "l'installateur ne porte pas la version ${Version} : $($installer.Name)"
 
   [pscustomobject]@{ Directory = $nsisDir; Installer = $installer; Updater = $updater }

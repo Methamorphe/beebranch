@@ -2,7 +2,8 @@
 // clients actually trust: the pubkey embedded in `tauri.conf.json`.
 //
 // Usage:
-//   node scripts/verify-update-signature.mjs target/release/bundle/**/*.nsis.zip
+//   node scripts/verify-update-signature.mjs target/release/bundle/**/*-setup.exe
+//   node scripts/verify-update-signature.mjs target/release/bundle/**/*.app.tar.gz
 //
 // An artifact signed with another key is rejected at install time with
 // `update.signature_invalid`, and a signature copied from another file is

@@ -66,7 +66,11 @@ function platformOf(file) {
   if (!architecture) return null
   if (name.endsWith('.app.tar.gz')) return `darwin-${architecture}`
   if (name.endsWith('.appimage.tar.gz')) return `linux-${architecture}`
-  if (name.endsWith('.msi.zip') || name.endsWith('.nsis.zip')) {
+  // Tauri v2 reuses the NSIS installer as the updater artifact; the .zip
+  // layout only exists with `createUpdaterArtifacts: "v1Compatible"`.
+  // MSI is ignored on purpose: BeeBranch updates through the NSIS installer,
+  // and two updater artifacts for one platform would fight over the entry.
+  if (name.endsWith('.nsis.zip') || name.endsWith('-setup.exe')) {
     return `windows-${architecture === 'aarch64' ? 'aarch64' : 'x86_64'}`
   }
   return null
@@ -84,7 +88,8 @@ for (const signatureFile of files.filter((file) => file.endsWith('.sig'))) {
     lower.endsWith('.app.tar.gz') ||
     lower.endsWith('.appimage.tar.gz') ||
     lower.endsWith('.msi.zip') ||
-    lower.endsWith('.nsis.zip')
+    lower.endsWith('.nsis.zip') ||
+    lower.endsWith('-setup.exe')
   if (!updaterArtifact) {
     continue
   }

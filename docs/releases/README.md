@@ -130,6 +130,14 @@ C++), `gh` authentifié avec un droit d'écriture sur `beebranch-releases`, et
 `src-tauri/keys/release.key` + `release.key.password` copiés hors git — à
 supprimer de la machine après usage.
 
+Artefact d'update Windows : `bundle.createUpdaterArtifacts` vaut `true` en
+configuration v2, donc l'installateur NSIS **est** l'artefact d'update et sa
+signature s'appelle `BeeBranch_<version>_x64-setup.exe.sig` — il n'y a pas de
+`*.nsis.zip` (ce `*.zip` n'existe qu'avec `"v1Compatible"`). Le manifeste
+`windows-x86_64` pointe donc sur le `.exe` lui-même. Si la signature manque,
+c'est que `TAURI_SIGNING_PRIVATE_KEY` n'était pas défini pendant le build :
+relancer sans `-SkipBuild` dans la même session PowerShell.
+
 ```powershell
 git clone git@github.com:Methamorphe/beebranch.git C:\src\beebranch
 cd C:\src\beebranch
