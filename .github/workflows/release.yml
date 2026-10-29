@@ -231,8 +231,11 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "installer failed: $($process.ExitCode)" }
           $binary = Get-ChildItem $target -Recurse -Filter "BeeBranch.exe" | Select-Object -First 1
           if (-not $binary) { throw "installed binary missing" }
-          & $binary.FullName --version
-          if ($LASTEXITCODE -ne 0) { throw "installed binary did not start" }
+          # PowerShell does not wait for a GUI-subsystem executable invoked
+          # with &, so $LASTEXITCODE would be stale. Start-Process -Wait gives
+          # the real exit code of the installed bundle.
+          $run = Start-Process -FilePath $binary.FullName -ArgumentList "--version" -Wait -PassThru
+          if ($run.ExitCode -ne 0) { throw "installed binary did not start: $($run.ExitCode)" }
 
       - name: Verify Linux packages
         if: matrix.platform == 'linux'

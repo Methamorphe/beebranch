@@ -86,6 +86,7 @@ for (const signatureFile of files.filter((file) => file.endsWith('.sig'))) {
   const lower = basename(artifact).toLowerCase()
   const updaterArtifact =
     lower.endsWith('.app.tar.gz') ||
+    lower.endsWith('.appimage') ||
     lower.endsWith('.appimage.tar.gz') ||
     lower.endsWith('.msi.zip') ||
     lower.endsWith('.nsis.zip') ||
