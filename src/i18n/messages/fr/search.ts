@@ -48,6 +48,11 @@ const messages = {
   'search.nextPage': 'Page suivante',
 
   'search.emptyBody': 'Essayez un autre terme ou élargissez les filtres de recherche.',
+  'search.save': 'Enregistrer',
+  'search.saveHint': 'Enregistre cette recherche pour ce dépôt.',
+  'search.savedLabel': 'Recherches enregistrées',
+  'search.savedAria': 'Recherches enregistrées',
+  'search.savedRemove': 'Supprimer la recherche {label}',
   'search.intro':
     'Choisissez le type de recherche, saisissez un terme puis lancez la recherche. Vous pouvez annuler une recherche en cours.',
   'search.runningTitle': 'Recherche en cours…',

@@ -507,6 +507,42 @@
   .footer, .resolveHeader, .sideHeader { flex-wrap: wrap; }
 }
 
+/* Keep conflict editing and operation controls inside the history tool dock. */
+.conflictsScreen .threeColumns {
+  display: grid;
+  grid-template-columns: clamp(120px, 20%, 200px) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.conflictsScreen .fileList {
+  max-height: none;
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+}
+
+.conflictsScreen .conflictGrid {
+  flex: 1;
+  flex-shrink: 1;
+  min-height: 0;
+  grid-template-rows: minmax(60px, 1fr) minmax(150px, 1.2fr);
+}
+
+.conflictsScreen .footer,
+.conflictsScreen .resolveHeader {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.conflictsScreen .resolve textarea {
+  min-height: 40px;
+}
+
+.conflictsScreen .empty {
+  min-height: 0;
+}
+
 /* ── Screen scaffold ───────────────────────────────────────────────
    Secondary screens are full-bleed panes: one toolbar, one scrolling
    body, an optional inspector. No floating cards and no repeated page

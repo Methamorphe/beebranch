@@ -1,48 +1,47 @@
-# Sécurité
+# Security
 
-## Versions supportées
+## Supported versions
 
-Les correctifs de sécurité sont publiés sur la dernière version stable
-(`vX.Y.Z` de [la dernière release](https://github.com/Methamorphe/beebranch/releases/latest)).
-Les versions antérieures ne reçoivent pas de correctif ; la mise à jour est
-signée et le rollback est disponible dans l'application.
+Security fixes are published on the latest stable version
+(`vX.Y.Z` from [the latest release](https://github.com/Methamorphe/beebranch/releases/latest)).
+Previous versions do not receive fixes; the update is signed and rollback is
+available in the application.
 
-## Signaler une vulnérabilité
+## Reporting a vulnerability
 
-N'ouvrez **pas** d'issue publique pour une vulnérabilité. Utilisez le
-signalement privé de GitHub :
+Do **not** open a public issue for a vulnerability. Use GitHub's private
+reporting:
 
 <https://github.com/Methamorphe/beebranch/security/advisories/new>
 
-Indiquez : version affectée, plateforme, reproduction minimale, impact observé,
-et toute preuve (sortie, capture, journal redacté). Ne joignez jamais de token,
-de clé privée ou de donnée personnelle réelle.
+Include: affected version, platform, minimal reproduction, observed impact,
+and any evidence (output, screenshot, redacted log). Never attach a token, a
+private key or real personal data.
 
-Accusé de réception sous 72 heures ouvrées. Une correction est publiée avec une
-release signée ; le crédit est ajouté à l'avis sauf demande contraire.
+Acknowledgement within 72 business hours. A fix is published with a signed
+release; credit is added to the advisory unless requested otherwise.
 
-## Modèle de menace
+## Threat model
 
-| Actif | Mesure |
+| Asset | Control |
 |---|---|
-| Tokens GitLab/GitHub | Stockés dans le keychain de l'OS (`crates/store`), jamais dans SQLite, le frontend, les logs ou les diagnostics. Les sorties Git et HTTP sont redactées (`crates/core/src/redaction.rs`). |
-| Mises à jour | Artefacts minisign vérifiés par `tauri-plugin-updater` **avant** installation ; clé publique embarquée dans `tauri.conf.json` ; endpoint servi par HTTPS. Un dépôt ou un CDN compromis ne suffit pas à installer un binaire arbitraire. |
-| Transport | TLS vérifié pour GitLab, GitHub et le manifeste de mise à jour ; endpoint non HTTPS refusé hors loopback. |
-| Commandes Git | La CLI `git` est invoquée sans shell, avec des arguments séparés (`crates/git`), pour éviter l'injection de commandes et d'arguments. |
-| Frontend | Aucun secret ni accès réseau direct : le WebView parle uniquement via les commandes Tauri typées (IPC), sous CSP restrictive. |
-| Données | Local-first : aucun envoi de télémétrie, d'analytics ou de contenu de dépôt. L'audit `npm run audit:telemetry` échoue si une référence d'analytics apparaît dans les sources. |
+| GitLab/GitHub tokens | Stored in the OS keychain (`crates/store`), never in SQLite, the frontend, logs or diagnostics. Git and HTTP output is redacted (`crates/core/src/redaction.rs`). |
+| Updates | Minisign artefacts verified by `tauri-plugin-updater` **before** installation; public key embedded in `tauri.conf.json`; endpoint served over HTTPS. A compromised repository or CDN is not enough to install an arbitrary binary. |
+| Transport | Verified TLS for GitLab, GitHub and the update manifest; non-HTTPS endpoint refused outside loopback. |
+| Git commands | The `git` CLI is invoked without a shell, with separate arguments (`crates/git`), to prevent command and argument injection. |
+| Frontend | No secrets and no direct network access: the WebView only talks through typed Tauri commands (IPC), under a restrictive CSP. |
+| Data | Local-first: no telemetry, no analytics and no repository content is sent. The `npm run audit:telemetry` audit fails if an analytics reference appears in the sources. |
 
-## Hors périmètre
+## Out of scope
 
-- Un dépôt local ou un remote déjà compromis par l'utilisateur.
-- L'exécution de hooks Git, de merge tools ou d'éditeurs configurés par
-  l'utilisateur, qui s'exécutent avec ses droits par conception.
-- Les vulnérabilités des dépendances déjà corrigées en amont et signalées par
-  Dependabot sans impact sur BeeBranch.
-- Le binaire signé par les mainteneurs mais récupéré depuis une source non
-  officielle.
+- A local repository or a remote already compromised by the user.
+- The execution of Git hooks, merge tools or editors configured by the user,
+  which run with their rights by design.
+- Dependency vulnerabilities already fixed upstream and reported by Dependabot
+  without impact on BeeBranch.
+- A binary signed by the maintainers but retrieved from an unofficial source.
 
-## Divulgation
+## Disclosure
 
-Les avis sont publiés via GitHub Security Advisories, avec la release corrective
-et, le cas échéant, une note dans [CHANGELOG.md](CHANGELOG.md).
+Advisories are published via GitHub Security Advisories, with the corrective
+release and, where applicable, a note in [CHANGELOG.md](CHANGELOG.md).

@@ -20,7 +20,7 @@ type Props = {
 const sections: { id: string; labelKey: MessageKey; ids: ViewId[]; expandable?: boolean }[] = [
   { id: 'workspace', labelKey: 'nav.group.workspace', ids: ['graph', 'workspaces', 'stash', 'mrs', 'prs', 'search'] },
   { id: 'operations', labelKey: 'nav.group.operations', ids: ['rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync'], expandable: true },
-  { id: 'system', labelKey: 'nav.group.system', ids: ['profiles', 'gitlab', 'github', 'tools', 'recovery'], expandable: true },
+  { id: 'system', labelKey: 'nav.group.system', ids: ['profiles', 'gitlab', 'github', 'tools', 'activity', 'recovery'], expandable: true },
 ]
 
 export function Sidebar(props: Props) {

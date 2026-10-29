@@ -12,6 +12,7 @@ import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
 import { dateFromSeconds, formatDate, formatNumber, useI18n, type MessageKey } from '../i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Markdown } from './Markdown'
+import { FileEditorDialog } from './FileEditorDialog'
 import shared from './p1.module.css'
 import styles from './DiffViewer.module.css'
 
@@ -277,6 +278,8 @@ type Props = {
   onAmend?: () => void
   /** Present when the caller can resolve files at the diff revision. */
   readDocument?: DocumentReader
+  /** Opens the file history for the visible file. */
+  onShowHistory?: (path: string) => void
 }
 
 const MARKDOWN_PATH = /\.(md|markdown|mdown|mkd|mdx)$/i
@@ -343,9 +346,17 @@ function PathParts({ path }: { path: string }) {
   )
 }
 
-export function DiffViewer({ report, source, commit, staging, embedded = false, onAmend, readDocument }: Props) {
+export function DiffViewer({ report, source, commit, staging, embedded = false, onAmend, readDocument, onShowHistory }: Props) {
   const { t, plural } = useI18n()
   const [mode, setMode] = useState<Mode>('inline')
+  const [wrap, setWrap] = useState(() => {
+    try {
+      return window.localStorage.getItem('ui.diffWrap') === 'true'
+    } catch {
+      return false
+    }
+  })
+  const [contentHeight, setContentHeight] = useState(0)
   const [active, setActive] = useState(0)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(600)
@@ -355,6 +366,8 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
   const [actionNotice, setActionNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [rendered, setRendered] = useState(false)
+  /** Path open in the in-app editor, or `null` when the editor is closed. */
+  const [editingPath, setEditingPath] = useState<string | null>(null)
   const [documentState, setDocumentState] = useState<
     | { kind: 'loading' }
     | { kind: 'ready'; value: FileContent }
@@ -471,6 +484,20 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     Math.ceil((scrollTop + viewportHeight) / LINE_HEIGHT) + OVERSCAN,
   )
   const visible = rows.slice(first, last)
+  /**
+   * Wrapping gives rows a variable height, which the virtualised renderer
+   * cannot place. Large diffs therefore stay virtualised and the toggle says so.
+   */
+  const WRAP_ROW_LIMIT = 600
+  const wrapAvailable = rows.length <= WRAP_ROW_LIMIT
+  /** Minimap window, in percent of the scrollable content. */
+  const scrollTotal = contentHeight || rows.length * LINE_HEIGHT
+  const minimapTop =
+    scrollTotal > 0 ? Math.min(100, (scrollTop / scrollTotal) * 100) : 0
+  const minimapHeight =
+    scrollTotal > 0
+      ? Math.min(100 - minimapTop, (viewportHeight / scrollTotal) * 100)
+      : 0
   const capped = report.truncated || Boolean(file?.truncated)
 
   const rowLineIndices = (row: Row): number[] => {
@@ -624,6 +651,116 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     }
   }
 
+  /**
+   * One rendered diff row.
+   *
+   * `fixed` keeps the virtualised line height; the word-wrap path lets the row
+   * grow and therefore renders without the absolute translate.
+   */
+  const renderRow = (row: Row, absolute: number, fixed: boolean) => {
+    const rowStyle = fixed ? { height: LINE_HEIGHT } : undefined
+    if (row.kind === 'hunk') {
+      return (
+        <div key={absolute} className={styles.hunk} style={rowStyle}>
+          {staging ? (
+            <label className={shared.checkbox}>
+              <input
+                type="checkbox"
+                checked={hunkSelection.includes(row.hunk)}
+                onChange={() => toggleHunk(row.hunk)}
+                aria-label={t('diff.hunk.select', { number: row.hunk + 1 })}
+              />
+            </label>
+          ) : null}
+          {row.header}
+        </div>
+      )
+    }
+    return (
+      <div
+        key={absolute}
+        className={styles.lineRow}
+        data-split={mode === 'split' ? 'true' : undefined}
+        style={rowStyle}
+      >
+        {staging && row.tone !== 'context' ? (
+          <label className={shared.checkbox}>
+            <input
+              type="checkbox"
+              checked={isLineSelected(row)}
+              onChange={() => toggleLine(row)}
+              aria-label={t('diff.line.select')}
+            />
+          </label>
+        ) : null}
+        {mode === 'split' ? (() => {
+          const words =
+            row.tone === 'mixed' && row.left && row.right
+              ? wordDiff(row.left.content, row.right.content)
+              : null
+          return (
+            <>
+              <span
+                className={`${styles.line} ${styles.splitLine} ${row.left ? TONE_CLASS(row.tone) : styles.emptyLine}`}
+              >
+                <span className={styles.number}>{row.left?.oldLineno ?? ''}</span>
+                <span className={styles.code} title={row.left?.content}>
+                  {row.left
+                    ? words
+                      ? <>{highlight(words.prefix, file.oldPath)}<span className={styles.word} data-diff-emphasis="word">{highlight(words.left, file.oldPath)}</span>{highlight(words.suffix, file.oldPath)}</>
+                      : highlight(row.left.content, file.oldPath)
+                    : ''}
+                </span>
+              </span>
+              <span
+                className={`${styles.line} ${styles.splitLine} ${row.right ? TONE_CLASS(row.tone) : styles.emptyLine}`}
+              >
+                <span className={styles.number}>{row.right?.newLineno ?? ''}</span>
+                <span className={styles.code} title={row.right?.content}>
+                  {row.right
+                    ? words
+                      ? <>{highlight(words.prefix, file.newPath)}<span className={styles.word} data-diff-emphasis="word">{highlight(words.right, file.newPath)}</span>{highlight(words.suffix, file.newPath)}</>
+                      : highlight(row.right.content, file.newPath)
+                    : ''}
+                </span>
+              </span>
+            </>
+          )
+        })() : (
+          <span className={`${styles.line} ${styles.inlineLine} ${TONE_CLASS(row.tone)}`}>
+            <span className={styles.numbers}>
+              <span className={styles.number}>{row.left?.oldLineno ?? ''}</span>
+              <span className={styles.number}>{row.right?.newLineno ?? ''}</span>
+            </span>
+            <span className={styles.sign}>
+              {row.tone === 'added' ? '+' : row.tone === 'removed' ? '−' : ' '}
+            </span>
+            <span className={styles.code}>
+              {(() => {
+                const words = row.tone === 'removed' ? row.leftWords : row.rightWords
+                const path = row.tone === 'removed' ? file.oldPath : file.newPath
+                const content = (row.right ?? row.left)?.content ?? ''
+                if (!words) {
+                  return highlight(content, path)
+                }
+                const part = row.tone === 'removed' ? words.left : words.right
+                return (
+                  <>
+                    {highlight(words.prefix, path)}
+                    <span className={styles.word} data-diff-emphasis="word">
+                      {highlight(part, path)}
+                    </span>
+                    {highlight(words.suffix, path)}
+                  </>
+                )
+              })()}
+            </span>
+          </span>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className={`${styles.root} ${embedded && report.files.length === 1 ? styles.singleFile : ''}`}>
       {(!embedded || report.files.length > 1) ? <aside className={styles.files} aria-label={t('diff.files.aria')}>
@@ -707,6 +844,27 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
           </div>
           ) : null}
           <div className={styles.tools}>
+            {onShowHistory && documentPath && documentPath !== '/dev/null' ? (
+              <button
+                type="button"
+                className={styles.mode}
+                title={t('diff.history.openTitle', { path: documentPath })}
+                aria-label={t('diff.history.openAria', { path: documentPath })}
+                onClick={() => onShowHistory(documentPath)}
+              >
+                {t('diff.history.open')}
+              </button>
+            ) : null}
+            {staging && documentPath && documentPath !== '/dev/null' ? (
+              <button
+                type="button"
+                className={styles.mode}
+                title={t('editor.open')}
+                onClick={() => setEditingPath(documentPath)}
+              >
+                {t('editor.open')}
+              </button>
+            ) : null}
             {markdown ? (
               <div className={styles.modes} role="group" aria-label={t('diff.view.aria')}>
                 <button
@@ -755,6 +913,64 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                 <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label={t('diff.hunk.next')} title={t('diff.hunk.next')}>
                   ↓
                 </button>
+                <button
+                  type="button"
+                  className={styles.mode}
+                  aria-pressed={wrap}
+                  disabled={!wrapAvailable}
+                  title={
+                    wrapAvailable
+                      ? t('diff.wrap.title')
+                      : t('diff.wrap.unavailable', { limit: String(WRAP_ROW_LIMIT) })
+                  }
+                  onClick={() => {
+                    const next = !wrap
+                    setWrap(next)
+                    try {
+                      window.localStorage.setItem('ui.diffWrap', next ? 'true' : 'false')
+                    } catch {
+                      // Storage unavailable: the toggle stays session-only.
+                    }
+                    scrollRef.current?.scrollTo({ top: 0 })
+                    setScrollTop(0)
+                  }}
+                >
+                  {t('diff.wrap.label')}
+                </button>
+                {report.files.length > 1 ? (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.mode}
+                      disabled={active === 0}
+                      title={t('diff.file.previous')}
+                      aria-label={t('diff.file.previous')}
+                      onClick={() => {
+                        setActive((current) => Math.max(0, current - 1))
+                        scrollRef.current?.scrollTo({ top: 0 })
+                        setScrollTop(0)
+                      }}
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.mode}
+                      disabled={active >= report.files.length - 1}
+                      title={t('diff.file.next')}
+                      aria-label={t('diff.file.next')}
+                      onClick={() => {
+                        setActive((current) =>
+                          Math.min(report.files.length - 1, current + 1),
+                        )
+                        scrollRef.current?.scrollTo({ top: 0 })
+                        setScrollTop(0)
+                      }}
+                    >
+                      ›
+                    </button>
+                  </>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -860,124 +1076,53 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
         ) : null}
         {actionNotice ? <p className={shared.notice}>{actionNotice}</p> : null}
 
+        <div className={styles.diffPane}>
         <div
           className={styles.scroll}
           ref={scrollRef}
-          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+          onScroll={(event) => {
+            setScrollTop(event.currentTarget.scrollTop)
+            setContentHeight(event.currentTarget.scrollHeight)
+          }}
         >
-          <div style={{ height: rows.length * LINE_HEIGHT }} className={styles.rows}>
-            <div style={{ transform: `translateY(${first * LINE_HEIGHT}px)` }}>
-              {visible.map((row, index) => {
-                const absolute = first + index
-                if (row.kind === 'hunk') {
-                  return (
-                    <div
-                      key={absolute}
-                      className={styles.hunk}
-                      style={{ height: LINE_HEIGHT }}
-                    >
-                      {staging ? (
-                        <label className={shared.checkbox}>
-                          <input
-                            type="checkbox"
-                            checked={hunkSelection.includes(row.hunk)}
-                            onChange={() => toggleHunk(row.hunk)}
-                            aria-label={t('diff.hunk.select', { number: row.hunk + 1 })}
-                          />
-                        </label>
-                      ) : null}
-                      {row.header}
-                    </div>
-                  )
-                }
-                return (
-                  <div
-                    key={absolute}
-                    className={styles.lineRow}
-                    data-split={mode === 'split' ? 'true' : undefined}
-                    style={{ height: LINE_HEIGHT }}
-                  >
-                    {staging && row.tone !== 'context' ? (
-                      <label className={shared.checkbox}>
-                        <input
-                          type="checkbox"
-                          checked={isLineSelected(row)}
-                          onChange={() => toggleLine(row)}
-                          aria-label={t('diff.line.select')}
-                        />
-                      </label>
-                    ) : null}
-                    {mode === 'split' ? (() => {
-                      const words =
-                        row.tone === 'mixed' && row.left && row.right
-                          ? wordDiff(row.left.content, row.right.content)
-                          : null
-                      return (
-                        <>
-                          <span
-                            className={`${styles.line} ${styles.splitLine} ${row.left ? TONE_CLASS(row.tone) : styles.emptyLine}`}
-                          >
-                            <span className={styles.number}>{row.left?.oldLineno ?? ''}</span>
-                            <span className={styles.code} title={row.left?.content}>
-                              {row.left
-                                ? words
-                                  ? <>{highlight(words.prefix, file.oldPath)}<span className={styles.word} data-diff-emphasis="word">{highlight(words.left, file.oldPath)}</span>{highlight(words.suffix, file.oldPath)}</>
-                                  : highlight(row.left.content, file.oldPath)
-                                : ''}
-                            </span>
-                          </span>
-                          <span
-                            className={`${styles.line} ${styles.splitLine} ${row.right ? TONE_CLASS(row.tone) : styles.emptyLine}`}
-                          >
-                            <span className={styles.number}>{row.right?.newLineno ?? ''}</span>
-                            <span className={styles.code} title={row.right?.content}>
-                              {row.right
-                                ? words
-                                  ? <>{highlight(words.prefix, file.newPath)}<span className={styles.word} data-diff-emphasis="word">{highlight(words.right, file.newPath)}</span>{highlight(words.suffix, file.newPath)}</>
-                                  : highlight(row.right.content, file.newPath)
-                                : ''}
-                            </span>
-                          </span>
-                        </>
-                      )
-                    })() : (
-                      <span className={`${styles.line} ${styles.inlineLine} ${TONE_CLASS(row.tone)}`}>
-                        <span className={styles.numbers}>
-                          <span className={styles.number}>{row.left?.oldLineno ?? ''}</span>
-                          <span className={styles.number}>{row.right?.newLineno ?? ''}</span>
-                        </span>
-                        <span className={styles.sign}>
-                          {row.tone === 'added' ? '+' : row.tone === 'removed' ? '−' : ' '}
-                        </span>
-                        <span className={styles.code}>
-                          {(() => {
-                            const words =
-                              row.tone === 'removed' ? row.leftWords : row.rightWords
-                            const path =
-                              row.tone === 'removed' ? file.oldPath : file.newPath
-                            const content = (row.right ?? row.left)?.content ?? ''
-                            if (!words) {
-                              return highlight(content, path)
-                            }
-                            const part = row.tone === 'removed' ? words.left : words.right
-                            return (
-                              <>
-                                {highlight(words.prefix, path)}
-                                <span className={styles.word} data-diff-emphasis="word">
-                                  {highlight(part, path)}
-                                </span>
-                                {highlight(words.suffix, path)}
-                              </>
-                            )
-                          })()}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
+          {wrap && wrapAvailable ? (
+            <div className={`${styles.rows} ${styles.wrapped}`}>
+              {rows.map((row, index) => renderRow(row, index, false))}
             </div>
-          </div>
+          ) : (
+            <div style={{ height: rows.length * LINE_HEIGHT }} className={styles.rows}>
+              <div style={{ transform: `translateY(${first * LINE_HEIGHT}px)` }}>
+                {visible.map((row, index) => renderRow(row, first + index, true))}
+              </div>
+            </div>
+          )}
+        </div>
+          {rows.length > 0 ? (
+            <div
+              className={styles.minimap}
+              aria-hidden="true"
+              title={t('diff.minimap.title')}
+              onMouseDown={(event) => {
+                const total = contentHeight || rows.length * LINE_HEIGHT
+                const box = event.currentTarget.getBoundingClientRect()
+                if (total <= 0 || box.height <= 0) {
+                  return
+                }
+                const ratio = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height))
+                scrollRef.current?.scrollTo({
+                  top: Math.max(0, ratio * total - viewportHeight / 2),
+                })
+              }}
+            >
+              <span
+                className={styles.minimapWindow}
+                style={{
+                  top: `${minimapTop}%`,
+                  height: `${minimapHeight}%`,
+                }}
+              />
+            </div>
+          ) : null}
         </div>
           </>
         )}
@@ -1014,6 +1159,17 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
         onCancel={() => setPendingDiscard(null)}
         onConfirm={() => void confirmDiscard()}
       />
+      {staging ? (
+        <FileEditorDialog
+          repoId={staging.repoId}
+          path={editingPath}
+          onClose={() => setEditingPath(null)}
+          onSaved={() => {
+            staging.onMutated()
+            setRendered(false)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

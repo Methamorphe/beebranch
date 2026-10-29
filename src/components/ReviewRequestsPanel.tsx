@@ -52,6 +52,39 @@ function pipelineChip(state: PipelineState): string {
   }
 }
 
+/**
+ * Aggregate GitHub check runs into a single status: the worst check wins, so a
+ * failing job still turns the badge red. GitHub leaves `headPipeline` empty and
+ * exposes the checks through the pipelines call.
+ */
+function checksStatus(checks: GitlabPipeline[]): string | undefined {
+  if (checks.length === 0) {
+    return undefined
+  }
+  const states = checks.map((check) => pipelineState(check.status))
+  if (states.includes('failed')) {
+    return 'failed'
+  }
+  if (states.includes('canceled')) {
+    return 'canceled'
+  }
+  if (states.includes('running')) {
+    return 'running'
+  }
+  if (states.includes('pending')) {
+    return 'pending'
+  }
+  return states.includes('unknown') ? 'unknown' : 'success'
+}
+
+/**
+ * Stable identity of a review request: search results only carry the
+ * repository name, detail responses only the numeric id.
+ */
+function mrKey(mr: ForgeMergeRequest): string {
+  return `${mr.projectId ?? mr.repositoryName ?? ''}:${mr.iid}`
+}
+
 export function ReviewRequestsPanel({ api, repoId, generation, connected, onCheckout }: Props) {
   const { t } = useI18n()
   const [link, setLink] = useState<RepoLink | null>(null)
@@ -59,7 +92,12 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
   const [items, setItems] = useState<ForgeMergeRequest[]>([])
   const [nextPage, setNextPage] = useState<number | undefined>()
   const [selected, setSelected] = useState<ForgeMergeRequest | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [pipelines, setPipelines] = useState<GitlabPipeline[]>([])
+  // GitHub leaves `headPipeline` empty on list and detail payloads; the check
+  // runs fetched for a request are remembered per repository so its badge stays
+  // stable once visited.
+  const [checksByKey, setChecksByKey] = useState<Record<string, string>>({})
   const [branches, setBranches] = useState<RefEntry[]>([])
   const [currentBranch, setCurrentBranch] = useState('')
   const [source, setSource] = useState('')
@@ -78,6 +116,38 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
   const projectId = link?.projectId
   const noun = t(api.nounKey)
   const forgeTitle = t(api.titleKey)
+
+  // Search results may reference a repository that is not cached yet: they only
+  // carry `repositoryName`, and the active tab project must never stand in for
+  // it. Falling back to the linked project stays valid for GitLab, whose list
+  // items always carry their own `projectId`.
+  const projectIdFor = useCallback(
+    (mr: ForgeMergeRequest) =>
+      mr.projectId ?? (mr.repositoryName ? undefined : projectId),
+    [projectId],
+  )
+
+  const rememberChecks = useCallback(
+    (key: string, checks: GitlabPipeline[]) => {
+      if (api.id !== 'github') {
+        return
+      }
+      const status = checksStatus(checks)
+      setChecksByKey((current) => {
+        if (current[key] === status || (status === undefined && !(key in current))) {
+          return current
+        }
+        const next = { ...current }
+        if (status) {
+          next[key] = status
+        } else {
+          delete next[key]
+        }
+        return next
+      })
+    },
+    [api.id],
+  )
 
   const loadLink = useCallback(async () => {
     if (!repoId) {
@@ -158,7 +228,13 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
 
   // Active refresh: 30 s while visible, paused when the window is hidden.
   useEffect(() => {
-    if (!connected || !selected || !projectId) {
+    if (!connected || !selected) {
+      return
+    }
+    const pid = projectIdFor(selected)
+    if (!pid) {
+      // The repository of a search result is only known once its detail has
+      // been resolved; selecting it again restarts this effect.
       return
     }
     let disposed = false
@@ -167,11 +243,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
         return
       }
       try {
-        const pid = selected.projectId ?? projectId
-        if (!pid) {
-          return
-        }
-        const detail = await api.mrGet(pid, selected.iid)
+        const detail = await api.mrGet(pid, selected.iid, selected.repositoryName)
         if (disposed) {
           return
         }
@@ -179,6 +251,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
         const pipes = await api.pipelines(pid, selected.iid)
         if (!disposed) {
           setPipelines(pipes)
+          rememberChecks(mrKey(detail), pipes)
         }
       } catch {
         // A transient failure keeps the last known state.
@@ -189,7 +262,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
       disposed = true
       window.clearInterval(timer)
     }
-  }, [api, connected, projectId, selected])
+  }, [api, connected, projectIdFor, rememberChecks, selected])
 
   const associate = async () => {
     if (!repoId) {
@@ -214,8 +287,9 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
   const openDetail = async (mr: ForgeMergeRequest) => {
     const token = ++detailRequest.current
     setSelected(mr)
+    setSelectedKey(mrKey(mr))
     setPipelines([])
-    const pid = mr.projectId ?? projectId
+    const pid = projectIdFor(mr)
     if (!pid && !mr.repositoryName) {
       setError(
         t('forge.review.unknownProject', {
@@ -232,10 +306,22 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
         return
       }
       setSelected(detail)
+      setSelectedKey(mrKey(detail))
+      if (detail.projectId !== undefined && detail.projectId !== mr.projectId) {
+        // A search result resolved by repository name now knows its numeric id:
+        // keep the list row and the detail on the same identity.
+        const clicked = mrKey(mr)
+        setItems((current) =>
+          current.map((item) =>
+            mrKey(item) === clicked ? { ...item, projectId: detail.projectId } : item,
+          ),
+        )
+      }
       const resolved = detail.projectId ?? pid
       const pipes = resolved ? await api.pipelines(resolved, mr.iid) : []
       if (token === detailRequest.current) {
         setPipelines(pipes)
+        rememberChecks(mrKey(detail), pipes)
       }
     } catch (cause) {
       if (token === detailRequest.current) {
@@ -288,8 +374,14 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
     [branches],
   )
 
-  const selectedPipeline = selected?.headPipeline
-  const selectedState = pipelineState(selectedPipeline?.status)
+  const detailProjectId = selected ? projectIdFor(selected) : undefined
+  // Both the header and the matching list row read the same source: GitLab
+  // fills `headPipeline`, GitHub only publishes the latest check runs of the
+  // head commit through `pipelines`.
+  const selectedStatus = selected
+    ? (selected.headPipeline?.status ?? checksByKey[mrKey(selected)])
+    : undefined
+  const selectedState = pipelineState(selectedStatus)
   const createDisabled =
     busy ||
     !connected ||
@@ -377,20 +469,22 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
 
           <div className={p2.scroller} role="list">
             {items.map((mr) => {
-              const mrState = pipelineState(mr.headPipeline?.status)
+              const isCurrent = selectedKey !== null && mrKey(mr) === selectedKey
+              const mrStatus = mr.headPipeline?.status ?? checksByKey[mrKey(mr)]
+              const mrState = pipelineState(mrStatus)
               return (
                 <button
-                  key={`${mr.projectId ?? projectId ?? 0}:${mr.iid}`}
+                  key={mrKey(mr)}
                   type="button"
                   role="listitem"
                   className={p2.entry}
-                  aria-current={selected?.iid === mr.iid ? 'true' : undefined}
+                  aria-current={isCurrent ? 'true' : undefined}
                   onClick={() => void openDetail(mr)}
                 >
                   <span
                     className={p2.dot}
                     data-tone={pipelineTone(mrState) || undefined}
-                    title={mr.headPipeline?.status ?? t('forge.review.noCi')}
+                    title={mrStatus ?? t('forge.review.noCi')}
                   />
                   <span className={p2.entryStack}>
                     <span className={p2.entryTitle}>
@@ -412,7 +506,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
                         <span className={`${p2.chip} ${p2.chipWarn}`}>{t('forge.review.conflicts')}</span>
                       ) : null}
                       <span className={`${p2.chip} ${pipelineChip(mrState)}`}>
-                        {mr.headPipeline?.status ?? t('forge.review.withoutCi')}
+                        {mrStatus ?? t('forge.review.withoutCi')}
                       </span>
                       {mr.labels.slice(0, 2).map((label) => (
                         <span key={label} className={p2.chip}>
@@ -422,7 +516,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
                     </span>
                   </span>
                   <span className={p2.meta} aria-hidden="true">
-                    {selected?.iid === mr.iid ? '•' : '→'}
+                    {isCurrent ? '•' : '→'}
                   </span>
                 </button>
               )
@@ -504,7 +598,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
                   <span>·</span>
                   <span className={`${p2.chip} ${pipelineChip(selectedState)}`}>
                     {t('forge.review.ciStatus', {
-                      status: selectedPipeline?.status ?? t('forge.review.ciUnknown'),
+                      status: selectedStatus ?? t('forge.review.ciUnknown'),
                     })}
                   </span>
                   {selected.detailedMergeStatus ?? selected.mergeStatus ? (
@@ -520,13 +614,17 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
                   ) : null}
                 </div>
               </header>
-              <MrDetailExtras
-                api={api}
-                projectId={selected.projectId ?? projectId ?? 0}
-                mr={selected}
-                pipelines={pipelines}
-                onRefresh={() => void openDetail(selected)}
-              />
+              {detailProjectId ? (
+                <MrDetailExtras
+                  api={api}
+                  projectId={detailProjectId}
+                  mr={selected}
+                  pipelines={pipelines}
+                  onRefresh={() => void openDetail(selected)}
+                />
+              ) : (
+                <p className={p2.asideHint}>{t('common.loading')}</p>
+              )}
             </>
           ) : (
             <div className={p2.empty}>

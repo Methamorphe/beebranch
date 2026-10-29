@@ -1,45 +1,45 @@
-# ADR-0004 — GitLab self-hosted via REST v4 et PAT
+# ADR-0004 — Self-hosted GitLab via REST v4 and PAT
 
-- **Statut :** accepté
-- **Date :** 2026-10-27
-- **Étend :** intégration GitLab de la révision 1, désormais obligatoire dès P0/P1
+- **Status:** accepted
+- **Date:** 2026-10-27
+- **Extends:** revision 1 GitLab integration, now required from P0/P1
 
-## Contexte
+## Context
 
-L'entreprise utilise une instance GitLab self-hosted comme plateforme centrale. L'intégration ne peut pas être un ajout tardif : le premier produit utilisable doit permettre de cloner, suivre les MR et voir la CI.
+The enterprise uses a self-hosted GitLab instance as its central platform. Integration cannot be a late addition: the first usable product must support cloning, tracking MRs, and viewing CI.
 
-Contraintes : versions variables, certificats internes, URL avec préfixe, pagination, rate limits, tokens expirés, fonctionnement offline des opérations Git locales.
+Constraints: varying versions, internal certificates, URLs with prefixes, pagination, rate limits, expired tokens, offline operation of local Git operations.
 
-## Décision
+## Decision
 
-1. Client **REST v4** dédié (`/api/v4`), sans SDK générique.
-2. Authentification par **Personal Access Token** (`PRIVATE-TOKEN`), scopes `api` + `read_user`.
-3. Token stocké dans le **keychain OS**, jamais dans le frontend, les logs ou les URLs de remote.
-4. Validation de connexion via `GET /user`.
-5. Endpoints actuels uniquement :
-   - diffs de MR via `/merge_requests/:iid/diffs` ;
-   - pas d'usage de `/merge_requests/:iid/changes` (déprécié depuis GitLab 15.7).
-6. Support d'une **autorité de confiance configurable** pour les certificats internes. La vérification TLS n'est jamais désactivée silencieusement.
-7. Cache local avec ETag/TTL ; toutes les opérations Git locales fonctionnent hors ligne ; les vues GitLab affichent les dernières données connues avec un indicateur de fraîcheur.
-8. Feature detection plutôt que supposition de version/palier : les endpoints indisponibles (approvals Premium, etc.) sont désactivés proprement.
-9. Aucune abstraction `GitProvider` tant qu'un second provider n'est pas réellement requis.
+1. Dedicated **REST v4** client (`/api/v4`), without a generic SDK.
+2. Authentication using a **Personal Access Token** (`PRIVATE-TOKEN`), scopes `api` + `read_user`.
+3. Token stored in the **OS keychain**, never in the frontend, logs, or remote URLs.
+4. Connection validation via `GET /user`.
+5. Current endpoints only:
+   - MR diffs via `/merge_requests/:iid/diffs`;
+   - no use of `/merge_requests/:iid/changes` (deprecated since GitLab 15.7).
+6. Support for a **configurable trust authority** for internal certificates. TLS verification is never silently disabled.
+7. Local cache with ETag/TTL; all local Git operations work offline; GitLab views display the last known data with a freshness indicator.
+8. Feature detection rather than assuming version/tier: unavailable endpoints (Premium approvals, etc.) are cleanly disabled.
+9. No `GitProvider` abstraction until a second provider is actually required.
 
-## Conséquences
+## Consequences
 
-- Le client doit gérer les préfixes d'URL, proxys et CA internes.
-- Les erreurs 401/403/404/409/422/429/5xx ont un mapping explicite.
-- Les mutations GitLab ne sont pas mises en file hors ligne au MVP.
-- La compatibilité est testée contre les trois dernières versions maintenues de GitLab self-managed (pas de canal LTS).
+- The client must handle URL prefixes, proxies, and internal CAs.
+- Errors 401/403/404/409/422/429/5xx have an explicit mapping.
+- GitLab mutations are not queued offline in the MVP.
+- Compatibility is tested against the three latest maintained versions of GitLab self-managed (no LTS channel).
 
-## Alternatives rejetées
+## Rejected alternatives
 
-| Alternative | Raison |
-|---|---|
-| GraphQL | Plus puissant pour le batch, mais surface plus instable et complexité inutile pour le périmètre MVP. |
-| SDK GitLab générique | Dépendance large, comportements opaques, versions imposées. |
-| Token dans le remote HTTPS | Fuite dans `.git/config` et l'historique shell. |
-| Désactivation TLS globale | Risque de sécurité inacceptable. |
+| Alternative | Reason |
+|---|---|---|
+| GraphQL | More powerful for batching, but a less stable surface and unnecessary complexity for the MVP scope. |
+| Generic GitLab SDK | Broad dependency, opaque behavior, imposed versions. |
+| Token in the HTTPS remote | Leak into `.git/config` and shell history. |
+| Global TLS disabling | Unacceptable security risk. |
 
-## Critères de révision
+## Revision criteria
 
-Réexaminer si le nombre d'appels REST devient un goulet mesuré (agrégation multi-projets), ou si GitLab impose une migration d'API. Une bascule GraphQL devrait rester localisée au module `gitlab`.
+Revisit if the number of REST calls becomes a measured bottleneck (multi-project aggregation), or if GitLab requires an API migration. A switch to GraphQL should remain localized to the `gitlab` module.

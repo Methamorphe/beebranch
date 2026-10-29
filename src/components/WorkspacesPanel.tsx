@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { t, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
 import {
+  toolOpen,
   workspaceAddRepo,
   workspaceCreate,
   workspaceDelete,
@@ -12,11 +13,13 @@ import {
   workspaceSync,
 } from '../ipc/commands'
 import type {
+  PullStrategy,
   Workspace,
   WorkspaceRepoStatus,
   WorkspaceSyncResult,
 } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Dialog } from './ui/Dialog'
 import shared from './p1.module.css'
 
 type Props = {
@@ -27,6 +30,36 @@ type Props = {
 }
 
 const REPO_LIMIT = 20
+
+/**
+ * Folder paths of a `.code-workspace` document.
+ *
+ * Anything that is not a valid document yields no path: importing never
+ * guesses, and the caller reports an empty import.
+ */
+function codeWorkspacePaths(raw: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || !('folders' in parsed)) {
+      return []
+    }
+    const folders = parsed.folders
+    if (!Array.isArray(folders)) {
+      return []
+    }
+    return folders
+      .map((folder) => {
+        if (!folder || typeof folder !== 'object' || !('path' in folder)) {
+          return null
+        }
+        const path = folder.path
+        return typeof path === 'string' && path.trim() ? path.trim() : null
+      })
+      .filter((path): path is string => path !== null)
+  } catch {
+    return []
+  }
+}
 
 function headLabel(status: WorkspaceRepoStatus): string {
   const head = status.state?.head
@@ -56,6 +89,11 @@ export function WorkspacesPanel({
   const [busy, setBusy] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(false)
   const [pendingPull, setPendingPull] = useState(false)
+  /** Paths picked for the next batch action; empty means every repository. */
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const [strategy, setStrategy] = useState<PullStrategy>('auto')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
 
   const selected = workspaces.find((workspace) => workspace.id === selectedId) ?? null
 
@@ -74,10 +112,23 @@ export function WorkspacesPanel({
     }
   }, [selectedId, onWorkspacesChanged])
 
+  const statusRequest = useRef(0)
+
+  // Responses are applied only while they still answer the selected
+  // workspace: switching workspace A → B must never display A's repositories
+  // under B's header.
   const loadStatus = useCallback(async (workspaceId: string) => {
+    const token = ++statusRequest.current
     try {
-      setStatuses(await workspaceStatus(workspaceId))
+      const next = await workspaceStatus(workspaceId)
+      if (statusRequest.current !== token) {
+        return
+      }
+      setStatuses(next)
     } catch (cause) {
+      if (statusRequest.current !== token) {
+        return
+      }
       setError(errorMessage(cause))
       setStatuses([])
     }
@@ -120,6 +171,7 @@ export function WorkspacesPanel({
         selected.id,
         action,
         action === 'pull' ? { acknowledged: true } : undefined,
+        { repoPaths: selectedPaths, strategy },
       )
       setResults(next)
       const failures = next.filter((result) => !result.ok).length
@@ -288,6 +340,107 @@ export function WorkspacesPanel({
               </button>
             </div>
             <div className={shared.row}>
+              <label className={shared.field}>
+                {t('workspaces.panel.strategyLabel')}
+                <select
+                  value={strategy}
+                  aria-label={t('workspaces.panel.strategyAria')}
+                  onChange={(event) => setStrategy(event.target.value as PullStrategy)}
+                >
+                  <option value="auto">{t('ops.sync.strategy.auto')}</option>
+                  <option value="ffOnly">{t('ops.sync.strategy.ffOnly')}</option>
+                  <option value="rebase">{t('ops.sync.strategy.rebase')}</option>
+                  <option value="merge">{t('ops.sync.strategy.merge')}</option>
+                </select>
+              </label>
+              <span className={shared.notice}>
+                {selectedPaths.length === 0
+                  ? t('workspaces.panel.selectionAll', { count: selected.repos.length })
+                  : t('workspaces.panel.selectionSome', {
+                      count: selectedPaths.length,
+                      total: selected.repos.length,
+                    })}
+              </span>
+              <button
+                type="button"
+                className={shared.small}
+                onClick={() => setSelectedPaths([])}
+                disabled={busy || selectedPaths.length === 0}
+              >
+                {t('workspaces.panel.selectAll')}
+              </button>
+              <button
+                type="button"
+                className={shared.small}
+                disabled={busy || statuses.length === 0}
+                title={t('workspaces.panel.openEditorHint')}
+                onClick={() => {
+                  const targets = statuses.filter(
+                    (status) =>
+                      status.available &&
+                      Boolean(status.repoId) &&
+                      (selectedPaths.length === 0 || selectedPaths.includes(status.path)),
+                  )
+                  if (targets.length === 0) {
+                    return
+                  }
+                  void run(
+                    t('workspaces.panel.openEditorDone', { count: targets.length }),
+                    async () => {
+                      let failed = 0
+                      for (const target of targets) {
+                        if (!target.repoId) {
+                          continue
+                        }
+                        try {
+                          await toolOpen({ repoId: target.repoId, kind: 'editor' })
+                        } catch {
+                          failed += 1
+                        }
+                      }
+                      if (failed > 0) {
+                        setError(t('workspaces.panel.openEditorPartial', { failed }))
+                      }
+                    },
+                  )
+                }}
+              >
+                {t('workspaces.panel.openEditor')}
+              </button>
+              <button
+                type="button"
+                className={shared.small}
+                disabled={busy}
+                title={t('workspaces.panel.exportHint')}
+                onClick={() => {
+                  const codeWorkspace = JSON.stringify(
+                    {
+                      folders: selected.repos.map((repo) => ({ path: repo.path })),
+                    },
+                    null,
+                    2,
+                  )
+                  void navigator.clipboard
+                    .writeText(codeWorkspace)
+                    .then(() => setNotice(t('workspaces.panel.exported')))
+                    .catch(() => setError(t('workspaces.panel.clipboardUnavailable')))
+                }}
+              >
+                {t('workspaces.panel.export')}
+              </button>
+              <button
+                type="button"
+                className={shared.small}
+                disabled={busy}
+                onClick={() => {
+                  setImportText('')
+                  setImportOpen(true)
+                }}
+              >
+                {t('workspaces.panel.import')}
+              </button>
+            </div>
+            <div className={shared.row}>
               <button
                 type="button"
                 className={shared.secondary}
@@ -330,6 +483,22 @@ export function WorkspacesPanel({
             <div className={shared.list}>
               {statuses.map((status) => (
                 <div key={status.path} className={shared.item}>
+                  <label className={shared.checkbox}>
+                    <input
+                      type="checkbox"
+                      checked={selectedPaths.includes(status.path)}
+                      aria-label={t('workspaces.panel.selectRepoAria', {
+                        name: status.name ?? status.path,
+                      })}
+                      onChange={(event) =>
+                        setSelectedPaths((current) =>
+                          event.target.checked
+                            ? [...current, status.path]
+                            : current.filter((value) => value !== status.path),
+                        )
+                      }
+                    />
+                  </label>
                   <div>
                     <span>{status.name ?? status.path}</span>
                     <span className={shared.mono}>{status.path}</span>
@@ -422,7 +591,9 @@ export function WorkspacesPanel({
       />
       <ConfirmDialog
         open={pendingPull}
-        title={t('workspaces.panel.pullTitle', { count: selected?.repos.length ?? 0 })}
+        title={t('workspaces.panel.pullTitle', {
+          count: selectedPaths.length || (selected?.repos.length ?? 0),
+        })}
         consequence={t('workspaces.panel.pullConsequence')}
         confirmLabel={t('workspaces.panel.pullConfirm')}
         busy={busy}
@@ -432,6 +603,70 @@ export function WorkspacesPanel({
           void sync('pull')
         }}
       />
+
+      <Dialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        busy={busy}
+        titleId="workspace-import-title"
+      >
+        <h2 id="workspace-import-title">{t('workspaces.panel.importTitle')}</h2>
+        <p className={shared.notice}>{t('workspaces.panel.importHint')}</p>
+        <textarea
+          value={importText}
+          onChange={(event) => setImportText(event.target.value)}
+          aria-label={t('workspaces.panel.importAria')}
+          placeholder={'{ "folders": [{ "path": "/src/project" }] }'}
+          spellCheck={false}
+          disabled={busy}
+        />
+        <div className={shared.row}>
+          <button
+            type="button"
+            className={shared.ghost}
+            onClick={() => setImportOpen(false)}
+            disabled={busy}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className={shared.primary}
+            disabled={busy || !importText.trim()}
+            onClick={() => {
+              if (!selected) {
+                return
+              }
+              const paths = codeWorkspacePaths(importText)
+              if (paths.length === 0) {
+                setError(t('workspaces.panel.importEmpty'))
+                return
+              }
+              setImportOpen(false)
+              void run(t('workspaces.panel.importDone', { count: paths.length }), async () => {
+                let added = 0
+                let failed = 0
+                for (const path of paths) {
+                  try {
+                    await workspaceAddRepo(selected.id, path)
+                    added += 1
+                  } catch {
+                    failed += 1
+                  }
+                }
+                setImportText('')
+                await reload()
+                await loadStatus(selected.id)
+                if (failed > 0) {
+                  setError(t('workspaces.panel.importPartial', { added, failed }))
+                }
+              })
+            }}
+          >
+            {t('workspaces.panel.importSubmit')}
+          </button>
+        </div>
+      </Dialog>
     </div>
   )
 }

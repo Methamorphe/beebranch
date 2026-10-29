@@ -453,7 +453,16 @@ impl GitSubcommand {
                     ]
                 }
             }
-            Self::Rm => const { &[flag("--cached"), flag("-r"), flag("--quiet"), flag("-q")] },
+            Self::Rm => const {
+                &[
+                    flag("--cached"),
+                    flag("-r"),
+                    flag("-f"),
+                    flag("--force"),
+                    flag("--quiet"),
+                    flag("-q"),
+                ]
+            },
             Self::Restore => {
                 const {
                     &[
@@ -491,6 +500,11 @@ impl GitSubcommand {
                         flag("--allow-empty"),
                         flag("--allow-empty-message"),
                         flag("--cleanup=strip"),
+                        flag("--no-verify"),
+                        flag("-n"),
+                        flag("-S"),
+                        flag("--gpg-sign"),
+                        flag("--no-gpg-sign"),
                     ]
                 }
             }
@@ -691,6 +705,7 @@ impl GitSubcommand {
                         flag("--unlock"),
                         flag("--prune"),
                         flag("--dry-run"),
+                        flag("--verbose"),
                         flag("--no-checkout"),
                         flag("--all"),
                         inline("--reason"),

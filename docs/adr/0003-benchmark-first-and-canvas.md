@@ -1,43 +1,43 @@
-# ADR-0003 — Performance mesurée et rendu canvas virtualisé
+# ADR-0003 — Measured performance and virtualized canvas rendering
 
-- **Statut :** accepté
-- **Date :** 2026-10-27
-- **Complète :** stratégie de performance de la révision 1
+- **Status:** accepted
+- **Date:** 2026-10-27
+- **Complements:** revision 1 performance strategy
 
-## Contexte
+## Context
 
-La performance est un motif central du remplacement de GitKraken. La révision 1 avançait des cibles (1 M de commits, ouverture < 1 s, 60 fps) sans corpus ni méthode. Ces chiffres ne sont pas des garanties et ne représentent pas nécessairement l'usage réel.
+Performance is a central reason for replacing GitKraken. Revision 1 proposed targets (1 M commits, opening < 1 s, 60 fps) without a corpus or methodology. These figures are not guarantees and do not necessarily represent real usage.
 
-Tauri ne rend pas une interface rapide par lui-même : le rendu du graphe, le volume d'IPC et la politique de chargement déterminent l'expérience.
+Tauri does not make an interface fast on its own: graph rendering, IPC volume, and loading policy determine the experience.
 
-## Décision
+## Decision
 
-1. **Aucune optimisation structurelle sans mesure.** Les budgets sont fixés après la première campagne de référence.
-2. La campagne couvre des scénarios représentatifs : ouverture à froid, affichage initial, scroll, branches/merges nombreux, nombreux fichiers, status, staging partiel, gros diffs, changement de dépôt, fetch/refresh, mémoire et CPU au repos.
-3. Le corpus combine :
-   - des dépôts synthétiques générés et versionnés par script ;
-   - des dépôts internes réels, utilisés seulement si disponibles et anonymisables.
-4. Le graphe est rendu en **canvas** (ou équivalent) avec virtualisation stricte, chargement incrémental et topologie calculée côté Rust.
-5. Aucun échange IPC par commit. Les payloads sont paginés et bornés.
-6. Les métriques et budgets sont versionnés ; les régressions sont détectées en CI sur un corpus fixe.
-7. Les optimisations sont ordonnées par preuve (profil, mesure), pas par intuition.
+1. **No structural optimization without measurement.** Budgets are set after the first reference campaign.
+2. The campaign covers representative scenarios: cold opening, initial display, scrolling, many branches/merges, many files, status, partial staging, large diffs, repository switching, fetch/refresh, idle memory and CPU.
+3. The corpus combines:
+   - synthetic repositories generated and versioned by script;
+   - real internal repositories, used only if available and anonymizable.
+4. The graph is rendered in **canvas** (or equivalent) with strict virtualization, incremental loading, and topology calculated on the Rust side.
+5. No IPC exchange per commit. Payloads are paginated and bounded.
+6. Metrics and budgets are versioned; regressions are detected in CI on a fixed corpus.
+7. Optimizations are ordered by evidence (profile, measurement), not intuition.
 
-## Conséquences
+## Consequences
 
-- Les premiers chiffres sont des **hypothèses** explicitement marquées, remplacées par la baseline.
-- Le prototype de graphe est un livrable P0, pas un détail d'implémentation.
-- Les budgets doivent tolérer la variabilité des machines CI (comparaison relative, médiane/p95, plusieurs runs).
-- Un budget non tenu déclenche une décision documentée : optimiser, réduire le périmètre ou réviser l'architecture (ADR).
+- Initial figures are explicitly marked **hypotheses**, replaced by the baseline.
+- The graph prototype is a P0 deliverable, not an implementation detail.
+- Budgets must tolerate CI machine variability (relative comparison, median/p95, multiple runs).
+- A missed budget triggers a documented decision: optimize, reduce scope, or revise the architecture (ADR).
 
-## Alternatives rejetées
+## Rejected alternatives
 
-| Alternative | Raison |
-|---|---|
-| Cibles arbitraires présentées comme garanties | Non vérifiables, risque de fausse confiance. |
-| Benchmark uniquement sur 1 M de commits | Ne représente pas les goulets réels (branches, fichiers, diffs, changements de dépôt). |
-| DOM/SVG avec un nœud par commit | Coût mémoire et rendu incompatible avec les gros historiques. |
-| Optimiser d'abord, mesurer ensuite | Investissement sans priorité. |
+| Alternative | Reason |
+|---|---|---|
+| Arbitrary targets presented as guarantees | Unverifiable, risk of false confidence. |
+| Benchmark only on 1 M commits | Does not represent real bottlenecks (branches, files, diffs, repository switching). |
+| DOM/SVG with one node per commit | Memory and rendering cost incompatible with large histories. |
+| Optimize first, measure later | Investment without prioritization. |
 
-## Critères de révision
+## Revision criteria
 
-Réexaminer si le canvas ne permet pas l'accessibilité requise, si la densité d'information demandée l'exige, ou si les mesures montrent un autre goulet dominant.
+Revisit if canvas cannot provide the required accessibility, if the requested information density demands it, or if measurements show another dominant bottleneck.

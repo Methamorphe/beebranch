@@ -1,59 +1,59 @@
-# ADR-0009 — Mises à jour signées et rollback
+# ADR-0009 — Signed updates and rollback
 
-**Statut :** accepté
-**Date :** 2026-10-27
+**Status:** accepted
+**Date:** 2026-10-27
 
-## Contexte
+## Context
 
-BeeBranch est distribué hors magasin d'applications. Une mise à jour doit être
-authentifiée, installable sur Windows/macOS/Linux, et réversible sans
-transformer l'application en service cloud.
+BeeBranch is distributed outside app stores. An update must be
+authenticated, installable on Windows/macOS/Linux, and reversible without
+turning the application into a cloud service.
 
-## Décision
+## Decision
 
-1. Le mécanisme est `tauri-plugin-updater` avec des artefacts minisign.
-2. La clé publique est embarquée dans `tauri.conf.json` ; la clé privée ne
-   quitte jamais les secrets de la CI.
-3. `latest.json` annonce la version courante ; `rollback.json` pointe la
-   version précédente encore publiée. Les deux manifestes référencent des
-   artefacts signés.
-4. La vérification de signature est faite par le plugin **avant** toute
-   installation. Une signature absente, invalide ou liée à une autre version
-   est refusée (`update.signature_invalid`).
-5. Le rollback est une installation signée de la version précédente, avec une
-   confirmation explicite ; ce n'est pas une copie de sauvegarde locale.
-6. Aucune télémétrie : l'application n'envoie que les requêtes GitLab/Git
-   demandées par l'utilisateur et la requête de manifeste lors d'une
-   vérification de mise à jour.
-7. Le packaging et les vérifications de signature sont exécutés par la CI de
-   release, sur les trois OS.
+1. The mechanism is `tauri-plugin-updater` with minisign artifacts.
+2. The public key is embedded in `tauri.conf.json`; the private key never
+   leaves CI secrets.
+3. `latest.json` announces the current version; `rollback.json` points to the
+   previous version still published. Both manifests reference
+   signed artifacts.
+4. Signature verification is performed by the plugin **before** any
+   installation. A missing, invalid, or different-version signature
+   is rejected (`update.signature_invalid`).
+5. Rollback is a signed installation of the previous version, with
+   explicit confirmation; it is not a local backup copy.
+6. No telemetry: the application sends only the GitLab/Git requests
+   requested by the user and the manifest request during an
+   update check.
+7. Packaging and signature checks are performed by release CI,
+   on all three OSes.
 
-## Alternatives considérées
+## Alternatives considered
 
-- Mise à jour manuelle par téléchargement : pas de vérification
-  cryptographique native, rollback non outillé.
-- Serveur de mise à jour maison avec base de données : surface cloud inutile.
-- Copie locale de l'ancien bundle pour rollback : coût disque, risque de
-  restaurer un binaire non signé, contraire à la règle « signature d'abord ».
+- Manual update by download: no native cryptographic
+  verification, no rollback tooling.
+- In-house update server with a database: unnecessary cloud surface.
+- Local copy of the old bundle for rollback: disk cost, risk of
+  restoring an unsigned binary, contrary to the “signature first” rule.
 
-## Conséquences
+## Consequences
 
-- Les releases doivent conserver au moins la version précédente et son
-  manifeste.
-- La CI doit disposer des secrets de signature et, pour macOS, des secrets de
-  notarisation.
-- Un endpoint compromis ne suffit pas à installer un binaire arbitraire : la
-  signature reste la barrière.
+- Releases must retain at least the previous version and its
+  manifest.
+- CI must have signing secrets and, for macOS, notarization
+  secrets.
+- A compromised endpoint is not enough to install an arbitrary binary: the
+  signature remains the barrier.
 
-## Amendement — 2026-10-28
+## Amendment — 2026-10-28
 
-L'hébergement des manifestes est GitHub Releases, dans le dépôt public
-`Methamorphe/beebranch`, qui porte aussi le code source : l'endpoint compilé est
+Manifests are hosted on GitHub Releases, in the public repository
+`Methamorphe/beebranch`, which also holds the source code: the compiled endpoint is
 `https://github.com/Methamorphe/beebranch/releases/latest/download/latest.json`,
-injecté par la CI via `BEEBRANCH_UPDATE_ENDPOINT`. Le job `publish` crée la
-release avec le `GITHUB_TOKEN` d'Actions et la permission `contents: write` ;
-aucun PAT ni dépôt miroir n'est nécessaire. Aucun serveur maison n'est
-nécessaire, et la même URL sert de repli aux compilations locales. Conséquences
-ajoutées : la release N-1 ne doit pas être supprimée, et un build non signé par
-l'OS (secrets Apple/Windows absents) reste publié avec un avertissement
-explicite — la signature d'update, elle, n'est jamais optionnelle.
+injected by CI via `BEEBRANCH_UPDATE_ENDPOINT`. The `publish` job creates the
+release with the Actions `GITHUB_TOKEN` and the `contents: write` permission;
+no PAT or mirror repository is needed. No in-house server is
+needed, and the same URL serves as a fallback for local builds. Added
+consequences: release N-1 must not be deleted, and a build not signed by
+the OS (Apple/Windows secrets absent) is still published with an explicit
+warning — the update signature itself is never optional.

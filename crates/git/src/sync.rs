@@ -22,6 +22,8 @@ pub enum PullStrategy {
     Auto,
     FfOnly,
     Rebase,
+    /// `--rebase=merges`: replay local commits, keep local merge commits.
+    RebaseMerges,
     Merge,
 }
 
@@ -179,7 +181,7 @@ fn config_value(
 fn strategy_from_rebase(value: &str) -> Option<PullStrategy> {
     match value {
         "true" | "yes" | "on" | "1" | "interactive" | "i" => Some(PullStrategy::Rebase),
-        "merges" | "m" => Some(PullStrategy::Merge),
+        "merges" | "m" => Some(PullStrategy::RebaseMerges),
         "false" | "no" | "off" | "0" => Some(PullStrategy::Merge),
         _ => None,
     }
@@ -216,6 +218,7 @@ where
     spec = match strategy {
         PullStrategy::FfOnly => spec.arg("--ff-only"),
         PullStrategy::Rebase => spec.arg("--rebase"),
+        PullStrategy::RebaseMerges => spec.arg("--rebase=merges"),
         PullStrategy::Merge | PullStrategy::Auto => spec.arg("--no-rebase"),
     };
     spec = spec.arg(remote).arg(branch);

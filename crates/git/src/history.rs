@@ -149,7 +149,11 @@ pub fn continue_operation(runner: &GitRunner, worktree: &Path) -> Result<History
         .arg("--continue")
         .env("GIT_EDITOR", "true")
         .capture_limits(output_limits());
-    run_stateful(runner, worktree, spec)
+    let outcome = run_stateful(runner, worktree, spec)?;
+    if outcome.state.operation.is_none() {
+        clear_rebase_messages(runner, worktree);
+    }
+    Ok(outcome)
 }
 
 /// Skip the current commit of a rebase, cherry-pick or revert.
@@ -165,7 +169,11 @@ pub fn skip_operation(runner: &GitRunner, worktree: &Path) -> Result<HistoryOutc
     let spec = CommandSpec::new(command, worktree)
         .arg("--skip")
         .capture_limits(output_limits());
-    run_stateful(runner, worktree, spec)
+    let outcome = run_stateful(runner, worktree, spec)?;
+    if outcome.state.operation.is_none() {
+        clear_rebase_messages(runner, worktree);
+    }
+    Ok(outcome)
 }
 
 /// Abort the operation currently in progress.
@@ -188,6 +196,7 @@ pub fn abort_operation(runner: &GitRunner, worktree: &Path) -> Result<HistoryOut
         .with_detail(outcome.output)
         .with_remediation("Inspectez l'état du dépôt avant toute autre action."));
     }
+    clear_rebase_messages(runner, worktree);
     Ok(outcome)
 }
 
@@ -434,8 +443,10 @@ pub fn rebase_interactive(
     }
     validate_plan(&candidates, plan)?;
 
-    let directory = tempfile::tempdir().map_err(|error| {
-        AppError::internal(format!("répertoire temporaire de rebase : {error}"))
+    let directory = rebase_message_root(runner, worktree)?;
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        AppError::internal(format!("répertoire de messages de rebase : {error}"))
     })?;
     let mut todo = String::new();
     let mut acknowledged_pick = false;
@@ -535,7 +546,7 @@ pub fn rebase_interactive(
         }
     }
 
-    let todo_file = directory.path().join("todo");
+    let todo_file = directory.join("todo");
     std::fs::write(&todo_file, todo.as_bytes())
         .map_err(|error| AppError::internal(format!("écriture du todo de rebase : {error}")))?;
     let editor = format!("cp {}", shell_quote(&todo_file.to_string_lossy()));
@@ -546,7 +557,13 @@ pub fn rebase_interactive(
         .env("GIT_SEQUENCE_EDITOR", editor)
         .env("GIT_EDITOR", "true")
         .capture_limits(output_limits());
-    run_stateful(runner, worktree, spec)
+    let outcome = run_stateful(runner, worktree, spec)?;
+    // A paused rebase still references the message files from its todo; they
+    // are only removed once Git has finished replaying the plan.
+    if outcome.state.operation.is_none() {
+        clear_rebase_messages(runner, worktree);
+    }
+    Ok(outcome)
 }
 
 fn validate_plan(candidates: &[String], plan: &[RebaseStep]) -> Result<(), AppError> {
@@ -570,6 +587,14 @@ fn validate_plan(candidates: &[String], plan: &[RebaseStep]) -> Result<(), AppEr
     }
     let _ = candidates;
     Ok(())
+}
+
+fn squash_error(reason: &str) -> AppError {
+    AppError::new(
+        "squash.invalid_selection",
+        ErrorCategory::Input,
+        format!("Squash impossible : {reason}."),
+    )
 }
 
 fn plan_error(what: &str, reason: &str) -> AppError {
@@ -603,20 +628,57 @@ fn commit_message(runner: &GitRunner, worktree: &Path, sha: &str) -> Result<Stri
 }
 
 fn write_message(
-    directory: &tempfile::TempDir,
+    directory: &Path,
     index: usize,
     message: &str,
 ) -> Result<String, AppError> {
-    let path = directory.path().join(format!("message-{index}.txt"));
+    let path = directory.join(format!("message-{index}.txt"));
     std::fs::write(&path, message.as_bytes())
         .map_err(|error| AppError::internal(format!("écriture du message : {error}")))?;
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// Directory holding the message files referenced by the rebase todo.
+///
+/// The files must outlive the command that creates them: Git replays the todo
+/// after every pause (conflict, `edit`, `squash` stop), so a directory removed
+/// when the function returns would leave `exec git commit --amend -F` pointing
+/// at a missing file. It lives inside the repository's Git directory and is
+/// removed once the rebase finishes or is aborted.
+fn rebase_message_root(runner: &GitRunner, worktree: &Path) -> Result<std::path::PathBuf, AppError> {
+    let outcome = runner
+        .run(
+            &CommandSpec::new(GitSubcommand::RevParse, worktree)
+                .arg("--git-path")
+                .arg("beebranch-rebase"),
+        )?
+        .ensure_success()?;
+    let raw = outcome.stdout.text_lossy();
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::internal(
+            "répertoire des messages de rebase introuvable".to_owned(),
+        ));
+    }
+    let path = Path::new(trimmed);
+    Ok(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        worktree.join(path)
+    })
+}
+
+/// Drop the rebase message files once no rebase references them.
+fn clear_rebase_messages(runner: &GitRunner, worktree: &Path) {
+    if let Ok(root) = rebase_message_root(runner, worktree) {
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
 /// Quote a path for Git's shell-based editor/exec invocation.
 ///
-/// Paths are generated under a temporary directory; quoting keeps spaces and
-/// shell metacharacters inert on POSIX shells used by Git for Windows too.
+/// Paths live inside the Git directory; quoting keeps spaces and shell
+/// metacharacters inert on POSIX shells used by Git for Windows too.
 fn shell_quote(value: &str) -> String {
     let normalized = if cfg!(windows) {
         value.replace('\\', "/")
@@ -643,6 +705,255 @@ pub fn revert(
     shas: &[String],
 ) -> Result<HistoryOutcome, AppError> {
     sequence_by_commits(runner, worktree, shas, GitSubcommand::Revert)
+}
+
+/// Squash preview: the commits that will be combined, oldest first, and the
+/// message Git will receive when no replacement is provided.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SquashPreview {
+    pub commits: Vec<crate::log::CommitSummary>,
+    /// Commit the squashed range will be replayed onto.
+    pub upstream: String,
+    /// Full messages of the selection, oldest first, blank-line separated.
+    pub message: String,
+}
+
+/// Validate a squash selection and return its preview.
+///
+/// A squash is a rebase: the selected commits are replayed as one, and the
+/// commits above them are replayed onto the result. The range must therefore
+/// be a contiguous straight line without merge commits, and the working tree
+/// must be clean.
+pub fn squash_preview(
+    runner: &GitRunner,
+    worktree: &Path,
+    shas: &[String],
+) -> Result<SquashPreview, AppError> {
+    let (ordered, commits) = squash_order(runner, worktree, shas)?;
+    let upstream = squash_upstream(runner, worktree, &ordered)?;
+    let mut message = String::new();
+    for commit in &commits {
+        let text = commit_message(runner, worktree, &commit.sha)?;
+        let trimmed = text.trim_end();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !message.is_empty() {
+            message.push_str("\n\n");
+        }
+        message.push_str(trimmed);
+    }
+    if message.trim().is_empty() {
+        return Err(AppError::invalid_input(
+            "Aucun message à combiner pour cette sélection.".to_owned(),
+        ));
+    }
+    Ok(SquashPreview {
+        commits,
+        upstream,
+        message,
+    })
+}
+
+/// Squash a contiguous selection into a single commit.
+///
+/// Implemented as an interactive rebase over `parent(oldest)`: the oldest
+/// commit is reworded with the combined message, the rest of the selection is
+/// dropped, and the commits above it are replayed unchanged. Every constraint
+/// of [`squash_preview`] applies, plus a clean working tree.
+pub fn squash(
+    runner: &GitRunner,
+    worktree: &Path,
+    shas: &[String],
+    message: Option<&str>,
+) -> Result<HistoryOutcome, AppError> {
+    let preview = squash_preview(runner, worktree, shas)?;
+    let combined = message
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or(preview.message);
+    if combined.trim().is_empty() {
+        return Err(AppError::invalid_input(
+            "Le message du commit écrasé est vide.".to_owned(),
+        ));
+    }
+
+    let candidates = rebase_candidates(runner, worktree, &preview.upstream)?;
+    let selected: std::collections::BTreeSet<&str> = preview
+        .commits
+        .iter()
+        .map(|commit| commit.sha.as_str())
+        .collect();
+    if candidates.len() < selected.len()
+        || candidates
+            .iter()
+            .take(selected.len())
+            .any(|sha| !selected.contains(sha.as_str()))
+    {
+        return Err(squash_error(
+            "la sélection doit être contiguë et commencer par le commit le plus ancien",
+        ));
+    }
+
+    let mut steps = Vec::with_capacity(candidates.len());
+    for (index, sha) in candidates.iter().enumerate() {
+        let in_selection = selected.contains(sha.as_str());
+        let step = match (index, in_selection) {
+            // The oldest selected commit carries the combined message.
+            (0, true) => RebaseStep {
+                sha: sha.clone(),
+                action: RebaseAction::Reword,
+                message: Some(combined.clone()),
+            },
+            // The remaining selected commits disappear into it.
+            (_, true) => RebaseStep {
+                sha: sha.clone(),
+                action: RebaseAction::Drop,
+                message: None,
+            },
+            (_, false) => RebaseStep {
+                sha: sha.clone(),
+                action: RebaseAction::Pick,
+                message: None,
+            },
+        };
+        steps.push(step);
+    }
+    rebase_interactive(runner, worktree, &preview.upstream, &steps)
+}
+
+/// Selection ordered oldest first, after validating the documented constraints.
+fn squash_order(
+    runner: &GitRunner,
+    worktree: &Path,
+    shas: &[String],
+) -> Result<(Vec<String>, Vec<crate::log::CommitSummary>), AppError> {
+    if shas.len() < 2 {
+        return Err(AppError::invalid_input(
+            "Sélectionnez au moins deux commits à combiner.".to_owned(),
+        ));
+    }
+    let unique: std::collections::BTreeSet<&str> = shas.iter().map(String::as_str).collect();
+    if unique.len() != shas.len() {
+        return Err(AppError::invalid_input(
+            "La sélection contient un commit en double.".to_owned(),
+        ));
+    }
+    for sha in shas {
+        crate::log::validate_revision(sha)?;
+    }
+
+    let commits = summaries(runner, worktree, shas)?;
+    let mut parents: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for commit in &commits {
+        match commit.parents.as_slice() {
+            [parent] => {
+                parents.insert(commit.sha.as_str(), parent.as_str());
+            }
+            _ => {
+                return Err(
+                    squash_error("un commit de fusion ne peut pas être combiné")
+                        .with_detail(commit.sha.clone()),
+                )
+            }
+        }
+    }
+
+    // The newest selected commit is the only one that is nobody's parent.
+    let newest = shas
+        .iter()
+        .find(|sha| !parents.values().any(|parent| parent == &sha.as_str()))
+        .ok_or_else(|| squash_error("aucun commit de tête dans la sélection"))?;
+
+    let mut ordered = vec![newest.clone()];
+    loop {
+        let current = ordered.last().expect("non-empty");
+        let Some(parent) = parents.get(current.as_str()) else {
+            break;
+        };
+        if !shas.iter().any(|sha| sha == parent) {
+            break;
+        }
+        if ordered.iter().any(|sha| sha == parent) {
+            return Err(squash_error("la sélection contient une boucle"));
+        }
+        ordered.push((*parent).to_owned());
+    }
+    if ordered.len() != shas.len() {
+        return Err(squash_error(
+            "les commits doivent être consécutifs dans une ligne directe",
+        ));
+    }
+    ordered.reverse();
+    let mut sequenced = Vec::with_capacity(ordered.len());
+    for sha in &ordered {
+        let found = commits
+            .iter()
+            .find(|commit| &commit.sha == sha)
+            .cloned()
+            .ok_or_else(|| AppError::internal(format!("commit `{sha}` introuvable")))?;
+        sequenced.push(found);
+    }
+    Ok((ordered, sequenced))
+}
+
+fn squash_upstream(
+    runner: &GitRunner,
+    worktree: &Path,
+    ordered: &[String],
+) -> Result<String, AppError> {
+    let oldest = ordered.first().expect("non-empty");
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::RevParse, worktree)
+            .arg("--verify")
+            .arg(format!("{oldest}^")),
+    )?;
+    if !outcome.success() {
+        return Err(squash_error(
+            "le commit le plus ancien n'a pas de parent",
+        ));
+    }
+    Ok(outcome.stdout.text_lossy().trim().to_owned())
+}
+
+/// Commit summaries for an explicit list, returned in the requested order.
+fn summaries(
+    runner: &GitRunner,
+    worktree: &Path,
+    shas: &[String],
+) -> Result<Vec<crate::log::CommitSummary>, AppError> {
+    let mut spec = CommandSpec::new(GitSubcommand::Log, worktree)
+        .arg("--no-walk")
+        .arg(format!("--format={}", crate::search::LOG_FORMAT))
+        .capture_limits(output_limits());
+    for sha in shas {
+        spec = spec.arg(sha);
+    }
+    let outcome = runner.run(&spec)?;
+    if !outcome.success() {
+        return Err(AppError::new(
+            "squash.unknown_commit",
+            ErrorCategory::Input,
+            "Les commits de la sélection n'ont pas pu être lus.",
+        )
+        .with_detail(outcome.stderr.redacted()));
+    }
+    let parsed = crate::log::parse_log(&outcome.stdout.text_lossy())
+        .map_err(|message| AppError::internal(format!("lecture des commits: {message}")))?;
+    let mut ordered = Vec::with_capacity(shas.len());
+    for sha in shas {
+        let found = parsed
+            .iter()
+            .find(|commit| &commit.sha == sha)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::internal(format!("le commit `{sha}` est introuvable dans le journal"))
+            })?;
+        ordered.push(found);
+    }
+    Ok(ordered)
 }
 
 fn sequence_by_commits(

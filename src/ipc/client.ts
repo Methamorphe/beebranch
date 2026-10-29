@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { errorCopy } from '../i18n/errors'
 import { t } from '../i18n'
+import { recordActivity } from '../lib/activity'
 import type { AppError } from '../types/git'
 
 const FALLBACK: Omit<AppError, 'message' | 'detail'> = {
@@ -67,11 +68,60 @@ export async function call<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
+  const started = performance.now()
   try {
-    return await invoke<T>(command, args)
+    const result = await invoke<T>(command, args)
+    record(command, args, started, 'ok')
+    return result
   } catch (cause) {
-    throw new IpcError(normalizeError(cause))
+    const error = normalizeError(cause)
+    record(command, args, started, 'failed', error.code)
+    throw new IpcError(error)
   }
+}
+
+/**
+ * Append one activity entry.
+ *
+ * Only the command name, its repository and the stable error code are kept:
+ * arguments may contain tokens or file contents and are never logged.
+ */
+function record(
+  command: string,
+  args: Record<string, unknown> | undefined,
+  started: number,
+  outcome: 'ok' | 'failed',
+  code?: string,
+) {
+  const repoId = repositoryOf(args)
+  recordActivity({
+    command,
+    repoId,
+    durationMs: Math.round(performance.now() - started),
+    outcome,
+    code,
+  })
+}
+
+/** Extract the repository id from the shapes the commands accept. */
+function repositoryOf(args: Record<string, unknown> | undefined): string | undefined {
+  if (!args) {
+    return undefined
+  }
+  if (typeof args.repoId === 'string') {
+    return args.repoId
+  }
+  const request = args.request
+  if (request && typeof request === 'object' && 'repoId' in request) {
+    const value = request.repoId
+    return typeof value === 'string' ? value : undefined
+  }
+  const input = args.input
+  if (input && typeof input === 'object' && 'repoId' in input) {
+    const value = input.repoId
+    return typeof value === 'string' ? value : undefined
+  }
+  return undefined
 }
 
 export function errorMessage(cause: unknown): string {

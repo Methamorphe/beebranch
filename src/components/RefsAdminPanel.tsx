@@ -5,15 +5,20 @@ import {
   remotePrune,
   remoteRemove,
   remoteSetUrl,
+  tagAnnotate,
   tagCreate,
   tagDelete,
+  tagDeleteRemote,
   tagList,
+  tagMove,
   tagPush,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { useI18n } from '../i18n'
 import type { RemoteInfo, TagInfo } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Button } from './ui/Button'
+import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -25,6 +30,7 @@ type Props = {
 
 type Pending =
   | { kind: 'tag'; name: string }
+  | { kind: 'tagRemote'; name: string; remote: string }
   | { kind: 'remote'; name: string }
   | null
 
@@ -37,6 +43,9 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
   const [tagMessage, setTagMessage] = useState('')
   const [tagTarget, setTagTarget] = useState('HEAD')
   const [tagForce, setTagForce] = useState(false)
+  const [tagFilter, setTagFilter] = useState('')
+  const [annotateTarget, setAnnotateTarget] = useState<string | null>(null)
+  const [annotateMessage, setAnnotateMessage] = useState('')
   const [pushRemote, setPushRemote] = useState('')
   const [pushTag, setPushTag] = useState('')
   const [remoteName, setRemoteName] = useState('')
@@ -89,6 +98,18 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
     }
   }
 
+  const visibleTags = (() => {
+    const needle = tagFilter.trim().toLowerCase()
+    if (!needle) {
+      return tags
+    }
+    return tags.filter(
+      (tag) =>
+        tag.name.toLowerCase().includes(needle) ||
+        (tag.message ?? '').toLowerCase().includes(needle),
+    )
+  })()
+
   return (
     <div className={p2.screen}>
       <div className={p2.toolbar}>
@@ -112,21 +133,33 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
         </div>
         <span className={p2.spacer} />
         {tab === 'tags' ? (
-          <label className={p2.fieldInline}>
-            <span className={p2.toolbarLabel}>{t('ops.refs.pushRemoteLabel')}</span>
-            <select
-              value={pushRemote}
-              onChange={(event) => setPushRemote(event.target.value)}
-              aria-label={t('ops.refs.pushRemoteAria')}
-            >
-              {remotes.length === 0 ? <option value="">{t('ops.refs.noRemote')}</option> : null}
-              {remotes.map((remote) => (
-                <option key={remote.name} value={remote.name}>
-                  {remote.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <>
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('ops.refs.filterLabel')}</span>
+              <input
+                value={tagFilter}
+                onChange={(event) => setTagFilter(event.target.value)}
+                placeholder={t('ops.refs.filterPlaceholder')}
+                aria-label={t('ops.refs.filterAria')}
+                spellCheck={false}
+              />
+            </label>
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('ops.refs.pushRemoteLabel')}</span>
+              <select
+                value={pushRemote}
+                onChange={(event) => setPushRemote(event.target.value)}
+                aria-label={t('ops.refs.pushRemoteAria')}
+              >
+                {remotes.length === 0 ? <option value="">{t('ops.refs.noRemote')}</option> : null}
+                {remotes.map((remote) => (
+                  <option key={remote.name} value={remote.name}>
+                    {remote.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
         ) : null}
       </div>
 
@@ -152,7 +185,7 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                 <span className={p2.count}>{t('ops.refs.pushExplicit')}</span>
               </div>
               <div className={p2.rows}>
-                {tags.map((tag) => (
+                {visibleTags.map((tag) => (
                   <div key={tag.name} className={p2.entry}>
                     <span className={p2.dot} data-tone="accent" />
                     <div className={p2.entryStack}>
@@ -174,6 +207,32 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                       ) : null}
                     </div>
                     <span className={p2.entryActions}>
+                      {!tag.annotated ? (
+                        <button
+                          type="button"
+                          className={p2.secondary}
+                          disabled={busy}
+                          onClick={() => {
+                            setAnnotateTarget(tag.name)
+                            setAnnotateMessage('')
+                          }}
+                        >
+                          {t('ops.refs.annotate')}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={p2.secondary}
+                        disabled={busy}
+                        title={t('ops.refs.moveHint')}
+                        onClick={() =>
+                          void run(t('ops.refs.notice.moved', { name: tag.name }), () =>
+                            tagMove({ repoId, name: tag.name, target: 'HEAD' }),
+                          )
+                        }
+                      >
+                        {t('ops.refs.moveToHead')}
+                      </button>
                       <button
                         type="button"
                         className={p2.secondary}
@@ -184,6 +243,20 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                         }}
                       >
                         {t('ops.refs.push')}
+                      </button>
+                      <button
+                        type="button"
+                        className={p2.ghostDanger}
+                        disabled={busy || !pushRemote}
+                        onClick={() =>
+                          setPending({
+                            kind: 'tagRemote',
+                            name: tag.name,
+                            remote: pushRemote,
+                          })
+                        }
+                      >
+                        {t('ops.refs.deleteOnRemote', { remote: pushRemote || '—' })}
                       </button>
                       <button
                         type="button"
@@ -430,11 +503,22 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
 
       <ConfirmDialog
         open={pending !== null}
-        title={pending?.kind === 'tag' ? t('ops.refs.deleteTagTitle') : t('ops.refs.deleteRemoteTitle')}
+        title={
+          pending?.kind === 'remote'
+            ? t('ops.refs.deleteRemoteTitle')
+            : pending?.kind === 'tagRemote'
+              ? t('ops.refs.deleteRemoteTagTitle')
+              : t('ops.refs.deleteTagTitle')
+        }
         consequence={
-          pending?.kind === 'tag'
-            ? t('ops.refs.deleteTagConsequence', { name: pending.name })
-            : t('ops.refs.deleteRemoteConsequence', { name: pending?.name ?? '' })
+          pending?.kind === 'remote'
+            ? t('ops.refs.deleteRemoteConsequence', { name: pending.name })
+            : pending?.kind === 'tagRemote'
+              ? t('ops.refs.deleteRemoteTagConsequence', {
+                  name: pending.name,
+                  remote: pending.remote,
+                })
+              : t('ops.refs.deleteTagConsequence', { name: pending?.name ?? '' })
         }
         irreversible
         typed={pending?.name}
@@ -454,6 +538,20 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                 name: target.name,
                 confirmation: { acknowledged: true, typed },
               }),
+            )
+          } else if (target.kind === 'tagRemote') {
+            void run(
+              t('ops.refs.notice.tagDeletedRemote', {
+                name: target.name,
+                remote: target.remote,
+              }),
+              () =>
+                tagDeleteRemote({
+                  repoId,
+                  remote: target.remote,
+                  name: target.name,
+                  confirmation: { acknowledged: true, typed },
+                }),
             )
           } else {
             void run(t('ops.refs.notice.remoteDeleted'), () =>
@@ -486,6 +584,47 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
           )
         }}
       />
+
+      <Dialog
+        open={annotateTarget !== null}
+        onClose={() => setAnnotateTarget(null)}
+        busy={busy}
+        titleId="tag-annotate-title"
+      >
+        <h2 id="tag-annotate-title">{t('ops.refs.annotateTitle')}</h2>
+        <p className={p2.asideHint}>
+          {t('ops.refs.annotateHint', { name: annotateTarget ?? '' })}
+        </p>
+        <label className={p2.field}>
+          {t('ops.refs.annotateMessageLabel')}
+          <textarea
+            value={annotateMessage}
+            onChange={(event) => setAnnotateMessage(event.target.value)}
+            aria-label={t('ops.refs.annotateMessageAria')}
+            spellCheck
+            disabled={busy}
+          />
+        </label>
+        <div className={p2.row}>
+          <Button variant="ghost" onClick={() => setAnnotateTarget(null)} disabled={busy}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={busy || !annotateMessage.trim()}
+            onClick={() => {
+              const target = annotateTarget
+              if (!target) return
+              setAnnotateTarget(null)
+              void run(t('ops.refs.notice.annotated', { name: target }), () =>
+                tagAnnotate({ repoId, name: target, message: annotateMessage.trim() }),
+              )
+            }}
+          >
+            {t('ops.refs.annotateSubmit')}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   )
 }

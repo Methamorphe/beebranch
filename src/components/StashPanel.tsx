@@ -18,6 +18,17 @@ type Props = {
   onMutated: () => void
 }
 
+/** Conflict paths reported by a stash apply/pop, narrowed without casting. */
+function stashConflicts(value: unknown): string[] {
+  if (!value || typeof value !== 'object' || !('conflicts' in value)) {
+    return []
+  }
+  const raw = value.conflicts
+  return Array.isArray(raw)
+    ? raw.filter((item): item is string => typeof item === 'string')
+    : []
+}
+
 export function StashPanel({ repoId, generation, onMutated }: Props) {
   const { t } = useI18n()
   const [entries, setEntries] = useState<StashEntry[]>([])
@@ -46,10 +57,21 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
     setError(null)
     setNotice(null)
     try {
-      const result = (await action()) as { data?: unknown } | undefined
-      setNotice(label)
-      if (result && typeof result === 'object' && 'data' in result) {
-        const data = result.data
+      const result = await action()
+      const data =
+        result && typeof result === 'object' && 'data' in result ? result.data : undefined
+      const conflicts = stashConflicts(data)
+      if (conflicts.length > 0) {
+        // Git keeps the stash when `pop` cannot apply it cleanly: say so
+        // instead of reporting a plain success.
+        setNotice(
+          t('commit.stash.conflictsNotice', {
+            count: conflicts.length,
+            files: conflicts.join(', '),
+          }),
+        )
+      } else {
+        setNotice(label)
         if (typeof data === 'string' && data.length > 0) {
           setNotice(`${label} ${data}`)
         }

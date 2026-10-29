@@ -326,6 +326,83 @@ fn stages_rename_as_a_whole_file() {
 
 #[cfg(unix)]
 #[test]
+fn commit_can_skip_hooks_for_one_commit() {
+    let fixture = dirty_fixture();
+    fixture.write("a.txt", "next\n");
+    fixture.add_all();
+    use std::os::unix::fs::PermissionsExt;
+    let hook = fixture.path().join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\necho hook failure\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let skipped = commit::create(
+        fixture.runner(),
+        fixture.path(),
+        &CommitOptions {
+            message: "skipped".into(),
+            skip_hooks: true,
+            ..CommitOptions::default()
+        },
+    )
+    .expect("hooks are skipped");
+    assert!(!skipped.output.contains("hook failure"));
+    assert_ne!(skipped.sha, fixture.rev_parse(&["HEAD~1"]));
+
+    // The next commit runs the hooks again: skipping is never persisted.
+    fixture.write("a.txt", "again\n");
+    fixture.add_all();
+    let error = commit::create(
+        fixture.runner(),
+        fixture.path(),
+        &CommitOptions {
+            message: "runs hooks".into(),
+            ..CommitOptions::default()
+        },
+    )
+    .expect_err("hook must run again");
+    assert!(error.detail.unwrap_or_default().contains("hook failure"));
+}
+
+#[cfg(unix)]
+#[test]
+fn commit_honours_a_hooks_path_override() {
+    let fixture = dirty_fixture();
+    fixture.write("a.txt", "next\n");
+    fixture.add_all();
+    use std::os::unix::fs::PermissionsExt;
+    let hooks = fixture.path().join("custom-hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\necho custom hook ran\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let outcome = commit::create(
+        fixture.runner(),
+        fixture.path(),
+        &CommitOptions {
+            message: "custom hooks".into(),
+            hooks_path: Some(hooks.display().to_string()),
+            ..CommitOptions::default()
+        },
+    )
+    .expect("commit with custom hooks path");
+    assert!(outcome.output.contains("custom hook ran"), "{}", outcome.output);
+
+    let invalid = commit::create(
+        fixture.runner(),
+        fixture.path(),
+        &CommitOptions {
+            message: "invalid hooks".into(),
+            hooks_path: Some("bad\npath".into()),
+            ..CommitOptions::default()
+        },
+    )
+    .expect_err("control characters refused");
+    assert_eq!(invalid.code, "input.invalid");
+}
+
+#[cfg(unix)]
+#[test]
 fn commit_runs_hooks_and_keeps_the_message_on_failure() {
     let fixture = dirty_fixture();
     fixture.write("a.txt", "next\n");
@@ -1009,6 +1086,7 @@ fn amends_without_and_with_a_new_message() {
             amend: true,
             keep_message: true,
             allow_empty: false,
+            ..CommitOptions::default()
         },
     )
     .expect("amend keep");

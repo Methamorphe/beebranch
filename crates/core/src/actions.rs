@@ -24,6 +24,8 @@ pub enum DestructiveAction {
     WorktreeRemove,
     StashDrop,
     TagDelete,
+    TagDeleteRemote,
+    SubmoduleRemove,
     AbortOperation,
     RemoteRemove,
     WorkspaceSync,
@@ -44,6 +46,8 @@ impl DestructiveAction {
             Self::WorktreeRemove => "worktree.remove",
             Self::StashDrop => "stash.drop",
             Self::TagDelete => "tag.delete",
+            Self::TagDeleteRemote => "tag.delete_remote",
+            Self::SubmoduleRemove => "submodule.remove",
             Self::AbortOperation => "operation.abort",
             Self::RemoteRemove => "remote.remove",
             Self::WorkspaceSync => "workspace.sync",
@@ -80,6 +84,12 @@ impl DestructiveAction {
                 "L'entrée de stash est supprimée ; le commit correspondant reste récupérable par son SHA dans le reflog."
             }
             Self::TagDelete => "Le tag local est supprimé ; l'objet commit reste intact.",
+            Self::TagDeleteRemote => {
+                "Le tag est supprimé du remote ; il reste présent localement et peut être repoussé."
+            }
+            Self::SubmoduleRemove => {
+                "Le sous-module est désinitialisé puis retiré de l'index et de .gitmodules ; son contenu de travail est supprimé."
+            }
             Self::AbortOperation => {
                 "L'opération en cours est abandonnée ; les résolutions de conflits non commitées sont perdues."
             }
@@ -103,6 +113,7 @@ impl DestructiveAction {
                 | Self::ResetHard
                 | Self::ForcePush
                 | Self::AbortOperation
+                | Self::SubmoduleRemove
                 | Self::CloseTabInProgress
         )
     }
@@ -115,6 +126,8 @@ impl DestructiveAction {
                 | Self::BranchDeleteMany
                 | Self::ForcePush
                 | Self::TagDelete
+                | Self::TagDeleteRemote
+                | Self::SubmoduleRemove
                 | Self::AbortOperation
         )
     }

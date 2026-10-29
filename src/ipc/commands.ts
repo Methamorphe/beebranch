@@ -6,6 +6,7 @@ import type {
   CommitDetail,
   DiffReport,
   FileContent,
+  FileWriteReport,
   Generation,
   GitlabProject,
   GitlabSession,
@@ -153,6 +154,28 @@ export function fileContentGet(input: {
   })
 }
 
+/**
+ * Write an edited file back to the worktree.
+ *
+ * `expectedSha256` is the hash the editor started from: a mismatch refuses the
+ * write so an external modification is never overwritten silently.
+ */
+export function fileWrite(input: {
+  repoId: string
+  path: string
+  content: string
+  expectedSha256?: string
+}): Promise<FileWriteReport> {
+  return call<FileWriteReport>('file_write', {
+    request: {
+      repoId: input.repoId,
+      path: input.path,
+      content: input.content,
+      expectedSha256: input.expectedSha256,
+    },
+  })
+}
+
 export function recoveryList(): Promise<
   {
     operation: OperationRecord
@@ -254,6 +277,7 @@ import type {
   MutationResult,
   PathSelection,
   PullStrategy,
+  RemoteFetchOutcome,
   RepoLink,
   SearchMode,
   SearchResult,
@@ -320,6 +344,8 @@ export function commitCreate(input: {
   amend?: boolean
   keepMessage?: boolean
   allowEmpty?: boolean
+  /** Skip every commit hook for this commit only. */
+  skipHooks?: boolean
 }): Promise<MutationResult<CommitOutcome>> {
   return call<MutationResult<CommitOutcome>>('commit_create', {
     request: input,
@@ -436,6 +462,15 @@ export function branchIntegrationStart(input: {
 export function syncFetch(repoId: string, remote: string): Promise<MutationResult<SyncOutcome>> {
   return call<MutationResult<SyncOutcome>>('sync_fetch', {
     request: { repoId, remote },
+  })
+}
+
+/** Fetch every remote; one failing remote does not abort the others. */
+export function syncFetchAll(
+  repoId: string,
+): Promise<MutationResult<RemoteFetchOutcome[]>> {
+  return call<MutationResult<RemoteFetchOutcome[]>>('sync_fetch_all', {
+    request: { repoId },
   })
 }
 
@@ -763,9 +798,16 @@ export function workspaceSync(
   workspaceId: string,
   action: 'fetch' | 'pull',
   confirmation?: Confirmation,
+  options?: { repoPaths?: string[]; strategy?: PullStrategy },
 ): Promise<WorkspaceSyncResult[]> {
   return call<WorkspaceSyncResult[]>('workspace_sync', {
-    request: { workspaceId, action, confirmation },
+    request: {
+      workspaceId,
+      action,
+      confirmation,
+      repoPaths: options?.repoPaths?.length ? options.repoPaths : undefined,
+      strategy: options?.strategy,
+    },
   })
 }
 
@@ -798,9 +840,11 @@ import type {
   RebaseCandidates,
   RebaseStep,
   RemoteInfo,
+  SquashPreview,
   SubmoduleReport,
   TagInfo,
   TagPushReport,
+  WorktreePruneReport,
   WorktreeReport,
 } from '../types/git'
 
@@ -827,6 +871,8 @@ export function worktreeRemove(input: {
   repoId: string
   path: string
   force?: boolean
+  /** Delete the branch that was checked out in the removed worktree. */
+  deleteBranch?: boolean
   confirmation: { acknowledged: boolean; typed?: string }
 }): Promise<{ data: WorktreeReport; generation: number }> {
   return call('worktree_remove', { request: input })
@@ -847,11 +893,21 @@ export function worktreeUnlock(input: {
   return call('worktree_unlock', { request: input })
 }
 
-export function worktreePrune(
-  repoId: string,
-  dryRun = false,
-): Promise<{ data: WorktreeReport; generation: number }> {
-  return call('worktree_prune', { request: { repoId, dryRun } })
+export function worktreePrune(input: {
+  repoId: string
+  dryRun?: boolean
+  /** Git duration such as `3.days.ago`. */
+  expire?: string
+}): Promise<{ data: WorktreePruneReport; generation: number }> {
+  return call('worktree_prune', { request: input })
+}
+
+/** Repair the metadata of moved worktrees. */
+export function worktreeRepair(input: {
+  repoId: string
+  path?: string
+}): Promise<{ data: WorktreeReport; generation: number }> {
+  return call('worktree_repair', { request: input })
 }
 
 export function blameGet(input: {
@@ -909,6 +965,33 @@ export function tagPush(input: {
   return call('tag_push', { request: input })
 }
 
+/** Delete the tag on the remote only; the local tag is kept. */
+export function tagDeleteRemote(input: {
+  repoId: string
+  remote: string
+  name: string
+  confirmation: { acknowledged: boolean; typed?: string }
+}): Promise<{ data: TagPushReport; generation: number }> {
+  return call('tag_delete_remote', { request: input })
+}
+
+export function tagAnnotate(input: {
+  repoId: string
+  name: string
+  message: string
+}): Promise<{ data: TagInfo; generation: number }> {
+  return call('tag_annotate', { request: input })
+}
+
+/** Move a tag to a descendant revision (fast-forward only). */
+export function tagMove(input: {
+  repoId: string
+  name: string
+  target: string
+}): Promise<{ data: TagInfo; generation: number }> {
+  return call('tag_move', { request: input })
+}
+
 export function remoteList(repoId: string): Promise<RemoteInfo[]> {
   return call<RemoteInfo[]>('remote_list', { repoId })
 }
@@ -954,6 +1037,8 @@ export function submoduleAdd(input: {
   url: string
   path: string
   branch?: string
+  /** Overwrite an existing path; never implied. */
+  force?: boolean
 }): Promise<{ data: SubmoduleReport; generation: number }> {
   return call('submodule_add', { request: input })
 }
@@ -974,6 +1059,14 @@ export function submoduleSync(input: {
   recursive?: boolean
 }): Promise<{ data: SubmoduleReport; generation: number }> {
   return call('submodule_sync', { request: input })
+}
+
+export function submoduleRemove(input: {
+  repoId: string
+  path: string
+  confirmation: { acknowledged: boolean; typed?: string }
+}): Promise<{ data: SubmoduleReport; generation: number }> {
+  return call('submodule_remove', { request: input })
 }
 
 export function patchCreate(input: {
@@ -1057,6 +1150,22 @@ export function rebaseInteractive(input: {
   return call<MutationResult<HistoryOutcome>>('history_rebase_interactive', {
     request: input,
   })
+}
+
+/** Validate a squash selection and return the combined message. */
+export function historySquashPreview(
+  repoId: string,
+  shas: string[],
+): Promise<SquashPreview> {
+  return call<SquashPreview>('history_squash_preview', { request: { repoId, shas } })
+}
+
+export function historySquash(input: {
+  repoId: string
+  shas: string[]
+  message?: string
+}): Promise<MutationResult<HistoryOutcome>> {
+  return call<MutationResult<HistoryOutcome>>('history_squash', { request: input })
 }
 
 export function historyCherryPick(

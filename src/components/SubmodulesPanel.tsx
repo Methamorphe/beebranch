@@ -6,22 +6,31 @@ import {
   type TranslationParams,
 } from '../i18n'
 import {
+  preferenceGet,
+  preferenceSet,
   submoduleAdd,
   submoduleList,
+  submoduleRemove,
   submoduleSync,
   submoduleUpdate,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
-import type { SubmoduleReport, SubmoduleState } from '../types/git'
+import type { SubmoduleEntry, SubmoduleReport, SubmoduleState } from '../types/git'
+import { ConfirmDialog } from './ConfirmDialog'
 import p2 from './p2.module.css'
 
 type Props = {
   repoId: string
   generation: number
   onMutated: () => void
+  /** Opens the submodule directory as its own repository. */
+  onOpen?: (path: string) => void
 }
 
 type Translate = (key: MessageKey, params?: TranslationParams) => string
+
+/** Persisted preference: refresh submodules after a successful fetch or pull. */
+const SUBMODULE_AUTO_UPDATE = 'git.submodulesAutoUpdate'
 
 function stateLabel(state: SubmoduleState, t: Translate): {
   text: string
@@ -56,7 +65,7 @@ function stateLabel(state: SubmoduleState, t: Translate): {
   }
 }
 
-export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
+export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props) {
   const { t } = useI18n()
   const [report, setReport] = useState<SubmoduleReport | null>(null)
   const [url, setUrl] = useState('')
@@ -64,9 +73,12 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
   const [branch, setBranch] = useState('')
   const [recursive, setRecursive] = useState(true)
   const [remote, setRemote] = useState(false)
+  const [force, setForce] = useState(false)
+  const [autoUpdate, setAutoUpdate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [pendingRemove, setPendingRemove] = useState<SubmoduleEntry | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +91,30 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
   useEffect(() => {
     void load()
   }, [load, generation])
+
+  useEffect(() => {
+    let cancelled = false
+    void preferenceGet(SUBMODULE_AUTO_UPDATE)
+      .then((value) => {
+        if (!cancelled) {
+          setAutoUpdate(value === 'true')
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const toggleAutoUpdate = async (enabled: boolean) => {
+    setAutoUpdate(enabled)
+    try {
+      await preferenceSet(SUBMODULE_AUTO_UPDATE, enabled ? 'true' : 'false')
+    } catch (cause) {
+      setAutoUpdate(!enabled)
+      setError(errorMessage(cause))
+    }
+  }
 
   const run = async (label: string, action: () => Promise<unknown>) => {
     setBusy(true)
@@ -120,6 +156,14 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
             onChange={(event) => setRemote(event.target.checked)}
           />
           {t('ops.submodule.followRemote')}
+        </label>
+        <label className={p2.checkbox} title={t('ops.submodule.autoUpdateHint')}>
+          <input
+            type="checkbox"
+            checked={autoUpdate}
+            onChange={(event) => void toggleAutoUpdate(event.target.checked)}
+          />
+          {t('ops.submodule.autoUpdate')}
         </label>
         <button
           type="button"
@@ -176,7 +220,11 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
             {entries.map((entry) => {
               const label = stateLabel(entry.state, t)
               return (
-                <div key={entry.path} className={p2.entry}>
+                <div
+                  key={entry.path}
+                  className={p2.entry}
+                  style={entry.nested ? { marginLeft: 20 } : undefined}
+                >
                   <span className={p2.dot} data-tone={label.tone || undefined} />
                   <div className={p2.entryStack}>
                     <span className={`${p2.entryTitle} ${p2.mono}`}>{entry.path}</span>
@@ -193,6 +241,16 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
                     </span>
                   </div>
                   <span className={p2.entryActions}>
+                    {onOpen ? (
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        disabled={busy}
+                        onClick={() => onOpen(entry.path)}
+                      >
+                        {t('ops.submodule.open')}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={p2.secondary}
@@ -207,7 +265,7 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
                               repoId,
                               path: entry.path,
                               init: true,
-                              recursive: false,
+                              recursive,
                               remote,
                             }),
                         )
@@ -226,12 +284,20 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
                             submoduleSync({
                               repoId,
                               path: entry.path,
-                              recursive: false,
+                              recursive,
                             }),
                         )
                       }
                     >
                       {t('ops.submodule.sync')}
+                    </button>
+                    <button
+                      type="button"
+                      className={p2.ghostDanger}
+                      disabled={busy}
+                      onClick={() => setPendingRemove(entry)}
+                    >
+                      {t('ops.submodule.remove')}
                     </button>
                   </span>
                 </div>
@@ -277,6 +343,14 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
                 spellCheck={false}
               />
             </label>
+            <label className={p2.checkbox} title={t('ops.submodule.forceHint')}>
+              <input
+                type="checkbox"
+                checked={force}
+                onChange={(event) => setForce(event.target.checked)}
+              />
+              {t('ops.submodule.force')}
+            </label>
             <button
               type="button"
               className={p2.primary}
@@ -288,10 +362,12 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
                     url: url.trim(),
                     path: path.trim(),
                     branch: branch.trim() || undefined,
+                    force,
                   })
                   setUrl('')
                   setPath('')
                   setBranch('')
+                  setForce(false)
                 })
               }
             >
@@ -303,6 +379,33 @@ export function SubmodulesPanel({ repoId, generation, onMutated }: Props) {
           </section>
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title={t('ops.submodule.removeTitle')}
+        consequence={t('ops.submodule.removeConsequence', {
+          path: pendingRemove?.path ?? '',
+        })}
+        irreversible
+        typed={pendingRemove?.path}
+        confirmLabel={t('common.delete')}
+        busy={busy}
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={(typed) => {
+          const target = pendingRemove
+          setPendingRemove(null)
+          if (!target) {
+            return
+          }
+          void run(t('ops.submodule.notice.removed', { path: target.path }), () =>
+            submoduleRemove({
+              repoId,
+              path: target.path,
+              confirmation: { acknowledged: true, typed },
+            }),
+          )
+        }}
+      />
     </div>
   )
 }

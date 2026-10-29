@@ -28,6 +28,7 @@ const messages = {
   'nav.comparison': 'Comparison',
   'nav.profiles': 'Settings',
   'nav.tools': 'External tools',
+  'nav.activity': 'Activity log',
   'nav.recovery': 'Journal & recovery',
 
   'nav.description.workspaces': 'Group your repositories and follow their state in one place.',
@@ -50,6 +51,8 @@ const messages = {
   'nav.description.gitlab': 'Connect your account and link your GitLab projects.',
   'nav.description.github': 'Connect your account and link your GitHub repositories.',
   'nav.description.tools': 'Open your repository in your development tools.',
+  'nav.description.activity':
+    'Every action the application performs, with its duration and outcome.',
   'nav.description.recovery': 'Find interrupted operations and recent actions.',
   'nav.description.diff': 'Compare versions and review every change.',
 }

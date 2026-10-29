@@ -46,6 +46,19 @@ const messages = {
   'workbench.graph.untracked.other': '{count} new',
   'workbench.graph.worktreeStatus': 'In progress',
   'workbench.graph.worktreeTitle': 'Local changes',
+  'workbench.history.actions': 'Git actions in history',
+  'workbench.history.gitMenu': 'Git',
+  'workbench.history.stashBlocked': 'Finish the Git operation before stashing.',
+  'workbench.history.discardDraft': 'Discard the unsaved draft or rebase plan?',
+  'workbench.history.stash': 'Stash',
+  'workbench.history.rebase': 'Interactive rebase',
+  'workbench.history.rebaseHere': 'Interactive rebase current branch onto this…',
+  'workbench.history.rebaseBlocked': 'Requires a local branch, a clean working tree and no Git operation in progress.',
+  'workbench.history.operation': 'Conflicts & operation',
+  'workbench.history.details': 'Open dedicated view',
+  'workbench.history.expand': 'Expand',
+  'workbench.history.reduce': 'Reduce',
+  'workbench.history.close': 'Close operation panel',
 
   'workbench.inspector.closeWorktreeAriaLabel': 'Close commit preparation',
   'workbench.inspector.resizeLabel': 'Resize the side panel',
@@ -180,6 +193,8 @@ const messages = {
   'workbench.preview.worktree': 'Local change',
 
   'workbench.refMenu.branchAlreadyCheckedOut': 'Branch already checked out',
+  'workbench.refMenu.hide': 'Hide this reference',
+  'workbench.refMenu.show': 'Show this reference',
   'workbench.refMenu.compareHead': 'Compare with HEAD',
   'workbench.refMenu.copyBranchLink': 'Copy the branch link',
   'workbench.refMenu.copyBranchName': 'Copy the branch name',
@@ -234,6 +249,18 @@ const messages = {
   'workbench.selection.count.other': '{count} commits selected',
   'workbench.selection.hint':
     'Shift+click another commit to select the range, ⌘/Ctrl+click to compare only the two endpoints.',
+  'workbench.selection.squash': 'Squash {count} commits',
+  'workbench.squash.title': 'Squash commits',
+  'workbench.squash.consequence':
+    'The selected commits are rewritten as one; the commits above them are replayed onto the result. The operation can be undone.',
+  'workbench.squash.count.one': '{count} commit squashed',
+  'workbench.squash.count.other': '{count} commits squashed',
+  'workbench.squash.loading': 'Validating the selection…',
+  'workbench.squash.messageLabel': 'Message of the resulting commit',
+  'workbench.squash.messageAria': 'Message of the resulting commit',
+  'workbench.squash.submit': 'Squash',
+  'workbench.squash.running': 'Squashing…',
+  'workbench.notice.squashed': 'Commits squashed.',
 }
 
 export default messages

@@ -24,6 +24,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
   const [amend, setAmend] = useState(false)
   const [keepMessage, setKeepMessage] = useState(false)
   const [allowEmpty, setAllowEmpty] = useState(false)
+  const [skipHooks, setSkipHooks] = useState(false)
   const [config, setConfig] = useState<CommitConfigView | null>(null)
   const [status, setStatus] = useState<StatusReport | null>(null)
   const [outcome, setOutcome] = useState<CommitOutcome | null>(null)
@@ -104,12 +105,14 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
         amend,
         keepMessage: amend && keepMessage,
         allowEmpty,
+        skipHooks,
       })
       setOutcome(result.data)
       setMessage('')
       setAmend(false)
       setKeepMessage(false)
       setAllowEmpty(false)
+      setSkipHooks(false)
       onMutated()
     } catch (cause) {
       setError(errorMessage(cause))
@@ -191,6 +194,14 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
                 onChange={(event) => setAllowEmpty(event.target.checked)}
               />
               {t('commit.panel.allowEmpty')}
+            </label>
+            <label className={shared.checkbox} title={t('commit.panel.skipHooksHint')}>
+              <input
+                type="checkbox"
+                checked={skipHooks}
+                onChange={(event) => setSkipHooks(event.target.checked)}
+              />
+              {t('commit.panel.skipHooks')}
             </label>
           </div>
           <details className={styles.identity}><summary>{t('commit.panel.identity')}</summary>

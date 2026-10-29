@@ -44,37 +44,24 @@ function projectUrl(
 function parentDirectory(path: string): string | null {
   const trimmed = path.replace(/[\\/]+$/, '')
   const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  return index > 0 ? trimmed.slice(0, index) : null
+  return index >= 0 ? trimmed.slice(0, index + 1) : null
 }
 
 function repoNameFromUrl(url: string) {
-  const trimmed = url.trim().replace(/[\\/]+$/, '')
-  if (!trimmed) {
-    return ''
+  let path = url.trim()
+  if (path.includes('://')) {
+    try {
+      path = new URL(path).pathname
+    } catch {
+      return ''
+    }
+  } else if (!/^[a-z]:/i.test(path) && /^[^/\\:]+:/.test(path)) {
+    path = path.slice(path.indexOf(':') + 1)
   }
-  const path = trimmed.includes('://')
-    ? trimmed.replace(/^[a-z]+:\/\//i, '').replace(/^[^/]+\//, '')
-    : trimmed.includes('@') && trimmed.includes(':')
-      ? trimmed.slice(trimmed.indexOf(':') + 1)
-      : trimmed
   const segments = path.split(/[\\/]/).filter(Boolean)
   const last = segments[segments.length - 1] ?? ''
-  return last.endsWith('.git') ? last.slice(0, -4) : last
-}
-
-function suggestedDestination(
-  project: GitlabProject,
-  recent: RecentRepo[],
-): string | null {
-  const reference = recent[0]?.path
-  if (!reference) {
-    return null
-  }
-  const parent = reference.replace(/\/[^/]+\/?$/, '')
-  if (!parent || parent === reference) {
-    return null
-  }
-  return `${parent}/${project.pathWithNamespace.split('/').pop() ?? project.name}`
+  const name = last.endsWith('.git') ? last.slice(0, -4) : last
+  return name === '.' || name === '..' || name === '.git' ? '' : name
 }
 
 export function Home({
@@ -104,12 +91,17 @@ export function Home({
   const [protocol, setProtocol] = useState<'ssh' | 'https'>('https')
   const [manual, setManual] = useState(false)
   const [url, setUrl] = useState('')
-  const [destination, setDestination] = useState('')
+  const [parent, setParent] = useState('')
   const [branch, setBranch] = useState('')
   const [depth, setDepth] = useState('')
   const [recurse, setRecurse] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const name = repoNameFromUrl(url)
+  const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
+  const destination = parent.trim() && name
+    ? `${parent.trim().replace(/[\\/]+$/, '')}${separator}${name}`
+    : ''
 
   // A new tab lands here ready to search: focus the recent-repos field, and
   // start from a clean query when the tab is opened again. The field only
@@ -204,10 +196,10 @@ export function Home({
     setUrl(projectUrl(project, protocol))
     setManual(false)
     setError(null)
-    if (!destination.trim()) {
-      const suggestion = suggestedDestination(project, recent)
+    if (!parent.trim() && recent[0]?.path) {
+      const suggestion = parentDirectory(recent[0].path)
       if (suggestion) {
-        setDestination(suggestion)
+        setParent(suggestion)
       }
     }
   }
@@ -216,29 +208,27 @@ export function Home({
     if (!onPickDirectory) {
       return
     }
-    setError(null)
-    const current = destination.trim()
+    const current = parent.trim()
     const start =
-      (current ? parentDirectory(current) : null) ??
+      (current || null) ??
       (recent[0]?.path ? parentDirectory(recent[0].path) ?? recent[0].path : undefined)
     try {
-      const parent = await onPickDirectory(start)
-      if (!parent) {
+      const picked = await onPickDirectory(start)
+      if (!picked) {
         return
       }
-      const name = selectedProject
-        ? (selectedProject.pathWithNamespace.split('/').pop() ?? selectedProject.name)
-        : repoNameFromUrl(url) || t('shell.home.defaultRepoName')
-      const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
-      setDestination(`${parent.replace(/[\\/]+$/, '')}${separator}${name}`)
+      setError(null)
+      setParent(picked)
     } catch (cause) {
       setError(errorMessage(cause))
     }
   }
 
+  const canSubmit = Boolean(url.trim() && destination) && (manual || selectedProject)
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!url.trim() || !destination.trim()) {
+    if (!canSubmit) {
       return
     }
     setBusy(true)
@@ -298,7 +288,7 @@ export function Home({
               setError(null)
               setSelectedProject(null)
               setUrl('')
-              setManual(!session?.connected)
+              setManual(!activeSession?.connected)
             }}
             aria-expanded={mode === 'clone'}
           >
@@ -352,9 +342,8 @@ export function Home({
                   checked={manual}
                   onChange={(event) => {
                     setManual(event.target.checked)
-                    if (event.target.checked) {
-                      setSelectedProject(null)
-                    }
+                    setSelectedProject(null)
+                    setUrl('')
                   }}
                 />
                 {t('shell.home.manualUrl')}
@@ -479,8 +468,8 @@ export function Home({
                 <div className={styles.pathRow}>
                   <input
                     id="clone-destination"
-                    value={destination}
-                    onChange={(event) => setDestination(event.target.value)}
+                    value={parent}
+                    onChange={(event) => setParent(event.target.value)}
                     placeholder={t('shell.home.destinationPlaceholder')}
                     spellCheck={false}
                     required
@@ -499,6 +488,11 @@ export function Home({
                 <span className={styles.hint}>
                   {t('shell.home.browseHint')}
                 </span>
+                {destination ? (
+                  <output className={styles.hint} htmlFor="clone-destination">
+                    {t('shell.home.destinationPreview', { path: destination })}
+                  </output>
+                ) : null}
               </div>
               <div className={styles.options}>
                 <label className={styles.field}>
@@ -539,7 +533,7 @@ export function Home({
               <button
                 type="submit"
                 className={styles.primary}
-                disabled={busy || !url.trim() || !destination.trim()}
+                disabled={busy || !canSubmit}
               >
                 {busy ? t('shell.home.cloning') : t('shell.home.clone')}
               </button>

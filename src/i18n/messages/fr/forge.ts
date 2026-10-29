@@ -147,7 +147,6 @@ const messages = {
   'forge.detail.strategyMergeCommit': 'Merge commit',
   'forge.detail.strategySquash': 'Squash',
   'forge.detail.strategyRebase': 'Rebase',
-  'forge.detail.strategyRebaseMerge': 'Rebase merge',
   'forge.detail.squash': 'squash',
   'forge.detail.removeSource': 'supprimer la branche source',
   'forge.detail.autoMerge': 'auto-merge si la pipeline réussit',

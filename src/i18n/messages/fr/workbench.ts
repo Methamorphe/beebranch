@@ -46,6 +46,19 @@ const messages = {
   'workbench.graph.untracked.other': '{count} nouveau(x)',
   'workbench.graph.worktreeStatus': 'En cours',
   'workbench.graph.worktreeTitle': 'Modifications locales',
+  'workbench.history.actions': 'Actions Git dans l’historique',
+  'workbench.history.gitMenu': 'Git',
+  'workbench.history.stashBlocked': 'Terminez l’opération Git avant de créer un stash.',
+  'workbench.history.discardDraft': 'Abandonner le brouillon ou le plan de rebase non enregistré ?',
+  'workbench.history.stash': 'Stash',
+  'workbench.history.rebase': 'Rebase interactif',
+  'workbench.history.rebaseHere': 'Rebaser la branche courante ici (interactif)…',
+  'workbench.history.rebaseBlocked': 'Nécessite une branche locale, un répertoire de travail propre et aucune opération Git en cours.',
+  'workbench.history.operation': 'Conflits et opération',
+  'workbench.history.details': 'Ouvrir la vue dédiée',
+  'workbench.history.expand': 'Agrandir',
+  'workbench.history.reduce': 'Réduire',
+  'workbench.history.close': 'Fermer le panneau d’opération',
 
   'workbench.inspector.closeWorktreeAriaLabel': 'Fermer la préparation du commit',
   'workbench.inspector.resizeLabel': 'Redimensionner le panneau latéral',
@@ -185,6 +198,8 @@ const messages = {
   'workbench.preview.worktree': 'Modification locale',
 
   'workbench.refMenu.branchAlreadyCheckedOut': 'Branche déjà extraite',
+  'workbench.refMenu.hide': 'Masquer cette référence',
+  'workbench.refMenu.show': 'Afficher cette référence',
   'workbench.refMenu.compareHead': 'Comparer à HEAD',
   'workbench.refMenu.copyBranchLink': 'Copier le lien de la branche',
   'workbench.refMenu.copyBranchName': 'Copier le nom de la branche',
@@ -239,6 +254,18 @@ const messages = {
   'workbench.selection.count.other': '{count} commit(s) sélectionné(s)',
   'workbench.selection.hint':
     'Maj+clic sur un autre commit pour sélectionner la plage, ⌘/Ctrl+clic pour ne comparer que les deux extrémités.',
+  'workbench.selection.squash': 'Combiner {count} commits',
+  'workbench.squash.title': 'Combiner des commits',
+  'workbench.squash.consequence':
+    'Les commits sélectionnés seront réécrits en un seul ; les commits au-dessus sont rejoués sur le résultat. L’opération est annulable.',
+  'workbench.squash.count.one': '{count} commit combiné',
+  'workbench.squash.count.other': '{count} commits combinés',
+  'workbench.squash.loading': 'Validation de la sélection…',
+  'workbench.squash.messageLabel': 'Message du commit résultant',
+  'workbench.squash.messageAria': 'Message du commit résultant',
+  'workbench.squash.submit': 'Combiner',
+  'workbench.squash.running': 'Combinaison…',
+  'workbench.notice.squashed': 'Commits combinés.',
 }
 
 export default messages

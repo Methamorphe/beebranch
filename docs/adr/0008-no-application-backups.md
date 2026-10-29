@@ -1,55 +1,55 @@
-# ADR-0008 — Aucune sauvegarde applicative ; undo limité à Git
+# ADR-0008 — No application backups; undo limited to Git
 
-- **Statut :** accepté
-- **Date :** 2026-10-27
-- **Décideurs :** équipe projet
-- **Remplace :** [ADR-0002](0002-explicit-undo-redo.md)
+- **Status:** accepted
+- **Date:** 2026-10-27
+- **Decision makers:** project team
+- **Supersedes:** [ADR-0002](0002-explicit-undo-redo.md)
 
-## Contexte
+## Context
 
-ADR-0002 prévoyait des sauvegardes ciblées avant les actions destructives (contenu de fichiers supprimés, index, refs). La décision produit est de **ne pas maintenir de sauvegardes applicatives** : pas de copie de working tree, pas de quota, pas de rétention.
+ADR-0002 planned targeted backups before destructive actions (deleted file contents, index, refs). The product decision is to **not maintain application backups**: no working tree copy, no quota, no retention.
 
-Cette décision réduit la complexité et le stockage, mais augmente le risque de perte sur les actions destructives. Elle doit rester compatible avec l'exigence « aucune perte silencieuse » : la réponse est la confirmation explicite et l'affichage de l'irréversibilité, pas une promesse d'annulation.
+This decision reduces complexity and storage, but increases the risk of loss from destructive actions. It must remain compatible with the “no silent loss” requirement: the answer is explicit confirmation and displaying irreversibility, not a promise of undo.
 
-## Décision
+## Decision
 
-1. **Aucune copie applicative** de fichiers, d'index ou de working tree.
-2. L'undo/redo ne couvre que les opérations dont l'inverse utilise des **refs, commits, arbres d'index et objets Git**.
-3. Sont explicitement **irréversibles** : discard fichier/hunk, `reset --hard`, `stash drop`, `stash apply/pop`, push, fetch, mise à jour de submodule.
-4. Les actions irréversibles exigent une confirmation qui décrit l'effet exact et indique qu'aucun undo n'est possible.
-5. L'application ne supprime jamais de fichier non suivi ; le discard ne concerne que le contenu suivi.
-6. L'undo/redo complet reste en P3 ; les confirmations et le préflight sont en P1.
-7. Un échec de restauration affiche la commande, l'étape et le SHA de récupération via le reflog ; aucune réparation automatique.
+1. **No application copies** of files, the index, or the working tree.
+2. Undo/redo covers only operations whose inverse uses **refs, commits, index trees, and Git objects**.
+3. Explicitly **irreversible** operations: file/hunk discard, `reset --hard`, `stash drop`, `stash apply/pop`, push, fetch, submodule update.
+4. Irreversible actions require confirmation describing the exact effect and stating that no undo is possible.
+5. The application never deletes untracked files; discard applies only to tracked content.
+6. Full undo/redo remains in P3; confirmations and preflight are in P1.
+7. A restoration failure displays the command, step, and recovery SHA via the reflog; no automatic repair.
 
-## Alternatives considérées
+## Alternatives considered
 
-| Alternative | Avantages | Inconvénients | Pourquoi rejetée |
+| Alternative | Advantages | Disadvantages | Why rejected |
 |---|---|---|---|
-| Sauvegardes ciblées (ADR-0002) | Undo des discard/reset hard | Stockage, quota, nettoyage, complexité | Décision produit : pas de sauvegarde |
-| Snapshot complet avant chaque action | Récupération maximale | Coût disque/temps inacceptable | Surdimensionné |
-| Aucun undo du tout | Très simple | Perte d'un différenciateur utile | L'undo basé sur Git reste peu coûteux |
-| Corbeille OS pour les fichiers supprimés | Récupération | Comportement variable, hors modèle Git | Ne couvre pas les hunks |
+| Targeted backups (ADR-0002) | Undo for discard/reset hard | Storage, quota, cleanup, complexity | Product decision: no backups |
+| Full snapshot before each action | Maximum recovery | Unacceptable disk/time cost | Overengineered |
+| No undo at all | Very simple | Loss of a useful differentiator | Git-based undo remains inexpensive |
+| OS trash for deleted files | Recovery | Variable behavior, outside the Git model | Does not cover hunks |
 
-## Conséquences
+## Consequences
 
-### Positives
+### Positive
 
-- Modèle simple : l'état de référence est Git.
-- Aucun stockage annexe, aucun quota, aucune fuite de données dans app data.
-- Moins de code et de tests.
+- Simple model: Git is the reference state.
+- No ancillary storage, no quota, no data leaks into app data.
+- Less code and fewer tests.
 
-### Négatives
+### Negative
 
-- Discard et `reset --hard` sont définitivement perdants pour le travail non commité.
-- L'UX doit être très claire sur l'irréversibilité.
-- Les incidents de perte de travail sont possibles et acceptés comme risque produit.
+- Discard and `reset --hard` permanently lose uncommitted work.
+- The UX must be very clear about irreversibility.
+- Work loss incidents are possible and accepted as a product risk.
 
-### Risques
+### Risks
 
-- **Perte de travail** (R-16) : mitigation par confirmation forte, préflight, aucune suppression de fichier non suivi, et éducation utilisateur.
-- **Fausse attente d'undo** : l'UI ne montre jamais d'undo pour une action irréversible.
-- **Réintroduction future** : si un incident majeur survient, rouvrir la décision avec un nouvel ADR et des sauvegardes ciblées.
+- **Work loss** (R-16): mitigation through strong confirmation, preflight, no deletion of untracked files, and user education.
+- **False expectation of undo**: the UI never shows undo for an irreversible action.
+- **Future reintroduction**: if a major incident occurs, reopen the decision with a new ADR and targeted backups.
 
-## Critères de révision
+## Revision criteria
 
-Réexaminer après un incident de perte de données significatif, ou si les utilisateurs demandent explicitement la récupération des discard/reset hard. Toute réintroduction de sauvegarde doit définir le stockage, le quota, la rétention, le chiffrement et les tests de restauration.
+Revisit after a significant data loss incident, or if users explicitly request recovery from discard/reset hard. Any reintroduction of backups must define storage, quota, retention, encryption, and restoration tests.

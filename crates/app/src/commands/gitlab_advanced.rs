@@ -372,9 +372,13 @@ pub async fn gitlab_merge_mr(
         ));
     }
     if let Some(method) = input.merge_method.as_deref() {
-        if !matches!(method, "merge" | "rebase_merge") {
+        // GitLab only accepts `merge` and `squash` on the merge endpoint;
+        // `rebase_merge` is a project setting applied by a separate async
+        // rebase call, which is not implemented.
+        if !matches!(method, "merge") {
             return Err(AppError::invalid_input(
-                "La stratégie de merge doit être `merge` ou `rebase_merge`.".to_owned(),
+                "La stratégie de merge doit être `merge` ; le squash est demandé séparément."
+                    .to_owned(),
             ));
         }
     }

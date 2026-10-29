@@ -96,6 +96,9 @@ pub struct GithubPullRequest {
     pub web_url: String,
     pub updated_at: Option<String>,
     pub user_notes_count: u32,
+    /// GitHub REST never embeds checks in a pull request payload: the field
+    /// stays `None` on lists and detail, and the frontend derives the CI badge
+    /// from the check runs returned by the pipelines call.
     pub head_pipeline: Option<GithubPipeline>,
     /// `owner/repo`, present on cross-repository search results.
     #[serde(default)]

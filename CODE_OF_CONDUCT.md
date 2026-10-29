@@ -1,75 +1,71 @@
-# Code de conduite
+# Code of conduct
 
-## Notre engagement
+## Our pledge
 
-En tant que membres, contributeurs et mainteneurs, nous nous engageons à faire
-de la participation à ce projet une expérience exempte de harcèlement pour
-tout le monde, indépendamment de l'âge, de la taille, du handicap visible ou
-invisible, de l'origine ethnique, des caractéristiques sexuelles, de l'identité
-et de l'expression de genre, du niveau d'expérience, de l'éducation, du statut
-socio-économique, de la nationalité, de l'apparence, de la race, de la religion
-ou de l'identité et de l'orientation sexuelles.
+As members, contributors and maintainers, we pledge to make participation in
+this project a harassment-free experience for everyone, regardless of age, body
+size, visible or invisible disability, ethnicity, sex characteristics, gender
+identity and expression, level of experience, education, socio-economic status,
+nationality, personal appearance, race, religion, or sexual identity and
+orientation.
 
-Nous nous engageons à agir et interagir de manière à contribuer à une
-communauté ouverte, accueillante, diversifiée, inclusive et saine.
+We pledge to act and interact in ways that contribute to an open, welcoming,
+diverse, inclusive and healthy community.
 
-## Comportements attendus
+## Expected behaviors
 
-- Faire preuve d'empathie et de bienveillance.
-- Respecter les opinions, points de vue et expériences divergents.
-- Donner et accepter un retour constructif.
-- Assumer la responsabilité de ses erreurs, s'excuser auprès des personnes
-  affectées et apprendre de l'expérience.
-- Se concentrer sur ce qui est le mieux pour la communauté et le projet.
+- Demonstrate empathy and kindness.
+- Respect differing opinions, viewpoints and experiences.
+- Give and accept constructive feedback.
+- Take responsibility for one's mistakes, apologize to the people affected and
+  learn from the experience.
+- Focus on what is best for the community and the project.
 
-## Comportements inacceptables
+## Unacceptable behaviors
 
-- L'usage de langage ou d'imagerie sexualisés, et toute attention sexuelle
-  importune.
-- Le trolling, les commentaires insultants ou dénigrants, les attaques
-  personnelles ou politiques.
-- Le harcèlement public ou privé.
-- La publication d'informations privées d'autrui (adresse, courriel, identité)
-  sans autorisation explicite.
-- Toute autre conduite raisonnablement considérée comme inappropriée dans un
-  cadre professionnel.
+- The use of sexualized language or imagery, and any unwelcome sexual attention.
+- Trolling, insulting or derogatory comments, personal or political attacks.
+- Public or private harassment.
+- Publishing others' private information (address, email, identity) without
+  explicit permission.
+- Any other conduct that could reasonably be considered inappropriate in a
+  professional setting.
 
-## Responsabilités des mainteneurs
+## Maintainer responsibilities
 
-Les mainteneurs clarifient et font respecter ces règles. Ils prennent des
-mesures correctives appropriées et équitables face à tout comportement
-inacceptable : retrait ou modification de commentaires, commits, code, issues
-ou contributions, et exclusion temporaire ou définitive du projet.
+Maintainers clarify and enforce these rules. They take appropriate and fair
+corrective action in response to any unacceptable behavior: removing or editing
+comments, commits, code, issues or contributions, and temporarily or
+permanently excluding anyone from the project.
 
-## Portée
+## Scope
 
-Ce code s'applique dans tous les espaces du projet (issues, PR, discussions,
-revues) et lorsqu'une personne représente officiellement le projet dans un
-espace public.
+This code applies in all project spaces (issues, PRs, discussions, reviews) and
+when an individual officially represents the project in a public space.
 
-## Signalement
+## Reporting
 
-Les comportements abusifs, harcelants ou autrement inacceptables peuvent être
-signalés aux mainteneurs de façon privée via une
-[avis de sécurité GitHub](https://github.com/Methamorphe/beebranch/security/advisories/new)
-ou par message direct aux mainteneurs. Toutes les plaintes sont examinées
-promptement et équitablement. Les mainteneurs respectent la vie privée et la
-sécurité des personnes qui signalent un incident.
+Abusive, harassing or otherwise unacceptable behavior may be reported to the
+maintainers privately through a
+[GitHub security advisory](https://github.com/Methamorphe/beebranch/security/advisories/new)
+or by direct message to the maintainers. All complaints are reviewed promptly
+and fairly. Maintainers respect the privacy and security of the people who
+report an incident.
 
-## Application
+## Enforcement
 
-1. **Correction** : avertissement privé, explication de la nature du
-   comportement et de son impact.
-2. **Avertissement** : conséquence en cas de récidive, y compris l'absence
-   d'interaction avec les personnes concernées pendant une période définie.
-3. **Exclusion temporaire** : interdiction d'interaction publique ou privée avec
-   le projet pendant une période définie.
-4. **Exclusion définitive** : exclusion permanente de toute interaction publique
-   avec le projet.
+1. **Correction**: private warning, explanation of the nature of the behavior
+   and its impact.
+2. **Warning**: consequence in case of recurrence, including no interaction
+   with the people concerned for a defined period.
+3. **Temporary ban**: prohibition of public or private interaction with the
+   project for a defined period.
+4. **Permanent ban**: permanent exclusion from any public interaction with the
+   project.
 
 ## Attribution
 
-Ce code de conduite est adapté du
+This code of conduct is adapted from the
 [Contributor Covenant](https://www.contributor-covenant.org/), version 2.1,
-disponible sous licence
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+available under the
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license.

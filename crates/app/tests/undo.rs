@@ -108,6 +108,7 @@ fn commit_is_recorded_undone_redone_and_refused_after_a_new_commit() {
                         amend: false,
                         keep_message: false,
                         allow_empty: false,
+                        ..CommitOptions::default()
                     },
                 )?;
                 let builder = Box::new(

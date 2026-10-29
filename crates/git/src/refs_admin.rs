@@ -95,7 +95,11 @@ pub fn validate_remote_url(url: &str) -> Result<(), AppError> {
             "L'URL du remote ne peut pas contenir d'espace.".to_owned(),
         ));
     }
-    if let Some((userinfo, _)) = trimmed.split_once('@') {
+    // Only a password inside the userinfo is a credential. For scheme URLs the
+    // protocol colon is not part of it (`ssh://git@host/repo`), and scp-like
+    // syntax (`git@host:path`) has no colon before the `@` either.
+    if let Some((head, _)) = trimmed.split_once('@') {
+        let userinfo = head.rsplit_once("://").map(|(_, rest)| rest).unwrap_or(head);
         if userinfo.contains(':') {
             return Err(AppError::new(
                 "remote.url_has_credentials",
@@ -222,6 +226,105 @@ pub fn create_tag(
         })
 }
 
+/// Commit a tag points at, peeled from the annotated object when needed.
+fn tag_commit(runner: &GitRunner, worktree: &Path, name: &str) -> Result<String, AppError> {
+    validate_tag_name(runner, worktree, name)?;
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::RevParse, worktree)
+            .arg("--verify")
+            .arg(format!("refs/tags/{name}^{{commit}}")),
+    )?;
+    if !outcome.success() {
+        return Err(AppError::new(
+            "tag.missing",
+            ErrorCategory::GitState,
+            "Le tag est introuvable.",
+        )
+        .with_detail(name.to_owned()));
+    }
+    Ok(outcome.stdout.text_lossy().trim().to_owned())
+}
+
+/// Turn a lightweight tag into an annotated one, keeping its commit.
+pub fn annotate_tag(
+    runner: &GitRunner,
+    worktree: &Path,
+    name: &str,
+    message: &str,
+) -> Result<TagInfo, AppError> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::invalid_input(
+            "Un tag annoté nécessite un message.".to_owned(),
+        ));
+    }
+    let commit = tag_commit(runner, worktree, name)?;
+    create_tag(runner, worktree, name, Some(trimmed), Some(&commit), true)
+}
+
+/// Move a tag forward to a descendant commit.
+///
+/// A tag only ever names an existing commit, so moving it is a fast-forward:
+/// the current target must be an ancestor of the new one. The annotation, when
+/// present, is preserved.
+pub fn move_tag(
+    runner: &GitRunner,
+    worktree: &Path,
+    name: &str,
+    target: &str,
+) -> Result<TagInfo, AppError> {
+    validate_tag_name(runner, worktree, name)?;
+    crate::log::validate_revision(target)?;
+    let current = tag_commit(runner, worktree, name)?;
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::RevParse, worktree)
+            .arg("--verify")
+            .arg(format!("{target}^{{commit}}")),
+    )?;
+    if !outcome.success() {
+        return Err(AppError::new(
+            "tag.unknown_target",
+            ErrorCategory::Input,
+            "La cible du tag est introuvable.",
+        )
+        .with_detail(target.to_owned()));
+    }
+    let next = outcome.stdout.text_lossy().trim().to_owned();
+    if next == current {
+        return list_tags(runner, worktree)?
+            .into_iter()
+            .find(|tag| tag.name == name)
+            .ok_or_else(|| {
+                AppError::new(
+                    "tag.missing",
+                    ErrorCategory::GitState,
+                    "Le tag est introuvable.",
+                )
+                .with_detail(name.to_owned())
+            });
+    }
+    // `target..current` empty ⇒ every commit reachable from the current target
+    // is reachable from the new one: the move is a fast-forward.
+    let behind = runner.run(
+        &CommandSpec::new(GitSubcommand::RevList, worktree)
+            .arg("--count")
+            .arg(format!("{next}..{current}")),
+    )?;
+    if !behind.success() || behind.stdout.text_lossy().trim() != "0" {
+        return Err(AppError::new(
+            "tag.not_fast_forward",
+            ErrorCategory::Input,
+            "Un tag ne peut avancer que vers un commit descendant.",
+        )
+        .with_detail(format!("{current} → {next}")));
+    }
+    let message = list_tags(runner, worktree)?
+        .into_iter()
+        .find(|tag| tag.name == name)
+        .and_then(|tag| tag.message);
+    create_tag(runner, worktree, name, message.as_deref(), Some(&next), true)
+}
+
 pub fn delete_tag(runner: &GitRunner, worktree: &Path, name: &str) -> Result<(), AppError> {
     validate_tag_name(runner, worktree, name)?;
     let outcome = runner.run(
@@ -272,6 +375,40 @@ pub fn push_tag(
     })
 }
 
+/// Delete a tag on the remote only. The local tag is left in place, mirroring
+/// GitKraken's separate "delete from <remote>" action.
+pub fn delete_tag_remote(
+    runner: &GitRunner,
+    worktree: &Path,
+    remote: &str,
+    name: &str,
+) -> Result<PushReport, AppError> {
+    validate_remote_name(remote)?;
+    validate_tag_name(runner, worktree, name)?;
+    let reference = format!("refs/tags/{name}");
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::Push, worktree)
+            .arg("--progress")
+            .arg(remote)
+            .arg(format!(":{reference}"))
+            .timeout(NETWORK_TIMEOUT),
+    )?;
+    if !outcome.success() {
+        return Err(AppError::new(
+            "tag.delete_remote_failed",
+            ErrorCategory::Network,
+            "Le tag n'a pas pu être supprimé du remote.",
+        )
+        .with_detail(outcome.stderr.redacted()));
+    }
+    Ok(PushReport {
+        remote: remote.to_owned(),
+        reference,
+        stdout: outcome.stdout.text_lossy(),
+        stderr: outcome.stderr.redacted(),
+    })
+}
+
 pub fn list_remotes(runner: &GitRunner, worktree: &Path) -> Result<Vec<RemoteInfo>, AppError> {
     let outcome = runner
         .run(&CommandSpec::new(GitSubcommand::Remote, worktree).arg("-v"))?
@@ -299,12 +436,31 @@ fn parse_remotes(text: &str) -> Vec<RemoteInfo> {
             }
         };
         if direction == "(fetch)" {
-            remote.fetch_url = Some(url.to_owned());
+            remote.fetch_url = Some(redact_remote_url(url));
         } else if direction == "(push)" {
-            remote.push_url = Some(url.to_owned());
+            remote.push_url = Some(redact_remote_url(url));
         }
     }
     remotes
+}
+
+/// Hide an embedded password before a URL reaches the interface.
+///
+/// A repository configured outside BeeBranch may still carry
+/// `https://user:secret@host`: the URL is displayed, so the secret never
+/// leaves the backend.
+fn redact_remote_url(url: &str) -> String {
+    let Some((head, tail)) = url.split_once('@') else {
+        return url.to_owned();
+    };
+    let (prefix, userinfo) = match head.rsplit_once("://") {
+        Some((scheme, rest)) => (format!("{scheme}://"), rest),
+        None => (String::new(), head),
+    };
+    match userinfo.split_once(':') {
+        Some((user, _)) => format!("{prefix}{user}:***@{tail}"),
+        None => url.to_owned(),
+    }
 }
 
 pub fn add_remote(

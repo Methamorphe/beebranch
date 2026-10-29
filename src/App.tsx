@@ -61,6 +61,7 @@ import {
 } from './lib/mediaSettings'
 import {
   DEFAULT_SHORTCUTS,
+  SHORTCUT_LABELS,
   displayShortcut,
   findConflicts,
   normalizeShortcut,
@@ -120,6 +121,7 @@ export default function App() {
   const installingUpdateRef = useRef(false)
   const [worktreeRequest, setWorktreeRequest] = useState(0)
   const [branchRequest, setBranchRequest] = useState(0)
+  const [historyRequest, setHistoryRequest] = useState<Parameters<typeof Workbench>[0]['historyRequest']>(null)
   const [generation, setGeneration] = useState(0)
   const [diffRequest, setDiffRequest] = useState<Parameters<typeof Workbench>[0]['diffRequest']>(null)
   const [recent, setRecent] = useState<RecentRepo[]>([])
@@ -147,6 +149,8 @@ export default function App() {
   setLocale(locale)
   const [density, setDensity] = useState<Density>('comfortable')
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(DEFAULT_SHORTCUTS)
+  /** Labels of the actions whose stored binding was reverted to its default. */
+  const [shortcutConflict, setShortcutConflict] = useState<string[]>([])
   const [layout, setLayout] = useState<LayoutPreferences>(defaultLayout)
   const [background, setBackground] = useState<MediaSettings | null>(null)
   // Decoded `data:` URL for the wallpaper; kept out of state serialization
@@ -356,9 +360,21 @@ export default function App() {
                 normalized[action] =
                   normalizeShortcut(merged[action] ?? '') ?? DEFAULT_SHORTCUTS[action]
               }
-              if (findConflicts(normalized).length === 0) {
-                setShortcuts(normalized)
+              // A duplicate binding makes one action unreachable: the conflicting
+              // actions fall back to their default instead of being dropped
+              // silently, and the interface reports them.
+              let resolved = normalized
+              const conflicting = findConflicts(normalized)
+              if (conflicting.length > 0) {
+                resolved = { ...normalized }
+                for (const action of conflicting) {
+                  resolved[action] = DEFAULT_SHORTCUTS[action]
+                }
+                setShortcutConflict(
+                  conflicting.map((action) => t(SHORTCUT_LABELS[action])),
+                )
               }
+              setShortcuts(resolved)
             }
           } catch {
             // Keep the defaults when the stored shortcut map is corrupt.
@@ -991,6 +1007,12 @@ export default function App() {
     }
     setPaletteOpen(false)
   }, [])
+  const openHistoryAction = useCallback((kind: 'stash' | 'rebase' | 'conflicts') => {
+    setLauncherOpen(false)
+    setView('graph')
+    setHistoryRequest((current) => ({ kind, serial: (current?.serial ?? 0) + 1 }))
+    setPaletteOpen(false)
+  }, [])
 
   // Branch creation happens in the commit graph itself; this request is
   // forwarded to the workbench so the inline ref editor opens on HEAD.
@@ -1099,7 +1121,7 @@ export default function App() {
         label: t('shell.palette.resolveConflicts'),
         group: t('shell.palette.group.actions'),
         available: Boolean(repoId),
-        run: () => navigate('conflicts'),
+        run: () => openHistoryAction('conflicts'),
       },
       {
         id: 'action-new-branch',
@@ -1115,7 +1137,7 @@ export default function App() {
         label: t('shell.palette.rebase'),
         group: t('shell.palette.group.actions'),
         available: Boolean(repoId),
-        run: () => navigate('rebase'),
+        run: () => openHistoryAction('rebase'),
       },
       {
         id: 'action-undo',
@@ -1224,7 +1246,7 @@ export default function App() {
       })
     }
     return items
-  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale])
+  }, [navigate, openHistoryAction, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale])
 
   useZoom()
 
@@ -1316,7 +1338,10 @@ export default function App() {
         onOpenDialog={openRepositoryDialog}
         onOpenPalette={() => setPaletteOpen(true)}
         onRefresh={() => void refresh()}
-        onNavigate={navigate}
+        onNavigate={(target) => {
+          if (target === 'stash' || target === 'rebase' || target === 'conflicts') openHistoryAction(target)
+          else navigate(target)
+        }}
         onNewBranch={newBranch}
         onError={setError}
         undo={undoState?.undo ?? null}
@@ -1378,16 +1403,12 @@ export default function App() {
                   ? ` · ${plural('shell.operation.conflictFiles.one', 'shell.operation.conflictFiles.other', repo.state.conflicts.files.length)}`
                   : ''}
               </span>
-              <button type="button" onClick={() => navigate('conflicts')}>
+              <button type="button" onClick={() => openHistoryAction('conflicts')}>
                 {t('shell.operation.resolve')}
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  navigate(
-                    repo.state.operation?.kind === 'rebase' ? 'rebase' : 'conflicts',
-                  )
-                }
+                onClick={() => openHistoryAction('conflicts')}
               >
                 {t('shell.operation.manage')}
               </button>
@@ -1429,6 +1450,7 @@ export default function App() {
                 view={view}
                 worktreeRequest={worktreeRequest}
                 branchRequest={branchRequest}
+                historyRequest={historyRequest}
                 diffRequest={diffRequest}
                 onOpenDiff={openDiff}
                 onOpenRepo={(path) => void openRepo(path)}
@@ -1448,6 +1470,7 @@ export default function App() {
                 splashError={splashError}
                 onSplashChange={(next) => void changeSplash(next)}
                 shortcuts={shortcuts}
+                shortcutConflict={shortcutConflict}
                 onShortcutsChange={(next) => {
                   setShortcuts(next)
                   void preferenceSet(SHORTCUTS_KEY, JSON.stringify(next))

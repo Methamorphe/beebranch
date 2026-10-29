@@ -56,6 +56,10 @@ pub struct CommitDetail {
     /// Set when the commit is a stash entry (`refs/stash` reflog).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stash: Option<StashSnapshot>,
+    /// Signature verification code from `git show --format=%G?` (`G`, `B`, `U`,
+    /// `N`, …). `None` when Git could not report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 /// Read a commit detail. Merge commits diff against their first parent.
@@ -92,7 +96,32 @@ pub fn read_commit(
         files_truncated,
         message_truncated,
         stash: None,
+        signature: signature_status(runner, worktree, sha),
     })
+}
+
+/// Signature verification code for one commit, from `git show --format=%G?`.
+///
+/// A repository without a configured key answers `N`; a failure to run the
+/// check yields `None` rather than a fabricated status.
+fn signature_status(runner: &GitRunner, worktree: &Path, sha: &str) -> Option<String> {
+    let outcome = runner
+        .run(
+            &CommandSpec::new(GitSubcommand::Show, worktree)
+                .arg("-s")
+                .arg("--format=%G?")
+                .arg(sha),
+        )
+        .ok()?;
+    if !outcome.success() {
+        return None;
+    }
+    let code = outcome.stdout.text_lossy();
+    let trimmed = code.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_owned())
 }
 
 /// Read the files changed between `base` (or the root tree when `None`) and
@@ -384,6 +413,16 @@ pub struct CommitOptions {
     /// Amend without changing the message (`--no-edit`).
     pub keep_message: bool,
     pub allow_empty: bool,
+    /// Skip every commit hook for this commit only (`--no-verify`).
+    pub skip_hooks: bool,
+    /// Force signing (`-S`) or force no signature (`--no-gpg-sign`);
+    /// `None` follows the repository configuration.
+    pub sign: Option<bool>,
+    /// Overrides `core.hooksPath` for this commit only.
+    pub hooks_path: Option<String>,
+    /// Overrides `user.signingkey` and `gpg.format` for this commit only.
+    pub signing_key: Option<String>,
+    pub signing_format: Option<String>,
 }
 
 /// Result of a successful commit.
@@ -464,7 +503,18 @@ where
 
     let discovery = crate::discover::discover(runner, worktree)?;
     let detected = crate::state::detect(runner, &discovery, Some(1))?;
-    if detected.state.operation.is_some() || !detected.state.conflicts.is_empty() {
+    // Interactive rebase `edit` stops on purpose: Git expects `git commit
+    // --amend` before `rebase --continue`. Only that stop may amend, and only
+    // without unresolved conflicts.
+    let edit_stop = options.amend
+        && detected.state.conflicts.is_empty()
+        && matches!(
+            detected.state.operation,
+            Some(beebranch_core::InProgressOperation::Rebase { .. })
+        );
+    if (detected.state.operation.is_some() && !edit_stop)
+        || !detected.state.conflicts.is_empty()
+    {
         return Err(AppError::new(
             "operation.in_progress",
             beebranch_core::ErrorCategory::GitState,
@@ -510,6 +560,56 @@ where
     }
     if options.allow_empty {
         spec = spec.arg("--allow-empty");
+    }
+    if options.skip_hooks {
+        spec = spec.arg("--no-verify");
+    }
+    match options.sign {
+        Some(true) => {
+            spec = spec.arg("-S");
+        }
+        Some(false) => {
+            spec = spec.arg("--no-gpg-sign");
+        }
+        None => {}
+    }
+    // Configuration overrides travel through the environment so no opaque
+    // option reaches the argv allowlist. One entry per key Git must see.
+    let mut overrides: Vec<(&str, String)> = Vec::new();
+    if let Some(hooks) = options.hooks_path.as_deref() {
+        let trimmed = hooks.trim();
+        if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+            return Err(AppError::invalid_input(
+                "Le chemin des hooks est invalide.".to_owned(),
+            ));
+        }
+        overrides.push(("core.hooksPath", trimmed.to_owned()));
+    }
+    if let Some(key) = options.signing_key.as_deref() {
+        let trimmed = key.trim();
+        if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+            return Err(AppError::invalid_input(
+                "La clé de signature est invalide.".to_owned(),
+            ));
+        }
+        overrides.push(("user.signingkey", trimmed.to_owned()));
+    }
+    if let Some(format) = options.signing_format.as_deref() {
+        let trimmed = format.trim();
+        if !matches!(trimmed, "openpgp" | "ssh" | "x509") {
+            return Err(AppError::invalid_input(
+                "Le format de signature doit être `openpgp`, `ssh` ou `x509`.".to_owned(),
+            ));
+        }
+        overrides.push(("gpg.format", trimmed.to_owned()));
+    }
+    if !overrides.is_empty() {
+        spec = spec.env("GIT_CONFIG_COUNT", overrides.len().to_string());
+        for (index, (key, value)) in overrides.iter().enumerate() {
+            spec = spec
+                .env(format!("GIT_CONFIG_KEY_{index}"), *key)
+                .env(format!("GIT_CONFIG_VALUE_{index}"), value.clone());
+        }
     }
     if options.amend && options.keep_message {
         spec = spec.arg("--no-edit");

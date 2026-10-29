@@ -48,6 +48,11 @@ const messages = {
   'search.nextPage': 'Next page',
 
   'search.emptyBody': 'Try another term or widen the search filters.',
+  'search.save': 'Save',
+  'search.saveHint': 'Saves this search for this repository.',
+  'search.savedLabel': 'Saved searches',
+  'search.savedAria': 'Saved searches',
+  'search.savedRemove': 'Delete the search {label}',
   'search.intro':
     'Choose the search type, enter a term then run the search. You can cancel a search in progress.',
   'search.runningTitle': 'Search in progress…',

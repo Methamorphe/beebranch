@@ -1,61 +1,61 @@
-# P1 — Protocole et rapport de dogfooding
+# P1 — Dogfooding protocol and report
 
-**Date :** 2026-10-27
-**Statut :** non exécuté — requiert trois développeurs volontaires.
+**Date:** 2026-10-27
+**Status:** not run — requires three volunteer developers.
 
-## 1. Objectif
+## 1. Objective
 
-Vérifier qu'une journée de travail complète est réalisable sans GitKraken ni
-terminal pour les opérations P1 :
+Verify that a full workday is possible without GitKraken or the
+terminal for P1 operations:
 
-branche → staging partiel → commit → push → MR → review simple → merge →
-résolution de conflit → stash → changement de dépôt.
+branch → partial staging → commit → push → MR → simple review → merge →
+conflict resolution → stash → repository switching.
 
-## 2. Préparation
+## 2. Preparation
 
-1. Installer 0.2.0 sur macOS, Linux et Windows.
-2. Ouvrir trois dépôts réels (dont un avec hooks et un dépôt GitLab self-hosted).
-3. Configurer l'instance GitLab et associer chaque dépôt à son projet.
-4. Activer un enregistrement d'écran et le journal d'opérations.
+1. Install 0.2.0 on macOS, Linux and Windows.
+2. Open three real repositories (including one with hooks and a self-hosted GitLab repository).
+3. Configure the GitLab instance and associate each repository with its project.
+4. Enable screen recording and the operation journal.
 
-## 3. Scénario imposé
+## 3. Required scenario
 
-| Étape | Attendu | Trace |
+| Step | Expected | Trace |
 |---|---|---|
-| Créer une branche depuis le graphe | branche créée et checkout | capture + `git branch --show-current` |
-| Modifier deux lignes séparées | stage d'un hunk puis de l'autre | diff index + `git diff --cached` |
-| Committer avec un hook volontairement en échec | commit refusé, sortie visible, message conservé | capture + `git log -1` |
-| Corriger et committer | commit créé, signature si configurée | `git log --show-signature` |
-| Fetch/pull/push | progression visible ; push non-ff refusé avec remédiation | capture |
-| Créer une MR | MR ouverte, badge CI dans le graphe | capture + URL |
-| Merge avec conflit | conflit visible, résolution dans l'éditeur, Mark résolu, Continue | capture + état final |
-| Abort d'un rebase | état restauré, saisie `abort` demandée | capture |
-| Stash puis pop conflictuel | stash intact après conflit | `git stash list` |
-| Ouvrir 5 dépôts en alternance | aucune fuite mesurée, erreurs isolées | RSS/CPU + captures |
-| Fermer un onglet avec opération | confirmation explicite | capture |
-| Redémarrer l'application | onglet actif restauré, conflit/merge toujours affiché | capture |
+| Create a branch from the graph | branch created and checked out | capture + `git branch --show-current` |
+| Modify two separate lines | stage one hunk then the other | index diff + `git diff --cached` |
+| Commit with a deliberately failing hook | commit rejected, output visible, message preserved | capture + `git log -1` |
+| Fix and commit | commit created, signed if configured | `git log --show-signature` |
+| Fetch/pull/push | progress visible; non-ff push rejected with remediation | capture |
+| Create an MR | MR opened, CI badge in the graph | capture + URL |
+| Merge with a conflict | conflict visible, resolution in the editor, Mark resolved, Continue | capture + final status |
+| Abort a rebase | status restored, typing `abort` requested | capture |
+| Stash then conflicting pop | stash intact after conflict | `git stash list` |
+| Open 5 repositories in alternation | no measured leak, isolated errors | RSS/CPU + captures |
+| Close a tab with an operation | explicit confirmation | capture |
+| Restart the application | active tab restored, conflict/merge still displayed | capture |
 
-## 4. Mesures
+## 4. Measurements
 
-- RSS avant/après 10 changements d'onglet (plafond à définir : +50 MiB).
-- Latence perçue des actions de staging (< 100 ms sur le corpus de test).
-- Nombre de retours au terminal (cible : 0 hors P2).
-- Incidents de perte de données (cible : 0).
+- RSS before/after 10 tab switches (cap to define: +50 MiB).
+- Perceived latency of staging actions (< 100 ms on the test corpus).
+- Number of returns to the terminal (target: 0 outside P2).
+- Data loss incidents (target: 0).
 
-## 5. Blocages et backlog
+## 5. Blockers and backlog
 
-À remplir pendant la session :
+To fill in during the session:
 
-| # | Étape | Symptôme | Contournement | Sévérité | Décision |
+| # | Step | Symptom | Workaround | Severity | Decision |
 |---|---|---|---|---|---|
 | — | — | — | — | — | — |
 
-## 6. Couverture automatisée disponible avant la session
+## 6. Automated coverage available before the session
 
-- `cargo test --workspace` : 269 tests, dont 40 tests P1 dédiés et le workflow
-  quotidien complet.
-- `npm run ui:smoke` : graphe, diff, sélection de ligne, staging IPC, vues P1.
-- `PERF-07`/`PERF-10` : budgets versionnés.
+- `cargo test --workspace`: 269 tests, including 40 dedicated P1 tests and the full
+  daily workflow.
+- `npm run ui:smoke`: graph, diff, line selection, staging IPC, P1 views.
+- `PERF-07`/`PERF-10`: versioned budgets.
 
-Ces preuves ne remplacent pas le critère humain : trois développeurs doivent
-encore exécuter le scénario ci-dessus.
+This evidence does not replace the human criterion: three developers must
+still run the scenario above.

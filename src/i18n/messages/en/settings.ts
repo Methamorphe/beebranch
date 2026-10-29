@@ -81,6 +81,31 @@ const messages = {
   'settings.gitlab.configure': 'Configure GitLab',
 
   'settings.shortcuts.title': 'Keyboard shortcuts',
+  'settings.files.title': 'Files and hooks',
+  'settings.files.encoding': 'Read encoding',
+  'settings.files.encodingHint':
+    'Used when opening a file; writing never re-encodes the file.',
+  'settings.files.encodingAria': 'File read encoding',
+  'settings.files.encoding.utf8': 'UTF-8',
+  'settings.files.encoding.utf16le': 'UTF-16 LE',
+  'settings.files.encoding.windows1252': 'Windows-1252',
+  'settings.files.encoding.guess': 'Detect automatically',
+  'settings.files.hooksPath': 'Hooks path',
+  'settings.files.hooksPathHint':
+    'Overrides core.hooksPath for commits created in the application; empty = repository configuration.',
+  'settings.files.hooksPathAria': 'Custom hooks path',
+  'settings.files.hooksPathSaved': 'Hooks path saved.',
+  'settings.signing.title': 'Commit signing',
+  'settings.signing.hint':
+    'Applies to commits created in the application; “inherit” follows the repository Git configuration.',
+  'settings.signing.modeAria': 'Sign commits',
+  'settings.signing.mode.inherit': 'inherit from Git',
+  'settings.signing.mode.always': 'always sign',
+  'settings.signing.mode.never': 'never sign',
+  'settings.signing.keyPlaceholder': 'signing key (GPG id or SSH key)',
+  'settings.signing.keyAria': 'Signing key',
+  'settings.signing.formatAria': 'Signing format',
+  'settings.signing.saved': 'Signing saved.',
   'settings.shortcuts.notice':
     'Format: Mod+Shift+F (Mod = ⌘ or Ctrl). Escape always closes dialogs. Duplicates are explicitly refused. ⌘/Ctrl + “+” or “-” adjusts the interface zoom between 50% and 200% in steps of 10%, ⌘/Ctrl + “0” resets it.',
   'settings.shortcuts.global': 'Application-wide shortcut',
@@ -88,6 +113,8 @@ const messages = {
   'settings.shortcuts.default': 'Default',
   'settings.shortcuts.invalid': 'Invalid shortcut for “{label}”.',
   'settings.shortcuts.conflict': 'Shortcut conflict: {labels}.',
+  'settings.shortcuts.conflictOnLoad':
+    'Stored shortcuts conflicted; reverted to their default: {actions}.',
   'settings.shortcuts.save': 'Save the shortcuts',
   'settings.shortcuts.saved': 'Shortcuts saved.',
 

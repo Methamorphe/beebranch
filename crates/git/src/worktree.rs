@@ -38,6 +38,23 @@ pub struct WorktreeReport {
     pub entries: Vec<WorktreeEntry>,
 }
 
+/// One worktree administrative directory removed by `prune`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreePruneEntry {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreePruneReport {
+    pub dry_run: bool,
+    /// Entries the command removed, or would remove for a dry run.
+    pub removed: Vec<WorktreePruneEntry>,
+    pub report: WorktreeReport,
+}
+
 fn worktree_error(code: &'static str, message: &str) -> AppError {
     AppError::new(code, ErrorCategory::GitState, message.to_owned())
 }
@@ -208,6 +225,13 @@ pub fn add(
         )
         .with_detail(target.display().to_string()));
     }
+    if detach && new_branch.is_some() {
+        return Err(AppError::new(
+            "worktree.detached_with_branch",
+            ErrorCategory::Input,
+            "Un worktree détaché ne peut pas créer de branche : choisissez l’un ou l’autre.",
+        ));
+    }
     crate::log::validate_revision(reference)?;
     if let Some(branch) = new_branch {
         crate::branches::validate_branch_name(runner, worktree, branch)?;
@@ -228,18 +252,86 @@ pub fn add(
 
 /// Remove a worktree. A dirty worktree requires `force` plus a typed
 /// confirmation in the command layer.
+///
+/// With `delete_branch`, the branch that was checked out there is deleted
+/// afterwards; a branch still checked out elsewhere is refused before anything
+/// is removed.
 pub fn remove(
     runner: &GitRunner,
     worktree: &Path,
     path: &str,
     force: bool,
+    delete_branch: bool,
 ) -> Result<WorktreeReport, AppError> {
     let target = known_path(runner, worktree, path)?;
+    let branch = if delete_branch {
+        let report = list(runner, worktree, false)?;
+        report
+            .entries
+            .iter()
+            .find(|entry| {
+                std::fs::canonicalize(&entry.path)
+                    .map(|candidate| candidate == target)
+                    .unwrap_or_else(|_| Path::new(&entry.path) == target)
+            })
+            .and_then(|entry| entry.branch.clone())
+    } else {
+        None
+    };
+    if let Some(branch) = branch.as_deref() {
+        let elsewhere = list(runner, worktree, false)?
+            .entries
+            .iter()
+            .filter(|entry| {
+                std::fs::canonicalize(&entry.path)
+                    .map(|candidate| candidate != target)
+                    .unwrap_or(true)
+            })
+            .any(|entry| entry.branch.as_deref() == Some(branch));
+        if elsewhere {
+            return Err(worktree_error(
+                "worktree.branch_in_use",
+                "La branche est extraite dans un autre worktree.",
+            )
+            .with_detail(branch.to_owned()));
+        }
+    }
     let mut spec = CommandSpec::new(GitSubcommand::Worktree, worktree).arg("remove");
     if force {
         spec = spec.arg("--force");
     }
     spec = spec.arg(target.as_os_str());
+    runner
+        .run(&spec.timeout(Duration::from_secs(120)))?
+        .ensure_success()?;
+    if let Some(branch) = branch {
+        let outcome = runner.run(
+            &CommandSpec::new(GitSubcommand::Branch, worktree)
+                .arg("-D")
+                .arg(&branch),
+        )?;
+        if !outcome.success() {
+            return Err(worktree_error(
+                "worktree.branch_not_deleted",
+                "Le worktree a été retiré, mais la branche n'a pas pu être supprimée.",
+            )
+            .with_detail(outcome.stderr.redacted()));
+        }
+    }
+    list(runner, worktree, true)
+}
+
+/// Repair the metadata of moved worktrees.
+pub fn repair(
+    runner: &GitRunner,
+    worktree: &Path,
+    path: Option<&str>,
+) -> Result<WorktreeReport, AppError> {
+    let mut spec = CommandSpec::new(GitSubcommand::Worktree, worktree).arg("repair");
+    if let Some(path) = path {
+        let target = known_path(runner, worktree, path)?;
+        spec = spec.arg(target.as_os_str());
+    }
     runner
         .run(&spec.timeout(Duration::from_secs(120)))?
         .ensure_success()?;
@@ -279,13 +371,51 @@ pub fn prune(
     runner: &GitRunner,
     worktree: &Path,
     dry_run: bool,
-) -> Result<WorktreeReport, AppError> {
-    let mut spec = CommandSpec::new(GitSubcommand::Worktree, worktree).arg("prune");
+    expire: Option<&str>,
+) -> Result<WorktreePruneReport, AppError> {
+    let mut spec = CommandSpec::new(GitSubcommand::Worktree, worktree)
+        .arg("prune")
+        .arg("--verbose");
     if dry_run {
         spec = spec.arg("--dry-run");
     }
-    runner.run(&spec)?.ensure_success()?;
-    list(runner, worktree, true)
+    if let Some(expire) = expire.map(str::trim).filter(|value| !value.is_empty()) {
+        if expire.chars().any(|character| character.is_control())
+            || expire.starts_with('-')
+            || expire.contains(char::is_whitespace)
+        {
+            return Err(AppError::invalid_input(
+                "La durée d'expiration est invalide.".to_owned(),
+            ));
+        }
+        spec = spec.arg(format!("--expire={expire}"));
+    }
+    let outcome = runner.run(&spec)?;
+    let output = outcome.stderr.text_lossy();
+    let outcome = outcome.ensure_success()?;
+    let mut removed = Vec::new();
+    for line in format!("{}\n{}", output, outcome.stdout.text_lossy()).lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("Removing ") else {
+            continue;
+        };
+        let (path, reason) = match rest.split_once(':') {
+            Some((path, reason)) => (path.trim(), reason.trim()),
+            None => (rest.trim(), ""),
+        };
+        if path.is_empty() {
+            continue;
+        }
+        removed.push(WorktreePruneEntry {
+            path: path.to_owned(),
+            reason: reason.to_owned(),
+        });
+    }
+    Ok(WorktreePruneReport {
+        dry_run,
+        removed,
+        report: list(runner, worktree, true)?,
+    })
 }
 
 /// Count of changed files for one worktree path, used by status badges.

@@ -1,188 +1,188 @@
-# 01 — Périmètre produit et inventaire fonctionnel
+# 01 — Product scope and feature inventory
 
-## 1. Objectif
+## 1. Objective
 
-Construire **BeeBranch**, un client Git desktop professionnel, local-first, destiné aux développeurs de l'entreprise, remplaçant GitKraken au quotidien et intégré à l'instance GitLab self-hosted.
+Build **BeeBranch**, a professional, local-first desktop Git client for the company's developers, replacing GitKraken for daily use and integrated with the self-hosted GitLab instance.
 
-Le produit doit être :
+The product must be:
 
-- **rapide** : latence perçue faible, rendu fluide, démarrage maîtrisé ;
-- **fiable** : état réel du dépôt toujours visible, aucune perte silencieuse ;
-- **dense** : beaucoup d'information utile sans surcharge visuelle ;
-- **prévisible** : les actions font ce qu'elles annoncent, les erreurs sont actionnables ;
-- **maintenable** : un seul moteur Git, périmètre fermé, peu d'abstractions.
+- **fast**: low perceived latency, smooth rendering, controlled startup;
+- **reliable**: the repository's actual status always visible, no silent loss;
+- **dense**: plenty of useful information without visual overload;
+- **predictable**: actions do what they say, errors are actionable;
+- **maintainable**: a single Git engine, bounded scope, few abstractions.
 
-## 2. Utilisateurs et contexte
+## 2. Users and context
 
-| Élément | Valeur |
+| Item | Value |
 |---|---|
-| Utilisateurs | Développeurs de l'entreprise, profils junior à expert |
-| Plateformes | Windows, macOS, Linux |
-| Hébergement | GitLab self-hosted, URLs et certificats internes |
-| Réseau | Peut être restreint ; Git doit fonctionner hors ligne |
-| Dépôts | Monorepos, nombreux fichiers, nombreuses branches, submodules, worktrees, LFS |
-| Langue de l'UI | Français et anglais, sélectionnables dans Réglages (i18n typé, FR/EN) |
+| Users | Company developers, from junior to expert |
+| Platforms | Windows, macOS, Linux |
+| Hosting | Self-hosted GitLab, internal URLs and certificates |
+| Network | May be restricted; Git must work offline |
+| Repositories | Monorepos, many files, many branches, submodules, worktrees, LFS |
+| UI language | French and English, selectable in Settings (typed i18n, FR/EN) |
 
-## 3. Principes produit
+## 3. Product principles
 
-1. **Local-first.** Git est la source de vérité. Aucune fonctionnalité Git de base ne dépend de GitLab ou d'un compte.
-2. **Aucune action destructive silencieuse.** Confirmation, conséquences explicites, préflight.
-3. **L'état réel avant l'esthétique.** Un dépôt en conflit, en rebase ou détaché doit être évident.
-4. **Densité maîtrisée.** L'information importante est visible ; le bruit est masquable (hide/solo, filtres).
-5. **Clavier d'abord, souris ensuite.** Toute action fréquente a un raccourci et une command palette.
-6. **Pas de fausse promesse.** Une fonctionnalité n'existe que si le comportement est réel, testé et vérifié.
-7. **Intégration native au contexte.** GitLab est un citoyen de première classe, pas un plugin.
-8. **Aucune dépendance à l'éditeur.** Pas d'IA, pas de cloud propriétaire, pas de télémétrie intrusive, pas de login obligatoire.
-9. **Identité propre.** Ergonomie et densité inspirées de GitKraken, mais aucun asset, icône, logo, palette exacte ou élément de marque GitKraken n'est copié.
+1. **Local-first.** Git is the source of truth. No core Git feature depends on GitLab or an account.
+2. **No silent destructive actions.** Confirmation, explicit consequences, preflight.
+3. **Actual status before aesthetics.** A repository with conflicts, a rebase in progress, or a detached HEAD must be obvious.
+4. **Controlled density.** Important information is visible; noise can be hidden (hide/solo, filters).
+5. **Keyboard first, mouse second.** Every frequent action has a shortcut and a command palette.
+6. **No false promises.** A feature only exists if its behavior is real, tested, and verified.
+7. **Native contextual integration.** GitLab is a first-class citizen, not a plugin.
+8. **No vendor dependency.** No AI, no proprietary cloud, no intrusive telemetry, no required login.
+9. **Distinct identity.** Ergonomics and density inspired by GitKraken, but no GitKraken assets, icons, logos, exact palette, or brand elements are copied.
 
-## 4. Non-objectifs
+## 4. Non-goals
 
-- Reproduction exhaustive de GitKraken.
-- Copie des assets, icônes, logos, polices ou de la palette exacte de GitKraken.
-- Éditeur de code intégré.
-- CI/CD exécutée localement.
-- Gestion de comptes multi-fournisseurs (GitHub, Bitbucket, Azure) au MVP.
-- Fonctionnalités IA, suggestions de code, MCP.
-- Dashboards d'équipe cloud, Insights, Automations, Codemaps.
-- Gestion de plusieurs instances GitLab par profil au MVP (une instance active à la fois).
-- Support des dépôts bare comme dépôt de travail au MVP.
+- Exhaustive reproduction of GitKraken.
+- Copying GitKraken's assets, icons, logos, fonts, or exact palette.
+- Integrated code editor.
+- Locally executed CI/CD.
+- Multi-provider account management (GitHub, Bitbucket, Azure) in the MVP.
+- AI features, code suggestions, MCP.
+- Cloud team dashboards, Insights, Automations, Codemaps.
+- Managing multiple GitLab instances per profile in the MVP (one active instance at a time).
+- Supporting bare repositories as working repositories in the MVP.
 
-## 5. Définitions
+## 5. Definitions
 
-| Terme | Définition |
+| Term | Definition |
 |---|---|
-| **Session de dépôt** | Contexte backend associé à un worktree ouvert : watcher, cache, file de mutations, état Git. |
-| **Opération** | Invocation Git suivie : identifiant, commande, durée, sortie, code de sortie, annulation possible. |
-| **État Git** | État structurel : normal, merge, rebase, cherry-pick, revert, bisect, détaché, non-né, conflit. |
-| **Mutation** | Opération qui modifie refs, index ou working tree. Sérialisée par dépôt. |
-| **Préflight** | Vérifications avant mutation (propreté, upstream, conflits, fichiers écrasés). |
-| **Action irréversible** | Opération qui ne peut pas être annulée par Git (discard, `reset --hard`, stash drop) ; confirmation obligatoire. |
-| **Baseline** | Résultat mesuré de référence pour un scénario de performance. |
+| **Repository session** | Backend context associated with an open worktree: watcher, cache, mutation queue, Git status. |
+| **Operation** | Tracked Git invocation: identifier, command, duration, output, exit code, possible cancellation. |
+| **Git status** | Structural status: normal, merge, rebase, cherry-pick, revert, bisect, detached, unborn, conflict. |
+| **Mutation** | Operation that modifies refs, index, or working tree. Serialized per repository. |
+| **Preflight** | Checks before mutation (cleanliness, upstream, conflicts, overwritten files). |
+| **Irreversible action** | Operation that cannot be undone by Git (discard, `reset --hard`, stash drop); confirmation required. |
+| **Baseline** | Measured reference result for a performance scenario. |
 
-## 6. Inventaire fonctionnel priorisé
+## 6. Prioritized feature inventory
 
-Chaque fonctionnalité est considérée **non terminée** tant que :
+Each feature is considered **unfinished** until:
 
-- le comportement réel est implémenté (pas seulement l'UI) ;
-- les critères d'acceptation sont couverts par des tests automatisés ou une preuve d'exécution documentée ;
-- les cas d'erreur et les états intermédiaires sont traités ;
-- les performances respectent le budget du scénario associé, s'il existe.
+- actual behavior is implemented (not just the UI);
+- acceptance criteria are covered by automated tests or documented run evidence;
+- error cases and intermediate states are handled;
+- performance meets the associated scenario's budget, if one exists.
 
-### P0 — Fondations et validation technique
+### P0 — Foundations and technical validation
 
-Objectif : démontrer les composants les plus risqués et fixer les budgets.
+Objective: demonstrate the riskiest components and set budgets.
 
-| ID | Fonctionnalité | Critères d'acceptation | Dépend de |
+| ID | Feature | Acceptance criteria | Depends on |
 |---|---|---|---|
-| P0-01 | Shell applicatif Tauri 2 | Lancement sur Windows/macOS/Linux ; préférences persistées ; logs structurés ; error boundary ; aucune télémétrie réseau | — |
-| P0-02 | Moteur Git CLI sécurisé | Aucune commande via shell ; argv explicites ; `stdout/stderr/exit code` capturés ; annulation ; file de mutations par dépôt ; erreurs typées ; tests d'intégration sur dépôts réels | P0-01 |
-| P0-03 | Ouverture et session de dépôt | Ouverture par sélecteur, chemin, récents ; détection worktree/submodule/bare ; validation du chemin ; session créée et détruite proprement ; dépôt invalide → erreur actionnable | P0-02 |
-| P0-04 | Modèle de lecture de base | Refs, status, page de log, détail de commit, diff ; cohérence après modification externe ; pagination ; aucun chargement complet implicite | P0-02 |
-| P0-05 | Prototype de graphe virtualisé | Rendu canvas ; topologie correcte sur fixtures de merges ; 200k commits chargés par pages ; scroll fluide mesuré ; mémoire bornée ; aucune régression sur changement de dépôt | P0-04 |
-| P0-06 | Prototype de diff viewer | Modes hunk/inline/split ; coloration syntaxique ; navigation entre hunks ; plafond sur gros fichiers ; mesure du temps d'affichage | P0-04 |
-| P0-07 | Connexion GitLab self-hosted | URL + préfixe, PAT, keychain, `GET /user`, CA interne, liste de projets, erreurs réseau/TLS/token explicites | P0-01 |
-| P0-08 | Harnais de benchmark | Corpus synthétique généré ; scénarios définis ; rapport reproductible ; baseline versionnée ; exécution CI | P0-02, P0-04, P0-05, P0-06 |
-| P0-09 | Erreurs et reprise | Taxonomie d'erreurs ; détection des états intermédiaires ; écran de reprise après crash ; aucun état inconnu masqué | P0-02, P0-03 |
+| P0-01 | Tauri 2 application shell | Launch on Windows/macOS/Linux; persisted preferences; structured logs; error boundary; no network telemetry | — |
+| P0-02 | Secure Git CLI engine | No commands through a shell; explicit argv; captured `stdout/stderr/exit code`; cancellation; per-repository mutation queue; typed errors; integration tests on real repositories | P0-01 |
+| P0-03 | Repository opening and session | Open via picker, path, recents; worktree/submodule/bare detection; path validation; clean session creation and destruction; invalid repository → actionable error | P0-02 |
+| P0-04 | Basic read model | Refs, status, log page, commit details, diff; consistency after external changes; pagination; no implicit full loading | P0-02 |
+| P0-05 | Virtualized graph prototype | Canvas rendering; correct topology on merge fixtures; 200k commits loaded in pages; measured smooth scrolling; bounded memory; no regression when switching repositories | P0-04 |
+| P0-06 | Diff viewer prototype | Hunk/inline/split modes; syntax highlighting; hunk navigation; cap on large files; display time measurement | P0-04 |
+| P0-07 | Self-hosted GitLab connection | URL + prefix, PAT, OS keychain, `GET /user`, internal CA, project list, explicit network/TLS/token errors | P0-01 |
+| P0-08 | Benchmark harness | Generated synthetic corpus; defined scenarios; reproducible report; versioned baseline; CI run | P0-02, P0-04, P0-05, P0-06 |
+| P0-09 | Errors and recovery | Error taxonomy; intermediate state detection; recovery screen after a crash; no hidden unknown state | P0-02, P0-03 |
 
-**Critère de sortie P0 :** démonstration technique sur au moins deux dépôts réels et un corpus synthétique, avec mesures publiées, erreurs reproductibles traitées, et aucun bloqueur identifié sur le graphe, le diff, GitLab ou la reprise.
+**P0 exit criterion:** technical demonstration on at least two real repositories and one synthetic corpus, with published measurements, reproducible errors handled, and no identified blocker for the graph, diff, GitLab, or recovery.
 
-### P1 — Premier remplacement utilisable
+### P1 — First usable replacement
 
-Objectif : un développeur réalise son workflow quotidien sans revenir à GitKraken.
+Objective: a developer completes their daily workflow without returning to GitKraken.
 
-| ID | Fonctionnalité | Critères d'acceptation | Dépend de |
+| ID | Feature | Acceptance criteria | Depends on |
 |---|---|---|---|
-| P1-01 | Graphe interactif | Sélection commit/branche ; actions contextuelles (checkout, créer branche, comparer, copier SHA) ; filtres de base ; badge MR ; rafraîchissement après mutation | P0-05 |
-| P1-02 | Working tree status | Fichiers staged/unstaged/untracked/ignored/conflits ; renommages ; changement externe détecté ; aucune attente bloquante de l'UI | P0-04 |
-| P1-03 | Staging fichier/hunk/ligne | Stage/unstage/discard par fichier, hunk et ligne ; gestion CRLF, absence de newline final, renommages ; discard confirmé ; index cohérent après chaque action | P1-02 |
-| P1-04 | Commit et amend | Message, amend, exécution des hooks, affichage de la sortie, refus si hook échoue, signature respectée ; aucun contournement silencieux | P1-03 |
-| P1-05 | Branches locales et distantes | Créer, checkout, renommer, supprimer avec préflight, upstream, comparaison ; branche non mergée → confirmation forte | P1-01 |
-| P1-06 | Fetch / pull / push | Progression streamée ; annulation ; `force-with-lease` uniquement avec confirmation ; erreurs auth/SSH/non-fast-forward actionnables | P1-05 |
-| P1-07 | Merge et rebase standards | Préflight ; merge/rebase avec et sans conflit ; `--abort`/`--continue` ; état intermédiaire visible ; jamais de perte de travail locale | P1-05 |
-| P1-08 | Conflits — niveau de base | Liste des fichiers en conflit ; ouverture dans l'éditeur externe ; marquage résolu ; abort/continue ; état cohérent après redémarrage | P1-07 |
-| P1-09 | Stash | Créer, lister, appliquer, pop, drop ; stash visible dans le graphe ; conflits de pop signalés | P1-02 |
-| P1-10 | Multi-dépôts | Onglets indépendants ; sessions isolées ; changement rapide sans fuite mémoire ni état croisé | P0-03 |
-| P1-11 | Recherche de commits | Message, SHA, auteur ; résultats paginés ; profondeur explicite ; aucun blocage sur gros historique | P1-01 |
-| P1-12 | GitLab — liste et création de MR | Liste filtrée (mes MR, à reviewer, assignées), détail minimal, création depuis une branche poussée, ouverture navigateur | P0-07 |
-| P1-13 | GitLab — statut CI et badge MR | Statut pipeline sur la MR et dans le graphe ; rafraîchissement ; états inconnus gérés | P1-12 |
-| P1-14 | Sécurité des opérations destructives | Confirmation avec conséquences exactes ; actions destructives déclarées **irréversibles** ; aucune suppression silencieuse ; fichiers non suivis jamais supprimés par l'application ; refus si état incohérent | P1-03, P1-05, P1-07 |
-| P1-15 | Outils externes | Ouvrir éditeur, terminal, diff/merge tool configurés ; échec explicite si absent | P0-01 |
-| P1-16 | Création de dépôt local | `git init` sur un dossier absolu, nouveau ou existant non versionné ; branche initiale optionnelle ; refus d'un dépôt existant (y compris bare) ; ouverture immédiate ; fichiers existants conservés et non suivis | P0-03 |
+| P1-01 | Interactive graph | Commit/branch selection; context actions (checkout, create branch, compare, copy SHA); basic filters; MR badge; refresh after mutation | P0-05 |
+| P1-02 | Working tree status | Staged/unstaged/untracked/ignored/conflicted files; renames; external change detection; no blocking UI wait | P0-04 |
+| P1-03 | File/hunk/line staging | Stage/unstage/discard by file, hunk, and line; handle CRLF, missing final newline, renames; confirmed discard; consistent index after every action | P1-02 |
+| P1-04 | Commit and amend | Message, amend, hook execution, output display, refusal if a hook fails, signing respected; no silent bypass | P1-03 |
+| P1-05 | Local and remote branches | Create, checkout, rename, delete with preflight, upstream, comparison; unmerged branch → strong confirmation | P1-01 |
+| P1-06 | Fetch / pull / push | Streamed progress; cancellation; `force-with-lease` only with confirmation; actionable auth/SSH/non-fast-forward errors | P1-05 |
+| P1-07 | Standard merge and rebase | Preflight; merge/rebase with and without conflicts; `--abort`/`--continue`; visible intermediate state; never lose local work | P1-05 |
+| P1-08 | Conflicts — basic level | Conflicted file list; open in external editor; mark resolved; abort/continue; consistent status after restart | P1-07 |
+| P1-09 | Stash | Create, list, apply, pop, drop; stash visible in the graph; pop conflicts reported | P1-02 |
+| P1-10 | Multiple repositories | Independent tabs; isolated sessions; fast switching without memory leaks or crossed state | P0-03 |
+| P1-11 | Commit search | Message, SHA, author; paginated results; explicit depth; no blocking on large histories | P1-01 |
+| P1-12 | GitLab — MR listing and creation | Filtered list (my MRs, to review, assigned), minimal details, creation from a pushed branch, open in browser | P0-07 |
+| P1-13 | GitLab — CI status and MR badge | Pipeline status on the MR and in the graph; refresh; unknown states handled | P1-12 |
+| P1-14 | Destructive operation safety | Confirmation with exact consequences; destructive actions declared **irreversible**; no silent deletion; untracked files never deleted by the application; refusal if status is inconsistent | P1-03, P1-05, P1-07 |
+| P1-15 | External tools | Open configured editor, terminal, diff/merge tool; explicit failure if missing | P0-01 |
+| P1-16 | Local repository creation | `git init` on an absolute directory, new or existing and unversioned; optional initial branch; refuse an existing repository (including bare); open immediately; existing files preserved and untracked | P0-03 |
 
-**Critère de sortie P1 :** un développeur volontaire effectue une journée de travail complète (branche, staging partiel, commit, push, MR, review simple, merge) sans GitKraken ni terminal, hors opérations explicitement P2.
+**P1 exit criterion:** a volunteer developer completes a full workday (branch, partial staging, commit, push, MR, simple review, merge) without GitKraken or a terminal, except for explicitly P2 operations.
 
-### P2 — Parité fonctionnelle quotidienne
+### P2 — Daily feature parity
 
-| ID | Fonctionnalité | Critères d'acceptation | Dépend de |
+| ID | Feature | Acceptance criteria | Depends on |
 |---|---|---|---|
-| P2-01 | Rebase interactif | Todo généré et exécuté via Git ; réordonner, pick/reword/squash/drop ; annulation de l'éditeur ; conflits gérés ; aucun todo corrompu | P1-07 |
-| P2-02 | Résolution de conflits 3 panneaux | Ours/theirs/base/output ; édition ; marquage résolu ; enregistrement du résultat ; cohérence avec les marqueurs Git | P1-08 |
-| P2-03 | Cherry-pick / revert avancés | Sélection multiple, ordre, conflits, continue/abort, historique | P1-07 |
-| P2-04 | Worktrees | Lister, créer, ouvrir, lock/unlock, supprimer ; statut par worktree ; sessions isolées ; WIP multiples | P0-03 |
-| P2-05 | Historique de fichier et blame | Par fichier et par ligne ; navigation vers commit ; gestion renommages ; performance bornée | P1-01 |
-| P2-06 | Command palette | Toutes les actions fréquentes ; recherche floue ; contexte dépôt ; exécution clavier | P1 |
-| P2-07 | Raccourcis clavier avancés | Couverture des actions principales ; découvrables ; personnalisables si mesuré utile | P2-06 |
-| P2-08 | Recherche approfondie | Chemin, contenu (avec limites), auteur, date ; résultats paginés ; scope explicite | P1-11 |
-| P2-09 | GitLab — discussions inline | Lire/écrire des commentaires positionnés sur le diff ; résolution ; états d'erreur | P1-12 |
-| P2-10 | GitLab — approvals et merge | Approuver, merger avec stratégie ; feature detection des paliers ; confirmation | P1-12 |
-| P2-11 | GitLab — jobs et logs | Liste des jobs, statut, logs paginés ; annulation si supportée | P1-13 |
-| P2-12 | Submodules | Panneau, add, init, update, pointer commit, statuts ; opérations déléguées à Git | P0-03 |
-| P2-13 | Tags et remotes avancés | Tags annotés, push de tags, gestion des remotes, URLs, prune | P1-05 |
-| P2-14 | Profils | Identité Git, préférences, onglets ; une instance GitLab active par profil | P1-10 |
-| P2-15 | Patchs | Créer/appliquer un patch ; refus des binaires non supportés ; conflits signalés | P1-03 |
+| P2-01 | Interactive rebase | Todo generated and executed through Git; reorder, pick/reword/squash/drop; editor cancellation; conflicts handled; no corrupted todo | P1-07 |
+| P2-02 | 3-panel conflict resolution | Ours/theirs/base/output; editing; mark resolved; save result; consistency with Git markers | P1-08 |
+| P2-03 | Advanced cherry-pick / revert | Multiple selection, ordering, conflicts, continue/abort, history | P1-07 |
+| P2-04 | Worktrees | List, create, open, lock/unlock, remove; per-worktree status; isolated sessions; multiple WIPs | P0-03 |
+| P2-05 | File history and blame | Per file and per line; navigate to commit; handle renames; bounded performance | P1-01 |
+| P2-06 | Command palette | All frequent actions; fuzzy search; repository context; keyboard execution | P1 |
+| P2-07 | Advanced keyboard shortcuts | Main action coverage; discoverable; customizable if measured as useful | P2-06 |
+| P2-08 | In-depth search | Path, content (with limits), author, date; paginated results; explicit scope | P1-11 |
+| P2-09 | GitLab — inline discussions | Read/write diff-positioned comments; resolution; error states | P1-12 |
+| P2-10 | GitLab — approvals and merge | Approve, merge with strategy; tier feature detection; confirmation | P1-12 |
+| P2-11 | GitLab — jobs and logs | Job list, status, paginated logs; cancellation if supported | P1-13 |
+| P2-12 | Submodules | Panel, add, init, update, commit pointer, statuses; operations delegated to Git | P0-03 |
+| P2-13 | Advanced tags and remotes | Annotated tags, tag push, remote management, URLs, prune | P1-05 |
+| P2-14 | Profiles | Git identity, preferences, tabs; one active GitLab instance per profile | P1-10 |
+| P2-15 | Patches | Create/apply a patch; refuse unsupported binaries; report conflicts | P1-03 |
 
-### P3 — Finition — livré et vérifié
+### P3 — Polish — delivered and verified
 
-Preuves : [reviews/p3-review.md](reviews/p3-review.md).
+Evidence: [reviews/p3-review.md](reviews/p3-review.md).
 
-| ID | Fonctionnalité | Critères d'acceptation | Dépend de |
+| ID | Feature | Acceptance criteria | Depends on |
 |---|---|---|---|
-| P3-01 | Undo / Redo complet | Matrice de [04-undo-redo](04-undo-redo.md) couverte ; préconditions ; opérations réversibles par Git uniquement ; actions irréversibles refusées ; échecs partiels signalés ; tests de crash | P1-14 |
-| P3-02 | Drag & drop avancé | Branches et commits ; preview ; annulation ; aucune mutation ambiguë | P2-01 |
-| P3-03 | Design system et thèmes | Direction de [10-design-direction](10-design-direction.md) ; tokens, thèmes clair/sombre, densité, animations non bloquantes | — |
-| P3-04 | Optimisations gros dépôts | Gains mesurés sur les scénarios en échec de budget ; aucune régression | P0-08 |
-| P3-05 | Workspaces multi-repos | Groupes locaux, fetch/pull multi-dépôts, actions bornées | P1-10 |
-| P3-06 | Accessibilité et ergonomie | Navigation clavier, focus, contrastes, lecteurs d'écran sur les vues principales | P2-07 |
-| P3-07 | Distribution | Mises à jour signées, packaging par OS, télémétrie absente | P0-01 |
+| P3-01 | Full Undo / Redo | Matrix in [04-undo-redo](04-undo-redo.md) covered; preconditions; only Git-reversible operations; irreversible actions refused; partial failures reported; crash tests | P1-14 |
+| P3-02 | Advanced drag & drop | Branches and commits; preview; cancellation; no ambiguous mutation | P2-01 |
+| P3-03 | Design system and themes | Direction from [10-design-direction](10-design-direction.md); tokens, light/dark themes, density, non-blocking animations | — |
+| P3-04 | Large repository optimizations | Measured gains on scenarios exceeding their budgets; no regression | P0-08 |
+| P3-05 | Multi-repo workspaces | Local groups, multi-repository fetch/pull, bounded actions | P1-10 |
+| P3-06 | Accessibility and ergonomics | Keyboard navigation, focus, contrast, screen readers on main views | P2-07 |
+| P3-07 | Distribution | Signed updates, per-OS packaging, no telemetry | P0-01 |
 
-## 7. Parité GitKraken : conserver, améliorer, abandonner
+## 7. GitKraken parity: keep, improve, drop
 
-### Conserver
+### Keep
 
-- Lecture immédiate de l'historique, lanes lisibles, refs et merges visibles.
-- Actions contextuelles pertinentes au clic droit.
-- Staging partiel ergonomique (fichier, hunk, ligne).
-- Diff viewer confortable (split/inline/hunk, word diff, navigation).
-- Manipulation simple des branches (drag & drop en P3).
-- Hide/solo, pin de branche, filtres.
-- Multi-dépôts par onglets.
-- Command palette, raccourcis.
-- Vue MR et statut CI intégrés.
+- Immediately readable history, readable lanes, visible refs and merges.
+- Relevant right-click context actions.
+- Ergonomic partial staging (file, hunk, line).
+- Comfortable diff viewer (split/inline/hunk, word diff, navigation).
+- Simple branch manipulation (drag & drop in P3).
+- Hide/solo, branch pinning, filters.
+- Multiple repositories in tabs.
+- Command palette, shortcuts.
+- Integrated MR view and CI status.
 
-### Améliorer
+### Improve
 
-- Démarrage, réactivité, mémoire.
-- Densité d'information et cohérence de navigation.
-- Gestion explicite des états intermédiaires.
-- Intégration GitLab self-hosted native.
-- Messages d'erreur et remédiation.
-- Respect strict de la configuration Git existante.
+- Startup, responsiveness, memory.
+- Information density and navigation consistency.
+- Explicit handling of intermediate states.
+- Native self-hosted GitLab integration.
+- Error messages and remediation.
+- Strict respect for existing Git configuration.
 
-### Abandonner
+### Drop
 
-- IA, suggestions de code, MCP.
-- Cloud propriétaire, comptes éditeur, Insights, Automations, Codemaps, Launchpad cloud.
-- Télémétrie intrusive.
-- Fonctionnalités nécessitant un serveur tiers.
-- Reproduction de l'identité graphique et des assets GitKraken.
+- AI, code suggestions, MCP.
+- Proprietary cloud, vendor accounts, Insights, Automations, Codemaps, cloud Launchpad.
+- Intrusive telemetry.
+- Features requiring a third-party server.
+- Reproduction of GitKraken's visual identity and assets.
 
-## 8. Hors périmètre explicite
+## 8. Explicitly out of scope
 
-- Édition de code intégrée.
-- Résolution de conflits sémantique au-delà de Git.
-- Gestion de plusieurs fournisseurs Git.
-- Exécution de pipelines CI locale.
-- Gestion de clés SSH complète (génération/upload) au MVP : on utilise l'agent et les clés existants.
-- Migration de dépôts, réécriture d'historique de masse, filtrage.
-- Support de Git < version minimale décidée.
-- Synchronisation cloud des préférences.
+- Integrated code editing.
+- Semantic conflict resolution beyond Git.
+- Managing multiple Git providers.
+- Local CI pipeline execution.
+- Full SSH key management (generation/upload) in the MVP: use the existing agent and keys.
+- Repository migration, bulk history rewriting, filtering.
+- Support for Git < the chosen minimum version.
+- Cloud preference synchronization.

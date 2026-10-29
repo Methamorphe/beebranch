@@ -1384,7 +1384,7 @@ try {
     await client.send('Emulation.setDeviceMetricsOverride', {
       width, height: 900, deviceScaleFactor: 1, mobile: false,
     })
-    for (const view of ['workspaces', 'stash', 'mrs', 'prs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'github', 'tools', 'recovery', 'conflicts']) {
+    for (const view of ['workspaces', 'stash', 'mrs', 'prs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'github', 'tools', 'activity', 'recovery', 'conflicts']) {
       await go(view)
       const report = await evaluate(client, `(() => {
         const main = document.querySelector('main')
@@ -1459,7 +1459,7 @@ try {
     width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
   })
   await evaluate(client, `document.documentElement.dataset.theme = 'light'`)
-  for (const view of ['workspaces', 'stash', 'mrs', 'prs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'github', 'tools', 'recovery', 'conflicts']) {
+  for (const view of ['workspaces', 'stash', 'mrs', 'prs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'github', 'tools', 'activity', 'recovery', 'conflicts']) {
     await go(view)
     await screenshot(client, 'screen-' + view + '-light.png')
   }
@@ -2119,7 +2119,7 @@ try {
     button.click()
   })()`)
   await waitFor(client, `document.querySelector('canvas') !== null`, 'clean repository graph')
-  assertUI('clean-history-has-no-local-row-or-panel', await evaluate(client, `!document.querySelector('button[aria-pressed]') && !document.querySelector('[aria-label="Préparation du prochain commit"]')`))
+  assertUI('clean-history-has-no-local-row-or-panel', await evaluate(client, `!document.querySelector('button[data-role="worktree"]') && !document.querySelector('[aria-label="Préparation du prochain commit"]')`))
   assertUI('clean-history-uses-full-width', await evaluate(client, `document.querySelector('canvas').getBoundingClientRect().width >= document.querySelector('main').getBoundingClientRect().width - 2`))
   await screenshot(client, 'ux-clean-history.png')
   await evaluate(client, `document.querySelector('canvas').focus()`)
@@ -2128,14 +2128,14 @@ try {
   await evaluate(client, `document.querySelector('button[aria-label="Fermer le détail du commit"]').click()`)
   assertUI('closing-commit-leaves-no-panel', await evaluate(client, `!document.querySelector('[aria-label="Détail du commit"]') && !document.querySelector('[aria-label="Préparation du prochain commit"]')`))
   await evaluate(client, `(() => { window.__scenarioDirty = true; [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label')?.startsWith('Rafraîchir l')).click() })()`)
-  await waitFor(client, `document.querySelector('button[aria-pressed="false"]') !== null`, 'new unselected local changes')
+  await waitFor(client, `document.querySelector('button[data-role="worktree"]') !== null`, 'new unselected local changes')
   assertUI('new-changes-do-not-open-panel', await evaluate(client, `!document.querySelector('[aria-label="Préparation du prochain commit"]')`))
-  await evaluate(client, `document.querySelector('button[aria-pressed="false"]').click()`)
+  await evaluate(client, `document.querySelector('button[data-role="worktree"]').click()`)
   await waitFor(client, `document.querySelector('[aria-label="Préparation du prochain commit"]') !== null`, 'selected local changes')
   await evaluate(client, `document.querySelector('button[title="src/module-1.ts"]').click()`)
   await waitFor(client, `document.querySelector('button[aria-label="Fermer l’aperçu"]') !== null`, 'local diff preview')
   await evaluate(client, `(() => { window.__scenarioDirty = false; [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label')?.startsWith('Rafraîchir l')).click() })()`)
-  await waitFor(client, `!document.querySelector('button[aria-pressed]') && !document.querySelector('[aria-label="Préparation du prochain commit"]')`, 'changes cleared')
+  await waitFor(client, `!document.querySelector('button[data-role="worktree"]') && !document.querySelector('[aria-label="Préparation du prochain commit"]')`, 'changes cleared')
   assertUI('last-change-removal-restores-graph', await evaluate(client, `document.querySelector('canvas').getClientRects().length > 0 && !document.querySelector('button[aria-label="Fermer l’aperçu"]')`))
   await evaluate(client, `(() => {
     const original = window.__TAURI_INTERNALS__.invoke
@@ -2413,9 +2413,29 @@ try {
   const pickerCallsBeforeClone = await evaluate(client, 'window.__pickerCalls.length')
   await evaluate(client, `window.__pickerSelection = '/tmp/choisi'`)
   await evaluate(client, `(() => { const d = document.querySelector('main'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('Parcourir')).click() })()`)
-  await waitFor(client, `document.querySelector('#clone-destination')?.value === '/tmp/choisi/payment-platform'`, 'clone destination from folder picker')
+  await waitFor(client, `document.querySelector('#clone-destination')?.value === '/tmp/choisi'`, 'clone parent from folder picker')
+  assertUI('clone-picker-previews-repository-child', await evaluate(client, `document.querySelector('main form output')?.textContent.includes('/tmp/choisi/payment-platform')`))
   assertUI('clone-folder-picker-uses-native-directory-dialog', await evaluate(client, `(() => { const call = window.__pickerCalls.at(-1); return window.__pickerCalls.length === ${pickerCallsBeforeClone + 1} && call.directory === true && call.multiple === false })()`))
-  await fill('#clone-destination', '/tmp/payment-platform')
+  await fill('#clone-destination', '/tmp/dev/')
+  await waitFor(client, `document.querySelector('main form output')?.textContent.includes('/tmp/dev/payment-platform')`, 'typed clone parent preview')
+  assertUI('clone-typed-parent-keeps-repository-name', await evaluate(client, `document.querySelector('#clone-destination').value === '/tmp/dev/' && document.querySelector('main form output').textContent.includes('/tmp/dev/payment-platform')`))
+  await fill('#clone-destination', 'C:\\Dev\\')
+  await waitFor(client, `document.querySelector('main form output')?.textContent.includes(${JSON.stringify('C:\\Dev\\payment-platform')})`, 'Windows clone parent preview')
+  await evaluate(client, `document.querySelector('main form input[type="checkbox"]').click()`)
+  await waitFor(client, `document.querySelector('input[placeholder="git@hote:owner/repo.git"]') !== null`, 'manual clone URL')
+  await fill('input[placeholder="git@hote:owner/repo.git"]', 'gitserver:other-project.git')
+  await waitFor(client, `document.querySelector('main form output')?.textContent.includes(${JSON.stringify('C:\\Dev\\other-project')})`, 'changed clone URL updates child name')
+  assertUI('clone-url-updates-child-without-changing-parent', await evaluate(client, `document.querySelector('#clone-destination').value === ${JSON.stringify('C:\\Dev\\')}`))
+  await fill('input[placeholder="git@hote:owner/repo.git"]', '/srv/repos/team#tools.git')
+  await waitFor(client, `document.querySelector('main form output')?.textContent.includes(${JSON.stringify('C:\\Dev\\team#tools')})`, 'local repository name preserves hash')
+  await fill('input[placeholder="git@hote:owner/repo.git"]', 'https://gitlab.example.test/team/payment-platform.git')
+  await fill('#clone-destination', '/tmp/dev/')
+  await evaluate(client, `document.querySelector('main form input[type="checkbox"]').click()`)
+  await waitFor(client, `document.querySelector('input[placeholder="git@hote:owner/repo.git"]') === null`, 'manual clone URL closed')
+  assertUI('clone-leaving-manual-clears-hidden-url', await evaluate(client, `document.querySelector('main form button[type="submit"]').disabled && document.querySelector('main form output') === null`))
+  await evaluate(client, `document.querySelector('main form input[type="checkbox"]').click()`)
+  await fill('input[placeholder="git@hote:owner/repo.git"]', 'https://gitlab.example.test/team/payment-platform.git')
+  await fill('#clone-destination', '/tmp/dev/')
   await evaluate(client, `window.__pickerSelection = null`)
   await evaluate(client, `document.querySelector('main form button[type="submit"]').click()`)
   await waitFor(client, `document.querySelector('main').innerText.includes('Le clonage a échoué.')`, 'clone error feedback')
@@ -2424,7 +2444,7 @@ try {
   await evaluate(client, `document.querySelector('main form button[type="submit"]').click()`)
   await waitFor(client, `document.querySelector('header').innerText.includes('cloned-demo') && document.querySelector('canvas') !== null`, 'cloned repository tab')
   assertUI('add-repo-clone-opens-new-tab', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeClone + 1} && document.querySelector('header').innerText.includes('beebranch-demo') && document.querySelector('[aria-label="Dépôts ouverts"] [data-launcher] button[aria-current="page"]') === null`))
-  assertUI('add-repo-clone-request', await evaluate(client, `window.__cloneCalls.at(-1).destination === '/tmp/payment-platform' && window.__cloneCalls.at(-1).url.includes('team/payment-platform.git')`))
+  assertUI('add-repo-clone-request', await evaluate(client, `(() => { const call = window.__cloneCalls.at(-1); return call.destination === '/tmp/dev/payment-platform' && call.url.includes('team/payment-platform.git') })()`))
   const tabsBeforeInit = await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length`)
   const openInitFromLauncher = async () => {
     await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
@@ -2901,6 +2921,15 @@ try {
   })()`))
   await evaluate(client, `document.querySelector('button[aria-label="Fermer le détail du commit"]')?.click()`)
 
+  // Rebase previews require a repository without an operation in progress.
+  await evaluate(client, `(() => {
+    window.__operationOverride = null
+    window.__conflictsOverride = { files: [] }
+    window.__worktreeOverride = { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 }
+    window.__generationOverride = 40
+    window.__emitTauriEvent('repo://changed', { repoId: 'repo_demo', generation: 40, areas: ['state'] })
+  })()`)
+  await waitFor(client, `!document.body.innerText.includes('Opération en cours :')`, 'clean rebase state')
   await go('rebase')
   await evaluate(client, `(() => { const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Charger le plan'); button?.click() })()`)
   await waitFor(client, `document.querySelectorAll('main [draggable="true"]').length >= 3`, 'rebase plan')
@@ -2918,6 +2947,75 @@ try {
   const afterRebaseRows = await evaluate(client, `[...document.querySelectorAll('main [draggable="true"]')].map((row) => row.getAttribute('aria-label'))`)
   assertUI('rebase-drag-reorders-preview', afterRebaseRows[2] === rebaseRows[0] && afterRebaseRows[0] === rebaseRows[1])
   assertUI('rebase-drag-no-mutation-before-start', await evaluate(client, `((window.__p3Calls ?? []).filter(([name]) => name === 'history_rebase_interactive')).length === ${beforeDragCalls}`))
+
+  // History is the operation workspace, including the last-conflict boundary.
+  await go('graph')
+  await evaluate(client, `document.querySelector('[aria-label="Actions Git dans l’historique"]').click()`)
+  await waitFor(client, `document.querySelector('[aria-label="Actions Git dans l’historique"] + [popover]:popover-open') !== null`, 'history Git menu')
+  await evaluate(client, `[...document.querySelectorAll('[aria-label="Actions Git dans l’historique"] + [popover] button')].find((button) => button.textContent.trim() === 'Rebase interactif').click()`)
+  await waitFor(client, `document.querySelector('section[aria-label="Rebase interactif"] input[aria-label="Base du rebase"]') !== null`, 'history rebase')
+  await evaluate(client, `[...document.querySelectorAll('section[aria-label="Rebase interactif"] button')].find((button) => button.textContent.trim() === 'Charger le plan').click()`)
+  await waitFor(client, `document.querySelectorAll('section[aria-label="Rebase interactif"] [draggable="true"]').length === 3`, 'history rebase plan')
+  assertUI('history-rebase-keeps-graph', await evaluate(client, `document.querySelector('canvas').getBoundingClientRect().height > 100 && document.querySelector('main h1').textContent === 'Historique'`))
+  await evaluate(client, `(() => {
+    const input = document.querySelector('section[aria-label="Rebase interactif"] input[aria-label="Base du rebase"]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'feature')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  await waitFor(client, `document.querySelectorAll('section[aria-label="Rebase interactif"] [draggable="true"]').length === 0`, 'base change invalidates plan')
+  assertUI('history-rebase-base-change-invalidates-plan', await evaluate(client, `!document.querySelector('[role="alertdialog"]') && ![...document.querySelectorAll('section[aria-label="Rebase interactif"] button')].some((button) => button.textContent.trim() === 'Démarrer le rebase' && !button.disabled)`))
+  await evaluate(client, `(() => {
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__historyScenarioOriginal = original
+    window.__historyContinued = false
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'conflict_save') {
+        const result = await original(command, args)
+        window.__conflictsOverride = { files: [] }
+        window.__generationOverride = 42
+        return result
+      }
+      if (command === 'operation_continue') {
+        window.__historyContinued = true
+        window.__operationOverride = null
+        window.__generationOverride = 43
+        const { state } = await original('repo_get_state', { repoId: 'repo_demo' })
+        return { data: { state, output: '', conflicted: false }, generation: 43, state }
+      }
+      return original(command, args)
+    }
+    window.__operationOverride = { kind: 'merge' }
+    window.__conflictsOverride = { files: ['src/main.rs'] }
+    window.__generationOverride = 41
+    window.__emitTauriEvent('repo://changed', { repoId: 'repo_demo', generation: 41, areas: ['state'] })
+  })()`)
+  await evaluate(client, `[...document.querySelectorAll('button')].find((button) => button.textContent.trim().startsWith('Conflits et opération')).click()`)
+  await waitFor(client, `document.querySelector('section[aria-label="Conflits et opération"] textarea') !== null`, 'history operation panel')
+  await waitFor(client, `!document.querySelector('section[aria-label="Conflits et opération"] textarea').disabled`, 'conflict loaded')
+  assertUI('history-continue-blocked-until-resolved', await evaluate(client, `[...document.querySelectorAll('section[aria-label="Conflits et opération"] button')].find((button) => button.textContent.trim() === 'Continuer').disabled`))
+  await evaluate(client, `[...document.querySelectorAll('section[aria-label="Conflits et opération"] button')].find((button) => button.textContent.trim() === 'Accepter').click()`)
+  await evaluate(client, `[...document.querySelectorAll('section[aria-label="Conflits et opération"] button')].find((button) => button.textContent.includes('Marquer résolu')).click()`)
+  await waitFor(client, `!document.querySelector('section[aria-label="Conflits et opération"] textarea')`, 'last conflict resolved')
+  assertUI('history-last-conflict-keeps-operation-controls', await evaluate(client, `(() => {
+    const buttons = [...document.querySelectorAll('section[aria-label="Conflits et opération"] button')]
+    return !buttons.find((button) => button.textContent.trim() === 'Continuer')?.disabled
+      && buttons.some((button) => button.textContent.trim() === 'Abandonner')
+      && !buttons.some((button) => button.textContent.trim() === 'Sauter')
+      && document.querySelector('canvas').getBoundingClientRect().height > 100
+  })()`))
+  await screenshot(client, 'history-last-conflict.png')
+  await evaluate(client, `[...document.querySelectorAll('section[aria-label="Conflits et opération"] button')].find((button) => button.textContent.trim() === 'Continuer').click()`)
+  await waitFor(client, `window.__historyContinued && !document.body.innerText.includes('Opération en cours :')`, 'merge continued from history')
+  assertUI('history-merge-completed-without-navigation', await evaluate(client, `document.querySelector('main h1').textContent === 'Historique' && document.querySelector('canvas').getBoundingClientRect().height > 100 && !document.querySelector('section[aria-label="Conflits et opération"]')`))
+  await evaluate(client, `(() => {
+    window.__TAURI_INTERNALS__.invoke = window.__historyScenarioOriginal
+    delete window.__historyScenarioOriginal
+    delete window.__operationOverride
+    delete window.__conflictsOverride
+    delete window.__worktreeOverride
+    window.__generationOverride = 44
+    window.__emitTauriEvent('repo://changed', { repoId: 'repo_demo', generation: 44, areas: ['state'] })
+  })()`)
 
   await go('workspaces')
   await waitFor(client, `document.body.innerText.includes('Produit') && document.body.innerText.includes('État par dépôt')`, 'workspaces')

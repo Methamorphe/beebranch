@@ -11,6 +11,9 @@ const messages = {
   'commit.panel.amend': 'Amend',
   'commit.panel.keepMessage': 'Conserver le message',
   'commit.panel.allowEmpty': 'Autoriser un commit vide',
+  'commit.panel.skipHooks': 'Ignorer les hooks',
+  'commit.panel.skipHooksHint':
+    'Désactive tous les hooks pour ce commit uniquement ; le choix n’est pas mémorisé.',
   'commit.panel.identity': 'Identité et signature',
   'commit.panel.signature': 'Signature : {state}',
   'commit.panel.signatureEnabled': 'activée par Git',
@@ -102,6 +105,8 @@ const messages = {
   'commit.stash.create': 'Créer le stash',
   'commit.stash.notice':
     'Les fichiers non suivis ne sont jamais inclus implicitement. Un pop en conflit laisse le stash intact.',
+  'commit.stash.conflictsNotice':
+    'Stash appliqué avec {count} conflit(s) ({files}) ; le stash est conservé jusqu’à résolution.',
   'commit.stash.listTitle': 'Stashes ({count})',
   'commit.stash.emptyTitle': 'Aucun stash enregistré',
   'commit.stash.emptyHint':

@@ -150,6 +150,7 @@ pub fn read_detail(
             selector: entry.selector.clone(),
             untracked,
         }),
+        signature: None,
     })
 }
 

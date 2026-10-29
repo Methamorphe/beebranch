@@ -1,37 +1,37 @@
-# ADR-NNNN — Titre de la décision
+# ADR-NNNN — Decision title
 
-- **Statut :** proposé | accepté | déprécié | remplacé par ADR-NNNN
-- **Date :** AAAA-MM-JJ
-- **Décideurs :** …
+- **Status:** proposed | accepted | deprecated | superseded by ADR-NNNN
+- **Date:** YYYY-MM-DD
+- **Deciders:** …
 
-## Contexte
+## Context
 
-Situation, contraintes et forces en présence. 2 à 5 phrases.
+Situation, constraints and forces at play. 2 to 5 sentences.
 
-## Décision
+## Decision
 
-Ce qui est décidé, clairement. 1 à 3 phrases.
+What is decided, clearly. 1 to 3 sentences.
 
-## Alternatives considérées
+## Alternatives considered
 
-| Alternative | Avantages | Inconvénients | Pourquoi rejetée |
+| Alternative | Advantages | Disadvantages | Why rejected |
 |---|---|---|---|
 | … | … | … | … |
 
-## Conséquences
+## Consequences
 
-### Positives
-
-- …
-
-### Négatives
+### Positive
 
 - …
 
-### Risques
+### Negative
 
-- Risque et mitigation.
+- …
 
-## Critères de révision
+### Risks
 
-Conditions qui justifieraient de rouvrir cette décision.
+- Risk and mitigation.
+
+## Review criteria
+
+Conditions that would justify reopening this decision.

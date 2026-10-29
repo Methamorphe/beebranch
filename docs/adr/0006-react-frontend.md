@@ -1,51 +1,51 @@
 # ADR-0006 — React 19.3 + TypeScript + Vite
 
-- **Statut :** accepté
-- **Date :** 2026-10-27
-- **Décideurs :** équipe projet
+- **Status:** accepted
+- **Date:** 2026-10-27
+- **Decision makers:** project team
 
-## Contexte
+## Context
 
-BeeBranch est une application desktop dense : graphe d'historique, diff, listes virtualisées, panneaux redimensionnables, GitLab. Le frontend doit être maintenable, testable et capable d'héberger un rendu canvas sans imposer de framework lourd.
+BeeBranch is a dense desktop application: history graph, diff, virtualized lists, resizable panels, GitLab. The frontend must be maintainable, testable, and able to host canvas rendering without imposing a heavy framework.
 
-React n'a pas de canal LTS : le canal **Latest** est le canal stable recommandé pour les applications utilisateur, et les versions suivent SemVer ([politique React](https://react.dev/community/versioning-policy)). La version stable au 2026-10-27 est **19.3**.
+React has no LTS channel: the **Latest** channel is the recommended stable channel for user-facing applications, and versions follow SemVer ([React policy](https://react.dev/community/versioning-policy)). The stable version as of 2026-10-27 is **19.3**.
 
-## Décision
+## Decision
 
-1. Frontend en **React 19.3**, TypeScript en mode strict, build **Vite**.
-2. Pas de kit UI imposé au démarrage : composants maison, tokens de design.
-3. Le graphe est rendu en **canvas** ; React ne rend pas un nœud par commit.
-4. L'état métier reste dans le backend Rust ; React ne détient que l'état de présentation.
-5. Les versions exactes de React, TypeScript et Vite sont épinglées dans le lockfile au scaffold.
+1. Frontend in **React 19.3**, TypeScript in strict mode, **Vite** build.
+2. No imposed UI kit at the outset: in-house components, design tokens.
+3. The graph is rendered in **canvas**; React does not render one node per commit.
+4. Business state stays in the Rust backend; React holds only presentation state.
+5. Exact React, TypeScript, and Vite versions are pinned in the lockfile at scaffold time.
 
-## Alternatives considérées
+## Alternatives considered
 
-| Alternative | Avantages | Inconvénients | Pourquoi rejetée |
+| Alternative | Advantages | Disadvantages | Why rejected |
 |---|---|---|---|
-| Svelte 5 | Bundle plus léger, réactivité simple | Écosystème plus petit, moins de recrutement | Pas de gain déterminant puisque le graphe est en canvas |
-| SolidJS | Très performant sur le DOM | Écosystème et outillage plus restreints | Risque de maintenance |
-| Vanilla TS | Contrôle total | Coût de structure et de tests | Productivité insuffisante |
-| React 18 | Plus ancien, stable | Pas de LTS, moins de fonctionnalités | Aucune raison de partir sur une version antérieure |
+| Svelte 5 | Lighter bundle, simple reactivity | Smaller ecosystem, smaller hiring pool | No decisive gain since the graph is in canvas |
+| SolidJS | Very fast on the DOM | More limited ecosystem and tooling | Maintenance risk |
+| Vanilla TS | Full control | Structure and testing cost | Insufficient productivity |
+| React 18 | Older, stable | No LTS, fewer features | No reason to start with an earlier version |
 
-## Conséquences
+## Consequences
 
-### Positives
+### Positive
 
-- Écosystème mature (virtualisation, tests, outillage).
-- TypeScript strict et typage IPC partagé.
-- Recrutement et maintenance facilités.
-- Aucune dépendance à un méta-framework.
+- Mature ecosystem (virtualization, testing, tooling).
+- Strict TypeScript and shared IPC typing.
+- Easier hiring and maintenance.
+- No dependency on a meta-framework.
 
-### Négatives
+### Negative
 
-- React reste une dépendance à suivre (majeures peu fréquentes).
-- Le rendu canvas doit être géré hors du modèle React.
+- React remains a dependency to track (infrequent major versions).
+- Canvas rendering must be managed outside the React model.
 
-### Risques
+### Risks
 
-- **Performance UI** : le risque est le rendu, pas React. Mitigation : canvas, virtualisation, mesure P0.
-- **Dérive de dépendances** : limiter les bibliothèques, audit, versions épinglées.
+- **UI performance**: the risk is rendering, not React. Mitigation: canvas, virtualization, P0 measurement.
+- **Dependency drift**: limit libraries, audit, pinned versions.
 
-## Critères de révision
+## Revision criteria
 
-Réexaminer si les mesures P0 montrent que le modèle de rendu React est un goulet, ou si l'équipe ne peut pas maintenir l'écosystème. Un changement de framework ne doit pas modifier les frontières backend/IPC.
+Revisit if P0 measurements show that React's rendering model is a bottleneck, or if the team cannot maintain the ecosystem. A framework change must not alter backend/IPC boundaries.

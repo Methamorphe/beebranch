@@ -353,7 +353,9 @@ pub async fn github_merge_pr(
         .with_remediation("Configurez la suppression automatique dans les réglages du dépôt GitHub."));
     }
     if let Some(method) = input.merge_method.as_deref() {
-        if !matches!(method, "merge" | "rebase" | "rebase_merge" | "squash") {
+        // GitHub rejects `rebase_merge`: only `merge`, `squash` and `rebase`
+        // exist, the last two being strategies of their own.
+        if !matches!(method, "merge" | "rebase" | "squash") {
             return Err(AppError::invalid_input(
                 "La stratégie de merge doit être `merge`, `rebase` ou `squash`.".to_owned(),
             ));

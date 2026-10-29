@@ -1,29 +1,29 @@
-# 02 — Architecture cible
+# 02 — Target architecture
 
-## 1. Vue d'ensemble
+## 1. Overview
 
-Application desktop Tauri 2, backend Rust, frontend web. Le backend est le seul à parler à Git, au système de fichiers, au keychain et à GitLab. Le frontend ne fait que présenter et déclencher des commandes typées.
+Tauri 2 desktop application, Rust backend, web frontend. The backend is the only component that talks to Git, the file system, the OS keychain, and GitLab. The frontend only presents information and triggers typed commands.
 
 ```mermaid
 flowchart TB
   subgraph Frontend["Frontend (WebView)"]
-    UI[Vues: graphe, diff, GitLab]
-    STATE[Stores de présentation]
-    RENDER[Canvas + virtualisation]
+    UI[Views: graph, diff, GitLab]
+    STATE[Presentation stores]
+    RENDER[Canvas + virtualization]
   end
 
-  subgraph Backend["Backend Rust"]
-    APP[crates/app<br/>commandes Tauri, événements]
-    GIT[crates/git<br/>moteur Git CLI]
-    GL[crates/gitlab<br/>client REST v4]
-    GH[crates/github<br/>client REST v3]
-    CORE[crates/core<br/>types, erreurs, config]
-    STORE[crates/store<br/>SQLite, keychain]
-    BENCH[crates/bench<br/>harnais de mesure]
+  subgraph Backend["Rust backend"]
+    APP[crates/app<br/>Tauri commands, events]
+    GIT[crates/git<br/>Git CLI engine]
+    GL[crates/gitlab<br/>REST v4 client]
+    GH[crates/github<br/>REST v3 client]
+    CORE[crates/core<br/>types, errors, config]
+    STORE[crates/store<br/>SQLite, OS keychain]
+    BENCH[crates/bench<br/>measurement harness]
   end
 
-  UI -->|invoke commandes| APP
-  APP -->|events streamés| UI
+  UI -->|invoke commands| APP
+  APP -->|streamed events| UI
   APP --> GIT
   APP --> GL
   APP --> STORE
@@ -33,203 +33,203 @@ flowchart TB
   BENCH --> GIT
   BENCH --> GL
 
-  GIT -->|processus| GITBIN[(git)]
-  GIT --> FS[(dépôts locaux)]
+  GIT -->|process| GITBIN[(git)]
+  GIT --> FS[(local repositories)]
   GL --> API[(GitLab /api/v4)]
   STORE --> DB[(SQLite app data)]
-  STORE --> KC[(keychain OS)]
+  STORE --> KC[(OS keychain)]
 ```
 
-## 2. Organisation du code
+## 2. Code organization
 
 ```
 beebranch/
   Cargo.toml                 # workspace
   crates/
-    core/                    # types partagés, erreurs, configuration
-    git/                     # unique propriétaire du processus `git`
-    gitlab/                  # client REST v4
-    github/                  # client REST v3 (Cloud et Enterprise)
-    store/                   # persistance locale, keychain
-    app/                     # shell Tauri, commandes, événements
-    bench/                   # harnais et scénarios de mesure
-  src/                       # frontend (framework à confirmer)
-  src-tauri/                 # configuration Tauri, capabilities, icônes
+    core/                    # shared types, errors, configuration
+    git/                     # sole owner of the `git` process
+    gitlab/                  # REST v4 client
+    github/                  # REST v3 client (Cloud and Enterprise)
+    store/                   # local persistence, keychain
+    app/                     # Tauri shell, commands, events
+    bench/                   # harness and measurement scenarios
+  src/                       # frontend (framework to be confirmed)
+  src-tauri/                 # Tauri configuration, capabilities, icons
   docs/
 ```
 
-### Règles de dépendance
+### Dependency rules
 
-| Crate | Peut dépendre de | Ne doit jamais dépendre de |
+| Crate | May depend on | Must never depend on |
 |---|---|---|
-| `core` | bibliothèques génériques (`serde`, `thiserror`) | `git`, `gitlab`, `github`, `store`, `app` |
+| `core` | generic libraries (`serde`, `thiserror`) | `git`, `gitlab`, `github`, `store`, `app` |
 | `git` | `core` | `gitlab`, `github`, `app` |
 | `gitlab` | `core` | `git`, `github`, `app` |
 | `github` | `core` | `git`, `gitlab`, `app` |
 | `store` | `core` | `git`, `gitlab`, `github`, `app` |
-| `app` | toutes | — |
-| `bench` | `git`, `gitlab`, `core` | `app` (sauf binaire de mesure dédié) |
+| `app` | all | — |
+| `bench` | `git`, `gitlab`, `core` | `app` (except a dedicated measurement binary) |
 
-Aucun cycle. Aucune abstraction de type `GitBackend` ou `GitProvider` : les modules sont concrets.
+No cycles. No abstractions such as `GitBackend` or `GitProvider`: modules are concrete.
 
-## 3. Modules et responsabilités
+## 3. Modules and responsibilities
 
 ### `crates/core`
 
-| Élément | Responsabilité |
+| Item | Responsibility |
 |---|---|
-| `ids` | `RepoId`, `OperationId`, `ProjectId`, `MergeRequestIid` — types opaques sérialisables |
-| `repo` | `RepoPath`, `WorktreePath`, `CommonDir`, validation de chemin |
+| `ids` | `RepoId`, `OperationId`, `ProjectId`, `MergeRequestIid` — serializable opaque types |
+| `repo` | `RepoPath`, `WorktreePath`, `CommonDir`, path validation |
 | `state` | `RepoState`, `HeadState`, `InProgressOperation`, `ConflictSet` |
-| `error` | `AppError`, catégories, codes stables, remédiation |
-| `config` | schéma des préférences, version de schéma, migrations |
-| `pagination` | `PageRequest`, `Page<T>`, curseurs |
-| `http_cache` | `CachedResponse`, `ResponseCache` partagés par les clients GitLab et GitHub |
-| `time` | horodatage UTC, formatage |
+| `error` | `AppError`, categories, stable codes, remediation |
+| `config` | preference schema, schema version, migrations |
+| `pagination` | `PageRequest`, `Page<T>`, cursors |
+| `http_cache` | `CachedResponse`, `ResponseCache` shared by the GitLab and GitHub clients |
+| `time` | UTC timestamp, formatting |
 
-Interdit : I/O, spawn de processus, HTTP, accès keychain.
+Forbidden: I/O, process spawning, HTTP, OS keychain access.
 
 ### `crates/git`
 
-Seul crate autorisé à lancer `git`.
+The only crate allowed to launch `git`.
 
-| Sous-module | Responsabilité |
+| Submodule | Responsibility |
 |---|---|
-| `process` | `CommandSpec`, construction argv, environnement, timeout, streaming, annulation, capture bornée |
-| `discover` | ouverture d'un dépôt, worktree, common dir, bare, submodule |
+| `process` | `CommandSpec`, argv construction, environment, timeout, streaming, cancellation, bounded capture |
+| `discover` | opening a repository, worktree, common dir, bare, submodule |
 | `refs` | branches, tags, remotes, upstream, HEAD |
-| `status` | parsing `--porcelain=v2 -z`, index, untracked, conflits |
-| `log` | pages de commits, parents, topologie, filtrage |
-| `diff` | diff commit/commit, working tree, index, modes, limites |
-| `index` | staging par fichier/hunk/ligne, patch application, discard |
-| `commit` | commit, amend, signature, hooks |
+| `status` | `--porcelain=v2 -z` parsing, index, untracked, conflicts |
+| `log` | commit pages, parents, topology, filtering |
+| `diff` | commit/commit diff, working tree, index, modes, limits |
+| `index` | file/hunk/line staging, patch application, discard |
+| `commit` | commit, amend, signing, hooks |
 | `sync` | fetch, pull, push, clone, progress |
 | `history_ops` | merge, rebase, cherry-pick, revert, reset soft/mixed, continue/abort |
-| `integration` | aperçu et exécution d'un drop branche→branche (merge/rebase) |
-| `undo` | empreintes, préconditions, inverses typés, restauration pas à pas |
+| `integration` | preview and execution of a branch→branch drop (merge/rebase) |
+| `undo` | fingerprints, preconditions, typed inverses, step-by-step restoration |
 | `stash` | create, list, apply, pop, drop |
 | `worktree` | list, add, remove, lock |
 | `submodule` | status, init, update |
-| `lfs` | détection et délégation |
-| `state` | détection des états intermédiaires et des opérations interrompues |
-| `capability` | version Git, options supportées |
+| `lfs` | detection and delegation |
+| `state` | detection of intermediate states and interrupted operations |
+| `capability` | Git version, supported options |
 
-Interdit : logique UI, accès HTTP, stockage de préférences, connaissance de GitLab.
+Forbidden: UI logic, HTTP access, preference storage, knowledge of GitLab.
 
 ### `crates/gitlab`
 
-| Sous-module | Responsabilité |
+| Submodule | Responsibility |
 |---|---|
 | `client` | reqwest, base URL, TLS, retries, pagination, rate limit |
-| `auth` | PAT, validation, détection d'expiration |
-| `projects` | liste, recherche, groupes, association dépôt |
-| `merge_requests` | liste, détail, diffs, création, merge, approvals |
-| `pipelines` | statut, jobs, logs |
-| `models` | types sérialisés, mapping vers `core` |
+| `auth` | PAT, validation, expiration detection |
+| `projects` | listing, search, groups, repository association |
+| `merge_requests` | listing, details, diffs, creation, merge, approvals |
+| `pipelines` | status, jobs, logs |
+| `models` | serialized types, mapping to `core` |
 | `cache` | ETag, TTL, invalidation |
 
-Interdit : spawn Git, accès direct aux dépôts, stockage du token hors keychain.
+Forbidden: spawning Git, direct repository access, token storage outside the OS keychain.
 
 ### `crates/github`
 
-Symétrique de `crates/gitlab`, sans dépendance entre les deux crates.
+Symmetric with `crates/gitlab`, with no dependency between the two crates.
 
-| Sous-module | Responsabilité |
+| Submodule | Responsibility |
 |---|---|
 | `client` | reqwest, GitHub Cloud/Enterprise, retries, `Link` pagination, rate limit |
-| `models` | types normalisés identiques aux DTO GitLab pour partager l'UI |
-| `remote` | normalisation des remotes et appariement `owner/repo` |
-| `pipeline` | mapping check-runs / jobs Actions vers les états CI partagés |
-| `url` | `api.github.com` ou `<hôte>/api/v3`, refus de `http` et des identifiants |
+| `models` | normalized types identical to GitLab DTOs to share the UI |
+| `remote` | remote normalization and `owner/repo` matching |
+| `pipeline` | mapping check-runs / Actions jobs to shared CI states |
+| `url` | `api.github.com` or `<host>/api/v3`, reject `http` and credentials |
 
-Limites assumées : la résolution de thread, l'auto-merge et la suppression de
-branche au merge ne sont pas exposées par l'API REST utilisée ; l'UI masque
-ces actions pour GitHub.
+Accepted limitations: thread resolution, auto-merge, and branch deletion
+on merge are not exposed by the REST API used; the UI hides
+these actions for GitHub.
 
 ### `crates/store`
 
-- SQLite applicatif : préférences, dépôts récents, associations de forge
-  (GitLab/GitHub, colonne `provider`), cache HTTP, journal d'opérations,
-  journal undo/redo et workspaces locaux.
-- Keychain OS : tokens et secrets (`beebranch.gitlab`, `beebranch.github`).
-- Migrations versionnées, transactions, WAL.
-- Aucun fichier de dépôt modifié.
+- Application SQLite: preferences, recent repositories, forge associations
+  (GitLab/GitHub, `provider` column), HTTP cache, operation journal,
+  undo/redo journal, and local workspaces.
+- OS keychain: tokens and secrets (`beebranch.gitlab`, `beebranch.github`).
+- Versioned migrations, transactions, WAL.
+- No repository files modified.
 
 ### `crates/app`
 
-- Bootstrap Tauri, fenêtres, menus, capabilities.
-- Écran de démarrage (`splash.rs`) : la fenêtre principale est créée masquée,
-  une petite fenêtre sans cadre affiche l'animation du logo puis est relâchée
-  par la commande `app_ready` (minimum 1,5 s, repli à 8 s si le frontend ne
-  répond pas).
-- État applicatif : registre de sessions, registre d'opérations, client GitLab, store.
-- Commandes Tauri et émission d'événements.
-- Mapping `AppError` → payload stable.
-- Aucune logique Git : délègue à `git`.
+- Tauri bootstrap, windows, menus, capabilities.
+- Splash screen (`splash.rs`): the main window is created hidden,
+  a small frameless window displays the logo animation and is then released
+  by the `app_ready` command (minimum 1.5 s, fallback at 8 s if the frontend does
+  not respond).
+- Application state: session registry, operation registry, GitLab client, store.
+- Tauri commands and event emission.
+- `AppError` → stable payload mapping.
+- No Git logic: delegates to `git`.
 
 ### Frontend
 
-| Couche | Responsabilité |
+| Layer | Responsibility |
 |---|---|
-| `views` | Accueil, dépôt, graphe, diff, GitLab, réglages |
-| `components` | Graphe canvas, diff, listes virtualisées, dialogues |
-| `stores` | État de présentation, sélection, filtres, préférences UI |
-| `ipc` | Client typé généré/manuel, gestion d'erreurs |
-| `workers` | Analyse de texte lourde si nécessaire (coloration), jamais d'accès Git |
+| `views` | Home, repository, graph, diff, GitLab, settings |
+| `components` | Canvas graph, diff, virtualized lists, dialogs |
+| `stores` | Presentation state, selection, filters, UI preferences |
+| `ipc` | Generated/manual typed client, error handling |
+| `workers` | Heavy text analysis if needed (highlighting), never Git access |
 
-Interdit : accès FS, shell, HTTP GitLab, stockage de token, logique de mutation.
+Forbidden: FS access, shell, GitLab HTTP, token storage, mutation logic.
 
-## 4. Frontières backend / frontend (IPC)
+## 4. Backend / frontend boundaries (IPC)
 
-### Commandes
+### Commands
 
-Toutes les commandes sont typées, versionnées et renvoient `Result<T, AppError>`.
+All commands are typed, versioned, and return `Result<T, AppError>`.
 
-| Domaine | Commandes |
+| Domain | Commands |
 |---|---|
-| Dépôt | `repo_open`, `repo_close`, `repo_list_recent`, `repo_get_state`, `repo_refresh` |
-| Lecture | `status_get`, `log_page`, `commit_get`, `diff_get`, `file_history_get`, `blame_get` |
+| Repository | `repo_open`, `repo_close`, `repo_list_recent`, `repo_get_state`, `repo_refresh` |
+| Read | `status_get`, `log_page`, `commit_get`, `diff_get`, `file_history_get`, `blame_get` |
 | Index | `stage_paths`, `unstage_paths`, `stage_hunks`, `discard_paths`, `discard_hunks` |
 | Commit | `commit_create`, `commit_amend` |
 | Refs | `branch_create`, `branch_checkout`, `branch_rename`, `branch_delete`, `tag_create`, `remote_*` |
 | Sync | `fetch_start`, `pull_start`, `push_start`, `clone_start` |
-| Historique | `merge_start`, `rebase_start`, `rebase_interactive_start`, `cherry_pick_start`, `revert_start`, `reset_start`, `operation_continue`, `operation_abort` |
+| History | `merge_start`, `rebase_start`, `rebase_interactive_start`, `cherry_pick_start`, `revert_start`, `reset_start`, `operation_continue`, `operation_abort` |
 | Stash | `stash_create`, `stash_apply`, `stash_pop`, `stash_drop` |
 | Worktree | `worktree_list`, `worktree_add`, `worktree_remove`, `worktree_lock` |
-| Opérations | `operation_cancel`, `operation_get`, `undo_status`, `undo_list`, `undo_apply`, `redo_apply`, `undo_failed`, `undo_acknowledge` |
-| Intégration | `branch_integration_preview`, `branch_integration_start` |
+| Operations | `operation_cancel`, `operation_get`, `undo_status`, `undo_list`, `undo_apply`, `redo_apply`, `undo_failed`, `undo_acknowledge` |
+| Integration | `branch_integration_preview`, `branch_integration_start` |
 | Workspaces | `workspace_list`, `workspace_create`, `workspace_rename`, `workspace_delete`, `workspace_add_repo`, `workspace_remove_repo`, `workspace_status`, `workspace_sync` |
 | Distribution | `update_status`, `update_check`, `update_install`, `update_rollback` |
-| Undo | `undo_apply`, `redo_apply` (inverses Git typés, journal SQLite) |
+| Undo | `undo_apply`, `redo_apply` (typed Git inverses, SQLite journal) |
 | GitLab | `gitlab_configure`, `gitlab_validate`, `gitlab_projects_page`, `gitlab_mr_page`, `gitlab_mr_get`, `gitlab_mr_create`, `gitlab_mr_diffs`, `gitlab_pipelines` |
 | GitHub | `github_configure`, `github_validate`, `github_projects_page`, `github_pr_page`, `github_pr_get`, `github_pr_create`, `github_pr_checks`, `github_merge_pr` |
-| Diagnostics | `diagnostics_export` (redacté) |
+| Diagnostics | `diagnostics_export` (redacted) |
 
-### Événements
+### Events
 
-| Événement | Charge utile | Usage |
+| Event | Payload | Usage |
 |---|---|---|
-| `repo://changed` | `{ repo_id, generation, areas }` | invalidation ciblée |
+| `repo://changed` | `{ repo_id, generation, areas }` | targeted invalidation |
 | `op://progress` | `{ operation_id, phase, percent?, message? }` | fetch/push/clone |
-| `op://output` | `{ operation_id, stream, chunk }` | logs de hooks, progression |
-| `op://done` | `{ operation_id, result }` | fin |
-| `op://error` | `{ operation_id, error }` | échec |
-| `gitlab://auth-expired` | `{ instance_id }` | réauthentification GitLab |
-| `github://auth-expired` | `{ instance_id }` | réauthentification GitHub |
-| `repo://state-changed` | `{ repo_id, state }` | conflit/rebase détecté |
+| `op://output` | `{ operation_id, stream, chunk }` | hook logs, progress |
+| `op://done` | `{ operation_id, result }` | completion |
+| `op://error` | `{ operation_id, error }` | failure |
+| `gitlab://auth-expired` | `{ instance_id }` | GitLab reauthentication |
+| `github://auth-expired` | `{ instance_id }` | GitHub reauthentication |
+| `repo://state-changed` | `{ repo_id, state }` | conflict/rebase detected |
 
-### Règles IPC
+### IPC rules
 
-1. **Aucun payload supérieur à 1 Mio.** Les pages sont dimensionnées pour rester sous cette limite ; la taille est adaptative et mesurée.
-2. **Aucun échange par commit.** Une page contient N commits avec parents, refs et métadonnées compactes.
-3. **Aucun diff complet** pour un fichier au-delà du plafond : pagination par hunks, troncature explicite.
-4. **Générations.** Chaque réponse de lecture porte la `generation` du dépôt ; le frontend ignore une réponse antérieure à la génération courante.
-5. **Annulation.** Toute opération longue peut être annulée ; l'état résultant est revalidé et affiché.
-6. **Erreurs.** Le frontend ne parse jamais `stderr` : il affiche `AppError.message` et `AppError.remediation`, et peut ouvrir le détail brut.
+1. **No payload larger than 1 MiB.** Pages are sized to stay below this limit; size is adaptive and measured.
+2. **No per-commit exchanges.** A page contains N commits with parents, refs, and compact metadata.
+3. **No full diff** for a file beyond the cap: hunk pagination, explicit truncation.
+4. **Generations.** Each read response carries the repository's `generation`; the frontend ignores a response older than the current generation.
+5. **Cancellation.** Any long-running operation can be canceled; the resulting status is revalidated and displayed.
+6. **Errors.** The frontend never parses `stderr`: it displays `AppError.message` and `AppError.remediation`, and can open the raw details.
 
-## 5. État et cycle de vie
+## 5. State and lifecycle
 
-### Session de dépôt
+### Repository session
 
 ```rust
 struct RepoSession {
@@ -244,41 +244,41 @@ struct RepoSession {
 }
 ```
 
-Création :
+Creation:
 
-1. validation du chemin ;
-2. `git rev-parse --show-toplevel --git-common-dir --is-bare-repository` ;
-3. détection worktree/submodule ;
-4. chargement de l'état structurel ;
-5. démarrage du watcher ;
-6. publication de la session.
+1. path validation;
+2. `git rev-parse --show-toplevel --git-common-dir --is-bare-repository`;
+3. worktree/submodule detection;
+4. structural status loading;
+5. watcher startup;
+6. session publication.
 
-Fermeture : annulation des opérations, arrêt du watcher, flush du cache, suppression du registre.
+Closing: cancel operations, stop the watcher, flush the cache, remove from the registry.
 
-### État Git
+### Git status
 
-Ne pas modéliser l'état comme une simple énumération exclusive : un dépôt peut être en rebase **et** en conflit.
+Do not model status as a simple exclusive enumeration: a repository can have a rebase in progress **and** conflicts.
 
 ```rust
 struct RepoState {
     head: HeadState,                      // Branch { name, upstream } | Detached { sha } | Unborn
     operation: Option<InProgressOperation>, // Merge | Rebase | CherryPick | Revert | Bisect
-    conflicts: ConflictSet,               // fichiers + stages disponibles
+    conflicts: ConflictSet,               // files + available stages
     worktree: WorktreeState,              // clean | dirty | untracked | mixed
     sequencer: Option<SequencerState>,    // cherry-pick/revert multi-commits
 }
 ```
 
-Détection par inspection de `.git` (fichiers et répertoires standards) et par `git status --porcelain=v2`. L'état est recalculé après chaque mutation et après tout changement externe détecté.
+Detected by inspecting `.git` (standard files and directories) and through `git status --porcelain=v2`. Status is recalculated after each mutation and after any detected external change.
 
 ### Invalidation
 
-- Toute mutation incrémente `generation`.
-- Le watcher déclenche un debounce (150 ms) puis une invalidation ciblée (`refs`, `index`, `worktree`, `head`).
-- Les caches sont indexés par `(repo_id, generation, area)`.
-- Une modification externe (terminal, IDE, agent) est détectée par comparaison d'empreintes et invalide les mêmes zones.
+- Every mutation increments `generation`.
+- The watcher triggers a debounce (150 ms) followed by targeted invalidation (`refs`, `index`, `worktree`, `head`).
+- Caches are indexed by `(repo_id, generation, area)`.
+- An external change (terminal, IDE, agent) is detected by fingerprint comparison and invalidates the same areas.
 
-## 6. Concurrence et opérations
+## 6. Concurrency and operations
 
 ```mermaid
 sequenceDiagram
@@ -299,98 +299,98 @@ sequenceDiagram
   App-->>UI: invalidation
 ```
 
-- **Une file de mutations par dépôt**. Les mutations sont exécutées strictement dans l'ordre de soumission.
-- **Lectures** : concurrentes tant qu'aucune mutation n'est en cours ; bloquées pendant une mutation destructive (reset, checkout, merge).
-- **Opérations longues** : fetch/push/clone sont des opérations de la file ; elles streament et peuvent être annulées.
-- **Verrou externe** : `index.lock` ou `HEAD.lock` existant → erreur `RepoBusy` avec remédiation, jamais de suppression automatique.
-- **Timeout** : par défaut aucun timeout sur fetch/push/clone (réseau lent), mais progression heartbeat ; timeout sur les commandes locales (30 s) avec annulation.
-- **Crash** : journal d'opérations en SQLite ; au démarrage, les opérations `running` sont marquées interrompues et l'état du dépôt est revalidé.
+- **One mutation queue per repository**. Mutations are executed strictly in submission order.
+- **Reads**: concurrent while no mutation is in progress; blocked during a destructive mutation (reset, checkout, merge).
+- **Long-running operations**: fetch/push/clone are queued operations; they stream and can be canceled.
+- **External lock**: existing `index.lock` or `HEAD.lock` → `RepoBusy` error with remediation, never automatic deletion.
+- **Timeout**: by default, no timeout on fetch/push/clone (slow network), but a progress heartbeat; timeout on local commands (30 s) with cancellation.
+- **Crash**: operation journal in SQLite; on startup, `running` operations are marked interrupted and repository status is revalidated.
 
-## 7. Modèle d'erreur
+## 7. Error model
 
 ```rust
 struct AppError {
-    code: &'static str,          // stable, ex. "git.non_fast_forward"
+    code: &'static str,          // stable, e.g. "git.non_fast_forward"
     category: ErrorCategory,     // Input | Repo | GitState | GitExit | Auth | Network | Tls | Conflict | Permission | Busy | Internal | Cancelled
-    message: String,             // français, actionnable
-    detail: Option<String>,      // stderr borné, redacté
-    remediation: Option<String>, // action proposée
+    message: String,             // French, actionable
+    detail: Option<String>,      // bounded, redacted stderr
+    remediation: Option<String>, // proposed action
     retryable: bool,
     operation_id: Option<OperationId>,
 }
 ```
 
-Règles :
+Rules:
 
-- `code` est stable et testé ; l'UI peut s'y fier, jamais au texte.
-- `stderr` est borné (par ex. 16 Kio) et redacté (tokens, URLs avec credentials, chemins sensibles).
-- Les erreurs Git connues sont mappées (tableau dans [03-git-engine](03-git-engine.md#12-mapping-des-erreurs)).
-- Une erreur inconnue devient `git.exit_unknown` avec le code de sortie et la sortie brute.
-- Aucune erreur n'est avalée : les opérations partielles remontent toujours.
+- `code` is stable and tested; the UI can rely on it, never on the text.
+- `stderr` is bounded (e.g., 16 KiB) and redacted (tokens, URLs with credentials, sensitive paths).
+- Known Git errors are mapped (table in [03-git-engine](03-git-engine.md#12-error-mapping)).
+- An unknown error becomes `git.exit_unknown` with the exit code and raw output.
+- No error is swallowed: partial operations are always reported.
 
-## 8. Sécurité
+## 8. Security
 
-| Frontière | Mesure |
+| Boundary | Measure |
 |---|---|
-| Webview | CSP restrictive, aucun contenu distant, liens externes via allowlist |
-| Commandes | argv uniquement, allowlist de sous-commandes et d'options, jamais de shell |
-| Chemins | canonicalisation, vérification que le chemin est un dépôt/worktree, refus des liens symboliques inattendus |
-| Secrets | keychain OS ; jamais dans le frontend, les logs, les URLs de remote ou les crash reports |
-| TLS | vérification active ; CA personnalisée importable ; pas de désactivation silencieuse |
-| Logs | redaction centralisée ; niveau configurable ; export local uniquement |
-| Dépendances | versions épinglées, audit, pas de crate non maintenu sans justification |
-| Mises à jour | binaires signés, vérification de signature |
+| Webview | Restrictive CSP, no remote content, external links via allowlist |
+| Commands | argv only, subcommand and option allowlist, never a shell |
+| Paths | canonicalization, check that the path is a repository/worktree, reject unexpected symbolic links |
+| Secrets | OS keychain; never in the frontend, logs, remote URLs, or crash reports |
+| TLS | verification enabled; custom CA can be imported; no silent disabling |
+| Logs | centralized redaction; configurable level; local export only |
+| Dependencies | pinned versions, audit, no unmaintained crate without justification |
+| Updates | signed binaries, signature verification |
 
-Détails : [07-reliability-security](07-reliability-security.md).
+Details: [07-reliability-security](07-reliability-security.md).
 
-## 9. Configuration et stockage
+## 9. Configuration and storage
 
-| Donnée | Emplacement |
+| Data | Location |
 |---|---|
-| Préférences UI, thème, raccourcis | SQLite `app.db` |
-| Dépôts récents, onglets | SQLite |
-| Associations dépôt ↔ projet GitLab | SQLite |
-| Cache GitLab (ETag, pages) | SQLite, TTL |
-| Journal d'opérations | SQLite, rotation |
-| PAT et secrets | Keychain OS |
-| Logs | Répertoire app data, rotation |
+| UI preferences, theme, shortcuts | SQLite `app.db` |
+| Recent repositories, tabs | SQLite |
+| Repository ↔ GitLab project associations | SQLite |
+| GitLab cache (ETag, pages) | SQLite, TTL |
+| Operation journal | SQLite, rotation |
+| PAT and secrets | OS keychain |
+| Logs | App data directory, rotation |
 
-Aucune écriture dans `.git` en dehors des commandes Git normales. Aucune écriture dans le working tree hors mutations demandées.
+No writes to `.git` outside normal Git commands. No writes to the working tree outside requested mutations.
 
-**Aucune sauvegarde applicative du working tree.** Les actions destructives (discard, `reset --hard`, stash drop) sont irréversibles et exigent une confirmation explicite. Les objets Git restent récupérables via le reflog lorsqu'ils ont été créés par une opération Git, mais l'application ne copie ni fichiers ni index pour restaurer un état antérieur.
+**No application backup of the working tree.** Destructive actions (discard, `reset --hard`, stash drop) are irreversible and require explicit confirmation. Git objects remain recoverable through the reflog when created by a Git operation, but the application does not copy files or the index to restore an earlier state.
 
 ## 10. Frontend
 
-- Rendu du graphe en **canvas**, virtualisation stricte, lanes calculées côté Rust.
-- Listes virtualisées pour fichiers, commits, MR.
-- Coloration syntaxique bornée : au-delà d'un seuil, rendu texte sans coloration.
-- Aucun état métier durable dans le frontend ; tout est revalidé via le backend.
-- Les composants ne connaissent ni Git ni GitLab : ils consomment des types de `core` sérialisés.
-- Framework : **React 19.3 + TypeScript + Vite** ([ADR-0006](adr/0006-react-frontend.md)). Le framework ne doit pas modifier les frontières backend/IPC ci-dessus.
+- Graph rendering in **canvas**, strict virtualization, lanes calculated in Rust.
+- Virtualized lists for files, commits, MRs.
+- Bounded syntax highlighting: beyond a threshold, text rendering without highlighting.
+- No durable business state in the frontend; everything is revalidated through the backend.
+- Components know neither Git nor GitLab: they consume serialized `core` types.
+- Framework: **React 19.3 + TypeScript + Vite** ([ADR-0006](adr/0006-react-frontend.md)). The framework must not change the backend/IPC boundaries above.
 
-## 11. Observabilité
+## 11. Observability
 
-- `tracing` côté Rust : spans par commande, durée, code de sortie, taille d'I/O.
-- Marques `performance.mark/measure` côté frontend : first paint, first commit page, frame budget.
-- Compteurs : nombre d'invocations Git, octets IPC, taille des caches.
-- Aucun envoi réseau automatique. Export de diagnostics sur action explicite, redacté.
-- Les benchmarks produisent un rapport JSON versionné et comparable.
+- Rust-side `tracing`: spans per command, duration, exit code, I/O size.
+- Frontend `performance.mark/measure` marks: first paint, first commit page, frame budget.
+- Counters: number of Git invocations, IPC bytes, cache sizes.
+- No automatic network transmission. Redacted diagnostics export on explicit action.
+- Benchmarks produce a versioned, comparable JSON report.
 
-## 12. Contraintes multiplateformes
+## 12. Cross-platform constraints
 
-| Plateforme | Points d'attention |
+| Platform | Points to watch |
 |---|---|
-| Windows | `CREATE_NO_WINDOW`, chemins longs, CRLF, `core.autocrlf`, terminaux, antivirus sur spawn |
-| macOS | signature/notarisation, chemins `/Users`, keychain, WebKit |
-| Linux | versions WebKitGTK, thèmes, keychain (Secret Service), packaging |
+| Windows | `CREATE_NO_WINDOW`, long paths, CRLF, `core.autocrlf`, terminals, antivirus on spawn |
+| macOS | signing/notarization, `/Users` paths, OS keychain, WebKit |
+| Linux | WebKitGTK versions, themes, OS keychain (Secret Service), packaging |
 
-Les tests d'intégration et les benchmarks s'exécutent sur les trois OS en CI avant toute release.
+Integration tests and benchmarks run on all three OSes in CI before every release.
 
-## 13. Migration et compatibilité
+## 13. Migration and compatibility
 
-- **Greenfield** : aucun code, aucune donnée applicative existante à migrer.
-- **Dépôts Git** : jamais migrés, jamais réécrits, jamais déplacés sans action explicite.
-- **GitKraken** : aucune importation de préférences ou d'historique au MVP ; les utilisateurs reconfiguent leur identité et leurs remotes.
-- **Base applicative** : migrations SQLite versionnées et réversibles, refus de démarrer sur un schéma plus récent que le binaire.
-- **Git** : plancher 2.34 + feature detection ; message bloquant si insuffisante.
-- **GitLab** : trois dernières versions maintenues testées + feature detection ; aucune migration de données GitLab.
+- **Greenfield**: no existing code or application data to migrate.
+- **Git repositories**: never migrated, never rewritten, never moved without explicit action.
+- **GitKraken**: no preference or history import in the MVP; users reconfigure their identity and remotes.
+- **Application database**: versioned, reversible SQLite migrations, refuse to start on a schema newer than the binary.
+- **Git**: minimum 2.34 + feature detection; blocking message if insufficient.
+- **GitLab**: latest three maintained versions tested + feature detection; no GitLab data migration.

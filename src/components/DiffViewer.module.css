@@ -301,6 +301,51 @@
   tab-size: 4;
 }
 
+/* Positions the mini-map over the scrollport without entering the flow. */
+.diffPane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.minimap {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  cursor: pointer;
+}
+
+.minimapWindow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+/* Word wrap renders rows in the flow: their height is no longer fixed. */
+.wrapped {
+  width: 100%;
+  min-width: 0;
+}
+
+.wrapped .lineRow {
+  width: 100%;
+  min-width: 0;
+}
+
+.wrapped .code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .document {
   flex: 1;
   min-height: 0;

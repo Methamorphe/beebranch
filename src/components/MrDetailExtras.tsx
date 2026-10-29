@@ -57,8 +57,10 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
   const { t } = useI18n()
   const [tab, setTab] = useState<Tab>('overview')
   const [discussions, setDiscussions] = useState<GitlabDiscussion[]>([])
+  const [discussionsNext, setDiscussionsNext] = useState<number | undefined>()
   const [approvals, setApprovals] = useState<ApprovalsDto | null>(null)
   const [jobs, setJobs] = useState<GitlabJob[]>([])
+  const [jobsNext, setJobsNext] = useState<number | undefined>()
   const [pipelineId, setPipelineId] = useState<number | null>(null)
   const [log, setLog] = useState<{ job: GitlabJob; value: JobLog } | null>(null)
   const [body, setBody] = useState('')
@@ -77,14 +79,20 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const loadDiscussions = useCallback(async () => {
-    try {
-      const page = await api.discussions({ projectId, iid: mr.iid })
-      setDiscussions(page.items)
-    } catch (cause) {
-      setError(errorMessage(cause))
-    }
-  }, [api, projectId, mr.iid])
+  const loadDiscussions = useCallback(
+    async (page = 1, append = false) => {
+      try {
+        const result = await api.discussions({ projectId, iid: mr.iid, page })
+        setDiscussions((current) =>
+          append ? [...current, ...result.items] : result.items,
+        )
+        setDiscussionsNext(result.nextPage)
+      } catch (cause) {
+        setError(errorMessage(cause))
+      }
+    },
+    [api, projectId, mr.iid],
+  )
 
   const loadApprovals = useCallback(async () => {
     try {
@@ -94,20 +102,28 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
     }
   }, [api, projectId, mr.iid])
 
-  const loadJobs = useCallback(async () => {
-    try {
-      const page = await api.jobs({ projectId, iid: mr.iid })
-      setJobs(page.items)
-      setPipelineId(page.pipelineId ?? null)
-    } catch (cause) {
-      setError(errorMessage(cause))
-    }
-  }, [api, projectId, mr.iid])
+  const loadJobs = useCallback(
+    async (page = 1, append = false) => {
+      try {
+        const result = await api.jobs({ projectId, iid: mr.iid, page })
+        setJobs((current) =>
+          append ? [...current, ...result.items] : result.items,
+        )
+        setJobsNext(result.nextPage)
+        setPipelineId(result.pipelineId ?? null)
+      } catch (cause) {
+        setError(errorMessage(cause))
+      }
+    },
+    [api, projectId, mr.iid],
+  )
 
   useEffect(() => {
     setDiscussions([])
+    setDiscussionsNext(undefined)
     setApprovals(null)
     setJobs([])
+    setJobsNext(undefined)
     setLog(null)
     setInline(false)
     setRefs(null)
@@ -397,14 +413,15 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                   onChange={(event) => setStrategy(event.target.value)}
                 >
                   <option value="merge">{t('forge.detail.strategyMergeCommit')}</option>
+                  {/* GitLab only accepts `merge`/`squash` on the MR merge
+                      endpoint; `rebase_merge` is a project setting, applied by
+                      `PUT /merge_requests/:iid/rebase` before the merge. */}
                   {api.id === 'github' ? (
                     <>
                       <option value="squash">{t('forge.detail.strategySquash')}</option>
                       <option value="rebase">{t('forge.detail.strategyRebase')}</option>
                     </>
-                  ) : (
-                    <option value="rebase_merge">{t('forge.detail.strategyRebaseMerge')}</option>
-                  )}
+                  ) : null}
                 </select>
               </label>
               <label className={p2.checkbox}>
@@ -540,6 +557,20 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
               )
             })
           )}
+
+          {discussionsNext ? (
+            <div className={p2.footerBar}>
+              <span className={p2.spacer} />
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={busy}
+                onClick={() => void loadDiscussions(discussionsNext, true)}
+              >
+                {t('forge.detail.logMore')}
+              </button>
+            </div>
+          ) : null}
 
           <section className={p2.paneSection}>
             <h3 className={p2.paneTitle}>
@@ -698,6 +729,20 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
               ))}
             </div>
           )}
+
+          {jobsNext ? (
+            <div className={p2.footerBar}>
+              <span className={p2.spacer} />
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={busy}
+                onClick={() => void loadJobs(jobsNext, true)}
+              >
+                {t('forge.detail.logMore')}
+              </button>
+            </div>
+          ) : null}
 
           {log ? (
             <section className={p2.paneSection}>

@@ -1,13 +1,27 @@
 import type { CommitDetail } from '../types/git'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
-import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
+import { dateFromSeconds, formatDateTime, useI18n, type MessageKey } from '../i18n'
 import styles from './CommitDetailPanel.module.css'
+
+/** Verification code from `git show --format=%G?`, mapped to a label. */
+const SIGNATURE_LABELS: Partial<Record<string, MessageKey>> = {
+  G: 'diff.commit.signature.good',
+  B: 'diff.commit.signature.bad',
+  U: 'diff.commit.signature.untrusted',
+  N: 'diff.commit.signature.none',
+  X: 'diff.commit.signature.expired',
+  Y: 'diff.commit.signature.expiredKey',
+  R: 'diff.commit.signature.revokedKey',
+  E: 'diff.commit.signature.error',
+}
 
 type Props = {
   detail: CommitDetail | null
   loading: boolean
   error: string | null
   onShowDiff: (sha: string, path?: string) => void
+  /** Opens the history of one file of this commit. */
+  onShowHistory?: (path: string) => void
   onClose: () => void
 }
 
@@ -21,7 +35,7 @@ function PathLabel({ path }: { path: string }) {
   )
 }
 
-export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose }: Props) {
+export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHistory, onClose }: Props) {
   const { t, plural } = useI18n()
   const close = (
     <button type="button" className={styles.close} onClick={onClose} aria-label={t('diff.commit.closeAria')}>
@@ -84,6 +98,15 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
           <span className={styles.author}>{commit.author.name}</span>
           <span>{formatDateTime(dateFromSeconds(commit.author.timestamp))}</span>
           <span>{plural('diff.commit.parents.one', 'diff.commit.parents.other', commit.parents.length)}</span>
+          {detail.signature ? (
+            <span
+              className={styles.signature}
+              data-code={detail.signature}
+              title={t(SIGNATURE_LABELS[detail.signature] ?? 'diff.commit.signature.other')}
+            >
+              {t(SIGNATURE_LABELS[detail.signature] ?? 'diff.commit.signature.other')}
+            </span>
+          ) : null}
         </p>
         <button type="button" className={styles.diffAction} onClick={() => onShowDiff(commit.sha)}>
           {t('diff.commit.showDiff')}
@@ -114,38 +137,50 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
         ) : null}
         <div className={styles.files}>
           {detail.files.map((file) => (
-            <button
-              type="button"
-              key={`${file.status}-${file.oldPath ?? ''}-${file.path}`}
-              className={styles.file}
-              onClick={() => onShowDiff(file.revision ?? commit.sha, file.path)}
-              title={
-                file.oldPath
-                  ? `${statusLabel(file.status)} · ${file.oldPath} → ${file.path}`
-                  : `${statusLabel(file.status)} · ${file.path}`
-              }
-            >
-              <span
-                className={styles.status}
-                data-status={letterFromStatus(file.status)}
-                aria-hidden="true"
+            <div key={`${file.status}-${file.oldPath ?? ''}-${file.path}`} className={styles.fileRow}>
+              <button
+                type="button"
+                className={styles.file}
+                onClick={() => onShowDiff(file.revision ?? commit.sha, file.path)}
+                title={
+                  file.oldPath
+                    ? `${statusLabel(file.status)} · ${file.oldPath} → ${file.path}`
+                    : `${statusLabel(file.status)} · ${file.path}`
+                }
               >
-                {letterFromStatus(file.status)}
-              </span>
-              <span className={styles.path}>
-                <PathLabel path={file.path} />
-              </span>
-              <span className={styles.stats}>
-                {file.binary ? (
-                  t('diff.binary')
-                ) : (
-                  <>
-                    <span className={styles.add}>+{file.additions ?? 0}</span>
-                    <span className={styles.del}>−{file.deletions ?? 0}</span>
-                  </>
-                )}
-              </span>
-            </button>
+                <span
+                  className={styles.status}
+                  data-status={letterFromStatus(file.status)}
+                  aria-hidden="true"
+                >
+                  {letterFromStatus(file.status)}
+                </span>
+                <span className={styles.path}>
+                  <PathLabel path={file.path} />
+                </span>
+                <span className={styles.stats}>
+                  {file.binary ? (
+                    t('diff.binary')
+                  ) : (
+                    <>
+                      <span className={styles.add}>+{file.additions ?? 0}</span>
+                      <span className={styles.del}>−{file.deletions ?? 0}</span>
+                    </>
+                  )}
+                </span>
+              </button>
+              {onShowHistory ? (
+                <button
+                  type="button"
+                  className={styles.fileHistory}
+                  onClick={() => onShowHistory(file.path)}
+                  title={t('diff.commit.historyTitle', { path: file.path })}
+                  aria-label={t('diff.commit.historyAria', { path: file.path })}
+                >
+                  ⌖
+                </button>
+              ) : null}
+            </div>
           ))}
         </div>
       </section>

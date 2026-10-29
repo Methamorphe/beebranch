@@ -1,176 +1,176 @@
-# BeeBranch — spécification consolidée
+# BeeBranch — consolidated specification
 
-> Document de conception P0–P3. Pour découvrir, installer et contribuer au
-> projet, voir le [README](../README.md).
+> P0–P3 design document. To discover, install, and contribute to the
+> project, see the [README](../README.md).
 
-**Statut :** P3 implémenté et vérifié — preuves dans [reviews/p3-review.md](reviews/p3-review.md). Le dogfooding humain reste à exécuter.
-**Date :** 2026-10-27
-**Nom du produit :** BeeBranch
-**Frontend :** React 19.3 + TypeScript + Vite
-**Compatibilité :** Git ≥ 2.34 (testé 2.55.0) / GitLab 19.3–19.5 (dernières versions maintenues) / GitHub.com et GitHub Enterprise Server (REST v3)
-**Périmètre actuel :** P3 — finition : P2 + undo/redo explicite, drag & drop branche/commits, design system et densité, pages de graphe en flux pour les gros dépôts, workspaces multi-dépôts, accessibilité auditée, distribution signée et mises à jour/rollback signés.
+**Status:** P3 implemented and verified — evidence in [reviews/p3-review.md](reviews/p3-review.md). Human dogfooding remains to be carried out.
+**Date:** 2026-10-27
+**Product name:** BeeBranch
+**Frontend:** React 19.3 + TypeScript + Vite
+**Compatibility:** Git ≥ 2.34 (tested 2.55.0) / GitLab 19.3–19.5 (latest maintained versions) / GitHub.com and GitHub Enterprise Server (REST v3)
+**Current scope:** P3 — polish: P2 + explicit undo/redo, branch/commit drag & drop, design system and density, streaming graph pages for large repositories, multi-repository workspaces, audited accessibility, signed distribution and signed updates/rollback.
 
 ---
 
-## 1. Objet
+## 1. Purpose
 
-Fournir avec **BeeBranch**, un client Git desktop open source, une alternative
-aux clients Git commerciaux :
+With **BeeBranch**, an open-source desktop Git client, provide an alternative
+to commercial Git clients:
 
-- **local-first** : Git est la source de vérité, le travail local ne dépend d'aucun service ;
-- **rapide et prévisible** : performance mesurée, pas supposée ;
-- **fiable** : aucune perte de données silencieuse, états Git intermédiaires visibles ;
-- **intégré à GitLab self-hosted** dès le premier produit utilisable ;
-- **maintenable** : un seul moteur Git, peu d'abstractions, périmètre contrôlé ;
-- **sans IA, sans cloud propriétaire, sans télémétrie intrusive, sans compte éditeur**.
+- **local-first**: Git is the source of truth; local work does not depend on any service;
+- **fast and predictable**: measured performance, not assumed;
+- **reliable**: no silent data loss, visible intermediate Git states;
+- **integrated with self-hosted GitLab** from the first usable product;
+- **maintainable**: a single Git engine, few abstractions, controlled scope;
+- **no AI, no proprietary cloud, no intrusive telemetry, no vendor account**.
 
-## 2. Décisions structurantes
+## 2. Key decisions
 
-| Sujet | Décision | ADR |
+| Topic | Decision | ADR |
 |---|---|---|
-| Moteur Git | **Git CLI uniquement** au démarrage, centralisé dans un module Rust | [ADR-0001](adr/0001-git-cli-single-engine.md) |
-| Undo / Redo | Annulation **explicite**, limitée aux opérations réversibles par Git, **aucune sauvegarde applicative** ; livrée en P3 | [ADR-0008](adr/0008-no-application-backups.md) |
-| Performance | **Benchmark-first** : corpus et scénarios réels, budgets issus des mesures, rendu canvas virtualisé | [ADR-0003](adr/0003-benchmark-first-and-canvas.md) |
-| GitLab | REST v4, PAT + keychain OS, endpoints non dépréciés, dégradation hors ligne | [ADR-0004](adr/0004-gitlab-rest-v4.md) |
-| Concurrence / IPC | Mutations sérialisées par dépôt, streaming pour les opérations longues, pas de gros payloads IPC | [ADR-0005](adr/0005-per-repo-serialization-and-ipc.md) |
+| Git engine | **Git CLI only** at the outset, centralized in a Rust module | [ADR-0001](adr/0001-git-cli-single-engine.md) |
+| Undo / Redo | **Explicit** undo, limited to operations reversible by Git, **no application backups**; delivered in P3 | [ADR-0008](adr/0008-no-application-backups.md) |
+| Performance | **Benchmark-first**: real corpora and scenarios, budgets derived from measurements, virtualized canvas rendering | [ADR-0003](adr/0003-benchmark-first-and-canvas.md) |
+| GitLab | REST v4, PAT + OS keychain, non-deprecated endpoints, offline degradation | [ADR-0004](adr/0004-gitlab-rest-v4.md) |
+| Concurrency / IPC | Mutations serialized per repository, streaming for long operations, no large IPC payloads | [ADR-0005](adr/0005-per-repo-serialization-and-ipc.md) |
 | Frontend | **React 19.3** + TypeScript + Vite | [ADR-0006](adr/0006-react-frontend.md) |
-| Versions | React stable, Git ≥ 2.34 (plancher LTS distro), GitLab 3 dernières maintenues | [ADR-0007](adr/0007-version-baseline.md) |
-| Identité visuelle | Ergonomie inspirée de GitKraken, **palette ambre** (accent `#FED100`, décliné `#F5BB45` dans la maquette P2), assets propres | [10-design-direction](10-design-direction.md) |
-| Worktrees | Identité de dépôt et sessions **worktree-aware dès P0**, interface complète livrée en P2 | [01-product-scope](01-product-scope.md) |
-| GitLab dans le MVP | Intégration obligatoire en P0/P1, pas en P2 | [01-product-scope](01-product-scope.md) |
+| Versions | Stable React, Git ≥ 2.34 (distro LTS floor), GitLab's 3 latest maintained versions | [ADR-0007](adr/0007-version-baseline.md) |
+| Visual identity | Ergonomics inspired by GitKraken, **amber palette** (accent `#FED100`, variant `#F5BB45` in the P2 mockup), original assets | [10-design-direction](10-design-direction.md) |
+| Worktrees | Repository identity and sessions **worktree-aware from P0**, full interface delivered in P2 | [01-product-scope](01-product-scope.md) |
+| GitLab in the MVP | Required integration in P0/P1, not P2 | [01-product-scope](01-product-scope.md) |
 
-## 3. Corrections appliquées à la révision 1
+## 3. Corrections applied to revision 1
 
-| Décision initiale | Correction | Impact |
+| Initial decision | Correction | Impact |
 |---|---|---|
-| `gix` en lecture + CLI en écriture + `git2` ponctuel | CLI unique ; `gix` seulement si un benchmark prouve un gain significatif | Suppression de deux moteurs et de leurs divergences ; lecture initiale à mesurer |
-| Undo par snapshots de refs/index | Matrice explicite d'opérations réversibles par Git, préconditions, **aucune sauvegarde applicative** | Plus de promesse d'annulation universelle ; les actions destructives sont explicitement irréversibles |
-| Benchmark centré sur 1 M de commits | Suite de scénarios représentatifs (branches, merges, fichiers, diffs, changement de dépôt, idle) | Les optimisations sont choisies sur preuve, pas sur intuition |
-| GitLab en phase ultérieure | GitLab obligatoire en P0 (connexion) et P1 (workflow MR/CI) | Le premier produit est utilisable en entreprise |
-| Worktrees uniquement P2 | Modèle de dépôt worktree-aware dès P0 | Évite une refonte du moteur de session |
-| Abstractions backend pressenties | Aucune abstraction de moteur ni de provider avant besoin réel | Moins de code, moins de tests, décisions réversibles documentées |
+| `gix` for reads + CLI for writes + occasional `git2` | Single CLI; `gix` only if a benchmark proves a significant gain | Removal of two engines and their divergences; initial reads to be measured |
+| Undo through ref/index snapshots | Explicit matrix of operations reversible by Git, preconditions, **no application backups** | No more promise of universal undo; destructive actions are explicitly irreversible |
+| Benchmark focused on 1 M commits | Suite of representative scenarios (branches, merges, files, diffs, repository switching, idle) | Optimizations are chosen based on evidence, not intuition |
+| GitLab in a later phase | GitLab required in P0 (connection) and P1 (MR/CI workflow) | The first product is usable in enterprises |
+| Worktrees only in P2 | Worktree-aware repository model from P0 | Avoids redesigning the session engine |
+| Anticipated backend abstractions | No engine or provider abstraction before a real need | Less code, fewer tests, documented reversible decisions |
 
-Décisions de la révision 1 **conservées** : local-first, Tauri 2, rendu canvas virtualisé, chargement incrémental, aucun token dans le frontend, TLS vérifié, pas d'IA/cloud/télémétrie, GitLab REST v4, délégation des opérations Git complexes à Git.
+Revision 1 decisions **retained**: local-first, Tauri 2, virtualized canvas rendering, incremental loading, no tokens in the frontend, verified TLS, no AI/cloud/telemetry, GitLab REST v4, delegation of complex Git operations to Git.
 
-### 3.1 Versions de référence
+### 3.1 Reference versions
 
-| Composant | Référence retenue | Justification |
+| Component | Selected reference | Rationale |
 |---|---|---|
-| React | **19.3** (canal Latest) | React n'a pas de canal LTS ; Latest est le canal stable recommandé pour les applications utilisateur ([politique React](https://react.dev/community/versioning-policy)). |
-| TypeScript / Vite | Dernière stable, version exacte épinglée au scaffold | Pas de LTS ; versions figées dans le lockfile. |
-| Git | **Plancher 2.34**, cible et tests sur **2.56.0** | Git n'a pas de canal LTS ; 2.34 est la version fournie par Ubuntu 22.04 LTS, ce qui couvre les distributions LTS courantes. Feature detection au-delà. |
-| GitLab | **3 dernières versions maintenues** (19.3, 19.4, 19.5 au 2026-10-27), cible latest stable | GitLab n'a pas de LTS ; sa politique officielle ne maintient que les trois dernières versions mensuelles ([maintenance](https://docs.gitlab.com/policy/maintenance/)). Feature detection pour les instances plus anciennes. |
+| React | **19.3** (Latest channel) | React has no LTS channel; Latest is the recommended stable channel for user-facing applications ([React policy](https://react.dev/community/versioning-policy)). |
+| TypeScript / Vite | Latest stable, exact version pinned at scaffold time | No LTS; versions frozen in the lockfile. |
+| Git | **Floor 2.34**, target and tests on **2.56.0** | Git has no LTS channel; 2.34 is the version shipped by Ubuntu 22.04 LTS, covering current LTS distributions. Feature detection beyond that. |
+| GitLab | **3 latest maintained versions** (19.3, 19.4, 19.5 as of 2026-10-27), target latest stable | GitLab has no LTS; its official policy maintains only the three latest monthly versions ([maintenance](https://docs.gitlab.com/policy/maintenance/)). Feature detection for older instances. |
 
-## 4. Index documentaire
+## 4. Documentation index
 
-| Document | Contenu |
+| Document | Contents |
 |---|---|
-| [docs/01-product-scope.md](01-product-scope.md) | Objectifs, non-objectifs, principes, inventaire complet P0–P3, critères d'acceptation |
-| [docs/02-architecture.md](02-architecture.md) | Architecture cible, crates, modules, frontières Tauri, IPC, états, erreurs, sécurité |
-| [docs/03-git-engine.md](03-git-engine.md) | Moteur Git CLI : commandes, parsing, streaming, annulation, conflits, worktrees, LFS |
-| [docs/04-undo-redo.md](04-undo-redo.md) | Matrice de réversibilité, préconditions, stockage, restauration, tests |
-| [docs/05-gitlab.md](05-gitlab.md) | Authentification, endpoints, flux, cache, offline, TLS, erreurs, modèle de données |
-| [docs/06-github.md](06-github.md) | GitHub Cloud/Enterprise : authentification, endpoints, limites REST, séparation des fournisseurs |
-| [docs/06-performance.md](06-performance.md) | Corpus, scénarios, métriques, instrumentation, budgets, gouvernance |
-| [docs/07-reliability-security.md](07-reliability-security.md) | Préflight, confirmations, reprise après crash, modèle de menace, secrets, TLS |
-| [docs/08-roadmap.md](08-roadmap.md) | Phases, tâches, dépendances, Definition of Done, stratégie de tests |
-| [docs/09-risks-and-prototypes.md](09-risks-and-prototypes.md) | Registre des risques, prototypes obligatoires, décisions ouvertes |
-| [docs/10-design-direction.md](10-design-direction.md) | Direction visuelle, densité, inspiration GitKraken, garde-fous IP |
-| [docs/tasks/](tasks/) | Fiches de tâches prêtes à être confiées à un agent |
-| [docs/releases/](releases/) | Notes de version utilisées par le manifeste de mise à jour |
-| [docs/adr/](adr/) | Décisions structurantes |
+| [docs/01-product-scope.md](01-product-scope.md) | Goals, non-goals, principles, complete P0–P3 inventory, acceptance criteria |
+| [docs/02-architecture.md](02-architecture.md) | Target architecture, crates, modules, Tauri boundaries, IPC, states, errors, security |
+| [docs/03-git-engine.md](03-git-engine.md) | Git CLI engine: commands, parsing, streaming, cancellation, conflicts, worktrees, LFS |
+| [docs/04-undo-redo.md](04-undo-redo.md) | Reversibility matrix, preconditions, storage, restoration, tests |
+| [docs/05-gitlab.md](05-gitlab.md) | Authentication, endpoints, flows, cache, offline, TLS, errors, data model |
+| [docs/06-github.md](06-github.md) | GitHub Cloud/Enterprise: authentication, endpoints, REST limits, provider separation |
+| [docs/06-performance.md](06-performance.md) | Corpora, scenarios, metrics, instrumentation, budgets, governance |
+| [docs/07-reliability-security.md](07-reliability-security.md) | Preflight, confirmations, crash recovery, threat model, secrets, TLS |
+| [docs/08-roadmap.md](08-roadmap.md) | Phases, tasks, dependencies, Definition of Done, test strategy |
+| [docs/09-risks-and-prototypes.md](09-risks-and-prototypes.md) | Risk register, required prototypes, open decisions |
+| [docs/10-design-direction.md](10-design-direction.md) | Visual direction, density, GitKraken inspiration, IP safeguards |
+| [docs/tasks/](tasks/) | Task briefs ready to be assigned to an agent |
+| [docs/releases/](releases/) | Release notes used by the update manifest |
+| [docs/adr/](adr/) | Key decisions |
 
-## 5. Distribution et mises à jour
+## 5. Distribution and updates
 
-- Packaging via `npm run tauri build` ; `release.yml` construit les trois OS et
-  signe/notarise quand les secrets `APPLE_*` et `TAURI_WINDOWS_CERTIFICATE`
-  existent. Depuis 0.5.1, le build macOS Apple Silicon est signé
-  `Developer ID Application`, notarié et agrafé (app et DMG) ; les releases
-  restent produites en local. Voir [docs/releases/README.md](releases/README.md).
-- `latest.json` et `rollback.json` sont générés par
-  `scripts/update-manifest.mjs` et `scripts/merge-manifests.mjs`.
-- Aucune télémétrie : `npm run audit:telemetry` vérifie les sources.
+- Packaging via `npm run tauri build`; `release.yml` builds all three OSes and
+  signs/notarizes when the `APPLE_*` and `TAURI_WINDOWS_CERTIFICATE` secrets
+  exist. Since 0.5.1, the macOS Apple Silicon build is signed with
+  `Developer ID Application`, notarized and stapled (app and DMG); releases
+  are still produced locally. See [docs/releases/README.md](releases/README.md).
+- `latest.json` and `rollback.json` are generated by
+  `scripts/update-manifest.mjs` and `scripts/merge-manifests.mjs`.
+- No telemetry: `npm run audit:telemetry` checks the sources.
 
-### Installer une build (macOS, Apple Silicon)
+### Installing a build (macOS, Apple Silicon)
 
-1. Télécharger le DMG de la dernière release :
+1. Download the DMG from the latest release:
    <https://github.com/Methamorphe/beebranch/releases/latest>
    (`BeeBranch_<version>_aarch64.dmg`).
-2. Ouvrir le DMG, glisser `BeeBranch.app` dans `/Applications`.
-3. Depuis 0.5.1, la build est signée et notariée : Gatekeeper l'accepte sans
-   contournement. Pour une version antérieure (non notariée), macOS tue le
-   premier lancement (signal 9) ; deux voies, au choix :
-   - Réglages Système → Confidentialité et sécurité → « Ouvrir quand même »,
-     puis relancer l'application ;
-   - ou en terminal : `xattr -dr com.apple.quarantine /Applications/BeeBranch.app`.
-4. Contrôle : `/Applications/BeeBranch.app/Contents/MacOS/beebranch --version`
-   doit afficher `BeeBranch <version>`.
+2. Open the DMG, drag `BeeBranch.app` into `/Applications`.
+3. Since 0.5.1, the build is signed and notarized: Gatekeeper accepts it without
+   a workaround. For an earlier version (not notarized), macOS kills the
+   first launch (signal 9); choose either of two approaches:
+   - System Settings → Privacy & Security → “Open Anyway”,
+     then relaunch the application;
+   - or in a terminal: `xattr -dr com.apple.quarantine /Applications/BeeBranch.app`.
+4. Check: `/Applications/BeeBranch.app/Contents/MacOS/beebranch --version`
+   must display `BeeBranch <version>`.
 
-Matrice publiée : `darwin-aarch64` (signé et notarié), `linux-x86_64` et
-`windows-x86_64` (signature OS optionnelle). Pas de build macOS Intel.
-Prérequis d'usage : Git ≥ 2.34. Les mises à jour suivantes sont installées par
-l'application, après vérification de la signature minisign de l'artefact.
+Published matrix: `darwin-aarch64` (signed and notarized), `linux-x86_64` and
+`windows-x86_64` (optional OS signing). No macOS Intel build.
+Usage prerequisite: Git ≥ 2.34. Subsequent updates are installed by
+the application, after verifying the artifact's minisign signature.
 
-## 6. Règles de lecture pour un agent de développement
+## 6. Reading rules for a development agent
 
-1. Une tâche = une fiche dans `docs/tasks/`, un périmètre fermé, une PR.
-2. Ne pas élargir le périmètre : toute fonctionnalité absente de la fiche est hors scope.
-3. Ne pas introduire d'abstraction non demandée (trait de backend Git, système de plugins, provider GitLab générique).
-4. Une fonctionnalité n'est **pas** terminée parce que l'UI existe : critères d'acceptation + tests + preuve d'exécution réelle.
-5. Toute affirmation de performance doit être accompagnée d'une mesure reproductible.
-6. Toute hypothèse non vérifiée doit rester marquée `[HYPOTHÈSE]` dans le code, les tests ou la doc.
+1. One task = one brief in `docs/tasks/`, a closed scope, one PR.
+2. Do not expand the scope: any feature absent from the brief is out of scope.
+3. Do not introduce unrequested abstractions (Git backend trait, plugin system, generic GitLab provider).
+4. A feature is **not** complete just because the UI exists: acceptance criteria + tests + evidence of a real run.
+5. Every performance claim must be accompanied by a reproducible measurement.
+6. Every unverified hypothesis must remain marked `[HYPOTHESIS]` in code, tests, or documentation.
 
-## 7. Décisions encore ouvertes
+## 7. Decisions still open
 
-Voir [docs/09-risks-and-prototypes.md §4](09-risks-and-prototypes.md). Les principales :
+See [docs/09-risks-and-prototypes.md §4](09-risks-and-prototypes.md). The main ones:
 
-- support des dépôts bare, shallow et partial clone au MVP ;
-- mécanisme de mise à jour et de signature des binaires ;
-- niveau d'accessibilité cible ;
-- chiffrement éventuel du cache local ;
-- diff MR calculé via l'API ou via la ref locale ;
-- autorisation éventuelle de HTTP non TLS ;
-- politique de télémétrie (aucune par défaut).
+- support for bare, shallow, and partial clone repositories in the MVP;
+- binary update and signing mechanism;
+- target accessibility level;
+- possible encryption of the local cache;
+- MR diff calculated through the API or from the local ref;
+- possible allowance of non-TLS HTTP;
+- telemetry policy (none by default).
 
-## 8. Démarrage
+## 8. Getting started
 
-Prérequis : Rust ≥ 1.85, Node ≥ 22, Git ≥ 2.34, dépendances système Tauri 2.
+Prerequisites: Rust ≥ 1.85, Node ≥ 22, Git ≥ 2.34, Tauri 2 system dependencies.
 
 ```bash
 npm install
 npm run tauri dev
 ```
 
-Fonctionnalités P1 disponibles dans l'application :
+P1 features available in the application:
 
-- **Dépôts** : ouverture locale, clone GitLab ou URL, création par `git init`
-  dans un nouveau dossier ou un dossier existant non versionné, avec branche
-  initiale optionnelle.
-- **Status** : fichiers staged/unstaged/untracked/conflits, stage/unstage
-  fichier-hunk-ligne (diff interactif), discard confirmé, ignore explicite,
-  éditeur/merge tool externes.
-- **Commit** : message, amend, hooks affichés, signature Git respectée.
-- **Branches & historique** : création, checkout, renommage, suppression avec
-  saisie du nom, upstream, comparaison, merge/rebase, conflits,
+- **Repositories**: open locally, clone from GitLab or a URL, create with `git init`
+  in a new directory or an existing unversioned directory, with an optional
+  initial branch.
+- **Status**: staged/unstaged/untracked/conflicted files, stage/unstage
+  file-hunk-line (interactive diff), confirmed discard, explicit ignore,
+  external editor/merge tool.
+- **Commit**: message, amend, displayed hooks, Git signing respected.
+- **Branches & history**: create, checkout, rename, delete with
+  name entry, upstream, comparison, merge/rebase, conflicts,
   continue/skip/abort.
-- **Sync** : fetch/pull/push streamés, annulation, force-with-lease explicite,
-  progression et revalidation du remote.
-- **Stash** : create/list/apply/pop/drop, untracked sur choix explicite,
-  pop conflictuel non destructif.
-- **Multi-dépôts** : onglets, sessions isolées, onglet actif restauré.
-- **Recherche** : message/auteur/SHA, profondeur annoncée, annulation.
-- **Graphe** : filtres, menu contextuel, badges MR/CI, stash via toutes les refs.
-- **GitLab** : MR (mes MR, à reviewer, assignées, projet), détail, création,
-  pipelines, badge CI, association dépôt ↔ projet.
-- **GitHub** : pull requests (mes PR, à relire, assignées, projet), détail,
-  création, revues et approbations, commentaires de revue, checks CI et logs
-  Actions, association dépôt ↔ projet. Limitations de l'API REST documentées
-  dans [docs/06-github.md](06-github.md).
-- **Outils** : détection/configuration éditeur, terminal, diff, merge.
-- **Reprise** : journal d'opérations, actions destructives tracées, reprise
-  après interruption.
+- **Sync**: streamed fetch/pull/push, cancellation, explicit force-with-lease,
+  progress and remote revalidation.
+- **Stash**: create/list/apply/pop/drop, untracked by explicit choice,
+  non-destructive conflicting pop.
+- **Multi-repository**: tabs, isolated sessions, restored active tab.
+- **Search**: message/author/SHA, stated depth, cancellation.
+- **Graph**: filters, context menu, MR/CI badges, stash through all refs.
+- **GitLab**: MR (my MRs, to review, assigned, project), details, creation,
+  pipelines, CI badge, repository ↔ project association.
+- **GitHub**: pull requests (my PRs, to review, assigned, project), details,
+  creation, reviews and approvals, review comments, CI checks and Actions
+  logs, repository ↔ project association. REST API limitations documented
+  in [docs/06-github.md](06-github.md).
+- **Tools**: editor, terminal, diff, merge detection/configuration.
+- **Recovery**: operation journal, logged destructive actions, recovery
+  after interruption.
 
-Vérifications :
+Checks:
 
 ```bash
 npm run lint
@@ -180,17 +180,17 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Benchmarks :
+Benchmarks:
 
 ```bash
-# set réduit, bloquant sur régression (baseline versionnée)
+# reduced set, blocking on regression (versioned baseline)
 cargo run -p beebranch-bench --release -- \
   --root target/bench-corpus --all-reduced \
   --runs 5 --warmup 2 \
   --out target/bench-report.json \
   --baseline crates/bench/baselines/ci.json --assert
 
-# scénarios P1 ciblés
+# targeted P1 scenarios
 cargo run -p beebranch-bench --release -- \
   --root target/bench-corpus --corpus dirty-10k \
   --scenario PERF-07 --runs 3 --warmup 1
@@ -198,33 +198,33 @@ cargo run -p beebranch-bench --release -- \
   --root target/bench-corpus --corpus linear-10k \
   --scenario PERF-10 --runs 3 --warmup 1
 
-# corpus 100k, première page du graphe
+# 100k corpus, first graph page
 cargo run -p beebranch-bench --release -- \
   --root target/bench-corpus --corpus linear-100k \
   --scenario PERF-02 --runs 3 --warmup 1 \
   --out target/bench-graph-100k.json
 ```
 
-Structure actuelle :
+Current structure:
 
 ```text
 crates/
-  core/       types partagés et contrats UI
-  git/        processus Git, index/commit/branches/sync/history/stash/search, lanes
-  gitlab/     client REST v4, URL/CA, cache ETag, remote matching
-  github/     client REST v3, GitHub Cloud/Enterprise, checks, Actions, remotes
-  store/      SQLite (journal, cache, préférences) et keychain
-  app/        shell Tauri : commandes typées, setup, logging, reprise
-  bench/      corpus déterministe, scénarios PERF, rapports et seuils
+  core/       shared types and UI contracts
+  git/        Git process, index/commit/branches/sync/history/stash/search, lanes
+  gitlab/     REST v4 client, URL/CA, ETag cache, remote matching
+  github/     REST v3 client, GitHub Cloud/Enterprise, checks, Actions, remotes
+  store/      SQLite (journal, cache, preferences) and keychain
+  app/        Tauri shell: typed commands, setup, logging, recovery
+  bench/      deterministic corpus, PERF scenarios, reports and thresholds
 src/
-  components/ composants réutilisables
-  hooks/      hooks de présentation
-  data/       données statiques de l'UI
-  styles/     tokens et styles globaux
-src-tauri/    bootstrap Tauri et configuration
+  components/ reusable components
+  hooks/      presentation hooks
+  data/       static UI data
+  styles/     tokens and global styles
+src-tauri/    Tauri bootstrap and configuration
 ```
 
-Pour régénérer les icônes après modification du logo :
+To regenerate the icons after modifying the logo:
 
 ```bash
 npm run tauri icon assets/beebranch.svg

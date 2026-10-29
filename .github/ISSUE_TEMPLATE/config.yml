@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Vulnérabilité de sécurité
+  - name: Security vulnerability
     url: https://github.com/Methamorphe/beebranch/security/advisories/new
-    about: Signalez les failles en privé, jamais dans une issue publique.
+    about: Report flaws privately, never in a public issue.
   - name: Documentation
     url: https://github.com/Methamorphe/beebranch/tree/main/docs
-    about: Spécification, architecture, ADR et processus de release.
+    about: Specification, architecture, ADRs and release process.

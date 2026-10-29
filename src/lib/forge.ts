@@ -195,7 +195,7 @@ export type ForgeApi = {
     iid: number
     page?: number
     perPage?: number
-  }) => Promise<{ pipelineId?: number; items: GitlabJob[] }>
+  }) => Promise<{ pipelineId?: number; items: GitlabJob[]; nextPage?: number }>
   jobLog: (input: {
     projectId: number
     jobId: number

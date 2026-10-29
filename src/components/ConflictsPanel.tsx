@@ -22,6 +22,7 @@ type Props = {
   generation: number
   state: RepoState
   onMutated: () => void
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 type Translate = (key: MessageKey, params?: TranslationParams) => string
@@ -52,7 +53,19 @@ function combine(view: ConflictView | null): string {
   return `${parts.join('\n\n')}\n`
 }
 
-export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) {
+/** The conflict a draft was written against: same path and same three sides. */
+function conflictSignature(view: ConflictView | null): string {
+  if (!view) return ''
+  return [view.path, view.ours?.content, view.theirs?.content, view.base?.content]
+    .map((value) => value ?? '')
+    .join('\u0000')
+}
+
+export function ConflictsPanel(props: Props) {
+  return <ConflictWorkspace key={props.repoId} {...props} />
+}
+
+function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange }: Props) {
   const { t } = useI18n()
   const files = state.conflicts.files
   const [selected, setSelected] = useState<string | null>(files[0] ?? null)
@@ -62,9 +75,39 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
   const dirtyRef = useRef(false)
   const [allowMarkers, setAllowMarkers] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const request = useRef(0)
+  const pending = useRef(false)
+  const mounted = useRef(true)
+  const editorPath = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [abortOpen, setAbortOpen] = useState(false)
+  /** The draft was written against sides that a newer conflict has replaced. */
+  const [stale, setStale] = useState(false)
+  const viewRef = useRef<ConflictView | null>(null)
+  const controllable = Boolean(state.operation && state.operation.kind !== 'bisect')
+  const skippable = controllable && state.operation?.kind !== 'merge'
+  const editable = Boolean(selected && files.includes(selected) && view?.path === selected
+    && !busy && !loading && !stale && !view?.binary && !view?.tooLarge)
+
+  useEffect(() => {
+    viewRef.current = view
+  }, [view])
+
+  useEffect(() => {
+    onDirtyChange?.(dirty || stale)
+  }, [dirty, stale, onDirtyChange])
+
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      request.current += 1
+    }
+  }, [])
 
   useEffect(() => {
     if (files.length === 0) {
@@ -78,47 +121,77 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
 
   const load = useCallback(
     async (path: string) => {
-      setBusy(true)
+      const token = ++request.current
+      setLoading(true)
       setError(null)
       setNotice(null)
       try {
         const next = await conflictGet(repoId, path)
-        setView(next)
+        if (token !== request.current || !mounted.current) return
         if (!dirtyRef.current) {
+          setView(next)
           setContent(next.working?.content ?? combine(next))
         }
       } catch (cause) {
+        if (token !== request.current || !mounted.current) return
         setError(errorMessage(cause))
         setView(null)
       } finally {
-        setBusy(false)
+        if (token === request.current && mounted.current) setLoading(false)
       }
     },
     [repoId],
   )
 
   useEffect(() => {
-    if (selected) {
+    const path = selected && files.includes(selected) ? selected : null
+    if (editorPath.current !== path) {
+      editorPath.current = path
       dirtyRef.current = false
       setDirty(false)
-      void load(selected)
-    } else {
+      setStale(false)
+      setAllowMarkers(false)
+      setContent('')
       setView(null)
     }
-    // `generation` invalidates the conflict view after any Git mutation.
-  }, [selected, generation, load])
-
-  if (files.length === 0) {
-    return (
-      <div className={p2.empty}>
-        <h2>{t('ops.conflicts.emptyTitle')}</h2>
-        <p>{t('ops.conflicts.emptyBody')}</p>
-      </div>
-    )
-  }
+    if (!path) {
+      setLoading(false)
+      return
+    }
+    if (!dirtyRef.current) {
+      void load(path)
+      return
+    }
+    // A draft survives a refresh, but only while it still describes the same
+    // conflict: saving it over a newer one would stage the wrong resolution.
+    const token = ++request.current
+    setLoading(true)
+    void conflictGet(repoId, path)
+      .then((next) => {
+        if (token !== request.current || !mounted.current) return
+        if (conflictSignature(next) === conflictSignature(viewRef.current)) {
+          setView(next)
+        } else {
+          setStale(true)
+        }
+      })
+      .catch((cause) => {
+        if (token !== request.current || !mounted.current) return
+        setError(errorMessage(cause))
+        setStale(true)
+      })
+      .finally(() => {
+        if (token === request.current && mounted.current) setLoading(false)
+      })
+    return () => {
+      request.current += 1
+    }
+  }, [selected, files, generation, load, repoId])
 
   const index = selected ? files.indexOf(selected) : -1
   const move = (delta: number) => {
+    if (busy) return
+    if (dirty && !window.confirm(t('ops.conflicts.discardConfirm'))) return
     if (files.length === 0) {
       return
     }
@@ -127,7 +200,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
   }
 
   const accept = (side: 'ours' | 'theirs' | 'both') => {
-    if (!view) {
+    if (!view || !editable) {
       return
     }
     const next =
@@ -141,37 +214,76 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
     setDirty(true)
   }
 
-  const save = async () => {
-    if (!selected) {
-      return
-    }
+  const reload = async () => {
+    if (!selected || pending.current) return
+    pending.current = true
+    request.current += 1
+    setLoading(false)
     setBusy(true)
     setError(null)
     try {
-      const result = await conflictSave({
+      const next = await conflictGet(repoId, selected)
+      if (!mounted.current) return
+      setView(next)
+      setContent(next.working?.content ?? combine(next))
+      dirtyRef.current = false
+      setDirty(false)
+      setStale(false)
+      setNotice(t('ops.conflicts.notice.reloaded', { path: selected }))
+    } catch (cause) {
+      if (mounted.current) setError(errorMessage(cause))
+    } finally {
+      pending.current = false
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  const save = async () => {
+    if (!selected || !editable || pending.current) {
+      return
+    }
+    pending.current = true
+    request.current += 1
+    setLoading(false)
+    const path = selected
+    setBusy(true)
+    setError(null)
+    try {
+      await conflictSave({
         repoId,
-        path: selected,
+        path,
         content,
         allowMarkers,
         markResolved: true,
       })
-      setView(result.data)
+      if (!mounted.current) return
+      setView(null)
       dirtyRef.current = false
       setDirty(false)
-      setNotice(t('ops.conflicts.notice.resolved', { path: selected }))
+      setNotice(t('ops.conflicts.notice.resolved', { path }))
       onMutated()
     } catch (cause) {
+      if (!mounted.current) return
       setError(errorMessage(cause))
     } finally {
-      setBusy(false)
+      pending.current = false
+      if (mounted.current) setBusy(false)
     }
   }
 
   const operation = async (action: 'continue' | 'skip') => {
+    if (pending.current || !controllable || (action === 'skip' ? !skippable : files.length > 0)) return
+    if (dirty && !window.confirm(t('ops.conflicts.discardConfirm'))) return
+    pending.current = true
+    request.current += 1
+    setLoading(false)
     setBusy(true)
     setError(null)
     try {
       await (action === 'continue' ? operationContinue(repoId) : operationSkip(repoId))
+      if (!mounted.current) return
+      dirtyRef.current = false
+      setDirty(false)
       setNotice(
         action === 'continue'
           ? t('ops.conflicts.notice.continued')
@@ -179,14 +291,32 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
       )
       onMutated()
     } catch (cause) {
+      if (!mounted.current) return
       setError(errorMessage(cause))
     } finally {
-      setBusy(false)
+      pending.current = false
+      if (mounted.current) setBusy(false)
     }
   }
 
   return (
-    <div className={p2.pageColumn} style={{ padding: 0 }}>
+    <div className={`${p2.screen} ${p2.conflictsScreen}`}>
+      {error ? <p className={p2.alert} role="alert">{error}</p> : null}
+      {notice ? <div className={p2.listHeader} role="status">{notice}</div> : null}
+      {stale ? (
+        <div className={`${p2.banner} ${p2.bannerInfo}`} role="alert">
+          <span>{t('ops.conflicts.staleBody')}</span>
+          <button type="button" className={p2.ghost} disabled={busy} onClick={() => void reload()}>
+            {t('ops.conflicts.reload')}
+          </button>
+        </div>
+      ) : null}
+      {files.length === 0 ? (
+        <div className={p2.empty}>
+          <h2>{t('ops.conflicts.emptyTitle')}</h2>
+          <p>{t(controllable ? 'ops.conflicts.readyBody' : 'ops.conflicts.emptyBody')}</p>
+        </div>
+      ) : (
       <div className={p2.threeColumns}>
         <div className={p2.fileList}>
           <div className={`${p2.between} ${p2.small} ${p2.muted}`} style={{ padding: '4px 6px' }}>
@@ -198,8 +328,10 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
               key={path}
               type="button"
               className={selected === path ? p2.listItemOn : p2.listItem}
+              disabled={busy}
               onClick={() => {
-                if (dirty && !window.confirm(t('ops.conflicts.discardConfirm'))) {
+                if (path === selected) return
+                if ((dirty || stale) && !window.confirm(t('ops.conflicts.discardConfirm'))) {
                   return
                 }
                 dirtyRef.current = false
@@ -235,8 +367,6 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
             </button>
           </div>
 
-          {error ? <p className={p2.errorText} style={{ padding: '0 12px' }}>{error}</p> : null}
-          {notice ? <p className={p2.notice} style={{ padding: '0 12px' }}>{notice}</p> : null}
 
           {view?.binary ? (
             <div className={p2.empty}>
@@ -269,7 +399,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                   <div className={p2.sideHeader}>
                     <span className={p2.good}>{t('ops.conflicts.side.ours')}</span>
                     <span className={p2.spacer} />
-                    <button type="button" className={p2.ghost} onClick={() => accept('ours')}>
+                    <button type="button" className={p2.ghost} disabled={!editable} onClick={() => accept('ours')}>
                       {t('ops.conflicts.accept')}
                     </button>
                   </div>
@@ -281,7 +411,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                       {t('ops.conflicts.side.theirs')}
                     </span>
                     <span className={p2.spacer} />
-                    <button type="button" className={p2.ghost} onClick={() => accept('theirs')}>
+                    <button type="button" className={p2.ghost} disabled={!editable} onClick={() => accept('theirs')}>
                       {t('ops.conflicts.accept')}
                     </button>
                   </div>
@@ -295,12 +425,13 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                   </strong>
                   <span className={p2.pill}>{t('ops.conflicts.editable')}</span>
                   <span className={p2.spacer} />
-                  <button type="button" className={p2.ghost} onClick={() => accept('both')}>
+                  <button type="button" className={p2.ghost} disabled={!editable} onClick={() => accept('both')}>
                     {t('ops.conflicts.combine')}
                   </button>
                   <button
                     type="button"
                     className={p2.ghost}
+                    disabled={!editable}
                     onClick={() => {
                       setContent(view?.working?.content ?? '')
                       dirtyRef.current = true
@@ -312,6 +443,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                 </div>
                 <textarea
                   value={content}
+                  disabled={!editable}
                   onChange={(event) => {
                     setContent(event.target.value)
                     dirtyRef.current = true
@@ -326,6 +458,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                     <input
                       type="checkbox"
                       checked={allowMarkers}
+                      disabled={!editable}
                       onChange={(event) => setAllowMarkers(event.target.checked)}
                     />
                     {t('ops.conflicts.allowMarkers')}
@@ -346,48 +479,55 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                   <button
                     type="button"
                     className={`${p2.secondary}`}
-                    disabled={busy || dirty === false}
+                    disabled={!editable}
                     onClick={() => void save()}
                   >
                     {t('ops.conflicts.markResolved')}
                   </button>
-                  {state.operation ? (
-                    <>
-                      <button
-                        type="button"
-                        className={p2.secondary}
-                        disabled={busy}
-                        onClick={() => void operation('skip')}
-                      >
-                        {t('ops.conflicts.skip')}
-                      </button>
-                      <button
-                        type="button"
-                        className={p2.primary}
-                        disabled={busy}
-                        onClick={() => void operation('continue')}
-                      >
-                        {t('ops.conflicts.continue')}
-                      </button>
-                      <button
-                        type="button"
-                        className={p2.danger}
-                        disabled={busy}
-                        onClick={() => setAbortOpen(true)}
-                      >
-                        {t('ops.conflicts.abort')}
-                      </button>
-                    </>
-                  ) : null}
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
+      )}
+      {controllable ? (
+        <div className={p2.footerBar}>
+          <span className={p2.muted}>
+            {t('ops.conflicts.operation', { operation: operationLabel(state.operation, t) })}
+          </span>
+          <span className={p2.spacer} />
+          {skippable ? (
+            <button
+              type="button"
+              className={p2.secondary}
+              disabled={busy}
+              onClick={() => void operation('skip')}
+            >
+              {t('ops.conflicts.skip')}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={p2.primary}
+            disabled={busy || files.length > 0}
+            onClick={() => void operation('continue')}
+          >
+            {t('ops.conflicts.continue')}
+          </button>
+          <button
+            type="button"
+            className={p2.danger}
+            disabled={busy}
+            onClick={() => setAbortOpen(true)}
+          >
+            {t('ops.conflicts.abort')}
+          </button>
+        </div>
+      ) : null}
 
-<ConfirmDialog
-        open={abortOpen}
+      <ConfirmDialog
+        open={abortOpen && controllable}
         title={t('ops.conflicts.abortTitle')}
         consequence={t('ops.conflicts.abortConsequence')}
         typed="abort"
@@ -396,15 +536,27 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
         busy={busy}
         onCancel={() => setAbortOpen(false)}
         onConfirm={(typed) => {
+          if (pending.current || !controllable) return
+          pending.current = true
+          request.current += 1
+          setLoading(false)
           setAbortOpen(false)
           setBusy(true)
           void operationAbort(repoId, { acknowledged: true, typed })
             .then(() => {
+              if (!mounted.current) return
+              dirtyRef.current = false
+              setDirty(false)
               setNotice(t('ops.conflicts.notice.aborted'))
               onMutated()
             })
-            .catch((cause) => setError(errorMessage(cause)))
-            .finally(() => setBusy(false))
+            .catch((cause) => {
+              if (mounted.current) setError(errorMessage(cause))
+            })
+            .finally(() => {
+              pending.current = false
+              if (mounted.current) setBusy(false)
+            })
         }}
       />
     </div>
