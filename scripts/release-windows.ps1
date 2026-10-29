@@ -415,9 +415,44 @@ Invoke-Checked 'envoi du manifeste' { gh release upload $Tag --repo $Repo 'targe
 # --- 8. controle -----------------------------------------------------------
 Step 'Controle du manifeste publie'
 
-$live = Invoke-RestMethod -Uri $publishedUrl -Headers @{ 'Cache-Control' = 'no-cache' }
+# `releases/latest/download/<asset>` est servi par un CDN : juste apres un
+# `--clobber`, l'ancien manifeste peut encore sortir du cache pendant quelques
+# minutes. Un parametre de requete force un objet distinct (donc non cache), et
+# on retente jusqu'a 5 minutes avant de conclure.
+$live = $null
+$deadline = (Get-Date).AddMinutes(5)
+for ($attempt = 1; ; $attempt++) {
+  $probeUrl = "${publishedUrl}?check=$attempt-$(Get-Date -UFormat %s)"
+  try {
+    $candidate = Invoke-RestMethod -Uri $probeUrl -Headers @{ 'Cache-Control' = 'no-cache' } -TimeoutSec 30
+  } catch {
+    $candidate = $null
+  }
+  if ($null -ne $candidate -and
+      $candidate.version -eq $Version -and
+      (@($candidate.platforms.PSObject.Properties.Name) -contains 'windows-x86_64')) {
+    $live = $candidate
+    break
+  }
+  if ((Get-Date) -ge $deadline) {
+    $seen = if ($null -eq $candidate) {
+      'aucune reponse'
+    } else {
+      "version $($candidate.version), platforms $(@($candidate.platforms.PSObject.Properties.Name) -join ', ')"
+    }
+    throw @"
+le latest.json servi ne contient pas windows-x86_64 pour $Version apres 5 min.
+derniere reponse vue : $seen
+URL interrogee : $publishedUrl
+Verifier l'asset du manifeste sur la release :
+  gh release view $Tag --repo $Repo --json assets
+"@
+  }
+  Note "manifeste encore en cache (essai $attempt), nouvelle tentative dans 10 s"
+  Start-Sleep -Seconds 10
+}
+
 Assert ($live.version -eq $Version) "le latest.json servi annonce $($live.version), pas $Version"
-Assert (@($live.platforms.PSObject.Properties.Name) -contains 'windows-x86_64') 'windows-x86_64 absent du latest.json servi'
 $liveUrl = $live.platforms.'windows-x86_64'.url
 Assert ($liveUrl -eq $windowsUrl) "le latest.json servi pointe sur $liveUrl"
 
