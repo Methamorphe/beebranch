@@ -16,7 +16,7 @@ version = "0.7.2"
 edition = "2021"
 rust-version = "1.85"
 license = "AGPL-3.0-only"
-authors = ["Beecoming"]
+authors = ["Methamorphe"]
 repository = "https://github.com/Methamorphe/beebranch"
 homepage = "https://github.com/Methamorphe/beebranch"
 

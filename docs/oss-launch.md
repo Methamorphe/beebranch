@@ -11,9 +11,10 @@ licence, de gouvernance, de CI et d'historique sont déjà en place.
 - [ ] Vérifier que `src-tauri/keys/` et `.env` restent locaux (ignorés).
 - [ ] Vérifier que l'historique ne contient plus l'adresse professionnelle :
       `git log --all --format='%ae%n%ce' | sort -u`.
-- [ ] Confirmer le titulaire du copyright déclaré dans le README et
-      `src-tauri/tauri.conf.json` (`Beecoming`) et la licence AGPL-3.0-only
-      auprès de l'employeur si le code a été produit dans un cadre salarié.
+- [ ] Confirmer le titulaire du copyright déclaré dans le README,
+      `Cargo.toml` et `src-tauri/tauri.conf.json` (`Methamorphe`) et la licence
+      AGPL-3.0-only auprès de l'employeur si le code a été produit dans un
+      cadre salarié.
 - [ ] Vérifier les marques et assets : le logo et la palette ne sont pas
       couverts par la licence du code (voir README).
 
@@ -59,11 +60,11 @@ sont activés.
 Le workflow `release.yml` publie désormais dans les releases du dépôt source
 (`Methamorphe/beebranch`), avec `GITHUB_TOKEN` et `contents: write`.
 
-> **Compatibilité des clients existants** : les versions ≤ 0.7.2 compilent
-> l'endpoint `Methamorphe/beebranch-releases`. Tant que ces versions sont
-> supportées, publier aussi `latest.json` et `rollback.json` dans ce dépôt
-> miroir, ou conserver le miroir comme source de mise à jour. Sinon, ces clients
-> ne verront jamais la release publiée dans le dépôt source.
+> **Clients ≤ 0.7.2** : ils compilent l'ancien endpoint
+> `Methamorphe/beebranch-releases` et ne verront pas les releases du dépôt
+> source. Aucune compatibilité n'est conservée : ces installations doivent être
+> réinstallées depuis la première release publique. Les artefacts 0.7.2 restent
+> disponibles dans le dépôt miroir pour cette réinstallation.
 
 - [ ] Pousser un tag `v<version>` après avoir mis à jour les trois versions.
 - [ ] Vérifier que `latest.json` et `rollback.json` sont attachés à la release.

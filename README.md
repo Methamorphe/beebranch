@@ -19,8 +19,14 @@ compte éditeur et sans télémétrie.
 
 ## Télécharger
 
-Les releases sont publiées dans ce dépôt :
-<https://github.com/Methamorphe/beebranch/releases/latest>
+Les prochaines releases sont publiées dans ce dépôt :
+<https://github.com/Methamorphe/beebranch/releases/latest>.
+En attendant la première release publique, la version 0.7.2 reste
+téléchargeable dans le dépôt historique
+[`beebranch-releases`](https://github.com/Methamorphe/beebranch-releases/releases/latest).
+
+Les versions ≤ 0.7.2 ne reçoivent plus de mise à jour automatique (ancien
+endpoint) : il faut les réinstaller depuis la nouvelle release.
 
 | Plateforme | Artefact |
 |---|---|
