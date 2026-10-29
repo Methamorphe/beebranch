@@ -6,8 +6,11 @@ use beebranch_gitlab::{
     GitlabApprovals, GitlabClient, GitlabDiscussion, GitlabJob, GitlabMergeRequest, GitlabNote,
     GitlabPosition, JobLog, MergeRequestMerge, MergeRequestUpdate, Paged,
 };
+use beebranch_git::diff::DiffReport;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
+
+use crate::commands::forge_diff::{report_from_patches, PatchInput};
 
 use crate::commands::gitlab::not_configured_public as not_configured;
 use crate::error::gitlab_error;
@@ -365,6 +368,41 @@ pub async fn gitlab_approve(
             Err(gitlab_error(error))
         }
     }
+}
+
+#[tauri::command]
+pub async fn gitlab_mr_diff(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: MrRefInput,
+) -> Result<DiffReport, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let files = client
+        .merge_request_changes(input.project_id, input.iid)
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            gitlab_error(error)
+        })?;
+    let patches = files
+        .into_iter()
+        .map(|file| PatchInput {
+            status: if file.new_file {
+                "added".to_owned()
+            } else if file.deleted_file {
+                "removed".to_owned()
+            } else if file.renamed_file {
+                "renamed".to_owned()
+            } else {
+                "modified".to_owned()
+            },
+            old_path: file.old_path,
+            new_path: file.new_path,
+            patch: Some(file.patch),
+        })
+        .collect();
+    report_from_patches(patches)
 }
 
 #[tauri::command]

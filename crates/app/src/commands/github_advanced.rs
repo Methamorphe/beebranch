@@ -6,8 +6,11 @@ use beebranch_github::{
     GithubApprovals, GithubDiscussion, GithubJob, GithubNote, GithubPosition, GithubPullRequest,
     JobLog, Paged, PullRequestMerge, PullUpdate,
 };
+use beebranch_git::diff::DiffReport;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
+
+use crate::commands::forge_diff::{report_from_patches, PatchInput};
 
 use crate::commands::github_pr::{auth_event, client, instance_id, resolve_repo_ref};
 use crate::error::github_error;
@@ -43,6 +46,13 @@ pub struct GithubDiscussionResolveInput {
     pub iid: u64,
     pub discussion_id: String,
     pub resolved: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubPullRefInput {
+    pub project_id: u64,
+    pub iid: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -356,6 +366,33 @@ pub async fn github_unapprove(
             Err(github_error(error))
         }
     }
+}
+
+#[tauri::command]
+pub async fn github_pr_diff(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubPullRefInput,
+) -> Result<DiffReport, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    let (files, truncated) = client.pull_files(&repo, input.iid).await.map_err(|error| {
+        auth_event(&app, &error, &instance);
+        github_error(error)
+    })?;
+    let patches = files
+        .into_iter()
+        .map(|file| PatchInput {
+            old_path: file.old_path,
+            new_path: file.new_path,
+            status: file.status,
+            patch: file.patch,
+        })
+        .collect();
+    let mut report = report_from_patches(patches)?;
+    report.truncated |= truncated;
+    Ok(report)
 }
 
 #[tauri::command]
