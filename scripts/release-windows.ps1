@@ -37,12 +37,12 @@
     release must already exist on the mirror.
 
 .PARAMETER Repo
-    Public release mirror, defaults to Methamorphe/beebranch-releases.
+    Repository that hosts the releases, defaults to Methamorphe/beebranch.
 
 .PARAMETER Endpoint
     Value compiled in as BEEBRANCH_UPDATE_ENDPOINT. Defaults to the
-    latest.json of -Repo. The Rust fallback (updates.beebranch.fr) is not the
-    production endpoint, so it must always be set.
+    latest.json of -Repo, which is also the Rust fallback; set it only to
+    publish through another host.
 
 .PARAMETER KeyFile
     Minisign private key, used only when TAURI_SIGNING_PRIVATE_KEY is unset.
@@ -78,7 +78,7 @@
 param(
   [string]$Version,
   [string]$Tag,
-  [string]$Repo = 'Methamorphe/beebranch-releases',
+  [string]$Repo = 'Methamorphe/beebranch',
   [string]$Endpoint,
   [string]$KeyFile = 'src-tauri/keys/release.key',
   [string]$PasswordFile = 'src-tauri/keys/release.key.password',
@@ -260,7 +260,7 @@ if (-not $env:BEEBRANCH_UPDATE_ENDPOINT) {
   $env:BEEBRANCH_UPDATE_ENDPOINT = if ($Endpoint) { $Endpoint } else { "https://github.com/$Repo/releases/latest/download/latest.json" }
 }
 Assert ($env:BEEBRANCH_UPDATE_ENDPOINT -like 'https://*') "endpoint non HTTPS : $($env:BEEBRANCH_UPDATE_ENDPOINT)"
-Assert ($env:BEEBRANCH_UPDATE_ENDPOINT -notlike '*updates.beebranch.fr*') 'endpoint de repli : les clients chercheraient un domaine mort'
+Assert ($env:BEEBRANCH_UPDATE_ENDPOINT -like '*github.com/*/releases/latest/download/latest.json') 'endpoint inattendu : les clients ne trouveraient pas latest.json'
 Note "endpoint compile : $($env:BEEBRANCH_UPDATE_ENDPOINT)"
 Note 'cle minisign : fournie (contenu jamais affiche)'
 

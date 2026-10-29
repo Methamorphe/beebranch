@@ -48,13 +48,12 @@ transformer l'application en service cloud.
 ## Amendement — 2026-10-28
 
 L'hébergement des manifestes est GitHub Releases, dans le dépôt public
-`Methamorphe/beebranch-releases` : l'endpoint compilé est
-`https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json`,
-injecté par la CI via `BEEBRANCH_UPDATE_ENDPOINT`. Le code source reste privé ;
-le job `publish` écrit dans le dépôt public avec `RELEASE_REPO_TOKEN`
-(fine-grained, `Contents: Read and write` sur ce seul dépôt). Aucun serveur
-maison n'est nécessaire ; `updates.beebranch.fr` ne reste que le repli des
-compilations locales. Conséquences ajoutées : la release N-1 ne doit pas être
-supprimée, et un build non signé par l'OS (secrets Apple/Windows absents) reste
-publié avec un avertissement explicite — la signature d'update, elle, n'est
-jamais optionnelle.
+`Methamorphe/beebranch`, qui porte aussi le code source : l'endpoint compilé est
+`https://github.com/Methamorphe/beebranch/releases/latest/download/latest.json`,
+injecté par la CI via `BEEBRANCH_UPDATE_ENDPOINT`. Le job `publish` crée la
+release avec le `GITHUB_TOKEN` d'Actions et la permission `contents: write` ;
+aucun PAT ni dépôt miroir n'est nécessaire. Aucun serveur maison n'est
+nécessaire, et la même URL sert de repli aux compilations locales. Conséquences
+ajoutées : la release N-1 ne doit pas être supprimée, et un build non signé par
+l'OS (secrets Apple/Windows absents) reste publié avec un avertissement
+explicite — la signature d'update, elle, n'est jamais optionnelle.

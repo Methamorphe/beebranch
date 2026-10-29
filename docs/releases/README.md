@@ -20,28 +20,30 @@
    Si la CI est indisponible (quota Actions épuisé, facturation en échec),
    publier depuis le poste : voir « Publication locale (sans CI) » plus bas.
 
-## Hébergement des manifestes (dépôt public `beebranch-releases`)
+## Hébergement des manifestes (dépôt principal)
 
-Le code source reste privé. Le job `publish` publie dans
-`Methamorphe/beebranch-releases` (public) `latest.json`, `rollback.json` et les
-artefacts signés. L'application interroge une URL stable, sans serveur dédié :
+Le code source et les releases vivent dans le même dépôt public. Le job
+`publish` crée la release `Methamorphe/beebranch` avec `latest.json`,
+`rollback.json` et les artefacts signés. L'application interroge une URL
+stable, sans serveur dédié :
 
 | Manifeste | URL |
 |---|---|
-| mise à jour | `https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json` |
-| rollback | `https://github.com/Methamorphe/beebranch-releases/releases/latest/download/rollback.json` |
+| mise à jour | `https://github.com/Methamorphe/beebranch/releases/latest/download/latest.json` |
+| rollback | `https://github.com/Methamorphe/beebranch/releases/latest/download/rollback.json` |
 
 L'URL est injectée à la compilation par `BEEBRANCH_UPDATE_ENDPOINT` (voir le
-job `build` de `release.yml`, variable `RELEASES_REPO`) ; elle sert à la fois à
+job `build` de `release.yml`, `github.repository`) ; elle sert à la fois à
 l'affichage dans Réglages → Mises à jour, à la vérification, au téléchargement
 et au rollback. Le repli des compilations locales est
-`DEFAULT_UPDATE_ENDPOINT` dans `crates/app/src/commands/update.rs`.
+`DEFAULT_UPDATE_ENDPOINT` dans `crates/app/src/commands/update.rs`, et pointe
+la même URL.
 
 Contraintes :
 
 | Contrainte | Détail |
 |---|---|
-| Cross-repo | Publier dans un autre dépôt exige `RELEASE_REPO_TOKEN` (PAT fine-grained, `Contents: Read and write` sur `beebranch-releases` uniquement). Sans ce secret, le job `publish` échoue immédiatement avec un message explicite. |
+| Permissions | Le job `publish` utilise le `GITHUB_TOKEN` fourni par Actions et la permission `contents: write` déclarée dans `release.yml` ; aucun PAT supplémentaire n'est nécessaire. |
 | `latest` | GitHub renvoie la release la plus récemment **créée**, hors brouillon et hors pré-release. Ne jamais publier une mise à jour en `--draft` ou `--prerelease`. |
 | Historique | Les URLs d'artefacts sont immuables (`/releases/download/<tag>/…`) : ne pas supprimer la release N-1, sinon `rollback.json` pointe dans le vide. |
 | HTTPS | Un endpoint non HTTPS est refusé (`update.invalid_endpoint`), sauf loopback pour tester un manifeste local. |
@@ -86,27 +88,27 @@ spctl --assess --type open --context context:primary-signature -vv "$DMG"
 
 node scripts/update-manifest.mjs --dir target/release/bundle --target darwin-aarch64 \
   --version <version> --notes "docs/releases/<version>.md" \
-  --base-url "https://github.com/Methamorphe/beebranch-releases/releases/download/v<version>" \
+  --base-url "https://github.com/Methamorphe/beebranch/releases/download/v<version>" \
   --out target/update/fragments/darwin-aarch64.json
 node scripts/merge-manifests.mjs --dir target/update/fragments --version <version> \
   --notes "docs/releases/<version>.md" --out target/update/latest.json
 ```
 
 Rollback : à partir de la deuxième release, télécharger le manifeste publié
-précédent (`gh release download <version-precedente> --repo Methamorphe/beebranch-releases --pattern latest.json --dir target/update/previous`) et ajouter
+précédent (`gh release download <version-precedente> --repo Methamorphe/beebranch --pattern latest.json --dir target/update/previous`) et ajouter
 `--rollback target/update/previous/latest.json` à `merge-manifests.mjs`.
 
 Publication et contrôle :
 
 ```sh
-gh release create "v<version>" --repo Methamorphe/beebranch-releases \
+gh release create "v<version>" --repo Methamorphe/beebranch \
   --title "BeeBranch <version>" --notes-file "docs/releases/<version>.md" \
   target/update/latest.json target/update/rollback.json \
   target/release/bundle/macos/BeeBranch.app.tar.gz \
   target/release/bundle/macos/BeeBranch.app.tar.gz.sig \
   target/release/bundle/dmg/BeeBranch_<version>_aarch64.dmg
 
-curl -sSL "https://github.com/Methamorphe/beebranch-releases/releases/latest/download/latest.json"
+curl -sSL "https://github.com/Methamorphe/beebranch/releases/latest/download/latest.json"
 ```
 
 Le tag `v<version>` n'est nécessaire que pour déclencher la CI ; en publication
@@ -118,15 +120,15 @@ locale il ne sert que de repère. Une release publiée en `--draft` ou
 Quand une release ne porte que les artefacts macOS, le bundle Windows se
 produit depuis une machine Windows avec `scripts/release-windows.ps1` : il
 vérifie que HEAD est bien le tag et que `tauri.conf.json`, `package.json` et
-`Cargo.toml` annoncent la même version, compile avec l'endpoint du mirror et la
+`Cargo.toml` annoncent la même version, compile avec l'endpoint de release et la
 clé minisign, contrôle la signature contre la clé **embarquée** dans
 `tauri.conf.json` (`scripts/verify-update-signature.mjs`), installe le paquet en
 silence et lance `BeeBranch --version`, reconstruit `latest.json` en conservant
 les entrées darwin/linux déjà publiées, puis téléverse les artefacts **puis** le
-manifeste dans `Methamorphe/beebranch-releases`.
+manifeste dans `Methamorphe/beebranch`.
 
 Prérequis : Node 22, Rust MSVC (Visual Studio Build Tools, charge de travail
-C++), `gh` authentifié avec un droit d'écriture sur `beebranch-releases`, et
+C++), `gh` authentifié avec un droit d'écriture sur `Methamorphe/beebranch`, et
 `src-tauri/keys/release.key` + `release.key.password` copiés hors git — à
 supprimer de la machine après usage.
 
@@ -164,7 +166,6 @@ artefact ou dont la signature ne serait pas celle de la clé embarquée.
 |---|---|
 | `TAURI_SIGNING_PRIVATE_KEY` | contenu de `src-tauri/keys/release.key` (clé privée minisign) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | mot de passe de `release.key` |
-| `RELEASE_REPO_TOKEN` | PAT fine-grained, `Contents: Read and write` sur `Methamorphe/beebranch-releases` uniquement — **nécessaire seulement pour publier depuis la CI** (une publication locale utilise l'auth `gh` du poste) |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | signature macOS : `.p12` **Developer ID Application** en base64, son mot de passe, et l'identité exacte (`security find-identity -v -p codesigning`) |
 | `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` | notarisation via clé API App Store Connect (recommandé) : Key ID, Issuer ID, contenu du `.p8`. La CI écrit le fichier et exporte `APPLE_API_KEY_PATH`. |
 | `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | alternative de notarisation via Apple ID (`APPLE_PASSWORD` = mot de passe d'application) |

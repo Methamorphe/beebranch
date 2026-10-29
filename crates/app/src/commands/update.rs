@@ -46,8 +46,9 @@ pub struct UpdateInstallDto {
 }
 
 /// Signed-manifest endpoint. The release workflow injects the GitHub Releases
-/// asset URL at compile time; local builds fall back to the default host.
-const DEFAULT_UPDATE_ENDPOINT: &str = "https://updates.beebranch.fr/latest.json";
+/// asset URL at compile time; local builds fall back to the public repository.
+const DEFAULT_UPDATE_ENDPOINT: &str =
+    "https://github.com/Methamorphe/beebranch/releases/latest/download/latest.json";
 const LATEST_MANIFEST: &str = "/latest.json";
 
 fn endpoint_text() -> &'static str {

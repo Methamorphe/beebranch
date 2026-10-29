@@ -16,11 +16,6 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  # Public repository that carries the signed artifacts and manifests; the
-  # source repository stays private. Clients only ever read this one.
-  RELEASES_REPO: Methamorphe/beebranch-releases
-
 jobs:
   build:
     name: Package and sign (${{ matrix.os }})
@@ -141,8 +136,8 @@ jobs:
       - name: Build, sign and bundle
         env:
           # Single source of the update endpoint: the `latest.json` asset of
-          # the newest non-draft, non-prerelease release of the public mirror.
-          BEEBRANCH_UPDATE_ENDPOINT: https://github.com/${{ env.RELEASES_REPO }}/releases/latest/download/latest.json
+          # the newest non-draft, non-prerelease release of this repository.
+          BEEBRANCH_UPDATE_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
         run: npm run tauri build
 
       # Tauri notarizes and staples the .app; the DMG itself is only signed.
@@ -251,7 +246,7 @@ jobs:
             --dir target/release/bundle \
             --target "${{ matrix.target }}" \
             --version "$version" \
-            --base-url "https://github.com/${RELEASES_REPO}/releases/download/$tag" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/$tag" \
             --notes "docs/releases/${version}.md" \
             --out "target/update/fragments/${{ matrix.target }}.json"
 
@@ -299,23 +294,14 @@ jobs:
           path: target/update/fragments
           merge-multiple: true
 
-      - name: Require the release mirror token
-        env:
-          RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
-        run: |
-          if [ -z "$RELEASE_REPO_TOKEN" ]; then
-            echo "::error title=RELEASE_REPO_TOKEN manquant::Créez un PAT fine-grained (Contents: Read and write sur ${RELEASES_REPO}) puis : gh secret set RELEASE_REPO_TOKEN --repo ${GITHUB_REPOSITORY}"
-            exit 1
-          fi
-
       - name: Collect previous manifest for rollback
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.event.inputs.tag || github.ref_name }}"
-          previous=$(gh release list --repo "$RELEASES_REPO" --limit 2 --json tagName --jq '.[1].tagName // empty')
+          previous=$(gh release list --repo "${{ github.repository }}" --limit 2 --json tagName --jq '.[1].tagName // empty')
           if [ -n "$previous" ] && [ "$previous" != "$tag" ]; then
-            gh release download "$previous" --repo "$RELEASES_REPO" --pattern latest.json --dir target/update/previous --clobber || true
+            gh release download "$previous" --repo "${{ github.repository }}" --pattern latest.json --dir target/update/previous --clobber || true
           fi
 
       - name: Build latest.json and rollback.json
@@ -336,7 +322,7 @@ jobs:
 
       - name: Create release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.event.inputs.tag || github.ref_name }}"
           version="${tag#v}"
@@ -344,7 +330,7 @@ jobs:
           rollback=""
           if [ -f target/update/rollback.json ]; then rollback="target/update/rollback.json"; fi
           gh release create "$tag" \
-            --repo "$RELEASES_REPO" \
+            --repo "${{ github.repository }}" \
             --title "BeeBranch $version" \
             --notes-file "docs/releases/${version}.md" \
             target/update/latest.json $rollback $files
