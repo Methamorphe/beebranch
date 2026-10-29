@@ -63,6 +63,7 @@ cat > "$branch_ruleset" <<'JSON'
     {
       "type": "pull_request",
       "parameters": {
+        "allowed_merge_methods": ["squash"],
         "required_approving_review_count": 1,
         "dismiss_stale_reviews_on_push": true,
         "require_code_owner_review": true,
