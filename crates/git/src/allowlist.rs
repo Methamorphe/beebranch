@@ -1001,7 +1001,12 @@ mod tests {
         assert!(validate(GitSubcommand::Add, &args(&["--", "../escape"])).is_err());
         assert!(validate(GitSubcommand::Add, &args(&["--", "src/../../escape"])).is_err());
         assert!(validate(GitSubcommand::Add, &args(&["--", ".git/config"])).is_err());
-        assert!(validate(GitSubcommand::Add, &args(&["--", "/etc/passwd"])).is_err());
+        let absolute = if cfg!(windows) {
+            r"C:\Windows\win.ini"
+        } else {
+            "/etc/passwd"
+        };
+        assert!(validate(GitSubcommand::Add, &args(&["--", absolute])).is_err());
         assert!(validate(GitSubcommand::Add, &args(&["--", ""])).is_err());
     }
 

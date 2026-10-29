@@ -325,8 +325,9 @@ mod tests {
     #[test]
     fn rejects_relative_and_git_paths() {
         assert!(validate_worktree_path("relative/path").is_err());
-        assert!(validate_worktree_path("/repo/.git/wt").is_err());
-        assert!(validate_worktree_path("/repo/../escape").is_err());
-        assert!(validate_worktree_path("/repo/.gitx").is_ok());
+        let root = if cfg!(windows) { r"C:\repo" } else { "/repo" };
+        assert!(validate_worktree_path(&format!("{root}/.git/wt")).is_err());
+        assert!(validate_worktree_path(&format!("{root}/../escape")).is_err());
+        assert!(validate_worktree_path(&format!("{root}/.gitx")).is_ok());
     }
 }
