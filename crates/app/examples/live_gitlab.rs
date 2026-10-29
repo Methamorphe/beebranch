@@ -22,7 +22,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let token_path =
         std::env::var("GITLAB_TOKEN_FILE").unwrap_or_else(|_| "/tmp/beebranch-glpat".to_owned());
     let base_url =
-        std::env::var("GITLAB_URL").unwrap_or_else(|_| "https://gitlab.beelan.fr/".to_owned());
+        std::env::var("GITLAB_URL").unwrap_or_else(|_| "https://gitlab.example.com/".to_owned());
     let token = std::fs::read_to_string(&token_path)?.trim().to_owned();
     let dir = tempfile::tempdir()?;
     let store = Arc::new(Store::open(dir.path().join("proof.sqlite3"))?);
@@ -45,7 +45,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_url: base_url.clone(),
             token: token.clone(),
             ca_pem: None,
-            display_name: Some("Beelan GitLab".into()),
+            display_name: Some("Example GitLab".into()),
         },
     )
     .await?;
@@ -131,11 +131,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         dump.to_ascii_lowercase().contains("private-token")
     );
 
+    let expected_host = beebranch_gitlab::normalize_url(&base_url)?.host;
     let export = diagnostics(&state)?;
     println!(
         "diagnostics_contains_token={} diagnostics_contains_instance={}",
         export.contains(&token) || export.contains("glpat-"),
-        export.contains("gitlab.beelan.fr")
+        export.contains(&expected_host)
     );
 
     let bad = configure(

@@ -31,7 +31,7 @@ La référence est l'**ergonomie**, pas les assets.
 | Typographie | **Geist** pour l'UI, **Geist Mono** pour les diffs et SHA, embarquées via Fontsource (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`) |
 | Ton | Technique, calme, précis ; pas de marketing dans l'application |
 
-La palette de base est relevée sur le site Beecoming : `#0A0A0A`, `#191919`, `#F6F6F6`, `#EDEDED`, `#FED100`. La maquette de référence P2 (`/Users/johannbee/Downloads/beebranch/index.html`) fixe les valeurs implémentées : `#101216`, `#15181E`, `#1C2028`, `#282D36`, `#E1E5EC`, `#8992A2`, accent `#F5BB45`. Les valeurs d'état et de lanes sont dérivées pour l'application.
+La palette de base est relevée sur le site Beecoming : `#0A0A0A`, `#191919`, `#F6F6F6`, `#EDEDED`, `#FED100`. La maquette de référence P2 (non versionnée) fixe les valeurs implémentées : `#101216`, `#15181E`, `#1C2028`, `#282D36`, `#E1E5EC`, `#8992A2`, accent `#F5BB45`. Les valeurs d'état et de lanes sont dérivées pour l'application.
 
 **Garde-fous juridiques et éthiques**
 
