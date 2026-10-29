@@ -110,6 +110,13 @@ cat > "$tag_ruleset" <<'JSON'
     { "type": "deletion" },
     { "type": "non_fast_forward" },
     { "type": "update" }
+  ],
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
   ]
 }
 JSON
