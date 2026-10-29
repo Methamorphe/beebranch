@@ -145,8 +145,14 @@ function Get-BundleArtifacts {
   $nsisDir = Join-Path $script:root 'target/release/bundle/nsis'
   Assert (Test-Path -LiteralPath $nsisDir) "bundle NSIS absent : $nsisDir (lancer sans -SkipBuild)"
 
-  $installer = Get-ChildItem -LiteralPath $nsisDir -Filter '*setup.exe' -File | Select-Object -First 1
-  Assert ($null -ne $installer) "aucun installateur *setup.exe dans $nsisDir"
+  # Filtrer par version : `target/` conserve les bundles des versions
+  # precedentes, et `Select-Object -First 1` prenait le plus ancien.
+  $installer = Get-ChildItem -LiteralPath $nsisDir -Filter "*_${Version}_*-setup.exe" -File |
+    Select-Object -First 1
+  if ($null -eq $installer) {
+    $present = @(Get-ChildItem -LiteralPath $nsisDir -Filter '*setup.exe' -File | Select-Object -ExpandProperty Name) -join ', '
+    Assert ($false) "aucun installateur $Version dans $nsisDir (presents : $present) ; relancer sans -SkipBuild"
+  }
 
   # Updater artifact layout depends on `bundle.createUpdaterArtifacts`:
   #   true           -> the NSIS installer itself, signed as `<installer>.sig`
@@ -172,9 +178,24 @@ puis relancer sans -SkipBuild.
 '@
     throw "signature d'update manquante : $(Split-Path -Leaf $signature)`ncontenu de ${nsisDir} : $produced`n`n$hint"
   }
-  Assert ($installer.Name -like "*_${Version}_*") "l'installateur ne porte pas la version ${Version} : $($installer.Name)"
+  # Un bundle d'une autre version dans le dossier serait televerse dans la
+  # release : le signaler plutot que de le publier en silence.
+  $others = @(Get-ChildItem -LiteralPath $nsisDir -File |
+    Where-Object { $_.Name -like '*-setup.exe' -and $_.Name -ne $installer.Name })
+  if ($others.Count -gt 0) {
+    Warn "bundles d'autres versions ignores : $(($others | Select-Object -ExpandProperty Name) -join ', ')"
+  }
 
-  [pscustomobject]@{ Directory = $nsisDir; Installer = $installer; Updater = $updater }
+  [pscustomobject]@{
+    Directory = $nsisDir
+    Installer = $installer
+    Updater = $updater
+    Assets = @(
+      $installer.FullName
+      if ($updater.FullName -ne $installer.FullName) { $updater.FullName }
+      "$($updater.FullName).sig"
+    )
+  }
 }
 
 $repoRootMarker = Join-Path $script:root 'src-tauri/tauri.conf.json'
@@ -255,6 +276,18 @@ if ($SkipBuild) {
   Assert ($nodeMajor -ge 20) "node $nodeMajor trop ancien (la CI utilise 22)"
   Assert-Command 'cargo', 'rustc'
 
+  # Les artefacts du build precedent restent dans target/ : ils seraient
+  # choisis a la place des nouveaux, et televerses dans la release.
+  $nsisDir = 'target/release/bundle/nsis'
+  if (Test-Path -LiteralPath $nsisDir) {
+    $stale = @(Get-ChildItem -LiteralPath $nsisDir -File |
+      Where-Object { $_.Name -match '_\d+\.\d+\.\d+_' -and $_.Name -notmatch "_$([regex]::Escape($Version))_" })
+    foreach ($file in $stale) { Remove-Item -LiteralPath $file.FullName -Force }
+    if ($stale.Count -gt 0) {
+      Note "bundles d'autres versions supprimes : $(($stale | Select-Object -ExpandProperty Name) -join ', ')"
+    }
+  }
+
   Invoke-Checked 'npm ci' { npm ci }
   Invoke-Checked 'npm run build' { npm run build }
   Invoke-Checked 'audit telemetrie' { node scripts/audit-no-telemetry.mjs }
@@ -324,7 +357,7 @@ $baseUrl = "https://github.com/$Repo/releases/download/$Tag"
 $notesPath = "docs/releases/$Version.md"
 
 Invoke-Checked 'fragment windows-x86_64' {
-  node scripts/update-manifest.mjs --dir target/release/bundle --target windows-x86_64 `
+  node scripts/update-manifest.mjs --dir $bundle.Directory --target windows-x86_64 `
     --version $Version --base-url $baseUrl --notes $notesPath `
     --out "$fragmentsDir/windows-x86_64.json"
 }
@@ -385,7 +418,7 @@ Note 'rollback.json inchange'
 # --- 7. publication --------------------------------------------------------
 Step 'Publication sur le mirror'
 
-$assets = @(Get-ChildItem -LiteralPath $bundle.Directory -File | Select-Object -ExpandProperty FullName)
+$assets = @($bundle.Assets)
 foreach ($asset in $assets) { Note "asset : $(Split-Path -Leaf $asset)" }
 
 if ($NoUpload) {
