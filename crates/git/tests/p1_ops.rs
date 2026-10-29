@@ -7,6 +7,7 @@ use beebranch_git::branches;
 use beebranch_git::commit::{self, CommitOptions};
 use beebranch_git::diff::{read_diff, DiffLimits, DiffTarget};
 use beebranch_git::history::{self, MergeFastForward};
+#[cfg(unix)]
 use beebranch_git::hooks::{self, HookPoint};
 use beebranch_git::index::{self, Fingerprint, HunkSelection, PathSelection};
 use beebranch_git::search::{self, SearchMode, SearchQuery};
