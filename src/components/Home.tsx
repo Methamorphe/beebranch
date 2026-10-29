@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ViewId } from '../data/navigation'
 import type { GitlabProject, GitlabSession, RecentRepo } from '../types/git'
 import {
@@ -21,6 +21,8 @@ type CloneInput = {
 type Props = {
   onSelect: (view: ViewId) => void
   recent: RecentRepo[]
+  /** Changes whenever a new-tab request must refocus the recent search. */
+  focusRequest?: number
   onOpen: (path: string) => void
   onOpenDialog: () => void
   onClone: (input: CloneInput) => Promise<void>
@@ -77,6 +79,7 @@ function suggestedDestination(
 export function Home({
   onSelect,
   recent,
+  focusRequest = 0,
   onOpen,
   onOpenDialog,
   onClone,
@@ -84,6 +87,9 @@ export function Home({
   onPickDirectory,
 }: Props) {
   const [mode, setMode] = useState<'idle' | 'clone'>('idle')
+  const [recentQuery, setRecentQuery] = useState('')
+  const searchInput = useRef<HTMLInputElement>(null)
+  const lastFocusRequest = useRef(focusRequest)
   const [provider, setProvider] = useState<'gitlab' | 'github'>('gitlab')
   const [session, setSession] = useState<GitlabSession | null>(null)
   const [githubSession, setGithubSession] = useState<GitlabSession | null>(null)
@@ -102,6 +108,30 @@ export function Home({
   const [recurse, setRecurse] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // A new tab lands here ready to search: focus the recent-repos field, and
+  // start from a clean query when the tab is opened again. The field only
+  // exists once recents are loaded, so the effect must also run on that edge.
+  const hasRecent = recent.length > 0
+  useEffect(() => {
+    if (focusRequest !== lastFocusRequest.current) {
+      lastFocusRequest.current = focusRequest
+      setRecentQuery('')
+    }
+    if (hasRecent) {
+      searchInput.current?.focus()
+    }
+  }, [focusRequest, hasRecent])
+
+  const recentFilter = recentQuery.trim().toLowerCase()
+  const filteredRecent = recentFilter
+    ? recent.filter((entry) => {
+        const name = (entry.name ?? entry.path.split('/').pop() ?? '').toLowerCase()
+        return (
+          name.includes(recentFilter) || entry.path.toLowerCase().includes(recentFilter)
+        )
+      })
+    : recent
 
   useEffect(() => {
     let cancelled = false
@@ -534,13 +564,34 @@ export function Home({
           <h2>Reprendre le travail</h2>
           <span>
             {recent.length
-              ? `${recent.length} dépôt${recent.length > 1 ? 's' : ''} récent${recent.length > 1 ? 's' : ''}`
+              ? recentFilter
+                ? `${filteredRecent.length} sur ${recent.length} dépôt${recent.length > 1 ? 's' : ''}`
+                : `${recent.length} dépôt${recent.length > 1 ? 's' : ''} récent${recent.length > 1 ? 's' : ''}`
               : 'Vos dépôts apparaîtront ici'}
           </span>
         </div>
         {recent.length ? (
+          <input
+            ref={searchInput}
+            type="search"
+            className={styles.recentSearch}
+            value={recentQuery}
+            onChange={(event) => setRecentQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && filteredRecent[0]) {
+                event.preventDefault()
+                onOpen(filteredRecent[0].path)
+              }
+            }}
+            placeholder="Rechercher un dépôt récent…"
+            aria-label="Rechercher un dépôt récent"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        ) : null}
+        {recent.length ? (
           <div className={styles.list}>
-            {recent.map((entry) => (
+            {filteredRecent.map((entry) => (
               <button
                 key={entry.repoId}
                 type="button"
@@ -560,6 +611,11 @@ export function Home({
                 </span>
               </button>
             ))}
+            {filteredRecent.length === 0 ? (
+              <p className={styles.searchEmpty} role="status">
+                Aucun dépôt récent ne correspond à « {recentQuery.trim()} ».
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className={styles.empty}>

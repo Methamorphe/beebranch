@@ -7,6 +7,7 @@ export type ShortcutHandlers = {
   newBranch: () => void
   search: () => void
   openRepo: () => void
+  newTab: () => void
   undo: () => void
   redo: () => void
   close: () => void
@@ -35,8 +36,12 @@ export function useShortcuts(handlers: ShortcutHandlers, shortcuts: ShortcutMap)
       }
       if (document.querySelector('[aria-modal="true"], [role="menu"]')) return
       if (isEditable(event.target)) {
-        // Cmd/Ctrl+K stays global; other shortcuts must not steal typing.
-        if (!matchesShortcut(event, shortcuts.palette)) {
+        // Cmd/Ctrl+K and Cmd/Ctrl+T stay global; other shortcuts must not
+        // steal typing.
+        if (
+          !matchesShortcut(event, shortcuts.palette) &&
+          !matchesShortcut(event, shortcuts.newTab)
+        ) {
           return
         }
       }

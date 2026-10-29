@@ -501,6 +501,9 @@ export type SyncOutcome = {
   output: string
   cancelled: boolean
   remoteSha?: string
+  headBefore?: string | null
+  headAfter?: string | null
+  behindUpstream?: number | null
 }
 
 export type HistoryOutcome = {

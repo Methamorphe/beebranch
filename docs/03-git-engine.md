@@ -164,7 +164,7 @@ Toute mutation passe par la file du dépôt et un **préflight**.
 | Delete branch | `git branch -d/-D <branch>` | non courante, mergée ou confirmation forte |
 | Rename branch | `git branch -m <old> <new>` | nom valide, pas de collision |
 | Fetch | `git fetch --prune --progress <remote>` | remote existe |
-| Pull | `git pull --progress [--ff-only\|--rebase]` | worktree propre, upstream |
+| Pull | `git pull --progress [--ff-only\|--rebase\|--no-rebase] <remote> <branch>` | worktree propre, upstream ; stratégie lue dans `branch.<nom>.rebase`, puis `pull.rebase`, puis `pull.ff` ; code de sortie non nul = échec remonté |
 | Push | `git push --progress <remote> <ref>` | upstream, non-fast-forward détecté |
 | Force push | `git push --force-with-lease=<ref>:<expected>` | confirmation explicite, ancien SHA enregistré |
 | Merge | `git merge --no-edit <ref>` | worktree propre, pas d'opération (l'intégration branche→branche stashe les changements suivis) |
@@ -345,6 +345,8 @@ git -c sequence.editor=<helper> rebase -i --autosquash <base>
 | `Permission denied (publickey)` | `auth.ssh_key` | vérifier l'agent et la clé |
 | `Host key verification failed` | `auth.host_key` | vérifier `known_hosts` |
 | `non-fast-forward`, `fetch first` | `git.non_fast_forward` | fetch puis merge/rebase |
+| `Not possible to fast-forward` (pull) | `git.pull_not_fast_forward` | rebaser/fusionner ou relâcher `pull.ff` |
+| `Need to specify how to reconcile divergent branches` | `git.pull_strategy_missing` | configurer `pull.rebase`/`pull.ff` ou choisir une stratégie |
 | `CONFLICT`, exit 1 sur merge/rebase | `git.conflict` | résoudre puis continue |
 | `Your local changes would be overwritten` | `git.dirty_worktree` | stash/commit |
 | `index.lock` | `repo.busy` | vérifier un autre processus |

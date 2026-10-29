@@ -716,6 +716,178 @@ fn fetch_and_push_stream_against_a_local_bare_remote() {
     assert_ne!(fixture.rev_parse(&["HEAD"]), clean);
 }
 
+/// Local repository tracking `origin/main` on a bare remote, plus a second
+/// clone that plays the colleague pushing to the same branch.
+fn synced_fixture() -> (Fixture, tempfile::TempDir, tempfile::TempDir) {
+    let fixture = dirty_fixture();
+    let bare = tempfile::tempdir().expect("bare");
+    fixture
+        .runner()
+        .run(
+            &CommandSpec::new(GitSubcommand::Init, bare.path())
+                .arg("--quiet")
+                .arg("--bare")
+                .arg("--initial-branch=main"),
+        )
+        .expect("init bare")
+        .ensure_success()
+        .expect("bare init");
+    fixture.run(
+        GitSubcommand::Remote,
+        &["add", "origin", bare.path().to_str().unwrap()],
+        &[],
+    );
+    fixture.run(GitSubcommand::Push, &["-u", "origin", "main"], &[]);
+
+    let peer = tempfile::tempdir().expect("peer");
+    let clone_target = peer.path().join("peer");
+    fixture
+        .runner()
+        .run(
+            &CommandSpec::new(GitSubcommand::Clone, peer.path())
+                .arg(bare.path())
+                .arg(&clone_target),
+        )
+        .expect("clone peer")
+        .ensure_success()
+        .expect("peer clone");
+    fixture
+        .runner()
+        .run(
+            &CommandSpec::new(GitSubcommand::Config, &clone_target)
+                .arg("user.email")
+                .arg("bob@example.test"),
+        )
+        .expect("peer email")
+        .ensure_success()
+        .expect("peer email set");
+    fixture
+        .runner()
+        .run(
+            &CommandSpec::new(GitSubcommand::Config, &clone_target)
+                .arg("user.name")
+                .arg("Bob"),
+        )
+        .expect("peer name")
+        .ensure_success()
+        .expect("peer name set");
+    (fixture, bare, peer)
+}
+
+#[test]
+fn pull_strategy_follows_branch_then_pull_then_ff_config() {
+    let fixture = dirty_fixture();
+    let resolve = |requested: PullStrategy| {
+        sync::resolve_pull_strategy(fixture.runner(), fixture.path(), "main", requested)
+            .expect("resolve")
+    };
+
+    // An empty local value means "no strategy configured": the developer
+    // machine's global `pull.rebase` must not decide what these cases assert.
+    fixture.config(&["pull.rebase", ""]);
+    assert_eq!(resolve(PullStrategy::Auto), PullStrategy::Merge);
+
+    fixture.config(&["pull.ff", "only"]);
+    assert_eq!(resolve(PullStrategy::Auto), PullStrategy::FfOnly);
+
+    fixture.config(&["pull.rebase", "true"]);
+    assert_eq!(resolve(PullStrategy::Auto), PullStrategy::Rebase);
+
+    // `branch.<name>.rebase` wins over `pull.rebase`, as in Git itself.
+    fixture.config(&["branch.main.rebase", "false"]);
+    assert_eq!(resolve(PullStrategy::Auto), PullStrategy::Merge);
+
+    // An explicit request is never overridden by configuration.
+    assert_eq!(resolve(PullStrategy::FfOnly), PullStrategy::FfOnly);
+}
+
+#[test]
+fn pull_refuses_to_merge_when_pull_ff_is_only() {
+    let (fixture, _bare, peer) = synced_fixture();
+    let peer = peer.path().join("peer");
+    std::fs::write(peer.join("remote.txt"), "remote\n").expect("write");
+    let runner = fixture.runner();
+    for spec in [
+        CommandSpec::new(GitSubcommand::Add, &peer).arg("-A"),
+        CommandSpec::new(GitSubcommand::Commit, &peer)
+            .args(["-F", "-"])
+            .stdin(beebranch_git::StdinMode::Bytes(b"remote work\n".to_vec())),
+    ] {
+        runner
+            .run(&spec)
+            .expect("peer git")
+            .ensure_success()
+            .expect("peer");
+    }
+    runner
+        .run(&CommandSpec::new(GitSubcommand::Push, &peer).args(["origin", "main"]))
+        .expect("peer push")
+        .ensure_success()
+        .expect("peer push");
+
+    fixture.commit("local.txt", "local\n", "local work");
+    fixture.config(&["pull.rebase", ""]);
+    fixture.config(&["pull.ff", "only"]);
+    let head = fixture.rev_parse(&["HEAD"]);
+
+    let pull = sync::spawn_pull(
+        runner,
+        fixture.path(),
+        "origin",
+        "main",
+        PullStrategy::Auto,
+        &beebranch_git::OperationContext::default(),
+        |_| {},
+    )
+    .expect("spawn pull");
+    let error = sync::finish(pull, SyncKind::Pull, || None)
+        .expect_err("ff-only must refuse a diverged pull");
+    assert_eq!(error.code, "git.pull_not_fast_forward", "{error:?}");
+    assert_eq!(fixture.rev_parse(&["HEAD"]), head);
+}
+
+#[test]
+fn branch_position_reports_the_tip_and_the_distance_to_upstream() {
+    let (fixture, _bare, peer) = synced_fixture();
+    let position = sync::branch_position(fixture.runner(), fixture.path());
+    assert_eq!(
+        position.head.as_deref(),
+        Some(fixture.rev_parse(&["HEAD"]).as_str())
+    );
+    assert_eq!(position.behind, Some(0));
+
+    let peer = peer.path().join("peer");
+    std::fs::write(peer.join("remote.txt"), "remote\n").expect("write");
+    let runner = fixture.runner();
+    for spec in [
+        CommandSpec::new(GitSubcommand::Add, &peer).arg("-A"),
+        CommandSpec::new(GitSubcommand::Commit, &peer)
+            .args(["-F", "-"])
+            .stdin(beebranch_git::StdinMode::Bytes(b"remote work\n".to_vec())),
+        CommandSpec::new(GitSubcommand::Push, &peer).args(["origin", "main"]),
+    ] {
+        runner
+            .run(&spec)
+            .expect("peer git")
+            .ensure_success()
+            .expect("peer");
+    }
+
+    let command = sync::spawn_fetch(
+        runner,
+        fixture.path(),
+        "origin",
+        &beebranch_git::OperationContext::default(),
+        |_| {},
+    )
+    .expect("spawn fetch");
+    sync::finish(command, SyncKind::Fetch, || None).expect("fetch");
+    assert_eq!(
+        sync::branch_position(runner, fixture.path()).behind,
+        Some(1)
+    );
+}
+
 #[test]
 fn amends_without_and_with_a_new_message() {
     let fixture = dirty_fixture();

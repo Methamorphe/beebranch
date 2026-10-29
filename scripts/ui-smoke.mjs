@@ -1904,6 +1904,20 @@ try {
     const original = window.__TAURI_INTERNALS__.invoke
     window.__toolbarCalls = []
     window.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === 'sync_pull') {
+        window.__toolbarCalls.push([command, args])
+        return Promise.resolve({
+          data: {
+            kind: 'pull',
+            output: 'Already up to date.',
+            cancelled: false,
+            headBefore: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            headAfter: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            behindUpstream: 0,
+          },
+          generation: 1,
+        })
+      }
       if (['sync_fetch', 'sync_pull', 'sync_push', 'tool_open', 'branch_checkout', 'branch_checkout_at', 'branch_create', 'branch_upstream', 'branch_rename', 'branch_delete', 'history_merge'].includes(command)) {
         window.__toolbarCalls.push([command, args]); return Promise.resolve({ data:null, generation:1 })
       }
@@ -1917,6 +1931,10 @@ try {
   }
   const toolbarCalls = await evaluate(client, 'window.__toolbarCalls')
   assertUI('toolbar-git-actions-connected', ['sync_fetch', 'sync_pull', 'sync_push', 'tool_open'].every(command => toolbarCalls.some(([name]) => name === command)))
+  // A pull that integrates nothing must not read like a completed integration.
+  await evaluate(client, `(() => { const button = [...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Pull'); button.click() })()`)
+  await waitFor(client, `document.querySelector('[aria-label="Actions du dépôt"] [role="status"]')?.textContent.includes('déjà à jour') === true`, 'pull outcome notice')
+  await screenshot(client, 'toolbar-pull-outcome.png')
   assertUI('toolbar-terminal-repo-context', toolbarCalls.some(([name, args]) => name === 'tool_open' && args.input.repoId === 'repo_demo' && args.input.kind === 'terminal'))
   await evaluate(client, `document.querySelector('button[aria-label="Choisir une branche"]').click()`)
   await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'branch selector')
@@ -2104,6 +2122,23 @@ try {
   assertUI('add-repo-launcher-recent-open-create-clone', await evaluate(client, `(() => { const text = document.querySelector('main').innerText; return text.includes('beebranch-demo') && text.includes('Ouvrir un dépôt local…') && text.includes('Créer un dépôt…') && text.includes('Cloner un dépôt…') })()`))
   assertUI('add-repo-launcher-preserves-tabs', await evaluate(client, `document.querySelectorAll('[aria-label="Dépôts ouverts"] > div:not([data-launcher]) button[title]').length === ${tabsBeforeLauncher} && document.querySelector('header').innerText.includes('beebranch-demo') && document.querySelector('canvas') === null`))
   await screenshot(client, 'ux-repo-launcher.png')
+  // A new tab lands ready to search: the recent field is focused, filtering
+  // matches names and paths, and an empty result is announced.
+  assertUI('launcher-recent-search-focused', await evaluate(client, `document.activeElement?.getAttribute('aria-label') === 'Rechercher un dépôt récent'`))
+  const typeRecent = (value) => evaluate(client, `(() => {
+    const field = document.querySelector('input[aria-label="Rechercher un dépôt récent"]')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(field, ${JSON.stringify(value)})
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  await typeRecent('zzz-introuvable')
+  await delay(80)
+  assertUI('launcher-recent-search-empty-state', await evaluate(client, `document.querySelector('main').innerText.includes('Aucun dépôt récent ne correspond')`))
+  await typeRecent('beebranch')
+  await delay(80)
+  assertUI('launcher-recent-search-filters', await evaluate(client, `(() => { const text = document.querySelector('main').innerText; return text.includes('1 sur 1 dépôt') && text.includes('beebranch-demo') })()`))
+  await typeRecent('')
+  await delay(80)
   const beforePlusPicker = await evaluate(client, 'window.__pickerCalls.length')
   await evaluate(client, `window.__pickerSelection = null`)
   await evaluate(client, `(() => { const b = [...document.querySelectorAll('main button')].find((item) => item.textContent.includes('Ouvrir un dépôt local…')); b.click() })()`)

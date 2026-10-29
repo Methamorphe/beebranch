@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.7.1] — 2026-10-29
+
+### Ajouté
+
+- **Onglet d'ouverture de dépôt** : ⌘/Ctrl + T (et le bouton `+`) ouvre
+  l'onglet d'accueil avec le champ de recherche des dépôts récents focalisé et
+  une requête remise à zéro ; le filtre porte sur le nom et le chemin, la liste
+  affiche « N sur M dépôts », Entrée ouvre le premier résultat et l'absence de
+  correspondance est signalée. Le raccourci apparaît dans Préférences →
+  Raccourcis et dans la palette.
+
+### Corrigé
+
+- **Fetch, pull et push annoncés réussis alors que Git échouait** : le moteur
+  ne vérifiait pas le code de sortie des commandes de synchronisation, donc un
+  pull refusé (branche divergente, avance rapide impossible, identifiants
+  refusés, fichier non suivi dans le chemin) affichait « Pull terminé. » sans
+  erreur ni changement. Le statut de sortie est désormais contrôlé et l'échec
+  remonte avec la sortie Git et une remédiation (`git.pull_not_fast_forward`,
+  `git.pull_strategy_missing`, `git.dirty_worktree`, `git.untracked_collision`,
+  `auth.*`…).
+- **Résultat du pull visible** : la barre d'outils indique ce que le pull a
+  réellement fait (`Pull : déjà à jour.`, `Pull : abc1234 → def5678.`, ou
+  `Pull incomplet : N commits encore en retard.`) au lieu du même
+  « Pull terminé. » dans tous les cas. Ce message est effacé quand on change
+  d'onglet : il ne décrit plus un autre dépôt.
+- **Stratégie de pull respectée** : `branch.<nom>.rebase` est lu avant
+  `pull.rebase`, puis `pull.ff`, comme le fait Git ; auparavant seul
+  `pull.rebase` était consulté et `--no-rebase` était imposé, ce qui forçait
+  une fusion chez les utilisateurs configurés en rebase ou en `pull.ff=only`.
+
 ## [0.7.0] — 2026-10-29
 
 ### Ajouté

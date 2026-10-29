@@ -52,6 +52,15 @@ pub struct SyncOutcome {
     pub cancelled: bool,
     /// Remote SHA observed after cancellation, when it could be checked.
     pub remote_sha: Option<String>,
+    /// Branch tip before the command, when it could be read.
+    pub head_before: Option<String>,
+    /// Branch tip after the command, when it could be read.
+    pub head_after: Option<String>,
+    /// Commits the branch is still behind its upstream after the command.
+    ///
+    /// `None` when the branch has no upstream or the status could not be read.
+    /// A pull that leaves a non-zero value did not integrate what it fetched.
+    pub behind_upstream: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,29 +128,61 @@ where
     runner.spawn(&spec, on_event).map_err(AppError::from)
 }
 
-/// Resolve the effective pull strategy, reading `pull.rebase` when `Auto`.
+/// Resolve the effective pull strategy, following Git's own precedence:
+/// `branch.<name>.rebase`, then `pull.rebase`, then `pull.ff`.
 pub fn resolve_pull_strategy(
     runner: &GitRunner,
     worktree: &Path,
+    branch: &str,
     strategy: PullStrategy,
 ) -> Result<PullStrategy, AppError> {
     if strategy != PullStrategy::Auto {
         return Ok(strategy);
     }
+    if let Some(value) = config_value(runner, worktree, &format!("branch.{branch}.rebase"))? {
+        if let Some(strategy) = strategy_from_rebase(&value) {
+            return Ok(strategy);
+        }
+    }
+    if let Some(value) = config_value(runner, worktree, "pull.rebase")? {
+        if let Some(strategy) = strategy_from_rebase(&value) {
+            return Ok(strategy);
+        }
+    }
+    if config_value(runner, worktree, "pull.ff")?.as_deref() == Some("only") {
+        return Ok(PullStrategy::FfOnly);
+    }
+    Ok(PullStrategy::Merge)
+}
+
+/// Read one configuration value, `None` when it is unset or unreadable.
+fn config_value(
+    runner: &GitRunner,
+    worktree: &Path,
+    key: &str,
+) -> Result<Option<String>, AppError> {
     let outcome = runner.run(
         &CommandSpec::new(GitSubcommand::Config, worktree)
             .arg("--get")
-            .arg("pull.rebase"),
+            .arg(key),
     )?;
     if !outcome.success() {
-        return Ok(PullStrategy::Merge);
+        return Ok(None);
     }
     let value = outcome.stdout.text_lossy().trim().to_ascii_lowercase();
-    Ok(match value.as_str() {
-        "true" | "yes" | "on" | "1" => PullStrategy::Rebase,
-        "merges" => PullStrategy::Merge,
-        _ => PullStrategy::Merge,
-    })
+    Ok(Some(value).filter(|value| !value.is_empty()))
+}
+
+/// Map a `rebase` configuration value onto a supported strategy.
+///
+/// Interactive variants map to a plain rebase: BeeBranch never opens an editor.
+fn strategy_from_rebase(value: &str) -> Option<PullStrategy> {
+    match value {
+        "true" | "yes" | "on" | "1" | "interactive" | "i" => Some(PullStrategy::Rebase),
+        "merges" | "m" => Some(PullStrategy::Merge),
+        "false" | "no" | "off" | "0" => Some(PullStrategy::Merge),
+        _ => None,
+    }
 }
 
 /// Start a streaming pull. Refuses a dirty worktree before Git runs.
@@ -170,7 +211,7 @@ where
         .with_remediation("Committez ou stashez vos modifications, puis relancez le pull."));
     }
 
-    let strategy = resolve_pull_strategy(runner, worktree, strategy)?;
+    let strategy = resolve_pull_strategy(runner, worktree, branch, strategy)?;
     let mut spec = streaming_spec(GitSubcommand::Pull, worktree, operation).arg("--progress");
     spec = match strategy {
         PullStrategy::FfOnly => spec.arg("--ff-only"),
@@ -221,6 +262,10 @@ where
 
 /// Wait for a sync command and convert its result.
 ///
+/// A non-zero exit status is a failure: reporting it as a completed sync used
+/// to hide refusals (non fast-forward, missing credentials, untracked files in
+/// the way) behind a "terminé" notice.
+///
 /// `remote_check` is called when the operation was cancelled; it should return
 /// the remote SHA for the pushed/fetched ref so the UI can state whether the
 /// remote changed despite the cancellation.
@@ -232,11 +277,15 @@ pub fn finish(
     match command.wait() {
         Ok(outcome) => {
             let output = join_output(outcome.stdout.redacted(), outcome.stderr.redacted());
+            outcome.ensure_success()?;
             Ok(SyncOutcome {
                 kind,
                 output,
                 cancelled: false,
                 remote_sha: None,
+                head_before: None,
+                head_after: None,
+                behind_upstream: None,
             })
         }
         Err(error) => {
@@ -256,6 +305,38 @@ pub fn finish(
             Err(error.into())
         }
     }
+}
+
+/// Position of the checked-out branch, used to report what a sync changed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BranchPosition {
+    /// Tip of `HEAD`, `None` on an unborn branch.
+    pub head: Option<String>,
+    /// Commits still missing from the upstream, `None` without upstream.
+    pub behind: Option<u32>,
+}
+
+/// Snapshot the branch tip and its distance to the upstream.
+pub fn branch_position(runner: &GitRunner, worktree: &Path) -> BranchPosition {
+    let head = runner
+        .run(
+            &CommandSpec::new(GitSubcommand::RevParse, worktree)
+                .arg("--verify")
+                .arg("HEAD")
+                .timeout(std::time::Duration::from_secs(20)),
+        )
+        .ok()
+        .filter(|outcome| outcome.success())
+        .and_then(|outcome| {
+            let text = outcome.stdout.text_lossy();
+            let sha = text.trim();
+            (!sha.is_empty()).then(|| sha.to_owned())
+        });
+    let behind = read_status(runner, worktree, Some(1))
+        .ok()
+        .filter(|status| status.branch.upstream.is_some())
+        .map(|status| status.branch.behind);
+    BranchPosition { head, behind }
 }
 
 /// Read the SHA of a remote branch with `git ls-remote --heads`.

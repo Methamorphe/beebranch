@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { RepoView, StashEntry, UndoEntry } from '../types/git'
 import { errorMessage } from '../ipc/client'
 import { branchCheckout, refsGet, stashList, stashPop, syncFetch, syncPull, syncPush, toolOpen } from '../ipc/commands'
+import { pullNotice } from '../lib/syncNotice'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
 import { ToolbarIcon } from './ToolbarIcon'
@@ -33,7 +34,7 @@ function branchLabel(repo: RepoView | null) {
 
 export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, undo, redo, onUndo, onRedo }: Props) {
   const [pending, setPending] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ repoId: string; text: string } | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   const [latestStash, setLatestStash] = useState<StashEntry | null>(null)
   const repoId = repo?.repo.repoId ?? null
@@ -53,16 +54,31 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const [remote, ...parts] = upstream?.split('/') ?? ['origin']
   const remoteBranch = parts.join('/')
   const disabled = !repoId || busy || pending !== null
-  const run = async (label: string, action: () => Promise<unknown>) => {
+  const run = async <T,>(label: string, action: () => Promise<T>, describe?: (result: T) => string) => {
+    if (!repoId) return
     setPending(label); setNotice(null)
-    try { await action(); setNotice(`${label} terminé.`); onRefresh() }
+    try {
+      const result = await action()
+      // Feedback carries its repository: a notice left over from another tab
+      // would describe the wrong one.
+      setNotice({ repoId, text: describe ? describe(result) : `${label} terminé.` })
+      onRefresh()
+    }
     catch (cause) { onError(errorMessage(cause)) }
     finally { setPending(null) }
   }
   const sync = (kind: 'pull' | 'push') => {
     if (!repoId) return
     if (!upstream || !remoteBranch) { onNavigate('sync'); return }
-    void run(kind === 'pull' ? 'Pull' : 'Push', () => kind === 'pull' ? syncPull({ repoId, remote, branch:remoteBranch }) : syncPush({ repoId, remote, branch:remoteBranch }))
+    if (kind === 'push') {
+      void run('Push', () => syncPush({ repoId, remote, branch:remoteBranch }))
+      return
+    }
+    void run(
+      'Pull',
+      () => syncPull({ repoId, remote, branch:remoteBranch }),
+      (result) => pullNotice(result.data),
+    )
   }
   return <div className={styles.root} role="region" aria-label="Actions du dépôt" onFocusCapture={(event) => { if (event.target instanceof HTMLElement && !event.target.closest('[popover]')) event.target.scrollIntoView({ block:'nearest', inline:'nearest' }) }}>
     <div className={styles.identity}>
@@ -107,7 +123,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       <button type="button" className={`${styles.action} ${styles.wideOnly}`} disabled={disabled} title="Ouvrir le terminal dans ce dépôt" onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }))}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
     </div>
     <div className={styles.utilities}>
-      <span className={styles.notice} role="status">{pending ? `${pending}…` : notice}</span>
+      <span className={styles.notice} role="status">{pending ? `${pending}…` : notice?.repoId === repoId ? notice.text : null}</span>
       <ActionMenu label="Autres actions du dépôt" triggerClassName={styles.action} triggerContent={<><ToolbarIcon name="actions" /><span>Actions</span></>}>
         <button type="button" disabled={!repoId || busy || pending !== null || !undo} onClick={() => void run('Annulation', onUndo)}>
           Annuler · {undo?.undoLabel ?? 'aucune opération'}

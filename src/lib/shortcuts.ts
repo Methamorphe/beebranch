@@ -4,6 +4,7 @@ export type ShortcutAction =
   | 'newBranch'
   | 'search'
   | 'openRepo'
+  | 'newTab'
   | 'undo'
   | 'redo'
 
@@ -15,6 +16,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   newBranch: 'Mod+B',
   search: 'Mod+Shift+F',
   openRepo: 'Mod+O',
+  newTab: 'Mod+T',
   undo: 'Mod+Z',
   redo: 'Mod+Shift+Z',
 }
@@ -25,6 +27,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   newBranch: 'Nouvelle branche',
   search: 'Recherche approfondie',
   openRepo: 'Ouvrir un dépôt',
+  newTab: 'Nouvel onglet',
   undo: 'Annuler',
   redo: 'Rétablir',
 }

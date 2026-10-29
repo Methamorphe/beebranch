@@ -167,7 +167,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
         <button type="button" className={styles.close} onClick={onCloseLauncher} aria-label="Fermer l’écran d’ouverture de dépôt">×</button>
       </div> : null}
     </div>
-      <button ref={addButton} type="button" className={styles.add} onClick={onAdd} aria-label="Ajouter un dépôt" title="Ouvrir, cloner ou créer un dépôt"><ToolbarIcon name="plus" /></button>
+      <button ref={addButton} type="button" className={styles.add} onClick={onAdd} aria-label="Ajouter un dépôt" title="Nouvel onglet : ouvrir, cloner ou créer un dépôt · ⌘T"><ToolbarIcon name="plus" /></button>
     </div>
     <div className={styles.spacer} />
     {updateVersion ? (

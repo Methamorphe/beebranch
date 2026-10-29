@@ -104,6 +104,8 @@ export default function App() {
   const [pendingClose, setPendingClose] = useState<RepoView | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
+  // Bumped on every new-tab request so the launcher re-focuses its search.
+  const [launcherFocus, setLauncherFocus] = useState(0)
   const [initDialogOpen, setInitDialogOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [previousView, setPreviousView] = useState<ViewId>('graph')
@@ -680,6 +682,7 @@ export default function App() {
 
   const openLauncher = useCallback(() => {
     setLauncherOpen(true)
+    setLauncherFocus((count) => count + 1)
     setPaletteOpen(false)
     void reloadRecent()
   }, [reloadRecent])
@@ -736,8 +739,9 @@ export default function App() {
       },
       {
         id: 'action-launcher',
-        label: 'Ouvrir ou cloner un dépôt…',
+        label: 'Nouvel onglet : ouvrir ou cloner un dépôt…',
         group: 'Actions',
+        shortcut: '⌘T',
         run: () => openLauncher(),
       },
       {
@@ -873,6 +877,7 @@ export default function App() {
     newBranch: () => repoId && newBranch(),
     search: () => repoId && navigate('search'),
     openRepo: () => openRepositoryDialog(),
+    newTab: openLauncher,
     undo: () => void performUndo('undo'),
     redo: () => void performUndo('redo'),
     close: () => {
@@ -1029,6 +1034,7 @@ export default function App() {
                 onOpenDialog={() => openRepositoryDialog()}
                 onSelect={navigate}
                 recent={recent}
+                focusRequest={launcherFocus}
                 onOpen={(path) => void openRepo(path)}
                 onClone={cloneRepo}
                 onCreate={openInitDialog}

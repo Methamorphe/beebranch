@@ -205,6 +205,26 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
             stderr,
         );
     }
+    if haystack.contains("not possible to fast-forward")
+        || haystack.contains("diverging branches can't be fast-forwarded")
+    {
+        return git_error(
+            "git.pull_not_fast_forward",
+            ErrorCategory::GitState,
+            "Le pull n'a pas pu s'intégrer en avance rapide.",
+            "L'historique local a divergé de la branche distante : rebasez ou fusionnez, ou relâchez `pull.ff`.",
+            stderr,
+        );
+    }
+    if haystack.contains("need to specify how to reconcile divergent branches") {
+        return git_error(
+            "git.pull_strategy_missing",
+            ErrorCategory::GitState,
+            "Git exige une stratégie pour réconcilier les branches divergentes.",
+            "Configurez `pull.rebase` ou `pull.ff`, ou choisissez une stratégie de pull dans BeeBranch.",
+            stderr,
+        );
+    }
     if haystack.contains("non-fast-forward")
         || haystack.contains("fetch first")
         || haystack.contains("failed to push some refs")
@@ -395,6 +415,14 @@ mod tests {
             (
                 "! [rejected] main -> main (non-fast-forward)",
                 "git.non_fast_forward",
+            ),
+            (
+                "fatal: Not possible to fast-forward, aborting.",
+                "git.pull_not_fast_forward",
+            ),
+            (
+                "fatal: Need to specify how to reconcile divergent branches.",
+                "git.pull_strategy_missing",
             ),
             (
                 "CONFLICT (content): Merge conflict in a.txt",

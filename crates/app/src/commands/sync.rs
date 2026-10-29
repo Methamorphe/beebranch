@@ -157,6 +157,7 @@ pub async fn sync_pull(
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
             let context = beebranch_git::OperationContext::new(&operation_id, "pull");
+            let before = sync::branch_position(runner, worktree);
             let command = sync::spawn_pull(
                 runner,
                 worktree,
@@ -178,7 +179,11 @@ pub async fn sync_pull(
             if let Ok(mut flags) = operations.lock() {
                 flags.remove(&operation_id);
             }
-            let outcome = outcome?;
+            let mut outcome = outcome?;
+            let after = sync::branch_position(runner, worktree);
+            outcome.head_before = before.head;
+            outcome.head_after = after.head;
+            outcome.behind_upstream = after.behind;
             Ok((outcome, InvalidationArea::ALL.to_vec()))
         }
     })
