@@ -6,7 +6,8 @@ use beebranch_core::PageRequest;
 use beebranch_git::branches;
 use beebranch_git::commit::{self, CommitOptions};
 use beebranch_git::diff::{read_diff, DiffLimits, DiffTarget};
-use beebranch_git::history;
+use beebranch_git::history::{self, MergeFastForward};
+use beebranch_git::hooks::{self, HookPoint};
 use beebranch_git::index::{self, Fingerprint, HunkSelection, PathSelection};
 use beebranch_git::search::{self, SearchMode, SearchQuery};
 use beebranch_git::stash;
@@ -352,6 +353,90 @@ fn commit_runs_hooks_and_keeps_the_message_on_failure() {
     assert_eq!(fixture.detect().worktree.staged, 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn hooks_active_honours_hooks_path_and_executable_bit() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = dirty_fixture();
+    let hook = fixture.path().join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\nexit 0\n").unwrap();
+
+    // Git ignores a hook without the executable bit, so discovery must too.
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        hooks::active(fixture.runner(), fixture.path(), HookPoint::Commit)
+            .expect("hooks")
+            .is_empty()
+    );
+
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let active = hooks::active(fixture.runner(), fixture.path(), HookPoint::Commit).expect("hooks");
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].name, "pre-commit");
+    assert!(active[0].path.ends_with(".git/hooks/pre-commit"));
+
+    // A relative core.hooksPath is resolved from the worktree, like Git does.
+    let custom = fixture.path().join("custom-hooks");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("pre-commit"), "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(
+        custom.join("pre-commit"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    fixture.config(&["core.hooksPath", "custom-hooks"]);
+
+    let active = hooks::active(fixture.runner(), fixture.path(), HookPoint::Commit).expect("hooks");
+    assert_eq!(active.len(), 1);
+    assert!(active[0].path.ends_with("custom-hooks/pre-commit"));
+    // Only hooks for the requested point are reported.
+    assert!(
+        hooks::active(fixture.runner(), fixture.path(), HookPoint::Push)
+            .expect("hooks")
+            .is_empty()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn commit_streams_hook_output_live() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = dirty_fixture();
+    fixture.write("a.txt", "next\n");
+    fixture.add_all();
+    let hook = fixture.path().join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\necho hook: lint passed\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = events.clone();
+    let outcome = commit::create_streaming(
+        fixture.runner(),
+        fixture.path(),
+        &CommitOptions {
+            message: "streamed".into(),
+            ..CommitOptions::default()
+        },
+        move |event| {
+            if let beebranch_git::ProcessEvent::Stdout(line)
+            | beebranch_git::ProcessEvent::Stderr(line) = event
+            {
+                sink.lock().unwrap().push(line);
+            }
+        },
+    )
+    .expect("commit");
+
+    assert_ne!(outcome.sha, "base");
+    let lines = events.lock().unwrap().clone();
+    assert!(
+        lines.iter().any(|line| line.contains("hook: lint passed")),
+        "hook output must be streamed: {lines:?}"
+    );
+}
+
 #[test]
 fn refuses_missing_identity_and_empty_index() {
     let fixture = dirty_fixture();
@@ -489,8 +574,13 @@ fn merge_conflict_can_be_resolved_and_continued() {
     fixture.switch("main");
     fixture.commit("a.txt", "main\n", "main");
 
-    let outcome =
-        history::merge(fixture.runner(), fixture.path(), "feature", false).expect("merge");
+    let outcome = history::merge(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
     assert!(outcome.conflicted);
     assert!(!outcome.state.conflicts.files.is_empty());
 
@@ -525,8 +615,13 @@ fn merge_abort_restores_the_previous_state() {
     fixture.commit("a.txt", "main\n", "main");
     let before = fixture.rev_parse(&["HEAD"]);
 
-    let outcome =
-        history::merge(fixture.runner(), fixture.path(), "feature", false).expect("merge");
+    let outcome = history::merge(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
     assert!(outcome.conflicted);
     let aborted = history::abort_operation(fixture.runner(), fixture.path()).expect("abort");
     assert!(aborted.state.operation.is_none());
@@ -964,7 +1059,13 @@ fn state_is_recovered_after_restart_during_a_conflict() {
     fixture.commit("a.txt", "feature\n", "feature");
     fixture.switch("main");
     fixture.commit("a.txt", "main\n", "main");
-    history::merge(fixture.runner(), fixture.path(), "feature", false).expect("merge");
+    history::merge(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
 
     let session = beebranch_git::session::RepoSession::open(
         fixture.runner(),
@@ -984,7 +1085,13 @@ fn an_idle_operation_refuses_a_second_history_operation() {
     fixture.commit("a.txt", "feature\n", "feature");
     fixture.switch("main");
     fixture.commit("a.txt", "main\n", "main");
-    history::merge(fixture.runner(), fixture.path(), "feature", false).expect("merge");
+    history::merge(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
     let error = history::rebase(fixture.runner(), fixture.path(), "feature").expect_err("busy");
     assert_eq!(error.code, "operation.in_progress");
 }

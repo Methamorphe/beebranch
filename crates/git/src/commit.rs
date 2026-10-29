@@ -1,17 +1,22 @@
 //! Commit detail: message, changed files and line statistics.
 
 use std::path::Path;
+use std::time::Duration;
 
 use beebranch_core::AppError;
 use serde::{Deserialize, Serialize};
 
 use crate::log::{parse_summary_fields, CommitSummary, LOG_SEPARATOR};
-use crate::process::{CaptureLimits, CommandSpec, GitRunner};
+use crate::process::{CaptureLimits, CommandSpec, GitRunner, ProcessEvent};
 use crate::GitSubcommand;
+
+/// Bound for a commit. Hooks are user code and may run a test suite, so the
+/// 30 s default used for local reads would kill them.
+const COMMIT_TIMEOUT: Duration = Duration::from_secs(300);
 
 const SHOW_FORMAT: &str = "%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%B";
 const MAX_MESSAGE_CHARS: usize = 64 * 1024;
-const MAX_FILES: usize = 1000;
+pub(crate) const MAX_FILES: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +29,20 @@ pub struct CommitFile {
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
     pub binary: bool,
+    /// Revision holding the file's new side when it is not the commit itself.
+    /// A stash entry stores its untracked files in a separate root commit, so
+    /// those files must be diffed against that snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+}
+
+/// Stash metadata attached to a commit detail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashSnapshot {
+    pub selector: String,
+    /// Root commit holding the untracked files, when they were stashed.
+    pub untracked: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +53,9 @@ pub struct CommitDetail {
     pub files: Vec<CommitFile>,
     pub files_truncated: bool,
     pub message_truncated: bool,
+    /// Set when the commit is a stash entry (`refs/stash` reflog).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stash: Option<StashSnapshot>,
 }
 
 /// Read a commit detail. Merge commits diff against their first parent.
@@ -55,8 +77,36 @@ pub fn read_commit(
     let (summary, mut message, mut message_truncated) = parse_show(&outcome.stdout.text_lossy())?;
 
     let parent = summary.parents.first().cloned();
-    let names = read_name_status(runner, worktree, parent.as_deref(), sha)?;
-    let stats = read_numstat(runner, worktree, parent.as_deref(), sha)?;
+    let (files, files_truncated) =
+        read_changed_files(runner, worktree, parent.as_deref(), sha, None)?;
+
+    if message.chars().count() > MAX_MESSAGE_CHARS {
+        message = message.chars().take(MAX_MESSAGE_CHARS).collect();
+        message_truncated = true;
+    }
+
+    Ok(CommitDetail {
+        summary,
+        message,
+        files,
+        files_truncated,
+        message_truncated,
+        stash: None,
+    })
+}
+
+/// Read the files changed between `base` (or the root tree when `None`) and
+/// `sha`. `revision` names the revision that holds the new side of the files
+/// when it is not `sha` itself; the stash untracked snapshot relies on it.
+pub(crate) fn read_changed_files(
+    runner: &GitRunner,
+    worktree: &Path,
+    base: Option<&str>,
+    sha: &str,
+    revision: Option<&str>,
+) -> Result<(Vec<CommitFile>, bool), AppError> {
+    let names = read_name_status(runner, worktree, base, sha)?;
+    let stats = read_numstat(runner, worktree, base, sha)?;
 
     let mut files_truncated = false;
     let mut files = Vec::with_capacity(names.len().min(MAX_FILES));
@@ -74,21 +124,10 @@ pub fn read_commit(
             additions: stat.and_then(|stat| stat.additions),
             deletions: stat.and_then(|stat| stat.deletions),
             binary: stat.is_some_and(|stat| stat.binary),
+            revision: revision.map(str::to_owned),
         });
     }
-
-    if message.chars().count() > MAX_MESSAGE_CHARS {
-        message = message.chars().take(MAX_MESSAGE_CHARS).collect();
-        message_truncated = true;
-    }
-
-    Ok(CommitDetail {
-        summary,
-        message,
-        files,
-        files_truncated,
-        message_truncated,
-    })
+    Ok((files, files_truncated))
 }
 
 fn parse_show(output: &str) -> Result<(CommitSummary, String, bool), AppError> {
@@ -403,6 +442,23 @@ pub fn create(
     worktree: &Path,
     options: &CommitOptions,
 ) -> Result<CommitOutcome, AppError> {
+    create_streaming(runner, worktree, options, |_| {})
+}
+
+/// Same as [`create`], streaming Git output line by line.
+///
+/// Hooks are user code: their output arrives through `on_event` while the
+/// command runs, and a failure still carries the captured tail. The timeout is
+/// raised for that reason — a pre-commit hook may run a test suite.
+pub fn create_streaming<F>(
+    runner: &GitRunner,
+    worktree: &Path,
+    options: &CommitOptions,
+    on_event: F,
+) -> Result<CommitOutcome, AppError>
+where
+    F: FnMut(ProcessEvent) + Send + 'static,
+{
     let config = read_commit_config(runner, worktree)?;
     let message = options.message.trim_end_matches(['\n', '\r']).to_owned();
 
@@ -443,6 +499,8 @@ pub fn create(
 
     let mut spec = CommandSpec::new(GitSubcommand::Commit, worktree)
         .arg("--cleanup=strip")
+        .streaming()
+        .timeout(COMMIT_TIMEOUT)
         .capture_limits(CaptureLimits {
             stdout: 1024 * 1024,
             stderr: 1024 * 1024,
@@ -464,7 +522,7 @@ pub fn create(
             ));
     }
 
-    let outcome = runner.run(&spec)?;
+    let outcome = runner.spawn(&spec, on_event)?.wait()?;
     let output = redacted_output(&outcome);
     if !outcome.success() {
         return Err(commit_failure(output));

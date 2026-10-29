@@ -1,3 +1,4 @@
+import { plural, t } from '../i18n'
 import type { SyncOutcome } from '../types/git'
 
 /**
@@ -10,15 +11,19 @@ import type { SyncOutcome } from '../types/git'
 export function pullNotice(outcome: SyncOutcome | null | undefined): string {
   const behind = outcome?.behindUpstream
   if (typeof behind === 'number' && behind > 0) {
-    return `Pull incomplet : ${behind} commit${behind > 1 ? 's' : ''} encore en retard.`
+    return plural(
+      'common.pull.incomplete.one',
+      'common.pull.incomplete.other',
+      behind,
+    )
   }
   const before = outcome?.headBefore
   const after = outcome?.headAfter
   if (before && after) {
     if (before === after) {
-      return 'Pull : déjà à jour.'
+      return t('common.pull.upToDate')
     }
-    return `Pull : ${before.slice(0, 8)} → ${after.slice(0, 8)}.`
+    return t('common.pull.range', { before: before.slice(0, 8), after: after.slice(0, 8) })
   }
-  return 'Pull terminé.'
+  return t('common.pull.done')
 }

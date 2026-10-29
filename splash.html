@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-splash="pending">
   <head>
     <meta charset="UTF-8" />
     <meta name="color-scheme" content="dark" />
@@ -8,13 +8,19 @@
     <!-- Blocking stylesheet on purpose: the splash must be styled on its very
     first frame, otherwise the bare SVG flashes at its default size. -->
     <link rel="stylesheet" href="/src/splash.css" />
+    <!-- Resolves the custom splash (see src/splash.ts). The page stays on
+    `data-splash="pending"`, showing only the window colour, until the mode is
+    known, so a custom image never flashes the default logo first. -->
+    <script type="module" src="/src/splash.ts"></script>
   </head>
   <body>
     <!-- Shown in its own frameless window while the main window boots. The
     backend closes this window once the main window reported its first paint
-    (see crates/app/src/splash.rs); the page is purely decorative and never
-    talks to the Tauri API. -->
+    (see crates/app/src/splash.rs). The page reads the `ui.splash` preference
+    through the IPC and falls back to the logo when nothing custom is set. -->
     <main class="splash" role="status" aria-label="BeeBranch, démarrage en cours">
+      <div class="backdrop" aria-hidden="true"></div>
+      <div class="scrim" aria-hidden="true"></div>
       <div class="badge" aria-hidden="true">
         <!-- Presentation attributes mirror the stylesheet so the mark stays
         correct even if the stylesheet is late. -->

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { commitCreate, commitGet, refsGet } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
+import { useI18n } from '../i18n'
 import type { CommitDetail } from '../types/git'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
@@ -33,6 +34,7 @@ export function AmendDialog({
   onClose,
   onAmended,
 }: Props) {
+  const { t, plural } = useI18n()
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
@@ -85,7 +87,7 @@ export function AmendDialog({
       const head = await refsGet(repoId)
       if (head.data.head?.oid !== sha) {
         setError(
-          'HEAD a changé depuis l’ouverture : Git n’amenderait plus le commit affiché. Fermez cette boîte de dialogue et relancez l’amendement.',
+          t('commit.amend.headMoved'),
         )
         setBusy(false)
         return
@@ -106,30 +108,29 @@ export function AmendDialog({
 
   return (
     <Dialog open onClose={onClose} busy={busy} titleId="amend-title">
-      <h2 id="amend-title">Amender {subject.trim() || sha.slice(0, 10)}</h2>
+      <h2 id="amend-title">{t('commit.amend.title', { target: subject.trim() || sha.slice(0, 10) })}</h2>
       <p className={styles.warning} role="note">
-        Amender réécrit l’historique : <code>{sha.slice(0, 10)}</code> est
-        remplacé par un nouveau commit.{' '}
+        {t('commit.amend.rewritesHistory')} <code>{sha.slice(0, 10)}</code>{' '}
+        {t('commit.amend.replaced')}{' '}
         {branch
-          ? `La branche ${branch} pointera vers le nouveau commit. S’il est déjà poussé, un push --force-with-lease sera nécessaire et les autres clones devront se resynchroniser.`
-          : 'HEAD est détachée : le commit amendé ne sera référencé par aucune branche tant que vous n’en créez pas une.'}
+          ? t('commit.amend.branchHint', { branch })
+          : t('commit.amend.detachedHint')}
       </p>
 
       {loading ? (
-        <p className={shared.notice} role="status">Lecture du commit…</p>
+        <p className={shared.notice} role="status">{t('commit.amend.loading')}</p>
       ) : keepMessage ? (
         <p className={shared.notice}>
-          Le message dépasse la limite de lecture et n’est pas modifiable ici ;
-          seules les modifications préparées seront amendées.
+          {t('commit.amend.truncatedNotice')}
         </p>
       ) : (
         <label className={shared.field}>
-          Message du commit
+          {t('commit.amend.messageLabel')}
           <textarea
             className={shared.textarea}
             value={message}
             onChange={(event) => setMessage(event.target.value)}
-            aria-label="Message du commit à amender"
+            aria-label={t('commit.amend.messageAria')}
             spellCheck
             disabled={busy}
           />
@@ -138,12 +139,12 @@ export function AmendDialog({
 
       <p className={shared.notice}>
         {staged > 0
-          ? `${staged} fichier${staged > 1 ? 's' : ''} préparé${staged > 1 ? 's' : ''} ${staged > 1 ? 'seront inclus' : 'sera inclus'} dans le commit amendé.`
-          : 'Aucune modification préparée : seul le message sera modifié. Préparez des fichiers dans l’onglet Statut pour les inclure.'}
+          ? plural('commit.amend.staged.one', 'commit.amend.staged.other', staged)
+          : t('commit.amend.noStaged')}
       </p>
       {!loading && !changes ? (
         <p className={shared.notice}>
-          Modifiez le message ou préparez des fichiers pour pouvoir amender.
+          {t('commit.amend.noChanges')}
         </p>
       ) : null}
 
@@ -156,7 +157,7 @@ export function AmendDialog({
 
       <div className={shared.dialogActions}>
         <Button type="button" onClick={onClose} disabled={busy}>
-          Annuler
+          {t('common.cancel')}
         </Button>
         <Button
           type="button"
@@ -164,7 +165,7 @@ export function AmendDialog({
           disabled={!canSubmit}
           onClick={() => void submit()}
         >
-          {busy ? 'Amendement…' : 'Amender le commit'}
+          {busy ? t('commit.amend.amending') : t('commit.amend.submit')}
         </Button>
       </div>
     </Dialog>

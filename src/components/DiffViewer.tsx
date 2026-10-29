@@ -9,6 +9,7 @@ import type { DiffHunk, DiffLine, DiffReport, FileContent, FileDiff, HunkSelecti
 import { indexDiscard, indexStage, indexUnstage } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
+import { dateFromSeconds, formatDate, formatNumber, useI18n, type MessageKey } from '../i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Markdown } from './Markdown'
 import shared from './p1.module.css'
@@ -280,16 +281,16 @@ type Props = {
 
 const MARKDOWN_PATH = /\.(md|markdown|mdown|mkd|mdx)$/i
 
-const MODE_LABELS: Record<Mode, string> = {
-  hunk: 'Changements',
-  inline: 'Unifié',
-  split: 'Côte à côte',
+const MODE_LABELS: Record<Mode, MessageKey> = {
+  hunk: 'diff.mode.hunk',
+  inline: 'diff.mode.inline',
+  split: 'diff.mode.split',
 }
 
-const MODE_TITLES: Record<Mode, string> = {
-  hunk: 'Uniquement les lignes modifiées',
-  inline: 'Diff unifié avec contexte',
-  split: 'Ancien et nouveau côte à côte',
+const MODE_TITLES: Record<Mode, MessageKey> = {
+  hunk: 'diff.mode.title.hunk',
+  inline: 'diff.mode.title.inline',
+  split: 'diff.mode.title.split',
 }
 
 const TONE_CLASS = (tone: 'context' | 'added' | 'removed' | 'mixed') => {
@@ -343,6 +344,7 @@ function PathParts({ path }: { path: string }) {
 }
 
 export function DiffViewer({ report, source, commit, staging, embedded = false, onAmend, readDocument }: Props) {
+  const { t, plural } = useI18n()
   const [mode, setMode] = useState<Mode>('inline')
   const [active, setActive] = useState(0)
   const [scrollTop, setScrollTop] = useState(0)
@@ -437,10 +439,10 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
   }, [])
 
   if (report.files.length === 0) {
-    return <p className={styles.empty}>Aucun changement pour cette sélection.</p>
+    return <p className={styles.empty}>{t('diff.empty.noChanges')}</p>
   }
   if (!file) {
-    return <p className={styles.empty}>Sélectionnez un fichier.</p>
+    return <p className={styles.empty}>{t('diff.empty.selectFile')}</p>
   }
 
   const hunkRows = rows
@@ -554,7 +556,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
       }
     }
     if (hunks.length === 0) {
-      setActionError('Sélectionnez un hunk ou des lignes.')
+      setActionError(t('diff.error.selectHunk'))
       return null
     }
     return [{ path, hunks }]
@@ -588,7 +590,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
       }
       setLineSelection({})
       setHunkSelection([])
-      setActionNotice(kind === 'stage' ? 'Sélection indexée.' : 'Sélection retirée de l’index.')
+      setActionNotice(kind === 'stage' ? t('diff.notice.staged') : t('diff.notice.unstaged'))
       staging.onMutated()
     } catch (cause) {
       setActionError(errorMessage(cause))
@@ -613,7 +615,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
       setPendingDiscard(null)
       setLineSelection({})
       setHunkSelection([])
-      setActionNotice('Discard appliqué.')
+      setActionNotice(t('diff.notice.discarded'))
       staging.onMutated()
     } catch (cause) {
       setActionError(errorMessage(cause))
@@ -624,7 +626,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
 
   return (
     <div className={`${styles.root} ${embedded && report.files.length === 1 ? styles.singleFile : ''}`}>
-      {(!embedded || report.files.length > 1) ? <aside className={styles.files} aria-label="Fichiers modifiés">
+      {(!embedded || report.files.length > 1) ? <aside className={styles.files} aria-label={t('diff.files.aria')}>
         {report.files.map((entry, index) => (
           <button
             key={`${entry.oldPath}->${entry.newPath}`}
@@ -651,13 +653,13 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
             </span>
             <span
               className={styles.filePath}
-              title={`${STATUS_LABELS[entry.kind]} · ${entry.newPath === '/dev/null' ? entry.oldPath : entry.newPath}`}
+              title={`${t(STATUS_LABELS[entry.kind])} · ${entry.newPath === '/dev/null' ? entry.oldPath : entry.newPath}`}
             >
               <PathParts path={entry.newPath === '/dev/null' ? entry.oldPath : entry.newPath} />
             </span>
             <span className={styles.stats}>
               {entry.binary ? (
-                'binaire'
+                t('diff.binary')
               ) : (
                 <>
                   <span className={styles.added}>+{entry.additions}</span>
@@ -680,8 +682,8 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                     type="button"
                     className={styles.commitLink}
                     onClick={onAmend}
-                    title="Amender ce commit — réécrit l’historique"
-                    aria-label={`Amender le commit ${commit.sha.slice(0, 8)} : ${commit.subject}`}
+                    title={t('diff.amend.title')}
+                    aria-label={t('diff.amend.aria', { sha: commit.sha.slice(0, 8), subject: commit.subject })}
                   >
                     <code className={styles.commitSha}>{commit.sha.slice(0, 8)}</code>
                     <span className={styles.commitSubject}>{commit.subject}</span>
@@ -694,7 +696,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                 )}
                 <span className={styles.commitMeta}>
                   {commit.author} ·{' '}
-                  {new Date(commit.timestamp * 1000).toLocaleDateString('fr-FR')}
+                  {formatDate(dateFromSeconds(commit.timestamp))}
                 </span>
               </span>
             ) : source ? (
@@ -706,51 +708,51 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
           ) : null}
           <div className={styles.tools}>
             {markdown ? (
-              <div className={styles.modes} role="group" aria-label="Affichage du fichier">
+              <div className={styles.modes} role="group" aria-label={t('diff.view.aria')}>
                 <button
                   type="button"
                   className={rendered ? styles.mode : styles.modeActive}
                   aria-pressed={!rendered}
-                  title="Afficher les changements"
+                  title={t('diff.view.diffTitle')}
                   onClick={() => setRendered(false)}
                 >
-                  Diff
+                  {t('diff.view.diff')}
                 </button>
                 <button
                   type="button"
                   className={rendered ? styles.modeActive : styles.mode}
                   aria-pressed={rendered}
-                  title="Afficher le Markdown rendu"
+                  title={t('diff.view.renderedTitle')}
                   onClick={() => setRendered(true)}
                 >
-                  Rendu
+                  {t('diff.view.rendered')}
                 </button>
               </div>
             ) : null}
             {!rendered ? (
               <>
-                <div className={styles.modes} role="group" aria-label="Mode de diff">
+                <div className={styles.modes} role="group" aria-label={t('diff.mode.aria')}>
                   {(['hunk', 'inline', 'split'] as const).map((value) => (
                     <button
                       key={value}
                       type="button"
                       className={mode === value ? styles.modeActive : styles.mode}
                       aria-pressed={mode === value}
-                      title={MODE_TITLES[value]}
+                      title={t(MODE_TITLES[value])}
                       onClick={() => {
                         setMode(value)
                         setScrollTop(0)
                         scrollRef.current?.scrollTo({ top: 0 })
                       }}
                     >
-                      {MODE_LABELS[value]}
+                      {t(MODE_LABELS[value])}
                     </button>
                   ))}
                 </div>
-                <button type="button" className={styles.mode} onClick={() => jump(-1)} aria-label="Hunk précédent" title="Hunk précédent">
+                <button type="button" className={styles.mode} onClick={() => jump(-1)} aria-label={t('diff.hunk.previous')} title={t('diff.hunk.previous')}>
                   ↑
                 </button>
-                <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label="Hunk suivant" title="Hunk suivant">
+                <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label={t('diff.hunk.next')} title={t('diff.hunk.next')}>
                   ↓
                 </button>
               </>
@@ -769,7 +771,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
             <PathParts path={file.newPath === '/dev/null' ? file.oldPath : file.newPath} />
           </span>
           {file.binary ? (
-            <span className={styles.fileStats}>binaire</span>
+            <span className={styles.fileStats}>{t('diff.binary')}</span>
           ) : (
             <span className={styles.fileStats}>
               <span className={styles.added}>+{file.additions}</span>
@@ -777,14 +779,14 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
             </span>
           )}
           <span className={styles.hunkCount}>
-            {file.hunks.length} hunk{file.hunks.length > 1 ? 's' : ''}
+            {plural('diff.hunk.count.one', 'diff.hunk.count.other', file.hunks.length)}
           </span>
         </div>
         ) : null}
         {rendered && markdown ? (
           <div className={styles.document} data-markdown-view={documentPath}>
             {documentState?.kind === 'loading' ? (
-              <p className={styles.empty} role="status">Chargement du fichier…</p>
+              <p className={styles.empty} role="status">{t('diff.document.loading')}</p>
             ) : null}
             {documentState?.kind === 'error' ? (
               <p className={shared.danger} role="alert">{documentState.message}</p>
@@ -794,7 +796,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                 <>
                   {documentState.value.truncated ? (
                     <p className={styles.banner} role="status">
-                      Fichier tronqué au plafond de lecture ; le rendu est partiel.
+                      {t('diff.document.truncated')}
                     </p>
                   ) : null}
                   <Markdown source={documentState.value.content} />
@@ -802,8 +804,8 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
               ) : (
                 <p className={styles.empty}>
                   {documentState.value.binary
-                    ? 'Fichier binaire — aucun rendu textuel.'
-                    : 'Fichier absent à cette révision.'}
+                    ? t('diff.document.binary')
+                    : t('diff.document.missing')}
                 </p>
               )
             ) : null}
@@ -812,24 +814,24 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
           <>
         {mode === 'split' ? (
           <div className={styles.splitHeader} aria-hidden="true">
-            <span>Ancien</span>
-            <span>Nouveau</span>
+            <span>{t('diff.split.old')}</span>
+            <span>{t('diff.split.new')}</span>
           </div>
         ) : null}
 
         {capped ? (
           <p className={styles.banner} role="status">
-            Diff tronqué par le plafond de sécurité (fichiers, lignes ou octets).
+            {t('diff.banner.truncated')}
           </p>
         ) : null}
         {file?.binary ? (
-          <p className={styles.banner}>Fichier binaire — aucun rendu textuel.</p>
+          <p className={styles.banner}>{t('diff.document.binary')}</p>
         ) : null}
 
         {staging && !file?.binary ? (
           <div className={shared.row}>
             <span className={shared.notice}>
-              {staging.target === 'worktree' ? 'Préparer les changements' : 'Fichier préparé'}
+              {staging.target === 'worktree' ? t('diff.stage.label') : t('diff.stage.stagedLabel')}
             </span>
             <button
               type="button"
@@ -837,7 +839,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
               disabled={busy || (hunkSelection.length === 0 && Object.keys(lineSelection).length === 0)}
               onClick={() => void applySelection(staging.target === 'worktree' ? 'stage' : 'unstage')}
             >
-              {staging.target === 'worktree' ? 'Préparer la sélection' : 'Retirer la sélection'}
+              {staging.target === 'worktree' ? t('diff.stage.stage') : t('diff.stage.unstage')}
             </button>
             {staging.target === 'worktree' ? (
               <button
@@ -846,7 +848,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                 disabled={busy}
                 onClick={() => void applySelection('discard')}
               >
-                Abandonner la sélection…
+                {t('diff.stage.discard')}
               </button>
             ) : null}
           </div>
@@ -880,7 +882,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                             type="checkbox"
                             checked={hunkSelection.includes(row.hunk)}
                             onChange={() => toggleHunk(row.hunk)}
-                            aria-label={`Sélectionner le hunk ${row.hunk + 1}`}
+                            aria-label={t('diff.hunk.select', { number: row.hunk + 1 })}
                           />
                         </label>
                       ) : null}
@@ -901,7 +903,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                           type="checkbox"
                           checked={isLineSelected(row)}
                           onChange={() => toggleLine(row)}
-                          aria-label="Sélectionner cette ligne"
+                          aria-label={t('diff.line.select')}
                         />
                       </label>
                     ) : null}
@@ -983,28 +985,31 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
           {rendered && markdown ? (
             <>
               {documentState?.kind === 'ready' && documentState.value.path === documentPath
-                ? `${documentState.value.bytes.toLocaleString('fr-FR')} octets`
-                : 'Rendu Markdown'}
-              {report.files.length > 1 ? ` · fichier ${active + 1}/${report.files.length}` : ''}
+                ? t('common.bytes', { count: formatNumber(documentState.value.bytes) })
+                : t('diff.footer.rendered')}
+              {report.files.length > 1 ? t('diff.footer.file', { current: active + 1, total: report.files.length }) : ''}
               {documentState?.kind === 'ready' && documentState.value.path === documentPath && documentState.value.truncated
-                ? ' · tronqué'
+                ? t('diff.footer.truncated')
                 : ''}
             </>
           ) : (
             <>
-              {rows.length.toLocaleString('fr-FR')} lignes
-              {report.files.length > 1 ? ` · fichier ${active + 1}/${report.files.length}` : ''}
-              {capped ? ' · diff tronqué' : ''}
+              {t('common.lines', { count: formatNumber(rows.length) })}
+              {report.files.length > 1 ? t('diff.footer.file', { current: active + 1, total: report.files.length }) : ''}
+              {capped ? t('diff.footer.diffTruncated') : ''}
             </>
           )}
         </footer>
       </section>
       <ConfirmDialog
         open={pendingDiscard !== null}
-        title="Discard irréversible"
-        consequence={`${pendingDiscard?.selection.hunks.length ?? 0} hunk(s) de ${pendingDiscard?.path ?? ''} seront remplacés par la version de l'index.`}
+        title={t('diff.discard.title')}
+        consequence={t('diff.discard.consequence', {
+          count: pendingDiscard?.selection.hunks.length ?? 0,
+          path: pendingDiscard?.path ?? '',
+        })}
         irreversible
-        confirmLabel="Discard"
+        confirmLabel={t('diff.discard.confirm')}
         busy={busy}
         onCancel={() => setPendingDiscard(null)}
         onConfirm={() => void confirmDiscard()}

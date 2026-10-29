@@ -8,6 +8,7 @@ import {
   gitlabStatus,
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
+import { formatNumber, useI18n } from '../i18n'
 import styles from './Home.module.css'
 
 type CloneInput = {
@@ -86,6 +87,7 @@ export function Home({
   onCreate,
   onPickDirectory,
 }: Props) {
+  const { t, plural } = useI18n()
   const [mode, setMode] = useState<'idle' | 'clone'>('idle')
   const [recentQuery, setRecentQuery] = useState('')
   const searchInput = useRef<HTMLInputElement>(null)
@@ -226,7 +228,7 @@ export function Home({
       }
       const name = selectedProject
         ? (selectedProject.pathWithNamespace.split('/').pop() ?? selectedProject.name)
-        : repoNameFromUrl(url) || 'depot'
+        : repoNameFromUrl(url) || t('shell.home.defaultRepoName')
       const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
       setDestination(`${parent.replace(/[\\/]+$/, '')}${separator}${name}`)
     } catch (cause) {
@@ -268,7 +270,7 @@ export function Home({
   return (
     <div className={styles.root}>
       <section className={styles.start} aria-labelledby="start-title">
-        <h1 id="start-title">Ouvrir un dépôt</h1>
+        <h1 id="start-title">{t('shell.topbar.openRepo')}</h1>
         <div className={styles.actions}>
           <button
             type="button"
@@ -276,7 +278,7 @@ export function Home({
             onClick={onOpenDialog}
             disabled={busy}
           >
-            Ouvrir un dépôt local…
+            {t('shell.home.openLocalRepo')}
           </button>
           {onCreate ? (
             <button
@@ -285,7 +287,7 @@ export function Home({
               onClick={onCreate}
               disabled={busy}
             >
-              Créer un dépôt…
+              {t('shell.home.createRepo')}
             </button>
           ) : null}
           <button
@@ -300,19 +302,19 @@ export function Home({
             }}
             aria-expanded={mode === 'clone'}
           >
-            Cloner un dépôt…
+            {t('shell.home.cloneRepo')}
           </button>
         </div>
 
         {mode === 'clone' ? (
           <form className={styles.cloneForm} onSubmit={(event) => void submit(event)}>
             <div className={styles.cloneHeader}>
-              <strong>Projets {providerName} accessibles</strong>
+              <strong>{t('shell.home.projectsAccessible', { provider: providerName })}</strong>
               {anyConnected ? (
                 <span
                   className={styles.toggleGroup}
                   role="group"
-                  aria-label="Fournisseur"
+                  aria-label={t('shell.home.provider')}
                 >
                   <button
                     type="button"
@@ -355,7 +357,7 @@ export function Home({
                     }
                   }}
                 />
-                saisir une URL manuellement
+                {t('shell.home.manualUrl')}
               </label>
             </div>
 
@@ -363,14 +365,14 @@ export function Home({
               <div className={styles.notice}>
                 <span>
                   {sessionError ??
-                    `${providerName} n’est pas connecté. Connectez une instance pour lister vos projets, ou saisissez une URL manuelle.`}
+                    t('shell.home.notConnected', { provider: providerName })}
                 </span>
                 <button
                   type="button"
                   className={styles.secondary}
                   onClick={() => onSelect(provider)}
                 >
-                  Connecter {providerName} →
+                  {t('shell.home.connectProvider', { provider: providerName })}
                 </button>
               </div>
             )}
@@ -380,16 +382,14 @@ export function Home({
                 {activeSession.credentialSource &&
                 activeSession.credentialSource !== 'keychain' ? (
                   <p className={styles.hint}>
-                    Connecté avec un token déjà présent dans Git (
-                    {activeSession.credentialSource}) : aucune configuration{' '}
-                    {providerName} n’est nécessaire.
+                    {t('shell.home.tokenHint', { source: activeSession.credentialSource, provider: providerName })}
                   </p>
                 ) : null}
                 <input
                   value={projectSearch}
                   onChange={(event) => setProjectSearch(event.target.value)}
-                  placeholder={`Rechercher un projet ${providerName}…`}
-                  aria-label={`Rechercher un projet ${providerName}`}
+                  placeholder={t('shell.home.searchProject', { provider: providerName })}
+                  aria-label={t('shell.home.searchProjectLabel', { provider: providerName })}
                   spellCheck={false}
                 />
                 {projectError ? (
@@ -398,7 +398,7 @@ export function Home({
                 <div
                   className={styles.projectList}
                   role="listbox"
-                  aria-label={`Projets ${providerName}`}
+                  aria-label={t('shell.home.projectsLabel', { provider: providerName })}
                 >
                   {projects.map((project) => (
                     <button
@@ -418,11 +418,11 @@ export function Home({
                     </button>
                   ))}
                   {projectLoading ? (
-                    <p className={styles.projectEmpty}>Recherche…</p>
+                    <p className={styles.projectEmpty}>{t('shell.home.searching')}</p>
                   ) : null}
                   {!projectLoading && projects.length === 0 ? (
                     <p className={styles.projectEmpty}>
-                      Aucun projet accessible avec ce token.
+                      {t('shell.home.noAccessibleProject')}
                     </p>
                   ) : null}
                 </div>
@@ -432,11 +432,11 @@ export function Home({
             <div className={styles.cloneSettings}>
               {manual ? (
                 <label className={styles.field}>
-                  URL du dépôt
+                  {t('shell.home.repoUrl')}
                   <input
                     value={url}
                     onChange={(event) => setUrl(event.target.value)}
-                    placeholder="git@hote:owner/repo.git"
+                    placeholder={t('shell.home.urlPlaceholder')}
                     spellCheck={false}
                     required={manual}
                   />
@@ -444,10 +444,10 @@ export function Home({
               ) : selectedProject ? (
                 <div className={styles.chosen}>
                   <div className={styles.chosenRow}>
-                    <span className={styles.chosenLabel}>Dépôt sélectionné</span>
+                    <span className={styles.chosenLabel}>{t('shell.home.selectedRepo')}</span>
                     <strong>{selectedProject.pathWithNamespace}</strong>
                     <label className={styles.inlineField}>
-                      Protocole
+                      {t('shell.home.protocol')}
                       <select
                         value={protocol}
                         onChange={(event) => {
@@ -463,27 +463,25 @@ export function Home({
                     <code>{projectUrl(selectedProject, protocol)}</code>
                   </div>
                   <p className={styles.hint}>
-                    HTTPS utilise le token {providerName}. SSH utilise votre agent
-                    et <code>known_hosts</code>.
+                    {t('shell.home.protocolHint.before', { provider: providerName })} <code>known_hosts</code>{t('shell.home.protocolHint.after')}
                   </p>
                 </div>
               ) : activeSession?.connected ? (
                 <p className={styles.hint}>
-                  Choisissez un projet dans la liste pour remplir l’URL
-                  automatiquement.
+                  {t('shell.home.chooseProjectHint')}
                 </p>
               ) : null}
 
               <div className={styles.field}>
                 <label htmlFor="clone-destination">
-                  Dossier de destination (absolu, inexistant)
+                  {t('shell.home.destinationLabel')}
                 </label>
                 <div className={styles.pathRow}>
                   <input
                     id="clone-destination"
                     value={destination}
                     onChange={(event) => setDestination(event.target.value)}
-                    placeholder="/Users/vous/src/repo"
+                    placeholder={t('shell.home.destinationPlaceholder')}
                     spellCheck={false}
                     required
                   />
@@ -494,18 +492,17 @@ export function Home({
                       onClick={() => void browseDestination()}
                       disabled={busy}
                     >
-                      Parcourir…
+                      {t('shell.action.browse')}
                     </button>
                   ) : null}
                 </div>
                 <span className={styles.hint}>
-                  « Parcourir… » ouvre le sélecteur de dossiers de l’OS ; le nom du
-                  dépôt est ajouté au dossier choisi.
+                  {t('shell.home.browseHint')}
                 </span>
               </div>
               <div className={styles.options}>
                 <label className={styles.field}>
-                  Branche (optionnel)
+                  {t('shell.home.branchOptional')}
                   <input
                     value={branch}
                     onChange={(event) => setBranch(event.target.value)}
@@ -514,7 +511,7 @@ export function Home({
                   />
                 </label>
                 <label className={styles.field}>
-                  Profondeur (optionnel)
+                  {t('shell.home.depthOptional')}
                   <input
                     value={depth}
                     onChange={(event) => setDepth(event.target.value)}
@@ -528,7 +525,7 @@ export function Home({
                     checked={recurse}
                     onChange={(event) => setRecurse(event.target.checked)}
                   />
-                  sous-modules récursifs
+                  {t('shell.home.recursiveSubmodules')}
                 </label>
               </div>
             </div>
@@ -544,7 +541,7 @@ export function Home({
                 className={styles.primary}
                 disabled={busy || !url.trim() || !destination.trim()}
               >
-                {busy ? 'Clonage…' : 'Cloner le dépôt'}
+                {busy ? t('shell.home.cloning') : t('shell.home.clone')}
               </button>
               <button
                 type="button"
@@ -552,22 +549,27 @@ export function Home({
                 onClick={() => setMode('idle')}
                 disabled={busy}
               >
-                Annuler
+                {t('common.cancel')}
               </button>
             </div>
           </form>
         ) : null}
       </section>
 
-      <section className={styles.recent} aria-label="Dépôts récents">
+      <section className={styles.recent} aria-label={t('shell.home.recentRepos')}>
         <div className={styles.sectionHeading}>
-          <h2>Reprendre le travail</h2>
+          <h2>{t('shell.home.resumeWork')}</h2>
           <span>
             {recent.length
               ? recentFilter
-                ? `${filteredRecent.length} sur ${recent.length} dépôt${recent.length > 1 ? 's' : ''}`
-                : `${recent.length} dépôt${recent.length > 1 ? 's' : ''} récent${recent.length > 1 ? 's' : ''}`
-              : 'Vos dépôts apparaîtront ici'}
+                ? plural('shell.home.filteredCount.one', 'shell.home.filteredCount.other', recent.length, {
+                    count: formatNumber(filteredRecent.length),
+                    total: formatNumber(recent.length),
+                  })
+                : plural('shell.home.recentCount.one', 'shell.home.recentCount.other', recent.length, {
+                    count: formatNumber(recent.length),
+                  })
+              : t('shell.home.noRecents')}
           </span>
         </div>
         {recent.length ? (
@@ -583,8 +585,8 @@ export function Home({
                 onOpen(filteredRecent[0].path)
               }
             }}
-            placeholder="Rechercher un dépôt récent…"
-            aria-label="Rechercher un dépôt récent"
+            placeholder={t('shell.home.searchRecent')}
+            aria-label={t('shell.home.searchRecentLabel')}
             autoComplete="off"
             spellCheck={false}
           />
@@ -613,14 +615,13 @@ export function Home({
             ))}
             {filteredRecent.length === 0 ? (
               <p className={styles.searchEmpty} role="status">
-                Aucun dépôt récent ne correspond à « {recentQuery.trim()} ».
+                {t('shell.home.noRecentMatch', { query: recentQuery.trim() })}
               </p>
             ) : null}
           </div>
         ) : (
           <div className={styles.empty}>
-            Ouvrez un dossier existant, créez un dépôt local ou clonez un
-            dépôt distant pour commencer.
+            {t('shell.home.emptyHint')}
           </div>
         )}
       </section>
@@ -628,14 +629,14 @@ export function Home({
       <footer className={styles.footer}>
         <span>
           <span className={styles.dot} />
-          Votre code reste sur votre machine.
+          {t('shell.home.localCode')}
         </span>
         <span className={styles.row}>
           <button type="button" onClick={() => onSelect('gitlab')}>
-            Connecter GitLab →
+            {t('shell.home.connectGitlab')}
           </button>
           <button type="button" onClick={() => onSelect('github')}>
-            Connecter GitHub →
+            {t('shell.home.connectGithub')}
           </button>
         </span>
       </footer>

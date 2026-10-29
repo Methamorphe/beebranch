@@ -1,3 +1,5 @@
+import type { MessageKey } from '../i18n'
+
 export type ShortcutAction =
   | 'palette'
   | 'settings'
@@ -5,6 +7,7 @@ export type ShortcutAction =
   | 'search'
   | 'openRepo'
   | 'newTab'
+  | 'workspaces'
   | 'undo'
   | 'redo'
 
@@ -17,19 +20,22 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   search: 'Mod+Shift+F',
   openRepo: 'Mod+O',
   newTab: 'Mod+T',
+  workspaces: 'Mod+Shift+W',
   undo: 'Mod+Z',
   redo: 'Mod+Shift+Z',
 }
 
-export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
-  palette: 'Palette de commandes',
-  settings: 'Profils et réglages',
-  newBranch: 'Nouvelle branche',
-  search: 'Recherche approfondie',
-  openRepo: 'Ouvrir un dépôt',
-  newTab: 'Nouvel onglet',
-  undo: 'Annuler',
-  redo: 'Rétablir',
+/** Catalogue keys resolved with `t` wherever a shortcut is listed. */
+export const SHORTCUT_LABELS: Record<ShortcutAction, MessageKey> = {
+  palette: 'common.shortcut.palette',
+  settings: 'common.shortcut.settings',
+  newBranch: 'common.shortcut.newBranch',
+  search: 'common.shortcut.search',
+  openRepo: 'common.shortcut.openRepo',
+  newTab: 'common.shortcut.newTab',
+  workspaces: 'common.shortcut.workspaces',
+  undo: 'common.shortcut.undo',
+  redo: 'common.shortcut.redo',
 }
 
 type Parsed = {

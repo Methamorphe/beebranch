@@ -12,7 +12,9 @@ Fonctionnalités livrées :
 
 - connexion à `github.com` ou à GitHub Enterprise Server (`/api/v3`) ;
 - Personal Access Token stocké dans le keychain (`beebranch.github`) ;
-- détection hors ligne d'un jeton déjà présent dans la configuration Git ;
+- détection hors ligne d'un jeton déjà présent dans Git : helper configuré
+  (`osxkeychain`, GCM, `gh auth git-credential`), `url.*.insteadOf` ou
+  `~/.git-credentials` ; onboarding « Utiliser mes identifiants Git » ;
 - liste et recherche des dépôts accessibles ;
 - association automatique ou manuelle dépôt ↔ projet ;
 - pull requests : mes PR, à relire, assignées, projet ; détail et création ;
@@ -41,6 +43,42 @@ Règles :
 Scopes recommandés : `repo`, `read:user`, `checks:read` (token classique) ou,
 pour un token fine-grained, accès au dépôt avec *Contents* en lecture,
 *Pull requests* en lecture/écriture, *Checks* en lecture et *Metadata*.
+Le formulaire ouvre la page de création de token avec ces scopes préremplis.
+
+### Device flow OAuth (github.com)
+
+BeeBranch peut connecter github.com sans Personal Access Token via le
+[device authorization grant](https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow) :
+
+1. l'application demande un code à `POST https://github.com/login/device/code`
+   (scopes `repo read:user`) ;
+2. le frontend affiche `userCode` et ouvre `verificationUri` dans le navigateur ;
+3. il interroge `github_device_flow_poll` au rythme de `interval` ; le backend
+   échange le `device_code` contre un token (`authorization_pending` et
+   `slow_down` sont absorbés) ;
+4. le token `gho_` est validé par `GET /user`, stocké dans le keychain
+   (`beebranch.github`) et n'est jamais renvoyé au frontend.
+
+Le `device_code` reste côté backend (mémoire seulement) ; lui seul permettrait
+d'obtenir le token. Le bouton n'est proposé que pour `github.com` : GitHub
+Enterprise Server exige une OAuth App propre à l'instance.
+
+Client ID : celui de l'OAuth App BeeBranch (**Device Flow activé**) est
+embarqué dans le binaire — un client ID OAuth est public et le device flow
+n'utilise aucun client secret. `BEEBRANCH_GITHUB_CLIENT_ID` (variable
+d'exécution ou de build) permet de pointer une autre OAuth App pour un fork ou
+un test local.
+
+### Réutilisation des identifiants Git
+
+Comme GitLab, BeeBranch interroge `git credential fill` pour l'hôte de
+l'instance configurée : un poste authentifié via `gh auth login` (qui installe
+`gh auth git-credential`), le trousseau macOS ou le Gestionnaire
+d'identifiants Windows se connecte sans nouveau Personal Access Token. La
+requête est locale, bornée à 5 s, sans invite (`GIT_TERMINAL_PROMPT=0`,
+`GCM_INTERACTIVE=never`). Le bouton « Utiliser mes identifiants Git » applique
+le même chemin sans instance préalable. Le jeton reste dans Git : il n'est ni
+copié dans le keychain `beebranch.github`, ni dans SQLite, ni dans les logs.
 
 ## 3. Endpoints utilisés
 

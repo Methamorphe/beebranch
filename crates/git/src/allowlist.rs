@@ -53,6 +53,7 @@ pub enum GitSubcommand {
     Remote,
     LsRemote,
     Config,
+    Credential,
     Grep,
 }
 
@@ -101,6 +102,7 @@ impl GitSubcommand {
             Self::Remote => "remote",
             Self::LsRemote => "ls-remote",
             Self::Config => "config",
+            Self::Credential => "credential",
             Self::Grep => "grep",
         }
     }
@@ -760,6 +762,7 @@ impl GitSubcommand {
                     ]
                 }
             }
+            Self::Credential => const { &[] },
             Self::Grep => {
                 const {
                     &[
@@ -816,6 +819,14 @@ impl GitSubcommand {
 /// The function never mutates or rewrites arguments: it either accepts the
 /// exact argv that will be passed to Git, or rejects it with a stable code.
 pub(crate) fn validate(subcommand: GitSubcommand, args: &[OsString]) -> Result<(), GitError> {
+    if matches!(subcommand, GitSubcommand::Credential)
+        && !(args.len() == 1 && args[0].to_str() == Some("fill"))
+    {
+        return Err(GitError::invalid_argument(
+            "seul `git credential fill` est autorisé".to_owned(),
+        ));
+    }
+
     let rules = subcommand.rules();
     let mut after_separator = false;
     let mut expect_value = false;
@@ -988,6 +999,26 @@ mod tests {
     fn rejects_missing_option_values() {
         assert!(validate(GitSubcommand::Commit, &args(&["-F"])).is_err());
         assert!(validate(GitSubcommand::RevParse, &args(&["--git-path"])).is_err());
+    }
+
+    #[test]
+    fn allows_only_credential_fill() {
+        assert!(validate(GitSubcommand::Credential, &args(&["fill"])).is_ok());
+        for rejected in ["approve", "reject", "fill extra", ""] {
+            assert!(
+                validate(
+                    GitSubcommand::Credential,
+                    &args(&rejected.split(' ').collect::<Vec<_>>())
+                )
+                .is_err(),
+                "{rejected:?} must be rejected"
+            );
+        }
+        assert!(validate(
+            GitSubcommand::Credential,
+            &args(&["fill", "--file=/tmp/creds"])
+        )
+        .is_err());
     }
 
     #[test]

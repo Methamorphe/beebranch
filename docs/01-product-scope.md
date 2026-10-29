@@ -21,7 +21,7 @@ Le produit doit être :
 | Hébergement | GitLab self-hosted, URLs et certificats internes |
 | Réseau | Peut être restreint ; Git doit fonctionner hors ligne |
 | Dépôts | Monorepos, nombreux fichiers, nombreuses branches, submodules, worktrees, LFS |
-| Langue de l'UI | Français (extensible i18n plus tard) |
+| Langue de l'UI | Français et anglais, sélectionnables dans Réglages (i18n typé, FR/EN) |
 
 ## 3. Principes produit
 

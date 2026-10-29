@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n'
 import { Button } from './ui/Button'
 import { ToolbarIcon } from './ToolbarIcon'
 import styles from './UpdateNotice.module.css'
@@ -18,11 +19,12 @@ export function UpdateNotice({
   onInstall,
   onDismiss,
 }: Props) {
+  const { t } = useI18n()
   const detail = installing
     ? progress === null
-      ? 'Téléchargement et vérification de la signature…'
-      : `Téléchargement ${progress} %. Redémarrage à la fin.`
-    : 'Signature vérifiée avant installation. L’application redémarre ensuite.'
+      ? t('shell.update.downloading')
+      : t('shell.update.progress', { progress })
+    : t('shell.update.ready')
 
   return (
     <div
@@ -35,7 +37,7 @@ export function UpdateNotice({
         <ToolbarIcon name="update" />
       </span>
       <div className={styles.body}>
-        <p className={styles.title}>Mise à jour {version} disponible</p>
+        <p className={styles.title}>{t('shell.update.available', { version })}</p>
         <p className={styles.detail}>{detail}</p>
         <div className={styles.actions}>
           <Button
@@ -45,10 +47,10 @@ export function UpdateNotice({
             onClick={onInstall}
             disabled={installing}
           >
-            {installing ? 'Installation…' : 'Installer'}
+            {installing ? t('shell.update.installing') : t('shell.update.install')}
           </Button>
           <Button type="button" size="sm" onClick={onDismiss} disabled={installing}>
-            Plus tard
+            {t('shell.update.later')}
           </Button>
         </div>
       </div>

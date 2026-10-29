@@ -361,7 +361,7 @@ fn compute_diff(
                 .ok_or_else(|| AppError::invalid_input("un SHA de commit est requis"))?;
             let detail = session.commit(sha)?;
             let paths = request.path.iter().cloned().collect::<Vec<_>>();
-            match detail.summary.parents.first() {
+            let mut report = match detail.summary.parents.first() {
                 Some(parent) => session.diff(
                     &DiffTarget::Range {
                         base: parent.clone(),
@@ -377,7 +377,33 @@ fn compute_diff(
                     &paths,
                     limits,
                 ),
+            }?;
+            // A stash keeps its untracked files in a separate root commit:
+            // the tracked diff alone would silently hide them.
+            if let Some(untracked) = detail
+                .stash
+                .as_ref()
+                .and_then(|stash| stash.untracked.as_deref())
+            {
+                let extra = beebranch_git::diff::read_root_patch(
+                    session.runner(),
+                    session.worktree(),
+                    untracked,
+                    &paths,
+                    limits,
+                )?;
+                report.truncated |= extra.truncated;
+                for file in extra.files {
+                    if !report
+                        .files
+                        .iter()
+                        .any(|existing| existing.new_path == file.new_path)
+                    {
+                        report.files.push(file);
+                    }
+                }
             }
+            Ok(report)
         }
         "range" => {
             let base = request

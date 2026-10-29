@@ -96,7 +96,7 @@ Chaque prototype répond à une question et produit une preuve. Il n'est pas un 
 | D-03 | Version minimale de Git | **2.34** (plancher LTS distro), tests sur 2.56.0 | 2026-10-27 | [ADR-0007](adr/0007-version-baseline.md) |
 | D-04 | Versions GitLab | **3 dernières maintenues** (19.3–19.5), pas de LTS | 2026-10-27 | [ADR-0007](adr/0007-version-baseline.md) |
 | D-05 | Sauvegardes d'undo | **Aucune sauvegarde applicative** | 2026-10-27 | [ADR-0008](adr/0008-no-application-backups.md) |
-| D-13 | Identité visuelle | **Palette Beecoming, accent `#FED100`, ergonomie inspirée de GitKraken** | 2026-10-27 | [10-design-direction](10-design-direction.md) |
+| D-13 | Identité visuelle | **Palette ambre, accent `#FED100`, ergonomie inspirée de GitKraken** | 2026-10-27 | [10-design-direction](10-design-direction.md) |
 
 ### 4.2 Décisions ouvertes
 

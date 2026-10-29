@@ -2,22 +2,28 @@
 //!
 //! The application never stores, logs or displays these secrets: they are read
 //! from the user's Git configuration (`url.<base>.insteadOf` entries and the
-//! `store` credential helper file) so an existing GitLab token can be reused
-//! without re-entering it. Only HTTPS URLs carrying a username and a password
-//! are considered; SSH and credential-manager backends are invisible here by
-//! design.
+//! `store` credential helper file) and, for a known host, from whichever
+//! credential helper Git is configured with (`osxkeychain`, Windows
+//! Credential Manager, `gh auth git-credential`, …) so an existing forge token
+//! can be reused without re-entering it. Only HTTPS credentials are
+//! considered; SSH keys are invisible here by design.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use beebranch_core::AppError;
 
-use crate::process::{CommandSpec, GitRunner};
+use crate::process::{CommandSpec, GitRunner, StdinMode};
 use crate::GitSubcommand;
 
 /// Maximum size read from a credential store file. Real files are tiny; the
 /// cap keeps a corrupted or hostile file from exhausting memory.
 const STORE_FILE_LIMIT: u64 = 1024 * 1024;
+
+/// Bound a `git credential fill` call so an interactive helper can never stall
+/// startup or the onboarding screen.
+const HELPER_TIMEOUT: Duration = Duration::from_secs(5);
 
 const URL_INSTEADOF_PATTERN: &str = r"^url\..*\.insteadof$";
 
@@ -28,6 +34,9 @@ pub enum CredentialOrigin {
     GitConfigUrl,
     /// A `credential.helper = store` file (default `~/.git-credentials`).
     StoreFile(PathBuf),
+    /// A credential returned by a configured credential helper
+    /// (`osxkeychain`, `manager`, `gh auth git-credential`, …).
+    Helper,
 }
 
 /// One HTTPS credential pair found in the Git configuration.
@@ -70,6 +79,7 @@ impl DiscoveredCredential {
                     None => text,
                 }
             }
+            CredentialOrigin::Helper => "helper d'identifiants Git".to_owned(),
         }
     }
 
@@ -97,13 +107,31 @@ impl DiscoveredCredential {
 
 /// Discover every usable HTTPS credential without touching the network.
 ///
-/// Sources, in order: global and system `url.*.insteadOf` entries, then the
+/// Sources, in order: credentials answered by the configured helpers for the
+/// given `hosts`, then global and system `url.*.insteadOf` entries, then the
 /// files referenced by a `store` credential helper and the default store file
 /// locations. Errors from Git itself are ignored (a missing system config is
 /// normal); only a broken Git process surfaces as `Err`.
 pub fn discover(runner: &GitRunner, cwd: &Path) -> Result<Vec<DiscoveredCredential>, AppError> {
+    discover_for_hosts(runner, cwd, &[])
+}
+
+/// Like [`discover`], but also asks the configured credential helpers for each
+/// host. Passing the known instance host reaches `osxkeychain`, Windows
+/// Credential Manager, `gh auth git-credential` and any other opaque helper.
+pub fn discover_for_hosts(
+    runner: &GitRunner,
+    cwd: &Path,
+    hosts: &[&str],
+) -> Result<Vec<DiscoveredCredential>, AppError> {
     let mut credentials = Vec::new();
     let mut seen = BTreeSet::new();
+
+    for host in hosts {
+        if let Some(credential) = fill(runner, cwd, host)? {
+            push_unique(&mut credentials, &mut seen, credential);
+        }
+    }
 
     let mut helper_files: BTreeSet<PathBuf> = BTreeSet::new();
     for scope in ["--global", "--system"] {
@@ -137,6 +165,81 @@ pub fn discover(runner: &GitRunner, cwd: &Path) -> Result<Vec<DiscoveredCredenti
     }
 
     Ok(credentials)
+}
+
+/// Ask the credential helpers configured for Git for `host`.
+///
+/// `git credential fill` is the only portable way to read credentials owned by
+/// a helper: their stores are opaque OS keychains or files. The query travels
+/// on stdin (never argv), terminal prompts are disabled, interactive helpers
+/// are asked not to open a window, and the call is bounded. A missing
+/// credential is `Ok(None)`, never an error.
+pub fn fill(
+    runner: &GitRunner,
+    cwd: &Path,
+    host: &str,
+) -> Result<Option<DiscoveredCredential>, AppError> {
+    let host = host.trim();
+    if host.is_empty() || host.contains('\n') || host.chars().any(char::is_whitespace) {
+        return Ok(None);
+    }
+
+    let spec = CommandSpec::new(GitSubcommand::Credential, cwd)
+        .arg("fill")
+        .stdin(StdinMode::Bytes(
+            format!("protocol=https\nhost={host}\n\n").into_bytes(),
+        ))
+        .env("GCM_INTERACTIVE", "never")
+        .timeout(HELPER_TIMEOUT);
+    let outcome = match runner.run(&spec) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // A missing helper, a helper that refuses to answer or a timeout
+            // all mean "no credential"; only the code is logged.
+            tracing::debug!(
+                code = %error.code().as_str(),
+                "credential helper query failed"
+            );
+            return Ok(None);
+        }
+    };
+    if !outcome.success() {
+        tracing::debug!(
+            exit = ?outcome.exit_code(),
+            "credential helper has no credential"
+        );
+        return Ok(None);
+    }
+
+    Ok(parse_fill_output(&outcome.stdout.text_lossy(), host))
+}
+
+/// Read `git credential fill` output. Values are never logged.
+fn parse_fill_output(output: &str, host: &str) -> Option<DiscoveredCredential> {
+    let mut username = None;
+    let mut password = None;
+    for line in output.lines() {
+        if let Some(value) = line.strip_prefix("username=") {
+            username = Some(value.to_owned());
+        } else if let Some(value) = line.strip_prefix("password=") {
+            password = Some(value.to_owned());
+        }
+    }
+    let username = username?;
+    let password = password?;
+    if username.is_empty()
+        || password.is_empty()
+        || username.chars().any(char::is_control)
+        || password.chars().any(char::is_control)
+    {
+        return None;
+    }
+    Some(DiscoveredCredential {
+        host: host.to_ascii_lowercase(),
+        username,
+        password,
+        origin: CredentialOrigin::Helper,
+    })
 }
 
 fn config_lines(
@@ -442,5 +545,78 @@ mod tests {
         assert!(!rendered.contains("glpat-secret"));
         assert!(rendered.contains("[REDACTED]"));
         assert!(!format!("{:?}", credential.origin).contains("glpat-secret"));
+    }
+
+    #[test]
+    fn parses_credential_helper_output() {
+        let credential = parse_fill_output(
+            "protocol=https\nhost=gitlab.example.test\nusername=oauth2\npassword=glpat-helper\r\n",
+            "GitLab.Example.Test",
+        )
+        .expect("credential");
+        assert_eq!(credential.host, "gitlab.example.test");
+        assert_eq!(credential.username, "oauth2");
+        assert_eq!(credential.password, "glpat-helper");
+        assert_eq!(credential.origin, CredentialOrigin::Helper);
+        assert!(credential.looks_like_gitlab_token());
+        assert!(!format!("{credential:?}").contains("glpat-helper"));
+
+        for incomplete in [
+            "",
+            "username=oauth2\n",
+            "password=glpat-helper\n",
+            "username=\npassword=glpat-helper\n",
+            "username=oauth2\npassword=\n",
+        ] {
+            assert!(
+                parse_fill_output(incomplete, "gitlab.example.test").is_none(),
+                "{incomplete:?} must be rejected"
+            );
+        }
+    }
+
+    /// `git credential fill` reaches opaque helpers such as `osxkeychain`,
+    /// which no file scan can read. A local helper makes the test independent
+    /// from whatever the machine has configured globally.
+    #[cfg(unix)]
+    #[test]
+    fn asks_the_configured_helper_for_a_host() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let runner = GitRunner::detect().expect("git");
+        runner
+            .run(&CommandSpec::new(GitSubcommand::Init, directory.path()).arg("--quiet"))
+            .expect("git init");
+        let commands: [&[&str]; 2] = [
+            &["--local", "credential.helper", ""],
+            &[
+                "--local",
+                "--add",
+                "credential.helper",
+                "!f() { echo username=oauth2; echo password=glpat-helper; }; f",
+            ],
+        ];
+        for arguments in commands {
+            runner
+                .run(
+                    &CommandSpec::new(GitSubcommand::Config, directory.path())
+                        .args(arguments.iter().copied()),
+                )
+                .expect("git config");
+        }
+
+        let credential = fill(&runner, directory.path(), "gitlab.example.test")
+            .expect("fill")
+            .expect("credential");
+        assert_eq!(credential.username, "oauth2");
+        assert_eq!(credential.password, "glpat-helper");
+        assert_eq!(credential.origin, CredentialOrigin::Helper);
+
+        let discovered = discover_for_hosts(&runner, directory.path(), &["gitlab.example.test"])
+            .expect("discover");
+        assert_eq!(
+            discovered.first().map(|value| value.password.as_str()),
+            Some("glpat-helper"),
+            "the helper answer is preferred over file scans"
+        );
     }
 }

@@ -5,6 +5,7 @@ import {
   statusGet,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
 import type { BlameReport, FileHistory } from '../types/git'
 import p2 from './p2.module.css'
 
@@ -15,15 +16,26 @@ type Props = {
   onShowCommit: (sha: string) => void
 }
 
+type Tab = 'history' | 'blame'
+
+const STATUS_TONE: Record<string, string> = {
+  A: p2.chipGood,
+  D: p2.chipBad,
+  R: p2.chipInfo,
+  C: p2.chipInfo,
+  M: p2.chipWarn,
+}
+
 export function FileHistoryPanel({
   repoId,
   generation,
   initialPath,
   onShowCommit,
 }: Props) {
+  const { t, plural } = useI18n()
   const [paths, setPaths] = useState<string[]>([])
   const [path, setPath] = useState(initialPath ?? '')
-  const [tab, setTab] = useState<'history' | 'blame'>('history')
+  const [tab, setTab] = useState<Tab>('history')
   const [follow, setFollow] = useState(true)
   const [history, setHistory] = useState<FileHistory | null>(null)
   const [blame, setBlame] = useState<BlameReport | null>(null)
@@ -122,132 +134,215 @@ export function FileHistoryPanel({
   }, [blame])
 
   return (
-    <div className={p2.pageColumn}>
-      <div className={p2.between}>
-        <h2 className={p2.cardTitle}>Historique de fichier & blame</h2>
-        <span className={p2.pill}>Historique et attribution des lignes</span>
-      </div>
-      <div className={p2.row} style={{ alignItems: 'flex-end' }}>
-        <label className={p2.field} style={{ flex: 1 }}>
-          Fichier
-          <span className={p2.inlineField}>
-            <input
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-              placeholder="src/App.tsx"
-              spellCheck={false}
-            />
-            <select value="" onChange={(event) => setPath(event.target.value)} aria-label="Choisir un fichier modifié">
-              <option value="">fichiers du status…</option>
-              {paths.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </span>
+    <div className={p2.screen}>
+      <div className={p2.toolbar}>
+        <div className={p2.segmented} role="group" aria-label={t('diff.history.aria')}>
+          <button
+            type="button"
+            className={tab === 'history' ? p2.segmentOn : p2.segment}
+            aria-pressed={tab === 'history'}
+            onClick={() => setTab('history')}
+          >
+            {t('diff.history.tab')}
+          </button>
+          <button
+            type="button"
+            className={tab === 'blame' ? p2.segmentOn : p2.segment}
+            aria-pressed={tab === 'blame'}
+            onClick={() => setTab('blame')}
+          >
+            {t('diff.history.blameTab')}
+          </button>
+        </div>
+
+        <label className={`${p2.fieldInline} ${p2.grow}`}>
+          <span className={p2.toolbarLabel}>{t('diff.history.file')}</span>
+          <input
+            value={path}
+            onChange={(event) => setPath(event.target.value)}
+            placeholder="src/App.tsx"
+            aria-label={t('diff.history.pathAria')}
+            list="file-history-paths"
+            spellCheck={false}
+          />
         </label>
-        <button type="button" className={p2.secondary} disabled={busy || !path.trim()} onClick={() => void load()}>
-          Charger
-        </button>
-      </div>
+        <datalist id="file-history-paths">
+          {paths.map((value) => (
+            <option key={value} value={value} />
+          ))}
+        </datalist>
 
-      <div className={p2.tabs} style={{ padding: '8px 0', borderBottom: 0 }}>
-        <button type="button" className={tab === 'history' ? p2.tabOn : p2.tab} onClick={() => setTab('history')}>
-          Historique
-        </button>
-        <button type="button" className={tab === 'blame' ? p2.tabOn : p2.tab} onClick={() => setTab('blame')}>
-          Blame
-        </button>
-      </div>
-
-      {error ? <p className={p2.errorText} role="alert">{error}</p> : null}
-
-      {tab === 'history' ? (
-        <div className={p2.stack}>
+        {tab === 'history' ? (
           <label className={p2.checkbox}>
-            <input type="checkbox" checked={follow} onChange={(event) => setFollow(event.target.checked)} />
-            Suivre les renommages
+            <input
+              type="checkbox"
+              checked={follow}
+              onChange={(event) => setFollow(event.target.checked)}
+            />
+            {t('diff.history.followRenames')}
           </label>
-          {!history && !busy && !error ? (
-            <div className={p2.empty}>
-              <h2>Choisissez un fichier</h2>
-              <p>Saisissez son chemin dans le dépôt puis chargez son historique.</p>
-            </div>
-          ) : null}
-          {history?.truncated ? <p className={p2.warn}>Historique plafonné à 300 entrées.</p> : null}
-          <div className={p2.table}>
-            <div className={p2.tableHead}>
-              <span>Commit</span>
-              <span>Auteur</span>
-              <span>Date</span>
-              <span />
-            </div>
-            {history?.entries.map((entry) => (
-              <div key={`${entry.sha}-${entry.status}`} className={p2.tableRow}>
-                <div style={{ minWidth: 0 }}>
-                  <div className={p2.mono}>{entry.sha.slice(0, 10)} · {entry.status}</div>
-                  <div className={p2.listSub} style={{ color: 'var(--text)' }}>{entry.subject}</div>
-                  {entry.previousPath ? (
-                    <div className={p2.listSub}>depuis {entry.previousPath}</div>
+        ) : (
+          <>
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('diff.history.line')}</span>
+              <input
+                value={start}
+                onChange={(event) => setStart(event.target.value)}
+                inputMode="numeric"
+                aria-label={t('diff.history.firstLineAria')}
+              />
+            </label>
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('diff.history.to')}</span>
+              <input
+                value={end}
+                onChange={(event) => setEnd(event.target.value)}
+                inputMode="numeric"
+                aria-label={t('diff.history.lastLineAria')}
+              />
+            </label>
+          </>
+        )}
+
+        <button
+          type="button"
+          className={p2.secondary}
+          disabled={busy || !path.trim()}
+          onClick={() => void load()}
+        >
+          {busy ? t('diff.history.loading') : t('diff.history.load')}
+        </button>
+      </div>
+
+      {error ? (
+        <p className={p2.alert} role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <div className={p2.screenBody}>
+        <div className={p2.screenMain}>
+          {tab === 'history' ? (
+            history ? (
+              <>
+                <div className={p2.listHeader}>
+                  <span className={`${p2.label} ${p2.mono}`}>{history.path}</span>
+                  <span className={`${p2.count} ${p2.tabnum}`}>
+                    {plural('diff.history.commits.one', 'diff.history.commits.other', history.entries.length)}
+                  </span>
+                  <span className={p2.spacer} />
+                  {history.truncated ? (
+                    <span className={`${p2.chip} ${p2.chipWarn}`}>{t('diff.history.capped')}</span>
+                  ) : null}
+                  {history.follow ? (
+                    <span className={`${p2.chip} ${p2.chipInfo}`}>{t('diff.history.renamesFollowed')}</span>
                   ) : null}
                 </div>
-                <span className={p2.listSub}>{entry.author}</span>
-                <span className={p2.listSub}>
-                  {new Date(entry.authorTime * 1000).toLocaleString()}
+                <div className={p2.rows}>
+                  {history.entries.map((entry) => (
+                    <button
+                      key={`${entry.sha}-${entry.status}`}
+                      type="button"
+                      className={p2.entry}
+                      onClick={() => onShowCommit(entry.sha)}
+                    >
+                      <span className={`${p2.chip} ${STATUS_TONE[entry.status] ?? ''}`}>
+                        {entry.status}
+                      </span>
+                      <span className={p2.entryStack}>
+                        <span className={p2.entryTitle}>{entry.subject}</span>
+                        <span className={p2.entryMeta}>
+                          <span className={p2.mono}>{entry.sha.slice(0, 8)}</span>
+                          <span>·</span>
+                          <span>{entry.author}</span>
+                          <span>·</span>
+                          <span>{formatDateTime(dateFromSeconds(entry.authorTime))}</span>
+                          {entry.previousPath ? (
+                            <>
+                              <span>·</span>
+                              <span className={p2.mono}>{t('diff.history.fromPath', { path: entry.previousPath })}</span>
+                            </>
+                          ) : null}
+                        </span>
+                      </span>
+                      <span className={p2.meta} aria-hidden="true">
+                        →
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {history.entries.length === 0 ? (
+                  <div className={p2.empty} role="status">
+                    <h2>{t('diff.history.emptyTitle')}</h2>
+                    <p>{t('diff.history.emptyHint')}</p>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className={p2.empty}>
+                <h2>{t('diff.history.pickTitle')}</h2>
+                <p>{t('diff.history.pickHint')}</p>
+              </div>
+            )
+          ) : blame ? (
+            <>
+              <div className={p2.listHeader}>
+                <span className={`${p2.label} ${p2.mono}`}>{blame.path}</span>
+                <span className={`${p2.count} ${p2.tabnum}`}>
+                  {t('diff.history.linesRange', { first: blame.firstLine, last: blame.lastLine })}
                 </span>
-                <button type="button" className={p2.ghost} onClick={() => onShowCommit(entry.sha)}>
-                  Voir
-                </button>
+                <span className={p2.spacer} />
+                {blame.truncated ? (
+                  <span className={`${p2.chip} ${p2.chipWarn}`}>{t('diff.blame.capped')}</span>
+                ) : null}
               </div>
-            ))}
-            {history && history.entries.length === 0 ? (
-              <p className={p2.notice} style={{ padding: 12 }}>Aucun commit pour ce fichier.</p>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <div className={p2.stack}>
-          <div className={p2.row}>
-            <label className={p2.field}>
-              Ligne de début
-              <input value={start} onChange={(event) => setStart(event.target.value)} inputMode="numeric" />
-            </label>
-            <label className={p2.field}>
-              Ligne de fin
-              <input value={end} onChange={(event) => setEnd(event.target.value)} inputMode="numeric" />
-            </label>
-            <button type="button" className={p2.secondary} disabled={busy} onClick={() => void load()}>
-              Charger la plage
-            </button>
-            {blame?.truncated ? <span className={p2.warn}>plafonné à 2 000 lignes</span> : null}
-          </div>
-          <div className={p2.code} style={{ padding: 0 }}>
-            {groups.map((group) => (
-              <div key={`${group.sha}-${group.start}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                <button
-                  type="button"
-                  className={p2.ghost}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '5px 10px' }}
-                  onClick={() => onShowCommit(group.sha)}
-                  title={group.summary}
-                >
-                  <span className={p2.mono}>{group.sha.slice(0, 8)}</span>{' '}
-                  <span className={p2.muted}>
-                    {group.author} · {new Date(group.time * 1000).toLocaleDateString()} · {group.summary}
-                  </span>
-                </button>
-                <pre className={p2.sideCode} style={{ padding: '0 10px 8px' }}>
-                  {group.lines.map((line, index) => `${String(group.start + index).padStart(5)}  ${line}`).join('\n')}
-                </pre>
+              <div className={p2.scroller}>
+                {groups.map((group) => (
+                  <section
+                    key={`${group.sha}-${group.start}`}
+                    className={p2.blameGroup}
+                  >
+                    <button
+                      type="button"
+                      className={p2.blameHeader}
+                      onClick={() => onShowCommit(group.sha)}
+                      title={group.summary}
+                    >
+                      <span className={p2.mono}>{group.sha.slice(0, 8)}</span>
+                      <span className={p2.entryMeta}>
+                        <span>{group.author}</span>
+                        <span>·</span>
+                        <span>{formatDateTime(dateFromSeconds(group.time))}</span>
+                        <span>·</span>
+                        <span>{group.summary}</span>
+                      </span>
+                    </button>
+                    <pre className={p2.blameCode}>
+                      {group.lines
+                        .map(
+                          (line, index) =>
+                            `${String(group.start + index).padStart(5)}  ${line}`,
+                        )
+                        .join('\n')}
+                    </pre>
+                  </section>
+                ))}
+                {blame.lines.length === 0 ? (
+                  <div className={p2.empty} role="status">
+                    <h2>{t('diff.blame.emptyTitle')}</h2>
+                    <p>{t('diff.blame.emptyHint')}</p>
+                  </div>
+                ) : null}
               </div>
-            ))}
-            {blame && blame.lines.length === 0 ? (
-              <p className={p2.notice} style={{ padding: 12 }}>Aucune ligne dans cette plage.</p>
-            ) : null}
-          </div>
+            </>
+          ) : (
+            <div className={p2.empty}>
+              <h2>{t('diff.blame.title')}</h2>
+              <p>{t('diff.blame.hint')}</p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

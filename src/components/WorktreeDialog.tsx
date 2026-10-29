@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { worktreeAdd } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { useI18n } from '../i18n'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
 import shared from './p1.module.css'
@@ -19,6 +20,7 @@ type Props = {
  * panel, with the reference already filled by the menu entry.
  */
 export function WorktreeDialog({ repoId, reference, onClose, onCreated }: Props) {
+  const { t } = useI18n()
   const [path, setPath] = useState('')
   const [newBranch, setNewBranch] = useState('')
   const [detach, setDetach] = useState(false)
@@ -57,37 +59,35 @@ export function WorktreeDialog({ repoId, reference, onClose, onCreated }: Props)
 
   return (
     <Dialog open onClose={onClose} busy={busy} titleId="worktree-dialog-title">
-        <h2 id="worktree-dialog-title">Créer un worktree</h2>
+        <h2 id="worktree-dialog-title">{t('commit.worktree.title')}</h2>
         <p>
-          Une seconde copie de travail sur <code>{reference}</code>. Le dépôt
-          reste partagé : une branche ne peut être extraite que dans un seul
-          worktree à la fois.
+          {t('commit.worktree.description')} <code>{reference}</code>. {t('commit.worktree.shared')}
         </p>
         <label className={shared.field}>
-          Dossier de destination
+          {t('commit.worktree.destinationLabel')}
           <span className={shared.row}>
             <input
               data-autofocus
               value={path}
               onChange={(event) => setPath(event.target.value)}
-              placeholder="/Users/you/src/project-feature"
+              placeholder={t('commit.worktree.pathPlaceholder')}
               spellCheck={false}
-              aria-label="Dossier du worktree"
+              aria-label={t('commit.worktree.pathAria')}
             />
             <Button type="button" onClick={() => void pick()}>
-              Choisir…
+              {t('commit.worktree.choose')}
             </Button>
           </span>
         </label>
         <label className={shared.field}>
-          Nouvelle branche (optionnel)
+          {t('commit.worktree.newBranchLabel')}
           <input
             value={newBranch}
             onChange={(event) => setNewBranch(event.target.value)}
-            placeholder="feature/nouvelle"
+            placeholder={t('commit.worktree.branchPlaceholder')}
             spellCheck={false}
             disabled={detach}
-            aria-label="Nouvelle branche du worktree"
+            aria-label={t('commit.worktree.branchAria')}
           />
         </label>
         <label className={shared.checkbox}>
@@ -96,7 +96,7 @@ export function WorktreeDialog({ repoId, reference, onClose, onCreated }: Props)
             checked={detach}
             onChange={(event) => setDetach(event.target.checked)}
           />
-          HEAD détachée
+          {t('commit.worktree.detach')}
         </label>
         {error ? (
           <p className={shared.danger} role="alert">
@@ -105,7 +105,7 @@ export function WorktreeDialog({ repoId, reference, onClose, onCreated }: Props)
         ) : null}
         <div className={shared.dialogActions}>
           <Button type="button" onClick={onClose} disabled={busy}>
-            Annuler
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -113,7 +113,7 @@ export function WorktreeDialog({ repoId, reference, onClose, onCreated }: Props)
             onClick={() => void submit()}
             disabled={!path.trim() || busy}
           >
-            {busy ? 'Création…' : 'Créer le worktree'}
+            {busy ? t('commit.worktree.creating') : t('commit.worktree.submit')}
           </Button>
         </div>
     </Dialog>

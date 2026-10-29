@@ -29,14 +29,80 @@ body {
 }
 
 .splash {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
+  overflow: hidden;
   background:
     radial-gradient(circle at 50% 36%, #f5bb4514, transparent 60%),
     linear-gradient(180deg, #1c2028 0%, #15181e 100%);
+}
+
+/* Custom splash image and its scrim. Both stay transparent until the boot
+   script resolved the mode, so the window shows nothing but its own colour
+   while the preference is read. */
+.backdrop,
+.scrim {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+/* Overscan by the blur radius so the filtered edges never show. */
+.backdrop {
+  inset: calc(var(--splash-blur, 0px) * -2);
+  background-image: var(--splash-image, none);
+  background-position: center;
+  background-repeat: var(--splash-repeat, no-repeat);
+  background-size: var(--splash-size, cover);
+  filter: blur(var(--splash-blur, 0px));
+}
+
+.scrim {
+  inset: 0;
+  background: rgb(24 27 34 / var(--splash-dim, 0.45));
+}
+
+/* Everything else sits above the layers and waits for the resolved mode. */
+.splash > :not(.backdrop):not(.scrim) {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-splash='pending'] .splash > :not(.backdrop):not(.scrim) {
+  visibility: hidden;
+}
+
+:root[data-splash='image'] .backdrop,
+:root[data-splash='image'] .scrim {
+  opacity: 1;
+}
+
+/* A custom image replaces the logo mark; the wordmark and progress bar stay so
+   the window still reads as BeeBranch starting up. The text shadow keeps them
+   legible over a bright photo. */
+:root[data-splash='image'] .badge {
+  display: none;
+}
+
+:root[data-splash='image'] .wordmark {
+  animation-delay: 60ms;
+  text-shadow: 0 1px 10px #000a;
+}
+
+:root[data-splash='image'] .tagline {
+  animation-delay: 160ms;
+  color: #dfe5ee;
+  text-shadow: 0 1px 8px #000a;
+}
+
+:root[data-splash='image'] .track {
+  animation-delay: 240ms;
+  background: #ffffff2e;
 }
 
 /* Logo. */
@@ -194,6 +260,11 @@ body {
     opacity: 1;
     transform: none;
     animation: none;
+  }
+
+  .backdrop,
+  .scrim {
+    transition: none;
   }
 
   .hex,

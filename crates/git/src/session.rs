@@ -213,6 +213,10 @@ pub struct RepoSession {
     state: RwLock<RepoState>,
     locks: RwLock<Vec<PathBuf>>,
     graph: Mutex<GraphPager>,
+    /// Date (commit timestamp) of the last history row emitted by the graph
+    /// pager. Stash rows are injected on the page their date belongs to, so the
+    /// next page must know where the previous one ended.
+    graph_tail: Mutex<Option<i64>>,
     log_stream: Mutex<Option<LogStream>>,
     queue: MutationQueue,
     watcher: Mutex<Option<WatcherGuard>>,
@@ -262,6 +266,7 @@ impl RepoSession {
             state: RwLock::new(detected.state),
             locks: RwLock::new(detected.locks),
             graph: Mutex::new(GraphPager::new()),
+            graph_tail: Mutex::new(None),
             log_stream: Mutex::new(None),
             queue,
             watcher: Mutex::new(None),
@@ -455,12 +460,23 @@ impl RepoSession {
                 }
             }
         };
-        // Stashes are commits of their own: the walk sees them as ordinary
-        // rows (with their index and untracked snapshots between them), while
-        // GitKraken draws one node per stash, above the history. They are
-        // lifted out of the walk and re-inserted as single-parent rows on the
-        // first page, so their line runs down to the base commit.
-        let mut selectors: Vec<String> = Vec::new();
+        // Stashes are commits of their own: the walk sees them as ordinary rows
+        // (with their index and untracked snapshots between them), while the
+        // graph draws one node per stash. Only the newest stash is reachable
+        // from `refs/stash`, so every stash is lifted out of the walk and
+        // re-inserted at its date: an entry taken last month never floats above
+        // this week's commits. A stash belongs to the page its timestamp falls
+        // on, bounded by the previous page's last history row.
+        let previous_tail = {
+            let mut tail = self.graph_tail.lock().map_err(lock_error)?;
+            if request.after.is_some() {
+                *tail
+            } else {
+                *tail = None;
+                None
+            }
+        };
+        let mut selectors: Vec<Option<String>> = Vec::new();
         if all_refs {
             let stashes = crate::stash::list(&self.runner, self.worktree())?;
             let mut suppressed: Vec<&str> = Vec::with_capacity(stashes.len() * 3);
@@ -477,14 +493,35 @@ impl RepoSession {
                         .retain(|parent| !suppressed.contains(&parent.as_str()));
                 }
             }
-            if request.after.is_none() {
-                let mut items = Vec::with_capacity(stashes.len() + page.items.len());
-                for entry in &stashes {
+            let tail = page.items.last().map(|commit| commit.committer.timestamp);
+            let final_page = page.next.is_none();
+            let mut selected: Vec<crate::stash::StashEntry> = stashes
+                .into_iter()
+                .filter(|entry| previous_tail.is_none_or(|upper| entry.timestamp < upper))
+                .filter(|entry| final_page || tail.is_none_or(|lower| entry.timestamp >= lower))
+                .collect();
+            selected.sort_by_key(|left| std::cmp::Reverse(left.timestamp));
+            let mut pending = selected.into_iter().peekable();
+            let mut items = Vec::with_capacity(page.items.len() + pending.len());
+            for commit in page.items.drain(..) {
+                while pending
+                    .peek()
+                    .is_some_and(|entry| entry.timestamp >= commit.committer.timestamp)
+                {
+                    let entry = pending.next().expect("stash annoncé par peek");
                     items.push(entry.summary());
-                    selectors.push(entry.selector.clone());
+                    selectors.push(Some(entry.selector));
                 }
-                items.append(&mut page.items);
-                page.items = items;
+                items.push(commit);
+                selectors.push(None);
+            }
+            for entry in pending {
+                items.push(entry.summary());
+                selectors.push(Some(entry.selector));
+            }
+            page.items = items;
+            if let Some(tail) = tail {
+                *self.graph_tail.lock().map_err(lock_error)? = Some(tail);
             }
         }
         let rows = {
@@ -496,7 +533,7 @@ impl RepoSession {
                 page.next.as_deref(),
             );
             for (row, selector) in rows.iter_mut().zip(&selectors) {
-                row.stash = Some(selector.clone());
+                row.stash = selector.clone();
             }
             rows
         };
@@ -504,7 +541,17 @@ impl RepoSession {
     }
 
     pub fn commit(&self, sha: &str) -> Result<CommitDetail, AppError> {
-        read_commit(&self.runner, self.worktree(), sha)
+        let detail = read_commit(&self.runner, self.worktree(), sha)?;
+        // Only a stash entry (or a merge) has more than one parent; the stash
+        // list is read only then, so opening a regular commit costs no extra
+        // Git process.
+        if detail.summary.parents.len() < 2 {
+            return Ok(detail);
+        }
+        match crate::stash::find(&self.runner, self.worktree(), sha)? {
+            Some(entry) => crate::stash::read_detail(&self.runner, self.worktree(), &entry),
+            None => Ok(detail),
+        }
     }
 
     pub fn diff(

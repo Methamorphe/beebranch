@@ -167,7 +167,7 @@ Toute mutation passe par la file du dépôt et un **préflight**.
 | Pull | `git pull --progress [--ff-only\|--rebase\|--no-rebase] <remote> <branch>` | worktree propre, upstream ; stratégie lue dans `branch.<nom>.rebase`, puis `pull.rebase`, puis `pull.ff` ; code de sortie non nul = échec remonté |
 | Push | `git push --progress <remote> <ref>` | upstream, non-fast-forward détecté |
 | Force push | `git push --force-with-lease=<ref>:<expected>` | confirmation explicite, ancien SHA enregistré |
-| Merge | `git merge --no-edit <ref>` | worktree propre, pas d'opération (l'intégration branche→branche stashe les changements suivis) |
+| Merge | `git merge --no-edit [--ff\|--ff-only\|--no-ff] <ref>` | stratégie explicite : `--ff` par défaut, `--ff-only` pour l'avance rapide demandée, `--no-ff` pour le commit de fusion ; worktree propre, pas d'opération (l'intégration branche→branche stashe les changements suivis) |
 | Rebase | `git rebase <upstream>` | worktree propre, pas de merge commits non gérés |
 | Cherry-pick | `git cherry-pick <sha>...` | worktree propre |
 | Revert | `git revert --no-edit <sha>...` | worktree propre |
@@ -185,8 +185,16 @@ Un drop de branche `source` sur `target` extrait `target` puis merge ou rebase
 les protège automatiquement :
 
 1. `git stash push -m "BeeBranch auto-stash …"` (fichiers suivis uniquement) ;
-2. extraction de `target`, puis `git merge --no-edit <source>` ;
+2. extraction de `target`, puis `git merge --no-edit [--ff|--ff-only|--no-ff] <source>` ;
 3. `git stash pop` immédiatement après.
+
+Une fusion demandée en avance rapide (`--ff-only`) est refusée avant toute
+extraction lorsque `target` possède des commits absents de `source` : l'erreur
+`git.merge_not_fast_forward` annonce le nombre de commits en cause et propose un
+commit de fusion ou un rebase. Une fusion `--ff` avance `target` quand c'est
+possible et crée un commit de fusion sinon ; `--no-ff` force le commit de
+fusion. Le drapeau est toujours passé explicitement, donc `merge.ff` dans la
+configuration du dépôt ne change jamais le résultat demandé.
 
 Si le merge s'arrête sur des conflits, ou si le pop entre lui-même en conflit, le
 stash n'est pas supprimé : son sélecteur et son SHA sont renvoyés dans le

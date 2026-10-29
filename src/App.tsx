@@ -12,9 +12,12 @@ import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { UpdateNotice } from './components/UpdateNotice'
 import { Workbench } from './components/Workbench'
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
 import { errorMessage } from './ipc/client'
+import { I18nProvider, LANGUAGE_PREFERENCE_KEY, detectLocale, isLocale, plural, setLocale, t, type Locale, type MessageKey } from './i18n'
 import {
+  backgroundRead,
   branchCheckout,
   githubStatus,
   gitlabStatus,
@@ -36,6 +39,7 @@ import {
   undoStatus,
   updateCheck,
   updateInstall,
+  workspaceList,
 } from './ipc/commands'
 import { useRepoEvents } from './hooks/useRepoEvents'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -47,14 +51,25 @@ import {
   parseLayout,
   type LayoutPreferences,
 } from './lib/layout'
+import { applyBackground } from './lib/background'
+import {
+  BACKGROUND_KEY,
+  SPLASH_KEY,
+  parseMediaSettings,
+  serializeMediaSettings,
+  type MediaSettings,
+} from './lib/mediaSettings'
 import {
   DEFAULT_SHORTCUTS,
+  displayShortcut,
   findConflicts,
   normalizeShortcut,
   type ShortcutAction,
   type ShortcutMap,
 } from './lib/shortcuts'
-import type { ChangeEvent, RecentRepo, RepoView, UndoStatus } from './types/git'
+import { normalizeRepoPath } from './lib/workspace'
+import { undoActionLabel, undoButtonLabel, undoNotice } from './lib/undoLabel'
+import type { ChangeEvent, RecentRepo, RepoView, UndoStatus, Workspace } from './types/git'
 import type { CloneInput, InitInput } from './ipc/commands'
 import styles from './App.module.css'
 
@@ -64,13 +79,15 @@ const THEME_KEY = 'ui.theme'
 const SHORTCUTS_KEY = 'ui.shortcuts'
 const DENSITY_KEY = 'ui.density'
 const LAYOUT_KEY = 'ui.layout'
+const ACTIVE_WORKSPACE_KEY = 'ui.activeWorkspace'
+const WORKSPACE_LAST_REPO_KEY = 'ui.workspaceLastRepo'
 
 type Theme = 'dark' | 'light' | 'system'
 type Density = 'compact' | 'comfortable'
 
-const VIEW_LABELS = Object.fromEntries(navigationGroups.flatMap((group) => group.items.map((item) => [item.id, item.label]))) as Record<ViewId, string>
-VIEW_LABELS.commit = 'Modifications'
-VIEW_LABELS.diff = 'Comparaison'
+const VIEW_LABELS = Object.fromEntries(navigationGroups.flatMap((group) => group.items.map((item) => [item.id, item.labelKey]))) as Record<ViewId, MessageKey>
+VIEW_LABELS.commit = 'nav.status'
+VIEW_LABELS.diff = 'nav.comparison'
 
 function applyTheme(theme: Theme) {
   if (theme === 'system') {
@@ -88,6 +105,13 @@ export default function App() {
   const [repos, setRepos] = useState<RepoView[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [view, setView] = useState<ViewId>('graph')
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
+  const [switching, setSwitching] = useState(false)
+  // Last focused repository per workspace, so switching back restores it.
+  const workspaceLastRepo = useRef<Record<string, string>>({})
   // Latest version offered by the signed manifest, surfaced in the header.
   const [availableUpdate, setAvailableUpdate] = useState<string | null>(null)
   const [dismissedUpdate, setDismissedUpdate] = useState<string | null>(null)
@@ -117,9 +141,24 @@ export default function App() {
   const [undoState, setUndoState] = useState<UndoStatus | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>('dark')
+  const [locale, setLocaleState] = useState<Locale>(detectLocale)
+  // `App` renders outside the provider (it owns the switching state), so the
+  // module-level language must be current before its own `t` calls run.
+  setLocale(locale)
   const [density, setDensity] = useState<Density>('comfortable')
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(DEFAULT_SHORTCUTS)
   const [layout, setLayout] = useState<LayoutPreferences>(defaultLayout)
+  const [background, setBackground] = useState<MediaSettings | null>(null)
+  // Decoded `data:` URL for the wallpaper; kept out of state serialization
+  // paths because it can be tens of megabytes.
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null)
+  const [backgroundError, setBackgroundError] = useState<string | null>(null)
+  // The splash window reads its own image at boot, so the shell only needs the
+  // persisted settings here.
+  const [splash, setSplash] = useState<MediaSettings | null>(null)
+  const [splashError, setSplashError] = useState<string | null>(null)
+  const backgroundToken = useRef(0)
+  const splashToken = useRef(0)
   const restored = useRef(false)
 
   const repo = repos.find((entry) => entry.repo.repoId === activeId) ?? null
@@ -165,6 +204,15 @@ export default function App() {
     }
   }, [])
 
+  const rememberWorkspaceRepo = useCallback((workspaceId: string | null, repoId: string | null) => {
+    if (!workspaceId || !repoId) {
+      return
+    }
+    const next = { ...workspaceLastRepo.current, [workspaceId]: repoId }
+    workspaceLastRepo.current = next
+    void preferenceSet(WORKSPACE_LAST_REPO_KEY, JSON.stringify(next))
+  }, [])
+
   const moveRepo = useCallback((repoId: string, targetId: string, side: 'before' | 'after') => {
     if (repoId === targetId) return
     setRepos((current) => {
@@ -184,6 +232,23 @@ export default function App() {
     }
   }, [hydrated, repos, activeId, persist])
 
+  useEffect(() => {
+    if (!hydrated) {
+      return
+    }
+    void preferenceSet(ACTIVE_WORKSPACE_KEY, activeWorkspaceId ?? '')
+  }, [hydrated, activeWorkspaceId])
+
+  // A workspace deleted from the management screen no longer names the tab set.
+  useEffect(() => {
+    if (!workspacesLoaded || !activeWorkspaceId) {
+      return
+    }
+    if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) {
+      setActiveWorkspaceId(null)
+    }
+  }, [workspacesLoaded, workspaces, activeWorkspaceId])
+
   // Resizing fires continuously; persist once the drag settles.
   useEffect(() => {
     if (!hydrated) {
@@ -198,6 +263,25 @@ export default function App() {
   const changeLayout = useCallback((patch: Partial<LayoutPreferences>) => {
     setLayout((current) => ({ ...current, ...patch }))
   }, [])
+
+  // Wallpaper settings are applied through CSS variables on <html>; the image
+  // itself is a data URL that must not be re-diffed on every render.
+  useEffect(() => {
+    applyBackground(background, backgroundUrl)
+  }, [background, backgroundUrl])
+
+  // Sliders fire continuously; persist once the drag settles. The splash uses
+  // the same schema but is read by its own window at the next boot.
+  useEffect(() => {
+    if (!hydrated) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void preferenceSet(BACKGROUND_KEY, serializeMediaSettings(background))
+      void preferenceSet(SPLASH_KEY, serializeMediaSettings(splash))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [hydrated, background, splash])
 
   useEffect(() => {
     void reloadRecent()
@@ -227,13 +311,17 @@ export default function App() {
               paths = parsed.filter((value): value is string => typeof value === 'string')
             }
           } catch {
-            setError('La liste des dépôts ouverts est illisible ; elle a été ignorée.')
+            setError(t('shell.notice.openReposUnreadable'))
           }
         }
         const activePath = await preferenceGet(ACTIVE_REPO_KEY)
         const themeRaw = await preferenceGet(THEME_KEY)
         if (themeRaw === 'light' || themeRaw === 'dark' || themeRaw === 'system') {
           setTheme(themeRaw)
+        }
+        const languageRaw = await preferenceGet(LANGUAGE_PREFERENCE_KEY)
+        if (isLocale(languageRaw)) {
+          setLocaleState(languageRaw)
         }
         const densityRaw = await preferenceGet(DENSITY_KEY)
         if (densityRaw === 'compact' || densityRaw === 'comfortable') {
@@ -243,6 +331,17 @@ export default function App() {
         if (layoutRaw) {
           setLayout(parseLayout(layoutRaw))
         }
+        const backgroundRaw = await preferenceGet(BACKGROUND_KEY)
+        const storedBackground = parseMediaSettings(backgroundRaw)
+        if (storedBackground) {
+          setBackground(storedBackground)
+          try {
+            setBackgroundUrl(await backgroundRead(storedBackground.path))
+          } catch (cause) {
+            setBackgroundError(errorMessage(cause))
+          }
+        }
+        setSplash(parseMediaSettings(await preferenceGet(SPLASH_KEY)))
         const shortcutsRaw = await preferenceGet(SHORTCUTS_KEY)
         if (shortcutsRaw) {
           try {
@@ -264,6 +363,40 @@ export default function App() {
           } catch {
             // Keep the defaults when the stored shortcut map is corrupt.
           }
+        }
+        try {
+          const [storedWorkspaces, storedActiveWorkspace, storedLastRepo] =
+            await Promise.all([
+              workspaceList().catch(() => [] as Workspace[]),
+              preferenceGet(ACTIVE_WORKSPACE_KEY),
+              preferenceGet(WORKSPACE_LAST_REPO_KEY),
+            ])
+          setWorkspaces(storedWorkspaces)
+          if (storedActiveWorkspace) {
+            setActiveWorkspaceId(
+              storedWorkspaces.some(
+                (workspace) => workspace.id === storedActiveWorkspace,
+              )
+                ? storedActiveWorkspace
+                : null,
+            )
+          }
+          if (storedLastRepo) {
+            const parsed: unknown = JSON.parse(storedLastRepo)
+            if (parsed && typeof parsed === 'object') {
+              const map: Record<string, string> = {}
+              for (const [id, repoId] of Object.entries(parsed)) {
+                if (typeof repoId === 'string') {
+                  map[id] = repoId
+                }
+              }
+              workspaceLastRepo.current = map
+            }
+          }
+        } catch {
+          // Workspaces are a convenience; the tab strip still restores.
+        } finally {
+          setWorkspacesLoaded(true)
         }
         if (paths.length === 0) {
           return
@@ -337,8 +470,8 @@ export default function App() {
       setAvailableUpdate(null)
       setNotice(
         result.restarting
-          ? `Version ${result.installedVersion} installée. Redémarrage…`
-          : `Version ${result.installedVersion} installée.`,
+          ? t('shell.notice.installedRestart', { version: result.installedVersion })
+          : t('shell.notice.installed', { version: result.installedVersion }),
       )
     } catch (cause) {
       setError(errorMessage(cause))
@@ -493,6 +626,146 @@ export default function App() {
     [reloadRecent, upsert],
   )
 
+  /**
+   * Replace the open tabs with the repositories of a workspace, in the order
+   * the workspace stores them. A repository that already has a tab keeps it;
+   * a clean tab outside the workspace closes, while a tab with an operation in
+   * progress or unresolved conflicts stays open rather than losing work.
+   */
+  const switchWorkspace = useCallback(
+    async (workspaceId: string) => {
+      const target = workspaces.find((workspace) => workspace.id === workspaceId)
+      if (!target || switching) {
+        return
+      }
+      setWorkspaceMenuOpen(false)
+      setLauncherOpen(false)
+      setError(null)
+      setNotice(null)
+      setSwitching(true)
+      try {
+        const openByPath = new Map<string, RepoView>()
+        for (const entry of repos) {
+          const path = normalizeRepoPath(entry.repo.worktree)
+          if (!openByPath.has(path)) {
+            openByPath.set(path, entry)
+          }
+        }
+        const wanted = new Map<string, Workspace['repos'][number]>()
+        for (const entry of target.repos) {
+          const path = normalizeRepoPath(entry.path)
+          if (!wanted.has(path)) {
+            wanted.set(path, entry)
+          }
+        }
+        const reusable = new Map<string, RepoView>()
+        const toOpen: Workspace['repos'] = []
+        for (const [path, entry] of wanted) {
+          const existing = openByPath.get(path)
+          if (existing) {
+            reusable.set(path, existing)
+          } else {
+            toOpen.push(entry)
+          }
+        }
+        const failures: string[] = []
+        const opened = await Promise.all(
+          toOpen.map(async (entry) => {
+            try {
+              return {
+                path: normalizeRepoPath(entry.path),
+                view: await repoOpen(entry.path),
+              }
+            } catch {
+              failures.push(entry.name ?? entry.path)
+              return null
+            }
+          }),
+        )
+        // Never tear down a working tab set to land on an empty, broken one.
+        if (
+          wanted.size > 0 &&
+          reusable.size === 0 &&
+          opened.every((entry) => entry === null)
+        ) {
+          setError(t('shell.workspace.noneOpened', { name: target.name }))
+          return
+        }
+        const byPath = new Map(reusable)
+        for (const entry of opened) {
+          if (entry) {
+            byPath.set(entry.path, entry.view)
+          }
+        }
+        const ordered: RepoView[] = []
+        const workspaceIds = new Set<string>()
+        for (const path of wanted.keys()) {
+          const view = byPath.get(path)
+          if (!view || workspaceIds.has(view.repo.repoId)) {
+            continue
+          }
+          workspaceIds.add(view.repo.repoId)
+          ordered.push(view)
+        }
+        const dropped = repos.filter((entry) => !workspaceIds.has(entry.repo.repoId))
+        const closable = dropped.filter(
+          (entry) => !entry.state.operation && entry.state.conflicts.files.length === 0,
+        )
+        const closed = new Set<string>()
+        await Promise.all(
+          closable.map(async (entry) => {
+            try {
+              if (await repoCloseChecked(entry.repo.repoId)) {
+                closed.add(entry.repo.repoId)
+              }
+            } catch {
+              // The session refused to close: keep the tab visible.
+            }
+          }),
+        )
+        const kept = dropped.filter((entry) => !closed.has(entry.repo.repoId))
+        const remembered = workspaceLastRepo.current[workspaceId]
+        const focus =
+          ordered.find((entry) => entry.repo.repoId === remembered) ??
+          ordered[0] ??
+          kept[0] ??
+          null
+        setRepos([...ordered, ...kept])
+        setActiveId(focus?.repo.repoId ?? null)
+        setGeneration(focus?.generation ?? 0)
+        setDiffRequest(null)
+        setActiveWorkspaceId(workspaceId)
+        rememberWorkspaceRepo(workspaceId, focus?.repo.repoId ?? null)
+        if (focus) {
+          try {
+            const refreshed = await repoGetState(focus.repo.repoId)
+            upsert(refreshed, false)
+          } catch {
+            // The tab stays usable with the state it already has.
+          }
+        }
+        await reloadRecent()
+        const keptNote =
+          kept.length > 0
+            ? ` ${plural('shell.workspace.kept.one', 'shell.workspace.kept.other', kept.length)}`
+            : ''
+        setNotice(
+          ordered.length > 0
+            ? plural('shell.workspace.opened.one', 'shell.workspace.opened.other', ordered.length, { name: target.name, note: keptNote })
+            : t('shell.workspace.empty', { name: target.name, note: keptNote }),
+        )
+        if (failures.length > 0) {
+          setError(t('shell.workspace.unavailable', { list: failures.join(', ') }))
+        }
+      } catch (cause) {
+        setError(errorMessage(cause))
+      } finally {
+        setSwitching(false)
+      }
+    },
+    [repos, workspaces, switching, rememberWorkspaceRepo, reloadRecent, upsert],
+  )
+
   const cloneRepo = async (input: CloneInput) => {
     setBusy(true)
     try {
@@ -531,6 +804,7 @@ export default function App() {
     setGeneration(existing.generation)
     setLauncherOpen(false)
     setDiffRequest(null)
+    rememberWorkspaceRepo(activeWorkspaceId, target)
     try {
       const refreshed = await repoGetState(target)
       upsert(refreshed, false)
@@ -582,7 +856,7 @@ export default function App() {
     try {
       const outcome =
         direction === 'undo' ? await undoApply(repoId) : await redoApply(repoId)
-      setNotice(outcome.message)
+      setNotice(undoNotice(outcome.record, direction))
       const fresh = await repoGetState(repoId)
       upsert(fresh, false)
       setGeneration(fresh.generation)
@@ -628,10 +902,78 @@ export default function App() {
     void preferenceSet(THEME_KEY, next)
   }
 
+  const changeLocale = useCallback((next: Locale) => {
+    setLocaleState(next)
+    void preferenceSet(LANGUAGE_PREFERENCE_KEY, next)
+  }, [])
+
   const changeDensity = (next: Density) => {
     setDensity(next)
     void preferenceSet(DENSITY_KEY, next)
   }
+
+  /**
+   * Selecting a new file decodes it once; adjusting fit, dim or blur reuses the
+   * URL already in memory instead of re-reading a possibly huge GIF.
+   */
+  const changeBackground = useCallback(
+    async (next: MediaSettings | null) => {
+      const token = ++backgroundToken.current
+      if (!next) {
+        setBackground(null)
+        setBackgroundUrl(null)
+        setBackgroundError(null)
+        return
+      }
+      setBackgroundError(null)
+      setBackground(next)
+      if (background?.path === next.path && backgroundUrl) {
+        return
+      }
+      try {
+        const url = await backgroundRead(next.path)
+        if (token === backgroundToken.current) {
+          setBackgroundUrl(url)
+        }
+      } catch (cause) {
+        if (token === backgroundToken.current) {
+          setBackgroundUrl(null)
+          setBackgroundError(errorMessage(cause))
+        }
+      }
+    },
+    [background?.path, backgroundUrl],
+  )
+
+  /**
+   * The splash window decodes the file itself at the next boot, so the shell
+   * only validates the selection: a rejected file never reaches the preference
+   * and leaves the previous splash in place.
+   */
+  const changeSplash = useCallback(
+    async (next: MediaSettings | null) => {
+      const token = ++splashToken.current
+      setSplashError(null)
+      if (!next) {
+        setSplash(null)
+        return
+      }
+      if (next.path !== splash?.path) {
+        try {
+          await backgroundRead(next.path)
+        } catch (cause) {
+          if (token === splashToken.current) {
+            setSplashError(errorMessage(cause))
+          }
+          return
+        }
+      }
+      if (token === splashToken.current) {
+        setSplash(next)
+      }
+    },
+    [splash?.path],
+  )
 
   const openDiff = (request: Parameters<typeof Workbench>[0]['diffRequest']) => {
     if (view !== 'diff') setPreviousView(view)
@@ -660,7 +1002,7 @@ export default function App() {
 
   const pickCloneDirectory = useCallback(async (defaultPath?: string) => {
     const selected = await openNativeDialog({
-      title: 'Choisir le dossier de destination',
+      title: t('shell.dialog.cloneDestination'),
       directory: true,
       multiple: false,
       defaultPath,
@@ -670,7 +1012,7 @@ export default function App() {
 
   const pickInitParent = useCallback(async (defaultPath?: string) => {
     const selected = await openNativeDialog({
-      title: 'Choisir le dossier parent',
+      title: t('shell.dialog.initParent'),
       directory: true,
       multiple: false,
       defaultPath,
@@ -704,7 +1046,7 @@ export default function App() {
     setError(null)
     try {
       const path = await openNativeDialog({
-        title:'Ouvrir un dépôt Git',
+        title: t('shell.dialog.openRepo'),
         directory:true,
         multiple:false,
         defaultPath:recent[0]?.path,
@@ -722,83 +1064,83 @@ export default function App() {
     const items: PaletteCommand[] = navigationGroups.flatMap((group) =>
       group.items.filter((item) => item.id !== 'commit' && item.id !== 'diff').map((item) => ({
         id: `view-${item.id}`,
-        label: `Aller à ${item.label}`,
-        group: group.label,
+        label: t('shell.palette.goTo', { view: t(item.labelKey) }),
+        group: t(group.labelKey),
         available: !item.requiresRepo || Boolean(repoId),
-        unavailableReason: 'Ouvrez un dépôt pour utiliser cette vue.',
+        unavailableReason: t('shell.palette.unavailable.viewRepo'),
         run: () => navigate(item.id),
       })),
     )
     items.push(
       {
         id: 'action-open-repo',
-        label: 'Ouvrir un dépôt…',
-        group: 'Actions',
+        label: t('shell.palette.openRepo'),
+        group: t('shell.palette.group.actions'),
         shortcut: '⌘O',
         run: () => openRepositoryDialog(),
       },
       {
         id: 'action-launcher',
-        label: 'Nouvel onglet : ouvrir ou cloner un dépôt…',
-        group: 'Actions',
+        label: t('shell.palette.newTab'),
+        group: t('shell.palette.group.actions'),
         shortcut: '⌘T',
         run: () => openLauncher(),
       },
       {
         id: 'action-refresh',
-        label: 'Rafraîchir le dépôt',
-        group: 'Actions',
+        label: t('shell.palette.refresh'),
+        group: t('shell.palette.group.actions'),
         available: Boolean(repoId),
-        unavailableReason: 'Ouvrez un dépôt.',
+        unavailableReason: t('shell.palette.unavailable.repo'),
         run: () => void refresh(),
       },
       {
         id: 'action-conflicts',
-        label: 'Résoudre les conflits',
-        group: 'Actions',
+        label: t('shell.palette.resolveConflicts'),
+        group: t('shell.palette.group.actions'),
         available: Boolean(repoId),
         run: () => navigate('conflicts'),
       },
       {
         id: 'action-new-branch',
-        label: 'Nouvelle branche…',
-        group: 'Git',
+        label: t('shell.palette.newBranch'),
+        group: t('shell.palette.group.git'),
         shortcut: '⌘B',
         available: Boolean(repoId),
-        unavailableReason: 'Ouvrez un dépôt.',
+        unavailableReason: t('shell.palette.unavailable.repo'),
         run: newBranch,
       },
       {
         id: 'action-rebase',
-        label: 'Rebase interactif…',
-        group: 'Actions',
+        label: t('shell.palette.rebase'),
+        group: t('shell.palette.group.actions'),
         available: Boolean(repoId),
         run: () => navigate('rebase'),
       },
       {
         id: 'action-undo',
-        label: undoState?.undo?.undoLabel ?? 'Annuler la dernière opération',
-        group: 'Git',
+        label: undoState?.undo ? undoButtonLabel(undoState.undo, 'undo') : t('shell.palette.undoFallback'),
+        group: t('shell.palette.group.git'),
         shortcut: '⌘Z',
         available: Boolean(repoId && undoState?.undo),
-        unavailableReason: 'Aucune opération annulable.',
+        unavailableReason: t('shell.palette.unavailable.nothingToUndo'),
         run: () => void performUndo('undo'),
       },
       {
         id: 'action-redo',
-        label: undoState?.redo?.redoLabel ?? 'Rétablir la dernière annulation',
-        group: 'Git',
+        label: undoState?.redo ? undoButtonLabel(undoState.redo, 'redo') : t('shell.palette.redoFallback'),
+        group: t('shell.palette.group.git'),
         shortcut: '⌘⇧Z',
         available: Boolean(repoId && undoState?.redo),
-        unavailableReason: 'Aucune opération à rétablir.',
+        unavailableReason: t('shell.palette.unavailable.nothingToRedo'),
         run: () => void performUndo('redo'),
       },
       {
         id: 'action-fetch',
-        label: 'Fetch origin',
-        group: 'Git',
+        label: t('shell.palette.fetch'),
+        group: t('shell.palette.group.git'),
         available: Boolean(repoId),
-        unavailableReason: 'Ouvrez un dépôt.',
+        unavailableReason: t('shell.palette.unavailable.repo'),
         run: () => {
           if (repoId) {
             void syncFetch(repoId, 'origin')
@@ -809,10 +1151,10 @@ export default function App() {
       },
       {
         id: 'action-pull',
-        label: 'Pull la branche courante',
-        group: 'Git',
+        label: t('shell.palette.pull'),
+        group: t('shell.palette.group.git'),
         available: Boolean(repoId && repo?.state.head?.kind === 'branch' && repo.state.head.upstream),
-        unavailableReason: 'Une branche avec upstream est requise.',
+        unavailableReason: t('shell.palette.unavailable.upstream'),
         run: () => {
           if (!repoId || repo?.state.head?.kind !== 'branch' || !repo.state.head.upstream) {
             return
@@ -825,10 +1167,10 @@ export default function App() {
       },
       {
         id: 'action-push',
-        label: 'Push la branche courante',
-        group: 'Git',
+        label: t('shell.palette.push'),
+        group: t('shell.palette.group.git'),
         available: Boolean(repoId && repo?.state.head?.kind === 'branch' && repo.state.head.upstream),
-        unavailableReason: 'Une branche avec upstream est requise.',
+        unavailableReason: t('shell.palette.unavailable.upstream'),
         run: () => {
           if (!repoId || repo?.state.head?.kind !== 'branch' || !repo.state.head.upstream) {
             return
@@ -841,33 +1183,48 @@ export default function App() {
       },
       {
         id: 'action-theme',
-        label: 'Basculer le thème sombre / clair',
-        group: 'Système',
+        label: t('shell.palette.toggleTheme'),
+        group: t('shell.palette.group.system'),
         run: () => changeTheme(theme === 'light' ? 'dark' : 'light'),
       },
       {
         id: 'action-settings',
-        label: 'Profils et réglages',
-        group: 'Système',
+        label: t('shell.palette.settings'),
+        group: t('shell.palette.group.system'),
         shortcut: '⌘,',
         run: () => navigate('profiles'),
       },
       {
         id: 'action-init-repo',
-        label: 'Créer un dépôt local',
-        group: 'Système',
+        label: t('shell.palette.createRepo'),
+        group: t('shell.palette.group.system'),
         run: () => openInitDialog(),
       },
       {
         id: 'action-close',
-        label: 'Fermer le dépôt actif',
-        group: 'Système',
+        label: t('shell.palette.closeRepo'),
+        group: t('shell.palette.group.system'),
         available: Boolean(repoId),
         run: () => repoId && requestClose(repoId),
       },
     )
+    for (const workspace of workspaces) {
+      const selected = workspace.id === activeWorkspaceId
+      const count = workspace.repos.length
+      items.push({
+        id: `workspace-${workspace.id}`,
+        label: selected
+          ? plural('shell.palette.workspaceActive.one', 'shell.palette.workspaceActive.other', count, { name: workspace.name })
+          : plural('shell.palette.workspace.one', 'shell.palette.workspace.other', count, { name: workspace.name }),
+        group: t('shell.palette.group.workspaces'),
+        shortcut: displayShortcut(shortcuts.workspaces),
+        available: !switching,
+        unavailableReason: t('shell.palette.unavailable.workspaceSwitching'),
+        run: () => void switchWorkspace(workspace.id),
+      })
+    }
     return items
-  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo])
+  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale])
 
   useZoom()
 
@@ -878,6 +1235,7 @@ export default function App() {
     search: () => repoId && navigate('search'),
     openRepo: () => openRepositoryDialog(),
     newTab: openLauncher,
+    workspaces: () => setWorkspaceMenuOpen(true),
     undo: () => void performUndo('undo'),
     redo: () => void performUndo('redo'),
     close: () => {
@@ -894,12 +1252,20 @@ export default function App() {
     repo?.state.head?.kind === 'branch' ? repo.state.head.name : null
 
   return (
+    <I18nProvider locale={locale} onChange={changeLocale}>
     <div
       className={styles.app}
+      data-background={background && backgroundUrl ? 'image' : undefined}
       style={{ '--sidebar-width': `${layout.sidebar}px` } as CSSProperties}
     >
+      {background && backgroundUrl ? (
+        <div className={styles.background} aria-hidden="true">
+          <div className={styles.backgroundImage} />
+          <div className={styles.backgroundDim} />
+        </div>
+      ) : null}
       <a href="#main-content" className="skip-link">
-        Aller au contenu principal
+        {t('shell.skipToContent')}
       </a>
       <TopBar
         repos={repos}
@@ -917,6 +1283,21 @@ export default function App() {
         updateBusy={installingUpdate}
         onInstallUpdate={() => void installUpdate()}
         user={forgeUser}
+        workspaceSelector={
+          <WorkspaceSwitcher
+            workspaces={workspaces}
+            activeId={activeWorkspaceId}
+            busy={busy || switching}
+            open={workspaceMenuOpen}
+            onOpenChange={setWorkspaceMenuOpen}
+            onSelect={(workspaceId) => void switchWorkspace(workspaceId)}
+            onManage={() => {
+              setWorkspaceMenuOpen(false)
+              navigate('workspaces')
+            }}
+            shortcut={shortcuts.workspaces}
+          />
+        }
       />
       {availableUpdate && dismissedUpdate !== availableUpdate ? (
         <UpdateNotice
@@ -959,7 +1340,7 @@ export default function App() {
         <main id="main-content" tabIndex={-1} className={styles.main} aria-busy={busy}>
           <Resizer
             className={styles.sidebarResizer}
-            label="Redimensionner la navigation"
+            label={t('shell.resizer.navigation')}
             side="right"
             value={layout.sidebar}
             min={SIDEBAR_MIN}
@@ -968,11 +1349,11 @@ export default function App() {
             onReset={() => changeLayout({ sidebar: 210 })}
           />
           <div className={`${styles.viewbar} ${view === 'graph' && repo ? styles.compactViewbar : ''}`}>
-            {view === 'diff' ? <button type="button" className={styles.back} onClick={() => navigate(previousView)}>← Retour</button> : null}
+            {view === 'diff' ? <button type="button" className={styles.back} onClick={() => navigate(previousView)}>{t('shell.viewbar.back')}</button> : null}
             <div className={styles.viewHeading}>
-              <h1>{showStart ? 'Bienvenue' : VIEW_LABELS[view]}</h1>
+              <h1>{showStart ? t('shell.welcome') : t(VIEW_LABELS[view])}</h1>
               {!showStart && viewDescriptions[view] ? (
-                <p>{viewDescriptions[view]}</p>
+                <p>{t(viewDescriptions[view]!)}</p>
               ) : null}
             </div>
             {repo ? (
@@ -980,25 +1361,25 @@ export default function App() {
             ) : null}
             <span className={styles.spacer} />
 
-            {busy ? <span className={styles.busy}>travail en cours…</span> : null}
+            {busy ? <span className={styles.busy}>{t('shell.viewbar.working')}</span> : null}
           </div>
 
           {repo &&
           (repo.state.operation || repo.state.conflicts.files.length > 0) ? (
             <div className={styles.intermediate} role="status">
               <span>
-                Opération en cours :{' '}
+                {t('shell.operation.inProgress')}{' '}
                 {repo.state.operation
                   ? repo.state.operation.kind === 'rebase'
-                    ? `rebase (${repo.state.operation.variant})`
+                    ? t('shell.operation.rebaseVariant', { variant: repo.state.operation.variant })
                     : repo.state.operation.kind
-                  : 'conflits'}
+                  : t('shell.operation.conflicts')}
                 {repo.state.conflicts.files.length > 0
-                  ? ` · ${repo.state.conflicts.files.length} fichier(s) en conflit`
+                  ? ` · ${plural('shell.operation.conflictFiles.one', 'shell.operation.conflictFiles.other', repo.state.conflicts.files.length)}`
                   : ''}
               </span>
               <button type="button" onClick={() => navigate('conflicts')}>
-                Résoudre
+                {t('shell.operation.resolve')}
               </button>
               <button
                 type="button"
@@ -1008,7 +1389,7 @@ export default function App() {
                   )
                 }
               >
-                Gérer
+                {t('shell.operation.manage')}
               </button>
             </div>
           ) : null}
@@ -1023,7 +1404,7 @@ export default function App() {
             <div className={styles.error} role="alert">
               <span>{error}</span>
               <button type="button" onClick={() => setError(null)}>
-                Fermer
+                {t('common.close')}
               </button>
             </div>
           ) : null}
@@ -1060,6 +1441,12 @@ export default function App() {
                 onThemeChange={changeTheme}
                 density={density}
                 onDensityChange={changeDensity}
+                background={background}
+                backgroundError={backgroundError}
+                onBackgroundChange={(next) => void changeBackground(next)}
+                splash={splash}
+                splashError={splashError}
+                onSplashChange={(next) => void changeSplash(next)}
                 shortcuts={shortcuts}
                 onShortcutsChange={(next) => {
                   setShortcuts(next)
@@ -1067,6 +1454,9 @@ export default function App() {
                 }}
                 layout={layout}
                 onLayoutChange={changeLayout}
+                activeWorkspaceId={activeWorkspaceId}
+                onActivateWorkspace={(workspaceId) => void switchWorkspace(workspaceId)}
+                onWorkspacesChanged={setWorkspaces}
               />
             )}
           </div>
@@ -1076,7 +1466,7 @@ export default function App() {
         repo={repo}
         gitlabConnected={gitlabConnected}
         githubConnected={githubConnected}
-        lastOperation={undoState?.undo?.undoLabel ?? undoState?.undo?.label ?? null}
+        lastOperation={undoState?.undo ? undoActionLabel(undoState.undo) : null}
         canUndo={Boolean(undoState?.undo)}
         onNavigate={navigate}
         onCheckoutBranch={checkoutBranch}
@@ -1099,14 +1489,17 @@ export default function App() {
       />
       <ConfirmDialog
         open={pendingClose !== null}
-        title="Fermer un onglet avec une opération en cours"
+        title={t('shell.closeTab.title')}
         consequence={
           pendingClose?.state.operation
-            ? `Le dépôt ${pendingClose?.repo.name ?? ''} a une opération Git en cours (${pendingClose.state.operation.kind}). La fermeture ne résout rien : l'état devra être vérifié à la réouverture.`
-            : `Le dépôt ${pendingClose?.repo.name ?? ''} contient des conflits non résolus. La fermeture ne les résout pas.`
+            ? t('shell.closeTab.operation', {
+                repo: pendingClose.repo.name,
+                operation: pendingClose.state.operation.kind,
+              })
+            : t('shell.closeTab.conflicts', { repo: pendingClose?.repo.name ?? '' })
         }
         irreversible
-        confirmLabel="Fermer l'onglet"
+        confirmLabel={t('shell.closeTab.confirmLabel')}
         onCancel={() => setPendingClose(null)}
         onConfirm={() => {
           const target = pendingClose
@@ -1117,5 +1510,6 @@ export default function App() {
         }}
       />
     </div>
+    </I18nProvider>
   )
 }

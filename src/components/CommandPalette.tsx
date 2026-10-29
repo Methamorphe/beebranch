@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useModal } from '../hooks/useModal'
+import { useI18n } from '../i18n'
 import styles from './CommandPalette.module.css'
 
 export type PaletteCommand = {
@@ -45,6 +46,7 @@ function score(query: string, label: string): number | null {
 }
 
 export function CommandPalette({ open, commands, onClose }: Props) {
+  const { t } = useI18n()
   const modalRef = useModal(open, onClose)
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
@@ -129,15 +131,15 @@ export function CommandPalette({ open, commands, onClose }: Props) {
           value={query}
             data-autofocus
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Rechercher une action, une vue…"
+          placeholder={t('shell.palette.searchPlaceholder')}
           role="combobox" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list"
           aria-activedescendant={filtered[index] ? `command-${filtered[index].id}` : undefined}
-          aria-label="Rechercher une commande"
+          aria-label={t('shell.palette.searchAria')}
           spellCheck={false}
         />
         <div className={styles.commands} ref={listRef} role="listbox" id="palette-results" aria-label="Commandes">
           {filtered.length === 0 ? (
-            <p className={styles.empty}>Aucune commande ne correspond.</p>
+            <p className={styles.empty}>{t('shell.palette.empty')}</p>
           ) : null}
           {filtered.map((command, position) => (
             <button
@@ -171,7 +173,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
         </div>
         <div className={styles.footer}>
           ↑ ↓ naviguer · ↵ exécuter
-          <span>esc pour fermer</span>
+          <span>{t('shell.palette.escape')}</span>
         </div>
       </div>
     </div>

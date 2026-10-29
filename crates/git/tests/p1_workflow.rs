@@ -3,7 +3,7 @@ mod common;
 use beebranch_git::branches;
 use beebranch_git::commit::{self, CommitOptions};
 use beebranch_git::diff::{read_diff, DiffLimits, DiffTarget};
-use beebranch_git::history;
+use beebranch_git::history::{self, MergeFastForward};
 use beebranch_git::index::{self, HunkSelection, PathSelection};
 use beebranch_git::stash;
 use beebranch_git::sync::{self, PushRequest, SyncKind};
@@ -112,7 +112,13 @@ fn full_daily_workflow_without_external_git_commands() {
     fixture.switch("main");
     fixture.commit("a.txt", "line 1\nmain change\nline 3\n", "fix: main change");
     fixture.switch("feature/workflow");
-    let outcome = history::merge(fixture.runner(), fixture.path(), "main", false).expect("merge");
+    let outcome = history::merge(
+        fixture.runner(),
+        fixture.path(),
+        "main",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
     assert!(outcome.conflicted);
     fixture.write("a.txt", "line 1\nresolved\nline 3\nline 4 added\n");
     history::mark_resolved(fixture.runner(), fixture.path(), "a.txt").expect("resolve");

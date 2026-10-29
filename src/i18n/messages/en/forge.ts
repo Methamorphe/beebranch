@@ -1,0 +1,201 @@
+const messages = {
+  // Identity of each forge: the brand stays as-is, the review noun and the
+  // list title are translated like any other label.
+  'forge.gitlab.noun': 'merge request',
+  'forge.gitlab.title': 'Merge requests',
+  'forge.github.noun': 'pull request',
+  'forge.github.title': 'Pull requests',
+
+  // Review filters.
+  'forge.scope.createdByMe': 'My {short}s',
+  'forge.scope.reviewsForMe': 'To review',
+  'forge.scope.assignedToMe': 'Assigned to me',
+  'forge.scope.project': 'Project',
+
+  // Connection panel.
+  'forge.connect.gitlab.title': 'Self-hosted GitLab',
+  'forge.connect.gitlab.description':
+    'REST v4, Personal Access Token (scopes {api}, {readUser}, and {readRepository} to clone over HTTPS). The token is stored in the keychain and is never sent back to the frontend. Credentials already managed by Git — macOS keychain, Windows Credential Manager, {gitCredentialFill}, or {gitCredentials} — are detected and reused automatically, with no token to copy. For gitlab.com, “Sign in with GitLab.com” opens the OAuth device flow: a code to enter in the browser, no token to create.',
+  'forge.connect.github.description':
+    'REST v3, Personal Access Token (scopes {repo}, {readUser}, and {checksRead} for the CI status). GitHub Enterprise Server is supported. The token is stored in the keychain and is never sent back to the frontend. Credentials already managed by Git — macOS keychain, Windows Credential Manager, {ghCredential}, {gitCredentialFill}, or {gitCredentials} — are detected and reused automatically, with no token to copy. For github.com, “Sign in with GitHub” opens the OAuth device flow: a code to enter in the browser, no token to create.',
+  'forge.connect.github.devicePrompt': 'Open {url} and enter this code:',
+  'forge.connect.github.deviceWaiting': 'Waiting for GitHub authorization…',
+  'forge.connect.github.deviceButton': 'Sign in with GitHub',
+  'forge.connect.gitlab.devicePrompt': 'Open {url} and enter this code:',
+  'forge.connect.gitlab.deviceWaiting': 'Waiting for GitLab authorization…',
+  'forge.connect.gitlab.deviceButton': 'Sign in with GitLab.com',
+  'forge.connect.badge.connected': 'connected',
+  'forge.connect.badge.viaGit': 'via Git',
+  'forge.connect.instanceActive': 'active instance',
+  'forge.connect.gitlab.connectedName': 'Connected GitLab instance',
+  'forge.connect.github.connectedName': 'Connected GitHub instance',
+  'forge.connect.changeInstance': 'Change instance',
+  'forge.connect.disconnect': 'Disconnect',
+  'forge.connect.submit': 'Connect',
+  'forge.connect.validating': 'Validating…',
+  'forge.connect.useGitCredentials': 'Use my Git credentials',
+  'forge.connect.urlLabel': 'Instance URL',
+  'forge.connect.tokenLabel': 'Personal Access Token',
+  'forge.connect.createToken': 'Create a token with the required scopes',
+  'forge.connect.displayNameLabel': 'Display name (optional)',
+  'forge.connect.displayNamePlaceholderGitlab': 'Internal GitLab',
+  'forge.connect.displayNamePlaceholderGithub': 'GitHub Enterprise',
+  'forge.connect.caLabel': 'Internal CA PEM (optional)',
+  'forge.connect.alreadyConnected':
+    'An instance is already connected. Connecting to another instance replaces the active session for the application.',
+  'forge.connect.missingToken':
+    'Known instance ({url}) but no local token. Enter a Personal Access Token to reconnect it.',
+  'forge.connect.tokenFromGit':
+    'Token read from {source}; it stays managed by Git. “Change instance” stores a token in the keychain.',
+  'forge.connect.notice.cached': 'Data served from the local cache (ETag).',
+  'forge.connect.notice.validated':
+    'Connection validated. The token is stored in the OS keychain.',
+  'forge.connect.notice.fromGit':
+    'Connected via {source}. No token was copied into the application.',
+  'forge.connect.notice.fromGitFallback':
+    'Connected via the Git credentials. No token was copied into the application.',
+  'forge.connect.notice.oauth':
+    'Connected to GitHub via OAuth. The token is stored in the OS keychain.',
+  'forge.connect.notice.oauthGitlab':
+    'Connected to GitLab.com via OAuth. The tokens are stored in the OS keychain.',
+  'forge.connect.notice.disconnected':
+    'Instance disconnected; the token was removed from the keychain.',
+
+  // Project / repository listing.
+  'forge.projects.gitlab.title': 'Accessible projects',
+  'forge.projects.github.title': 'Accessible repositories',
+  'forge.projects.searchPlaceholderGitlab': 'Search a project',
+  'forge.projects.searchPlaceholderGithub': 'Search a repository',
+  'forge.projects.searchAriaGitlab': 'Search a GitLab project',
+  'forge.projects.searchAriaGithub': 'Search a GitHub repository',
+  'forge.projects.searchSubmit': 'Search',
+  'forge.projects.emptyGitlab': 'No project loaded.',
+  'forge.projects.emptyGithub': 'No repository loaded.',
+  'forge.projects.defaultBranchUnknown': 'unknown default branch',
+  'forge.projects.linked': 'Repository linked to {path} (#{id}).',
+  'forge.projects.link': 'Link this repository',
+  'forge.projects.nextPage': 'Load the next page ({page})',
+
+  // Review list.
+  'forge.review.noProject': 'no project linked',
+  'forge.detail.merged': '{noun} merged.',
+  'forge.review.filterAria': 'Review filter',
+  'forge.review.associate': 'Link to the project',
+  'forge.review.associateNotice': 'Linked project: {path}.',
+  'forge.review.openProvider': 'Open {label}',
+  'forge.review.new': 'New {short}',
+  'forge.review.loadingMeta': 'loading…',
+  'forge.review.noCi': 'no CI',
+  'forge.review.withoutCi': 'no CI',
+  'forge.review.draft': 'draft',
+  'forge.review.conflicts': 'conflicts',
+  'forge.review.emptyConnected': 'Connect your {label} account',
+  'forge.review.emptyLink': 'Link this repository to a project',
+  'forge.review.emptyNone': 'No {noun}',
+  'forge.review.emptyConnectedHint':
+    'The connection is available in the {label} preferences.',
+  'forge.review.emptyLinkHint':
+    'Use “Link to the project” to find the reviews of the repository.',
+  'forge.review.emptyFilterHint':
+    'The {title} matching this filter will appear here.',
+  'forge.review.nextPage': 'Next page',
+  'forge.review.openIn': 'Open in {label}',
+  'forge.review.checkout': 'Check out the branch',
+  'forge.review.ciStatus': 'CI {status}',
+  'forge.review.ciUnknown': 'unknown',
+  'forge.review.notes': '{count} note(s)',
+  'forge.review.selectOne': 'Select a {short}',
+  'forge.review.selectHint':
+    'Discussions, approvals, and pipeline jobs are displayed here.',
+  'forge.review.created': '{short} {ref}{iid} created: {title}',
+  'forge.review.unknownProject':
+    'The project of this {short} is unknown; link the repository or open the {noun} in {label}.',
+
+  // Merge request creation.
+  'forge.create.title': 'Create a {noun}',
+  'forge.create.hint':
+    'The source branch must be pushed. Creating offline is impossible: no {label} mutation is queued.',
+  'forge.create.sourceBranch': 'Source branch',
+  'forge.create.targetBranch': 'Target branch',
+  'forge.create.mrTitle': '{short} title',
+  'forge.create.description': 'Description (optional)',
+  'forge.create.descriptionPlaceholder': 'Description',
+  'forge.create.descriptionAria': 'Description of the {short}',
+  'forge.create.draft': 'draft',
+  'forge.create.removeSource': 'delete the source branch after merging',
+  'forge.create.squash': 'squash the commits',
+  'forge.create.currentBranch': 'Current branch: {branch}.',
+  'forge.create.currentBranchUnknown': 'unknown',
+  'forge.create.submit': 'Create the {short}',
+
+  // Detail pane.
+  'forge.detail.tabsAria': 'Review details',
+  'forge.detail.tabOverview': 'Overview',
+  'forge.detail.tabDiscussions': 'Discussions ({count})',
+  'forge.detail.tabJobs': 'Jobs',
+  'forge.detail.approvals': 'Approvals',
+  'forge.detail.approvalsLeft': ' · {left} remaining out of {required}',
+  'forge.detail.approvalsNone': 'No approval yet.',
+  'forge.detail.approve': 'Approve',
+  'forge.detail.approveDone': 'Approval recorded.',
+  'forge.detail.unapprove': 'Withdraw my approval',
+  'forge.detail.unapproveDone': 'Approval withdrawn.',
+  'forge.detail.approvalsUnavailable': 'Approvals unavailable.',
+  'forge.detail.pipelines': 'Pipelines',
+  'forge.detail.noPipeline': 'No pipeline for this review.',
+  'forge.detail.mergeSection': 'Merge',
+  'forge.detail.strategy': 'Strategy',
+  'forge.detail.strategyMergeCommit': 'Merge commit',
+  'forge.detail.strategySquash': 'Squash',
+  'forge.detail.strategyRebase': 'Rebase',
+  'forge.detail.strategyRebaseMerge': 'Rebase merge',
+  'forge.detail.squash': 'squash',
+  'forge.detail.removeSource': 'delete the source branch',
+  'forge.detail.autoMerge': 'auto-merge once the pipeline succeeds',
+  'forge.detail.mergeInto': 'Merge into {target}',
+  'forge.detail.mergeHint':
+    'The merge uses the current SHA {sha}; if the {short} changed, {label} refuses the merge and nothing is modified.',
+  'forge.detail.mergeShaUnknown': '(unknown)',
+  'forge.detail.discussionsEmpty': 'No discussion',
+  'forge.detail.discussionsEmptyHint':
+    'Open a thread to comment on the review or on a diff line.',
+  'forge.detail.line': 'line {line}',
+  'forge.detail.system': 'system',
+  'forge.detail.resolved': 'resolved',
+  'forge.detail.reply': 'Reply',
+  'forge.detail.threadReopened': 'Thread reopened.',
+  'forge.detail.threadResolved': 'Thread resolved.',
+  'forge.detail.reopen': 'Reopen',
+  'forge.detail.resolve': 'Resolve',
+  'forge.detail.replyToThread': 'Reply to the thread',
+  'forge.detail.commentOnDiff': 'Comment on the diff',
+  'forge.detail.newDiscussion': 'New discussion',
+  'forge.detail.inlinePosition': 'anchored on the diff',
+  'forge.detail.path': 'Path',
+  'forge.detail.lineLabel': 'Line',
+  'forge.detail.side': 'Side',
+  'forge.detail.sideNew': 'new',
+  'forge.detail.sideOld': 'old',
+  'forge.detail.diffRefs': 'diff_refs {sha}',
+  'forge.detail.diffRefsLoading': 'loading the diff_refs…',
+  'forge.detail.commentPlaceholder':
+    'Write a comment (plain text, no HTML rendering)…',
+  'forge.detail.commentAria': 'Comment',
+  'forge.detail.send': 'Send',
+  'forge.detail.pipelineSummary': 'Pipeline {id} · {count} job(s)',
+  'forge.detail.noJob': 'No job',
+  'forge.detail.noJobHint': 'This pipeline has not run any job yet.',
+  'forge.detail.logs': 'Logs',
+  'forge.detail.logSummary': '{name} · {size}',
+  'forge.detail.logTruncated': ' · truncated',
+  'forge.detail.logMore': 'Load more',
+  'forge.detail.mergeTitle': 'Merge {short} {iid}',
+  'forge.detail.mergeConsequence':
+    'The {noun} will be merged into {target} with the {strategy} strategy{squash}{autoMerge}. The current SHA is verified.',
+  'forge.detail.mergeSquash': ', squashed',
+  'forge.detail.mergeAutoMerge': ', automatically as soon as the pipeline succeeds',
+  'forge.detail.mergeConfirm': 'Merge',
+  'forge.detail.mergeDone': '{noun} merged.',
+}
+
+export default messages

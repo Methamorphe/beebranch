@@ -17,9 +17,12 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::error::{github_error, store_error};
 use crate::forge_cache::SqliteCache;
-use crate::state::AppState;
+use crate::state::{AppState, GithubDeviceFlowPending};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// Device flow POSTs are short; polling happens from the UI, never in a loop.
+const DEVICE_FLOW_TIMEOUT: Duration = Duration::from_secs(20);
+const GITHUB_CLOUD: &str = "https://github.com";
 const PROVIDER: &str = "github";
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,6 +51,38 @@ pub struct GithubConfigureInput {
     pub token: String,
     pub ca_pem: Option<String>,
     pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubConnectFromGitInput {
+    pub base_url: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubDeviceFlowStartInput {
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubDeviceFlowStartDto {
+    pub user_code: String,
+    pub verification_uri: String,
+    pub expires_in: u64,
+    pub interval: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubDeviceFlowPollDto {
+    /// `pending` or `connected`.
+    pub status: String,
+    pub interval: Option<u64>,
+    pub session: Option<GithubSessionDto>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -212,10 +247,6 @@ pub fn detect_git_credentials(state: &AppState) -> Result<bool, AppError> {
     let Some(runner) = state.runner.as_ref() else {
         return Ok(false);
     };
-    let credentials = beebranch_git::credentials::discover(runner, state.paths.data_dir())?;
-    if credentials.is_empty() {
-        return Ok(false);
-    }
     let instance = state
         .github_instance
         .lock()
@@ -225,6 +256,15 @@ pub fn detect_git_credentials(state: &AppState) -> Result<bool, AppError> {
         .as_ref()
         .and_then(|row| normalize_url(&row.base_url).ok())
         .map(|url| url.host);
+    // A configured instance gives a host to ask the credential helper for
+    // (`osxkeychain`, GCM, `gh auth git-credential`, …); without one only the
+    // file-based sources can be scanned.
+    let hosts: Vec<&str> = instance_host.iter().map(String::as_str).collect();
+    let credentials =
+        beebranch_git::credentials::discover_for_hosts(runner, state.paths.data_dir(), &hosts)?;
+    if credentials.is_empty() {
+        return Ok(false);
+    }
     let Some(credential) = select_credential(credentials, instance_host.as_deref()) else {
         return Ok(false);
     };
@@ -375,12 +415,380 @@ pub async fn configure(
     session(state)
 }
 
+/// Connect an instance with an HTTPS credential already managed by Git
+/// (`git credential fill`), so a workstation that already clones over HTTPS
+/// does not need a second Personal Access Token.
+///
+/// The token stays owned by Git: it is kept in memory for the session, never
+/// copied to the keychain, SQLite or the frontend. The instance row and
+/// identity are persisted so the next launch restores the session.
+pub async fn connect_from_git(
+    state: &AppState,
+    input: GithubConnectFromGitInput,
+) -> Result<GithubSessionDto, AppError> {
+    let normalized = normalize_url(&input.base_url).map_err(github_error)?;
+    let runner = state.runner.as_ref().ok_or_else(|| {
+        AppError::new(
+            "git.unavailable",
+            ErrorCategory::Internal,
+            "Git est introuvable sur cette machine.",
+        )
+        .with_remediation("Installez Git puis redémarrez l'application.")
+    })?;
+    let credentials = beebranch_git::credentials::discover_for_hosts(
+        runner,
+        state.paths.data_dir(),
+        &[normalized.host.as_str()],
+    )?;
+    let credential = credentials
+        .into_iter()
+        .find(|credential| credential.host.eq_ignore_ascii_case(&normalized.host))
+        .ok_or_else(|| {
+            AppError::new(
+                "github.no_git_credential",
+                ErrorCategory::Auth,
+                format!(
+                    "Aucun identifiant Git n'est configuré pour {}.",
+                    normalized.host
+                ),
+            )
+            .with_remediation(
+                "Authentifiez-vous une fois avec Git pour cet hôte, ou saisissez un Personal Access Token.",
+            )
+        })?;
+
+    let instance_id = InstanceId::from_github_api_url(&normalized.api_url);
+    let existing = state
+        .store
+        .instance(instance_id.as_str())
+        .map_err(store_error)?;
+    let ca_bundle_id = existing.as_ref().and_then(|row| row.ca_bundle_id.clone());
+    let ca_bundle_pem = ca_bundle_id
+        .as_ref()
+        .and_then(|id| state.store.ca_bundle(id).ok().flatten());
+    let display_name = input
+        .display_name
+        .clone()
+        .or_else(|| existing.and_then(|row| row.display_name));
+    let client = build_client(
+        state,
+        &normalized.base_url,
+        credential.password.clone(),
+        ca_bundle_pem,
+    )
+    .map_err(github_error)?;
+    let user = client.validate().await.map_err(|error| {
+        let mapped = github_error(error);
+        if mapped.code == "auth.failed" {
+            mapped.with_remediation(format!(
+                "Le jeton trouvé via {} a été refusé. Mettez à jour vos identifiants Git ou saisissez un Personal Access Token.",
+                credential.source_label()
+            ))
+        } else {
+            mapped
+        }
+    })?;
+
+    let now = beebranch_core::now_unix();
+    let instance = InstanceRow {
+        id: instance_id.as_str().to_owned(),
+        provider: PROVIDER.to_owned(),
+        base_url: normalized.base_url.clone(),
+        api_url: normalized.api_url.clone(),
+        display_name,
+        ca_bundle_id,
+        created_at: now,
+    };
+    state
+        .store
+        .upsert_instance(&instance)
+        .map_err(store_error)?;
+    state
+        .store
+        .set_identity(&IdentityRow {
+            instance_id: instance.id.clone(),
+            user_id: user.id,
+            username: user.username.clone(),
+            name: Some(user.name.clone()),
+            avatar_url: user.avatar_url.clone(),
+            validated_at: now,
+        })
+        .map_err(store_error)?;
+    state
+        .store
+        .delete_cache_prefix(&normalized.api_url)
+        .map_err(store_error)?;
+
+    *state
+        .github
+        .lock()
+        .map_err(|_| AppError::internal("verrou client GitHub"))? = Some(client);
+    *state
+        .github_instance
+        .lock()
+        .map_err(|_| AppError::internal("verrou instance GitHub"))? = Some(instance);
+    *state
+        .github_credential
+        .lock()
+        .map_err(|_| AppError::internal("verrous credentials GitHub"))? = Some(credential);
+
+    session(state)
+}
+
 #[tauri::command]
 pub async fn github_configure(
     state: State<'_, AppState>,
     input: GithubConfigureInput,
 ) -> Result<GithubSessionDto, AppError> {
     configure(&state, input).await
+}
+
+#[tauri::command]
+pub async fn github_connect_from_git(
+    state: State<'_, AppState>,
+    input: GithubConnectFromGitInput,
+) -> Result<GithubSessionDto, AppError> {
+    connect_from_git(&state, input).await
+}
+
+/// Public client id of the BeeBranch OAuth App (device flow enabled).
+///
+/// An OAuth client id is public by design; there is no client secret. It is
+/// embedded so every build works out of the box. `BEEBRANCH_GITHUB_CLIENT_ID`
+/// (runtime or build-time) overrides it for forks and local experiments.
+const DEFAULT_OAUTH_CLIENT_ID: &str = "Ov23li9nKegYqvhQs8SR";
+
+fn oauth_client_id() -> String {
+    std::env::var("BEEBRANCH_GITHUB_CLIENT_ID")
+        .ok()
+        .or_else(|| option_env!("BEEBRANCH_GITHUB_CLIENT_ID").map(str::to_owned))
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_OAUTH_CLIENT_ID.to_owned())
+}
+
+fn device_flow_unavailable() -> AppError {
+    AppError::new(
+        "github.device_flow_unavailable",
+        ErrorCategory::Input,
+        "La connexion OAuth intégrée ne couvre que github.com.",
+    )
+    .with_remediation(
+        "Pour GitHub Enterprise Server, créez une OAuth App sur votre instance ou utilisez un Personal Access Token.",
+    )
+}
+
+pub async fn device_flow_start(
+    state: &AppState,
+    input: GithubDeviceFlowStartInput,
+) -> Result<GithubDeviceFlowStartDto, AppError> {
+    let requested = input
+        .base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(GITHUB_CLOUD);
+    let normalized = normalize_url(requested).map_err(github_error)?;
+    if normalized.web_url != GITHUB_CLOUD {
+        return Err(device_flow_unavailable());
+    }
+    let client_id = oauth_client_id();
+
+    let code = beebranch_github::device_flow::request_device_code(
+        GITHUB_CLOUD,
+        &client_id,
+        beebranch_github::device_flow::OAUTH_SCOPES,
+        DEVICE_FLOW_TIMEOUT,
+    )
+    .await
+    .map_err(github_error)?;
+
+    let pending = GithubDeviceFlowPending {
+        device_code: code.device_code,
+        client_id,
+        interval: code.interval,
+        expires_at: beebranch_core::now_unix().saturating_add(code.expires_in as i64),
+    };
+    *state
+        .github_device_flow
+        .lock()
+        .map_err(|_| AppError::internal("verrou device flow GitHub"))? = Some(pending);
+
+    Ok(GithubDeviceFlowStartDto {
+        user_code: code.user_code,
+        verification_uri: code.verification_uri,
+        expires_in: code.expires_in,
+        interval: code.interval,
+    })
+}
+
+fn pending_dto(interval: u64) -> GithubDeviceFlowPollDto {
+    GithubDeviceFlowPollDto {
+        status: "pending".to_owned(),
+        interval: Some(interval),
+        session: None,
+    }
+}
+
+fn clear_device_flow(state: &AppState) {
+    if let Ok(mut slot) = state.github_device_flow.lock() {
+        *slot = None;
+    }
+}
+
+pub async fn device_flow_poll(state: &AppState) -> Result<GithubDeviceFlowPollDto, AppError> {
+    let pending = state
+        .github_device_flow
+        .lock()
+        .map_err(|_| AppError::internal("verrou device flow GitHub"))?
+        .clone()
+        .ok_or_else(|| {
+            AppError::new(
+                "github.device_flow_missing",
+                ErrorCategory::Input,
+                "Aucune connexion OAuth GitHub n'est en cours.",
+            )
+            .with_remediation("Relancez la connexion GitHub.")
+        })?;
+
+    if beebranch_core::now_unix() >= pending.expires_at {
+        clear_device_flow(state);
+        return Err(AppError::new(
+            "github.device_flow_expired",
+            ErrorCategory::Auth,
+            "Le code de connexion GitHub a expiré. Relancez la connexion.",
+        ));
+    }
+
+    let outcome = match beebranch_github::device_flow::poll_access_token(
+        GITHUB_CLOUD,
+        &pending.client_id,
+        &pending.device_code,
+        DEVICE_FLOW_TIMEOUT,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            clear_device_flow(state);
+            return Err(github_error(error));
+        }
+    };
+
+    let (token, scope) = match outcome {
+        beebranch_github::device_flow::PollOutcome::Pending => {
+            return Ok(pending_dto(pending.interval));
+        }
+        beebranch_github::device_flow::PollOutcome::SlowDown => {
+            let interval = pending.interval.saturating_add(5).min(60);
+            if let Ok(mut slot) = state.github_device_flow.lock() {
+                if let Some(stored) = slot.as_mut() {
+                    stored.interval = interval;
+                }
+            }
+            return Ok(pending_dto(interval));
+        }
+        beebranch_github::device_flow::PollOutcome::Authorized { token, scope } => (token, scope),
+    };
+
+    let normalized = normalize_url(GITHUB_CLOUD).map_err(github_error)?;
+    let client = match build_client(state, &normalized.base_url, token.clone(), None) {
+        Ok(client) => client,
+        Err(error) => {
+            clear_device_flow(state);
+            return Err(github_error(error));
+        }
+    };
+    let user = match client.validate().await {
+        Ok(user) => user,
+        Err(error) => {
+            clear_device_flow(state);
+            return Err(github_error(error));
+        }
+    };
+
+    let now = beebranch_core::now_unix();
+    let instance_id = InstanceId::from_github_api_url(&normalized.api_url);
+    let instance = InstanceRow {
+        id: instance_id.as_str().to_owned(),
+        provider: PROVIDER.to_owned(),
+        base_url: normalized.base_url.clone(),
+        api_url: normalized.api_url.clone(),
+        display_name: None,
+        ca_bundle_id: None,
+        created_at: now,
+    };
+    state
+        .store
+        .upsert_instance(&instance)
+        .map_err(store_error)?;
+    state
+        .store
+        .set_identity(&IdentityRow {
+            instance_id: instance.id.clone(),
+            user_id: user.id,
+            username: user.username.clone(),
+            name: Some(user.name.clone()),
+            avatar_url: user.avatar_url.clone(),
+            validated_at: now,
+        })
+        .map_err(store_error)?;
+    state
+        .github_secrets
+        .set(&account_for(&normalized.host, &instance.id), &token)
+        .map_err(store_error)?;
+    state
+        .store
+        .delete_cache_prefix(&normalized.api_url)
+        .map_err(store_error)?;
+
+    *state
+        .github
+        .lock()
+        .map_err(|_| AppError::internal("verrou client GitHub"))? = Some(client);
+    *state
+        .github_instance
+        .lock()
+        .map_err(|_| AppError::internal("verrou instance GitHub"))? = Some(instance);
+    *state
+        .github_credential
+        .lock()
+        .map_err(|_| AppError::internal("verrous credentials GitHub"))? = None;
+    clear_device_flow(state);
+
+    tracing::info!(
+        granted = scope.as_deref().unwrap_or(""),
+        "GitHub OAuth device flow completed"
+    );
+    Ok(GithubDeviceFlowPollDto {
+        status: "connected".to_owned(),
+        interval: None,
+        session: Some(session(state)?),
+    })
+}
+
+#[tauri::command]
+pub async fn github_device_flow_start(
+    state: State<'_, AppState>,
+    input: GithubDeviceFlowStartInput,
+) -> Result<GithubDeviceFlowStartDto, AppError> {
+    device_flow_start(&state, input).await
+}
+
+#[tauri::command]
+pub async fn github_device_flow_poll(
+    state: State<'_, AppState>,
+) -> Result<GithubDeviceFlowPollDto, AppError> {
+    device_flow_poll(&state).await
+}
+
+#[tauri::command]
+pub fn github_device_flow_cancel(state: State<'_, AppState>) -> Result<bool, AppError> {
+    let mut slot = state
+        .github_device_flow
+        .lock()
+        .map_err(|_| AppError::internal("verrou device flow GitHub"))?;
+    Ok(slot.take().is_some())
 }
 
 #[tauri::command]

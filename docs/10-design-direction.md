@@ -24,14 +24,14 @@ La référence est l'**ergonomie**, pas les assets.
 |---|---|
 | Nom | **BeeBranch** |
 | Symbole | Abeille / rayon / branche, à faire dessiner ; jamais le logo GitKraken |
-| Accent | **Jaune Beecoming `#FED100`**, décliné en `#F5BB45` sur fond sombre dans la maquette de référence ; réservé aux actions primaires, à la sélection et au focus |
+| Accent | **Jaune ambre `#FED100`**, décliné en `#F5BB45` sur fond sombre dans la maquette de référence ; réservé aux actions primaires, à la sélection et au focus |
 | Base | Fond `#101216`, panneaux `#15181E`, surfaces élevées `#1C2028`, bordures `#282D36`, texte `#E1E5EC`, secondaire `#8992A2` (maquette de référence) |
 | Palette de lanes | 6 couleurs fonctionnelles dérivées, lisibles sur fond noir ; le jaune d'accent n'est pas utilisé comme lane |
 | Iconographie | Jeu d'icônes original ou bibliothèque sous licence compatible |
 | Typographie | **Geist** pour l'UI, **Geist Mono** pour les diffs et SHA, embarquées via Fontsource (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`) |
 | Ton | Technique, calme, précis ; pas de marketing dans l'application |
 
-La palette de base est relevée sur le site Beecoming : `#0A0A0A`, `#191919`, `#F6F6F6`, `#EDEDED`, `#FED100`. La maquette de référence P2 (non versionnée) fixe les valeurs implémentées : `#101216`, `#15181E`, `#1C2028`, `#282D36`, `#E1E5EC`, `#8992A2`, accent `#F5BB45`. Les valeurs d'état et de lanes sont dérivées pour l'application.
+La palette de base retient `#0A0A0A`, `#191919`, `#F6F6F6`, `#EDEDED` et `#FED100`. La maquette de référence P2 (non versionnée) fixe les valeurs implémentées : `#101216`, `#15181E`, `#1C2028`, `#282D36`, `#E1E5EC`, `#8992A2`, accent `#F5BB45`. Les valeurs d'état et de lanes sont dérivées pour l'application.
 
 **Garde-fous juridiques et éthiques**
 
@@ -91,7 +91,7 @@ Opérations expose le journal récent sans transformer les retours en toasts.
 | `--lane-5` | `#F97316` | `#C2410C` | orange |
 | `--lane-6` | `#7CB518` | `#557D0F` | vert |
 
-- `#FED100` est la couleur d'accent officielle de Beecoming et ne doit pas être utilisée comme couleur de lane.
+- `#FED100` est la couleur d'accent de l'application et ne doit pas être utilisée comme couleur de lane.
 - Les valeurs sombres respectent le fond `#0A0A0A` / `#191919`.
 - Les valeurs claires sont des variantes assombries pour préserver le contraste.
 - Sur fond clair, `#FED100` ne porte jamais de texte clair : utiliser `--accent-contrast` (`#191919`).
@@ -173,10 +173,12 @@ Le graphe suit les conventions de lecture GitKraken sans reprendre ses assets :
   parent secondaire ouvre une colonne **sous** le commit, avec un arrondi sous
   la médiane. Un commit dont le parent est déjà pris par une autre colonne
   n'abandonne donc plus sa colonne prématurément ;
-- un **stash** est un nœud à part, en tête de l'historique : médaillon carré
-  arrondi en pointillés avec un coffre, dans la couleur de lane, et libellé par
-  le message saisi (sans le préfixe `On <branche>:`). Ses instantanés `index`
-  et `untracked` restent hors du graphe : un stash = une ligne ;
+- un **stash** est un nœud à part, inséré à sa date dans l'historique (un stash
+  ancien ne remonte pas au-dessus des commits récents) : médaillon carré arrondi
+  en pointillés avec un coffre, dans la couleur de lane, et libellé par le
+  message saisi (sans le préfixe `On <branche>:`). Son instantané `index` reste
+  hors du graphe, et les fichiers de l'instantané `untracked` apparaissent dans
+  le détail du stash : un stash = une ligne ;
 - **épingler à gauche** ancre une branche en première colonne à partir de son
   sommet : les colonnes 0 et n échangent leur place à la ligne du sommet, qui
   dessine la bascule, sans déplacer les nœuds au-dessus. **Solo** réduit le
@@ -201,3 +203,57 @@ Les couleurs de lanes claires sont assombries pour rester ≥ 3:1 sur le fond
 clair ; le jaune d'accent n'est jamais une lane. Les animations de vue,
 dialogues et overlays sont désactivées intégralement avec
 `prefers-reduced-motion`.
+
+### Fond d'écran personnalisé
+
+Préférences → Général accepte une image ou un GIF animé (png, jpg, gif, webp,
+avif, bmp · 32 Mo). Le chemin est la seule donnée persistée
+(`ui.background`) ; le backend relit le fichier au démarrage et le renvoie en
+URL `data:`, ce qui évite d'ouvrir l'accès au système de fichiers au webview et
+laisse le webview animer le GIF. Les variables `--app-bg-image`,
+`--app-bg-size`, `--app-bg-repeat`, `--app-bg-dim` et `--app-bg-blur` pilotent
+la couche fixe rendue sous le shell, en `z-index: -1`.
+
+Quand une image est active, `data-background="image"` sur `:root` remplace
+`--bg`, `--surface`, `--surface-raised`, `--border` et `--selection-bg` par des
+variantes translucides (56–92 % d'opacité), déclinées pour le thème sombre, le
+thème clair explicite et la préférence système. L'atténuation (0–90 %, 45 % par
+défaut) applique un voile `--bg-scrim` sur l'image : elle seule dégrade le
+contraste, donc le texte reste lisible par défaut même sur une photo claire.
+La couche est masquée dès que la lecture échoue (fichier déplacé) et l'erreur
+est affichée dans les réglages ; le shell redevient opaque plutôt que de laisser
+un fond vide.
+
+L'écran de démarrage suit le même schéma (`ui.splash`, mêmes formats, 32 Mo) et
+les mêmes contrôles. La fenêtre splash n'utilise pas la feuille de style de
+l'application : la page reste en `data-splash="pending"` (rien d'autre que la
+couleur de la fenêtre) jusqu'à ce que `src/splash.ts` ait lu la préférence par
+IPC et obtenu l'image en URL `data:` ; elle passe alors en `data-splash="image"`
+et pose `--splash-image`, `--splash-size`, `--splash-repeat`, `--splash-dim` et
+`--splash-blur`. Le logo hexagonal est masqué, la marque et la barre de
+progression restent au-dessus du voile. Sans préférence, ou si le fichier a
+disparu, le mode revient à `data-splash="logo"` : l'écran de démarrage ne peut
+jamais bloquer ni retarder le lancement au-delà de deux secondes.
+
+### Écrans secondaires
+
+Les écrans hors graphe (Merge requests, Pull requests, Rechercher, Rebase
+interactif, Historique de fichier, Worktrees, Tags, Remotes, Sous-modules,
+Patches, Synchronisation) partagent un gabarit unique plutôt que des cartes
+isolées :
+
+- **surface pleine largeur** : une barre d’outils supérieure (filtres, actions
+  de la vue), un corps défilant, et un inspecteur à droite pour les formulaires
+  ou la progression ; les titres sont portés une seule fois par la barre de vue
+  du shell ;
+- **lignes denses** : hauteur minimale de 44 px, un filet par ligne, sélection
+  `--selection-bg` avec barre d’accent à gauche, actions alignées à droite ;
+- **micro-typographie** : libellés de section en 10,5 px capitales, métadonnées
+  en 11 px, SHA et chemins en `Geist Mono` ; les statuts associent toujours un
+  libellé à leur pastille, jamais la couleur seule ;
+- **états** : erreurs persistantes en bandeau latéral, confirmations pour les
+  opérations destructives, états vides qui expliquent la prochaine action.
+
+Le socle CSS correspondant vit dans `src/components/p2.module.css`
+(`screen`, `toolbar`, `entry`, `chip`, `alert`, `paneSection`) : un nouvel écran
+secondaire réutilise ces primitives au lieu d’en inventer de nouvelles.

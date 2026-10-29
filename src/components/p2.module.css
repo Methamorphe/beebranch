@@ -1,4 +1,6 @@
-/* Shared primitives for the P2 screens (mockup: panels, cards, dense rows). */
+/* Design system for the secondary screens: a full-bleed scaffold (toolbar,
+   scrolling body, inspector), dense rows and the shared atoms used by every
+   panel outside the history view. */
 .page {
   display: flex;
   flex: 1;
@@ -17,12 +19,6 @@
   gap: 12px;
   padding: 16px;
   overflow: auto;
-}
-
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .row {
@@ -64,25 +60,12 @@
   white-space: nowrap;
 }
 
-.badge {
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  color: var(--muted);
-  font-size: 10px;
-  text-transform: lowercase;
-}
-
 .good {
   color: var(--success);
 }
 
 .warn {
   color: var(--warning);
-}
-
-.bad {
-  color: var(--error);
 }
 
 .primary {
@@ -115,36 +98,6 @@
   background: var(--surface) !important;
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-  overflow-x: auto;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.tab,
-.tabOn {
-  padding: 6px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  background: none;
-  font-size: 12.5px;
-}
-
-.tab:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--surface-raised);
-}
-
-.tabOn {
-  color: var(--accent-text);
-  background: var(--accent-soft);
-  box-shadow: inset 0 -2px var(--accent);
-}
-
 .card {
   min-width: 0;
   padding: 16px;
@@ -173,16 +126,6 @@
 .field textarea {
   color: var(--text);
   font-size: 12.5px;
-}
-
-.inlineField {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.inlineField input {
-  min-width: 140px;
 }
 
 .checkbox {
@@ -240,12 +183,6 @@
   font-size: 14px;
 }
 
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .listItem,
 .listItemOn {
   display: flex;
@@ -278,71 +215,6 @@
   white-space: nowrap;
 }
 
-.split {
-  display: flex;
-  flex: 1;
-  gap: 16px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.splitMain {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-}
-
-.splitSide {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 300px;
-  min-width: 240px;
-  max-width: 42%;
-  overflow: auto;
-  border-left: 1px solid var(--border);
-  padding-left: 14px;
-}
-
-.table {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.tableHead,
-.tableRow {
-  display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(80px, 140px) minmax(70px, 120px) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12.5px;
-}
-
-.tableHead {
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: none;
-  letter-spacing: 0;
-  background: var(--surface);
-}
-
-.tableRow:last-child {
-  border-bottom: 0;
-}
-
-.tableRow:hover {
-  background: var(--surface-raised);
-}
-
 .code {
   margin: 0;
   padding: 10px 12px;
@@ -366,30 +238,6 @@
   font: 11px/1.7 var(--mono);
   tab-size: 4;
   resize: vertical;
-}
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px;
-}
-
-.stat {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.statValue {
-  display: block;
-  font-family: var(--mono);
-  font-size: 16px;
-}
-
-.statLabel {
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .threeColumns {
@@ -492,6 +340,9 @@
 .planList {
   display: flex;
   flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -499,12 +350,17 @@
 
 .planRow {
   display: grid;
-  grid-template-columns: 26px 100px 92px minmax(0, 1fr) auto;
+  grid-template-columns: 18px 96px 78px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  min-height: 38px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
+}
+
+.planRow:hover {
+  background: var(--surface-raised);
 }
 
 .planRow:last-child {
@@ -575,8 +431,8 @@
 .discussion {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 0;
+  gap: 8px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -606,16 +462,6 @@
   font-size: 10px;
 }
 
-.jobRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px 90px auto;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 12.5px;
-}
-
 .log {
   max-height: 300px;
   overflow: auto;
@@ -629,32 +475,25 @@
   overflow-wrap: anywhere;
 }
 
-@media(max-width:900px) { .split { flex-direction:column; overflow:auto; } .splitSide { width:auto; max-width:none; min-height:220px; border-left:0; padding:12px 0 0; border-top:1px solid var(--border); } .setting { flex-wrap:wrap; } .settingControls { min-width:0; flex-wrap:wrap; justify-content:flex-start; } .tableHead,.tableRow { grid-template-columns:minmax(100px,1fr) 80px 80px auto; } }
-@media(max-width:600px) { .page { padding:12px; } .pageColumn { padding:10px; overflow:auto; } .threeColumns { grid-template-columns:120px minmax(200px,1fr); overflow:auto; } .settingControls input,.settingControls select { min-width:0; max-width:100%; } .planList { overflow:auto; } .planRow { min-width:560px; } .table { overflow:auto; } .tableHead,.tableRow { min-width:480px; } .sides { grid-template-columns:1fr; overflow:auto; } .side { min-height:140px; } }
+@media(max-width:900px) { .setting { flex-wrap:wrap; } .settingControls { min-width:0; flex-wrap:wrap; justify-content:flex-start; } }
+@media(max-width:600px) { .page { padding:12px; } .pageColumn { padding:10px; overflow:auto; } .threeColumns { grid-template-columns:120px minmax(200px,1fr); overflow:auto; } .settingControls input,.settingControls select { min-width:0; max-width:100%; } .planList { overflow:auto; } .planRow { min-width:560px; } .sides { grid-template-columns:1fr; overflow:auto; } .side { min-height:140px; } }
 
 .dragging { opacity:.55; }
 .dropTarget { outline:2px dashed var(--accent); outline-offset:-2px; background:var(--accent-soft); }
 
-.page > *, .pageColumn > *, .stack, .between > *, .row > *, .tableRow > * { min-width: 0; }
-.page > .stack { width: 100%; }
+.page > *, .pageColumn > *, .between > *, .row > * { min-width: 0; }
 .cardTitle { font-size: 14px; }
 .field, .checkbox, .setting p, .small { font-size: 12px; }
-.field input, .field select, .inlineField input { min-height: var(--control-height); max-width: 100%; }
+.field input, .field select { min-height: var(--control-height); max-width: 100%; }
 .primary, .secondary, .danger, .ghost { min-height: var(--control-height); font-size: 12.5px; }
 .secondary:hover:not(:disabled) { border-color: var(--border-strong) !important; background: var(--surface-raised) !important; }
 .primary:hover:not(:disabled) { background: var(--accent-strong) !important; }
-.tab, .tabOn { flex-shrink: 0; min-height: var(--control-height); }
-.tableHead, .tableRow { min-height: var(--row-height); }
 .between { flex-wrap: wrap; }
 .notice, .errorText { line-height: 1.6; overflow-wrap: anywhere; }
 .empty { min-height: 160px; }
 .empty p { max-width: 420px; margin: 0; font-size: 13px; }
 .settingsGrid { width: 100%; }
 .settingControls { flex-wrap: wrap; }
-@media (max-width: 1100px) {
-  .table { overflow-x: auto; flex-shrink: 0; }
-  .tableHead, .tableRow { min-width: 620px; }
-}
 @media (max-width: 700px) {
   .page, .pageColumn { padding: 12px; }
   .row:has(> .field) { align-items: flex-end; }
@@ -662,12 +501,739 @@
   .setting { align-items: flex-start; flex-direction: column; gap: 10px; }
   .settingControls { width: 100%; }
   .settingControls input, .settingControls select { width: 100%; }
-  .split { flex: none; overflow: visible; }
-  .splitMain { overflow: visible; }
-  .splitSide { min-width: 0; min-height: 0; overflow: visible; }
   .threeColumns { display: flex; flex-direction: column; overflow: auto; }
   .fileList { max-height: 180px; flex-shrink: 0; border-right: 0; border-bottom: 1px solid var(--border); }
   .conflictGrid { min-height: 650px; flex-shrink: 0; }
   .footer, .resolveHeader, .sideHeader { flex-wrap: wrap; }
-  .jobRow { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+/* ── Screen scaffold ───────────────────────────────────────────────
+   Secondary screens are full-bleed panes: one toolbar, one scrolling
+   body, an optional inspector. No floating cards and no repeated page
+   title — the shell already names the view. */
+.screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.toolbar > .spacer {
+  min-width: 4px;
+}
+
+.toolbarLabel {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.toolbar > .field {
+  flex: none;
+  font-size: 10.5px;
+}
+
+.toolbar input,
+.toolbar select,
+.toolbar .field input,
+.toolbar .field select {
+  min-height: 28px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.screenBody {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.screenMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screenMain[data-fill='true'] {
+  overflow: hidden;
+}
+
+.screenAside {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 14px;
+  width: 320px;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.screenAside > * {
+  flex: none;
+}
+
+.asideSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.asideSection + .asideSection {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.asideTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.asideHint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* Micro typography shared with the history table. */
+.label {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.count {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dense list rows: full-bleed, one separator per row, tinted selection
+   with the same left accent bar as the history table. */
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.entry:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.entry[aria-current='true'],
+.entry[aria-current='true']:hover:not(:disabled) {
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.entryStack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.entryTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entryTitle strong {
+  font-weight: 600;
+}
+
+.entryMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.entryMeta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entryActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.entryActions button {
+  padding: 3px 7px;
+  font-size: 11.5px;
+}
+
+/* Status marks. Colour never carries the meaning alone: a dot or chip
+   always sits next to a readable label. */
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot[data-tone='good'] {
+  background: var(--success);
+}
+
+.dot[data-tone='warn'] {
+  background: var(--warning);
+}
+
+.dot[data-tone='bad'] {
+  background: var(--error);
+}
+
+.dot[data-tone='info'] {
+  background: var(--info);
+}
+
+.dot[data-tone='accent'] {
+  background: var(--accent);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  background: var(--surface);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.chipAccent {
+  border-color: transparent;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.chipGood {
+  border-color: transparent;
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.chipWarn {
+  border-color: transparent;
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.chipBad {
+  border-color: transparent;
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+.chipInfo {
+  border-color: transparent;
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+/* Persistent alerts. Errors stay visible until resolved, per the design
+   direction; they never become a toast. */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 12px;
+  border-left: 3px solid var(--error);
+  color: var(--error);
+  background: var(--error-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.bannerInfo {
+  border-left-color: var(--info);
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.footerBar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Two-pane inbox: list on the left, reading pane on the right. */
+.inbox {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 360px;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.listHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.detailPane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.segmented {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.segment {
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: none;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.segment:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.segmentOn,
+.segmentOn:hover:not(:disabled) {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-text);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 1100px) {
+  .screenAside {
+    width: 280px;
+  }
+
+  .inbox {
+    width: 300px;
+  }
+}
+
+@media (max-width: 900px) {
+  .screenBody {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .screenMain {
+    overflow: visible;
+  }
+
+  .screenAside {
+    width: auto;
+    max-width: none;
+    overflow: visible;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .inbox {
+    width: auto;
+    max-height: 45vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .detailPane {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 600px) {
+  .toolbar {
+    padding: 6px 10px;
+  }
+
+  .entry {
+    padding: 6px 10px;
+  }
+
+  .formRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Flexible children used by toolbars and form rows. */
+.grow {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.fieldInline {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* Blame: one header per contiguous run of authored lines. */
+.blameGroup {
+  border-bottom: 1px solid var(--border);
+}
+
+.blameHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.blameHeader:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.blameCode {
+  margin: 0;
+  padding: 4px 12px 8px;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+  font: 11.5px/1.6 var(--mono);
+  tab-size: 4;
+}
+
+/* Inline links and quiet destructive actions inside dense rows. */
+.linkButton {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linkButton:hover:not(:disabled) {
+  background: none;
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+.ghostDanger {
+  border: 1px solid transparent;
+  color: var(--muted);
+  background: none;
+}
+
+.ghostDanger:hover:not(:disabled) {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+.hintBar {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* Full-height editors and consoles. */
+.editorFill {
+  flex: 1 1 auto;
+  min-height: 120px;
+  resize: none;
+}
+
+.console {
+  flex: 1;
+  min-height: 120px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted-strong);
+  font: 11px/1.6 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* One operation per row: intent on the left, control on the right. */
+.actionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.actionRowTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.actionRowHint {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.actionRowControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.actionRowControls select {
+  min-height: 28px;
+  padding: 2px 6px;
+  font-size: 11.5px;
+}
+
+.actionRowControls .checkbox {
+  max-width: 220px;
+}
+
+.consoleHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+@media (max-width: 700px) {
+  .actionRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actionRowControls {
+    justify-content: flex-start;
+  }
+}
+
+.screenAsideFlush {
+  gap: 0;
+  padding: 0;
+}
+
+.noteBlock {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* Forge detail header: identity on the left, actions on the right. */
+.detailHeader {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.detailHeaderTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detailTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.detailMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.dialogWide {
+  width: min(560px, calc(100vw - 32px));
+}
+
+/* Sections inside a forge detail pane. */
+.paneSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.paneSection:last-child {
+  border-bottom: 0;
+}
+
+.paneTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.detailSections {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.commentBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }

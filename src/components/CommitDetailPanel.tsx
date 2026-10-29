@@ -1,5 +1,6 @@
 import type { CommitDetail } from '../types/git'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
+import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
 import styles from './CommitDetailPanel.module.css'
 
 type Props = {
@@ -21,23 +22,24 @@ function PathLabel({ path }: { path: string }) {
 }
 
 export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose }: Props) {
+  const { t, plural } = useI18n()
   const close = (
-    <button type="button" className={styles.close} onClick={onClose} aria-label="Fermer le détail du commit">
+    <button type="button" className={styles.close} onClick={onClose} aria-label={t('diff.commit.closeAria')}>
       ×
     </button>
   )
 
   if (loading) {
     return (
-      <aside className={styles.panel} aria-label="Détail du commit">
+      <aside className={styles.panel} aria-label={t('diff.commit.aria')}>
         <div className={styles.headerTop}>{close}</div>
-        <p role="status" className={styles.hint}>Chargement du commit…</p>
+        <p role="status" className={styles.hint}>{t('diff.commit.loading')}</p>
       </aside>
     )
   }
   if (error) {
     return (
-      <aside className={styles.panel} role="alert" aria-label="Détail du commit">
+      <aside className={styles.panel} role="alert" aria-label={t('diff.commit.aria')}>
         <div className={styles.headerTop}>{close}</div>
         <p className={styles.error}>{error}</p>
       </aside>
@@ -45,9 +47,9 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
   }
   if (!detail) {
     return (
-      <aside className={styles.panel} aria-label="Détail du commit">
+      <aside className={styles.panel} aria-label={t('diff.commit.aria')}>
         <div className={styles.headerTop}>{close}</div>
-        <p className={styles.hint}>Sélectionnez un commit dans le graphe.</p>
+        <p className={styles.hint}>{t('diff.commit.empty')}</p>
       </aside>
     )
   }
@@ -62,7 +64,7 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
   const fileCount = detail.files.length
 
   return (
-    <aside className={styles.panel} aria-label="Détail du commit">
+    <aside className={styles.panel} aria-label={t('diff.commit.aria')}>
       <header className={styles.header}>
         <div className={styles.headerTop}>
           <code className={styles.sha} title={commit.sha}>{commit.sha.slice(0, 12)}</code>
@@ -80,25 +82,25 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
         <h2 className={styles.subject} title={subject}>{subject}</h2>
         <p className={styles.meta}>
           <span className={styles.author}>{commit.author.name}</span>
-          <span>{new Date(commit.author.timestamp * 1000).toLocaleString('fr-FR')}</span>
-          <span>{commit.parents.length} parent{commit.parents.length > 1 ? 's' : ''}</span>
+          <span>{formatDateTime(dateFromSeconds(commit.author.timestamp))}</span>
+          <span>{plural('diff.commit.parents.one', 'diff.commit.parents.other', commit.parents.length)}</span>
         </p>
         <button type="button" className={styles.diffAction} onClick={() => onShowDiff(commit.sha)}>
-          Voir le diff complet
+          {t('diff.commit.showDiff')}
         </button>
       </header>
 
       {body ? (
-        <section className={styles.section} aria-label="Message du commit">
-          <h3 className={styles.sectionTitle}>Message</h3>
+        <section className={styles.section} aria-label={t('diff.commit.messageAria')}>
+          <h3 className={styles.sectionTitle}>{t('diff.commit.message')}</h3>
           <pre className={styles.message}>{body}</pre>
         </section>
       ) : null}
 
-      <section className={styles.section} aria-label="Fichiers modifiés">
+      <section className={styles.section} aria-label={t('diff.commit.filesAria')}>
         <div className={styles.filesHeader}>
           <h3 className={styles.sectionTitle}>
-            {fileCount} fichier{fileCount > 1 ? 's' : ''} modifié{fileCount > 1 ? 's' : ''}
+            {plural('diff.files.modified.one', 'diff.files.modified.other', fileCount)}
           </h3>
           {hasStats ? (
             <span className={styles.changeSummary}>
@@ -108,7 +110,7 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
           ) : null}
         </div>
         {detail.filesTruncated ? (
-          <p className={styles.note}>Liste partielle : le commit contient davantage de fichiers.</p>
+          <p className={styles.note}>{t('diff.commit.filesPartial')}</p>
         ) : null}
         <div className={styles.files}>
           {detail.files.map((file) => (
@@ -116,7 +118,7 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
               type="button"
               key={`${file.status}-${file.oldPath ?? ''}-${file.path}`}
               className={styles.file}
-              onClick={() => onShowDiff(commit.sha, file.path)}
+              onClick={() => onShowDiff(file.revision ?? commit.sha, file.path)}
               title={
                 file.oldPath
                   ? `${statusLabel(file.status)} · ${file.oldPath} → ${file.path}`
@@ -135,7 +137,7 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
               </span>
               <span className={styles.stats}>
                 {file.binary ? (
-                  'binaire'
+                  t('diff.binary')
                 ) : (
                   <>
                     <span className={styles.add}>+{file.additions ?? 0}</span>

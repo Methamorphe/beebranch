@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
+import { errorCopy } from '../i18n/errors'
+import { t } from '../i18n'
 import type { AppError } from '../types/git'
 
 const FALLBACK: Omit<AppError, 'message' | 'detail'> = {
@@ -56,7 +58,7 @@ export function normalizeError(cause: unknown): AppError {
   }
   return {
     ...FALLBACK,
-    message: 'Erreur inconnue du backend.',
+    message: t('common.unknownError'),
     detail: String(cause),
   }
 }
@@ -74,8 +76,8 @@ export async function call<T>(
 
 export function errorMessage(cause: unknown): string {
   const error = cause instanceof IpcError ? cause.app : normalizeError(cause)
-  const suffix = error.remediation ? ` ${error.remediation}` : ''
-  return `${error.message}${suffix}`
+  const { message, remediation } = errorCopy(error)
+  return remediation ? `${message} ${remediation}` : message
 }
 
 export function errorDetail(cause: unknown): string | null {

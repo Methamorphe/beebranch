@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { t, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
 import {
   workspaceAddRepo,
@@ -20,6 +21,9 @@ import shared from './p1.module.css'
 
 type Props = {
   onOpenRepo: (path: string) => void
+  activeWorkspaceId: string | null
+  onActivateWorkspace: (workspaceId: string) => void
+  onWorkspacesChanged: (workspaces: Workspace[]) => void
 }
 
 const REPO_LIMIT = 20
@@ -30,10 +34,16 @@ function headLabel(status: WorkspaceRepoStatus): string {
     return head.name + (head.upstream ? ` → ${head.upstream}` : '')
   }
   if (head?.kind === 'detached') return `HEAD ${head.sha.slice(0, 8)}`
-  return 'branche inconnue'
+  return t('workspaces.panel.unknownBranch')
 }
 
-export function WorkspacesPanel({ onOpenRepo }: Props) {
+export function WorkspacesPanel({
+  onOpenRepo,
+  activeWorkspaceId,
+  onActivateWorkspace,
+  onWorkspacesChanged,
+}: Props) {
+  const { t } = useI18n()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [statuses, setStatuses] = useState<WorkspaceRepoStatus[]>([])
@@ -54,6 +64,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
     try {
       const next = await workspaceList()
       setWorkspaces(next)
+      onWorkspacesChanged(next)
       setSelectedId((current) => current ?? next[0]?.id ?? null)
       if (next[0] && !currentExists(next, selectedId)) {
         setSelectedId(next[0].id)
@@ -61,7 +72,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
     } catch (cause) {
       setError(errorMessage(cause))
     }
-  }, [selectedId])
+  }, [selectedId, onWorkspacesChanged])
 
   const loadStatus = useCallback(async (workspaceId: string) => {
     try {
@@ -113,7 +124,11 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
       setResults(next)
       const failures = next.filter((result) => !result.ok).length
       setNotice(
-        `${next.length - failures}/${next.length} dépôt(s) ${action === 'fetch' ? 'récupéré(s)' : 'mis à jour'}${failures ? ` · ${failures} échec(s)` : ''}.`,
+        t(action === 'fetch' ? 'workspaces.panel.syncFetched' : 'workspaces.panel.syncUpdated', {
+          ok: next.length - failures,
+          total: next.length,
+          failures: failures > 0 ? t('workspaces.panel.syncFailures', { count: failures }) : '',
+        }),
       )
       await loadStatus(selected.id)
     } catch (cause) {
@@ -127,10 +142,10 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
     <div className={shared.root}>
       <section className={shared.card} aria-labelledby="workspace-list-title">
         <div className={shared.row}>
-          <h2 id="workspace-list-title">Workspaces</h2>
+          <h2 id="workspace-list-title">{t('workspaces.panel.title')}</h2>
           <span className={shared.badge}>{workspaces.length}</span>
           <button type="button" className={shared.secondary} onClick={() => void reload()}>
-            Recharger
+            {t('common.reload')}
           </button>
         </div>
         <div className={shared.list} role="list">
@@ -143,22 +158,29 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
               className={`${shared.item} ${workspace.id === selectedId ? shared.itemSelected : ''}`}
               onClick={() => setSelectedId(workspace.id)}
             >
-              <span>{workspace.name}</span>
-              <span className={shared.mono}>{workspace.repos.length} dépôt(s)</span>
+              <span>
+                {workspace.name}
+                {workspace.id === activeWorkspaceId ? (
+                  <span className={shared.badge} style={{ marginLeft: 8 }}>
+                    {t('workspaces.panel.active')}
+                  </span>
+                ) : null}
+              </span>
+              <span className={shared.mono}>{t('workspaces.panel.repoCount', { count: workspace.repos.length })}</span>
             </button>
           ))}
           {workspaces.length === 0 ? (
-            <p className={shared.notice}>Aucun workspace. Créez-en un ci-dessous.</p>
+            <p className={shared.notice}>{t('workspaces.panel.empty')}</p>
           ) : null}
         </div>
         <div className={shared.row} style={{ marginTop: 12, marginBottom: 0 }}>
           <label className={shared.field}>
-            Nom du workspace
+            {t('workspaces.panel.nameLabel')}
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Nom du workspace"
-              aria-label="Nom du nouveau workspace"
+              placeholder={t('workspaces.panel.namePlaceholder')}
+              aria-label={t('workspaces.panel.nameAria')}
             />
           </label>
           <button
@@ -166,7 +188,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
             className={shared.primary}
             disabled={busy || !name.trim()}
             onClick={() =>
-              void run(`Workspace ${name} créé.`, async () => {
+              void run(t('workspaces.panel.created', { name }), async () => {
                 const created = await workspaceCreate(name.trim())
                 setName('')
                 await reload()
@@ -174,7 +196,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
               })
             }
           >
-            Créer
+            {t('common.create')}
           </button>
         </div>
       </section>
@@ -185,8 +207,16 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
             <div className={shared.row}>
               <h2 id="workspace-detail-title">{selected.name}</h2>
               <span className={shared.notice}>
-                {selected.repos.length}/{REPO_LIMIT} dépôts
+                {t('workspaces.panel.repoLimit', { count: selected.repos.length, limit: REPO_LIMIT })}
               </span>
+              <button
+                type="button"
+                className={shared.primary}
+                disabled={busy}
+                onClick={() => onActivateWorkspace(selected.id)}
+              >
+                {t('workspaces.panel.openTabs')}
+              </button>
               <button
                 type="button"
                 className={shared.secondary}
@@ -194,14 +224,14 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                   setRename(selected.name)
                 }}
               >
-                Renommer
+                {t('common.rename')}
               </button>
               <button
                 type="button"
                 className={shared.dangerButton}
                 onClick={() => setPendingDelete(true)}
               >
-                Supprimer
+                {t('common.delete')}
               </button>
             </div>
             {rename ? (
@@ -210,35 +240,35 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                   className={shared.field}
                   value={rename}
                   onChange={(event) => setRename(event.target.value)}
-                  aria-label="Nouveau nom du workspace"
+                  aria-label={t('workspaces.panel.renameAria')}
                 />
                 <button
                   type="button"
                   className={shared.primary}
                   disabled={busy || !rename.trim()}
                   onClick={() =>
-                    void run('Workspace renommé.', async () => {
+                    void run(t('workspaces.panel.renamed'), async () => {
                       await workspaceRename(selected.id, rename.trim())
                       setRename('')
                       await reload()
                     })
                   }
                 >
-                  Enregistrer
+                  {t('common.save')}
                 </button>
                 <button type="button" className={shared.secondary} onClick={() => setRename('')}>
-                  Annuler
+                  {t('common.cancel')}
                 </button>
               </div>
             ) : null}
             <div className={shared.row}>
               <label className={shared.field}>
-                Chemin du dépôt
+                {t('workspaces.panel.pathLabel')}
                 <input
                   value={path}
                   onChange={(event) => setPath(event.target.value)}
-                  placeholder="/chemin/absolu/vers/le/dépôt"
-                  aria-label="Chemin du dépôt à ajouter"
+                  placeholder={t('workspaces.panel.pathPlaceholder')}
+                  aria-label={t('workspaces.panel.pathAria')}
                 />
               </label>
               <button
@@ -246,7 +276,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                 className={shared.primary}
                 disabled={busy || !path.trim() || selected.repos.length >= REPO_LIMIT}
                 onClick={() =>
-                  void run('Dépôt ajouté au workspace.', async () => {
+                  void run(t('workspaces.panel.repoAdded'), async () => {
                     await workspaceAddRepo(selected.id, path.trim())
                     setPath('')
                     await reload()
@@ -254,7 +284,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                   })
                 }
               >
-                Ajouter
+                {t('common.add')}
               </button>
             </div>
             <div className={shared.row}>
@@ -264,7 +294,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                 disabled={busy || selected.repos.length === 0}
                 onClick={() => void sync('fetch')}
               >
-                Fetch tous les dépôts
+                {t('workspaces.panel.fetchAll')}
               </button>
               <button
                 type="button"
@@ -272,7 +302,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                 disabled={busy || selected.repos.length === 0}
                 onClick={() => setPendingPull(true)}
               >
-                Pull tous les dépôts
+                {t('workspaces.panel.pullAll')}
               </button>
               <button
                 type="button"
@@ -280,7 +310,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                 disabled={busy}
                 onClick={() => void loadStatus(selected.id)}
               >
-                Actualiser les états
+                {t('workspaces.panel.refreshStatus')}
               </button>
             </div>
             {error ? (
@@ -296,7 +326,7 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
           </section>
 
           <section className={shared.card} aria-labelledby="workspace-status-title">
-            <h2 id="workspace-status-title">État par dépôt</h2>
+            <h2 id="workspace-status-title">{t('workspaces.panel.statusTitle')}</h2>
             <div className={shared.list}>
               {statuses.map((status) => (
                 <div key={status.path} className={shared.item}>
@@ -305,7 +335,12 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                     <span className={shared.mono}>{status.path}</span>
                     <span className={shared.mono}>
                       {status.available
-                        ? `${headLabel(status)} · ${status.state?.worktree.staged ?? 0} préparé(s) / ${status.state?.worktree.unstaged ?? 0} modifié(s) / ${status.state?.worktree.untracked ?? 0} nouveau(x)`
+                        ? t('workspaces.panel.statusCounts', {
+                            head: headLabel(status),
+                            staged: status.state?.worktree.staged ?? 0,
+                            unstaged: status.state?.worktree.unstaged ?? 0,
+                            untracked: status.state?.worktree.untracked ?? 0,
+                          })
                         : status.error}
                     </span>
                   </div>
@@ -316,34 +351,34 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                       disabled={!status.available}
                       onClick={() => onOpenRepo(status.path)}
                     >
-                      Ouvrir
+                      {t('common.open')}
                     </button>
                     <button
                       type="button"
                       className={shared.small}
                       disabled={busy}
                       onClick={() =>
-                        void run('Dépôt retiré du workspace.', async () => {
+                        void run(t('workspaces.panel.repoRemoved'), async () => {
                           await workspaceRemoveRepo(selected.id, status.path)
                           await reload()
                           await loadStatus(selected.id)
                         })
                       }
                     >
-                      Retirer
+                      {t('common.remove')}
                     </button>
                   </div>
                 </div>
               ))}
               {statuses.length === 0 ? (
-                <p className={shared.notice}>Aucun dépôt dans ce workspace.</p>
+                <p className={shared.notice}>{t('workspaces.panel.noRepos')}</p>
               ) : null}
             </div>
           </section>
 
           {results.length > 0 ? (
             <section className={shared.card} aria-labelledby="workspace-results-title">
-              <h2 id="workspace-results-title">Résultat de la dernière action</h2>
+              <h2 id="workspace-results-title">{t('workspaces.panel.resultsTitle')}</h2>
               <div className={shared.list}>
                 {results.map((result) => (
                   <div key={result.path} className={shared.item}>
@@ -353,12 +388,12 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
                       </span>
                       <span className={shared.mono}>
                         {result.ok
-                          ? result.message || 'succès'
-                          : `${result.errorCode ?? 'erreur'} · ${result.message}`}
+                          ? result.message || t('workspaces.panel.success')
+                          : `${result.errorCode ?? t('workspaces.panel.error')} · ${result.message}`}
                       </span>
                     </div>
                     <span className={result.ok ? shared.badge : shared.danger}>
-                      {result.ok ? 'ok' : 'échec'}
+                      {result.ok ? t('workspaces.panel.ok') : t('workspaces.panel.failed')}
                     </span>
                   </div>
                 ))}
@@ -370,16 +405,16 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
 
       <ConfirmDialog
         open={pendingDelete}
-        title={`Supprimer le workspace ${selected?.name ?? ''}`}
-        consequence="Le groupe local est supprimé. Aucun dépôt, aucune branche et aucun fichier n'est modifié ou supprimé."
-        confirmLabel="Supprimer le groupe"
+        title={t('workspaces.panel.deleteTitle', { name: selected?.name ?? '' })}
+        consequence={t('workspaces.panel.deleteConsequence')}
+        confirmLabel={t('workspaces.panel.deleteConfirm')}
         busy={busy}
         onCancel={() => setPendingDelete(false)}
         onConfirm={() => {
           const target = selected
           setPendingDelete(false)
           if (!target) return
-          void run('Workspace supprimé.', async () => {
+          void run(t('workspaces.panel.deleted'), async () => {
             await workspaceDelete(target.id)
             await reload()
           })
@@ -387,9 +422,9 @@ export function WorkspacesPanel({ onOpenRepo }: Props) {
       />
       <ConfirmDialog
         open={pendingPull}
-        title={`Pull sur ${selected?.repos.length ?? 0} dépôt(s)`}
-        consequence="Chaque dépôt propre avec upstream est mis à jour indépendamment. Un dépôt sale ou sans upstream est signalé ; les autres continuent. Aucun push n'est effectué."
-        confirmLabel="Lancer les pulls"
+        title={t('workspaces.panel.pullTitle', { count: selected?.repos.length ?? 0 })}
+        consequence={t('workspaces.panel.pullConsequence')}
+        confirmLabel={t('workspaces.panel.pullConfirm')}
         busy={busy}
         onCancel={() => setPendingPull(false)}
         onConfirm={() => {

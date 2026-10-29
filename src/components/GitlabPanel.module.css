@@ -251,6 +251,66 @@
   flex-wrap: wrap;
 }
 
+.secondary {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: transparent;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.tokenHelp {
+  margin: -4px 0 0;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  color: var(--accent-text);
+  background: none;
+  font-size: 11.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.deviceFlow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.deviceFlow p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.userCode {
+  padding: 6px 12px;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 20px;
+  letter-spacing: 0.18em;
+}
+
+.deviceWait {
+  color: var(--warning);
+}
+
 .missingToken {
   margin: 12px 0 0;
   padding: 8px 10px;

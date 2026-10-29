@@ -5,6 +5,7 @@ use std::path::Path;
 use beebranch_core::AppError;
 use serde::{Deserialize, Serialize};
 
+use crate::commit::{read_changed_files, CommitDetail, StashSnapshot, MAX_FILES};
 use crate::log::{CommitIdentity, CommitSummary};
 use crate::process::{CaptureLimits, CommandSpec, GitRunner};
 use crate::status::read_status;
@@ -94,6 +95,62 @@ pub fn list(runner: &GitRunner, worktree: &Path) -> Result<Vec<StashEntry>, AppE
         .ensure_success()?;
     parse_list(&outcome.stdout.text_lossy())
         .map_err(|message| AppError::internal(format!("stash list: {message}")))
+}
+
+/// Find the stash entry whose commit is `sha`, if any.
+pub fn find(
+    runner: &GitRunner,
+    worktree: &Path,
+    sha: &str,
+) -> Result<Option<StashEntry>, AppError> {
+    Ok(list(runner, worktree)?
+        .into_iter()
+        .find(|entry| entry.sha == sha))
+}
+
+/// Read the detail of a stash entry.
+///
+/// Tracked changes are diffed against the base commit. Untracked files live in
+/// a separate root commit (the stash's third parent), so they are listed from
+/// that snapshot and carry its revision: the diff viewer would find nothing
+/// otherwise.
+pub fn read_detail(
+    runner: &GitRunner,
+    worktree: &Path,
+    entry: &StashEntry,
+) -> Result<CommitDetail, AppError> {
+    let base = entry
+        .parents
+        .first()
+        .ok_or_else(|| AppError::internal("stash sans commit de base"))?;
+    let (mut files, mut files_truncated) =
+        read_changed_files(runner, worktree, Some(base), &entry.sha, None)?;
+    let untracked = entry.parents.get(2).cloned();
+    if let Some(snapshot) = untracked.as_deref() {
+        let (extra, extra_truncated) =
+            read_changed_files(runner, worktree, None, snapshot, Some(snapshot))?;
+        files_truncated |= extra_truncated;
+        for file in extra {
+            if files.len() >= MAX_FILES {
+                files_truncated = true;
+                break;
+            }
+            if !files.iter().any(|existing| existing.path == file.path) {
+                files.push(file);
+            }
+        }
+    }
+    Ok(CommitDetail {
+        summary: entry.summary(),
+        message: entry.message.clone(),
+        files,
+        files_truncated,
+        message_truncated: false,
+        stash: Some(StashSnapshot {
+            selector: entry.selector.clone(),
+            untracked,
+        }),
+    })
 }
 
 /// Apply a stash and keep it.

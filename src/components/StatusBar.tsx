@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ViewId } from '../data/navigation'
 import { operationJournal, refsGet } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { formatNumber, useI18n, type I18n, type MessageKey } from '../i18n'
 import type { OperationRecord, RepoView } from '../types/git'
 import { ActionMenu } from './ActionMenu'
 import styles from './StatusBar.module.css'
@@ -33,13 +34,13 @@ function branchName(repo: RepoView | null): string {
   return head.branch ?? 'unborn'
 }
 
-function operation(repo: RepoView | null): string | null {
+function operation(repo: RepoView | null, t: I18n['t']): string | null {
   const value = repo?.state.operation
   if (!value) {
     return null
   }
   if (value.kind === 'rebase') {
-    return `rebase (${value.variant})`
+    return t('shell.operation.rebaseVariant', { variant: value.variant })
   }
   if (value.kind === 'sequencer') {
     return value.sequencer
@@ -47,13 +48,13 @@ function operation(repo: RepoView | null): string | null {
   return value.kind
 }
 
-const OPERATION_LABELS: Record<OperationRecord['state'], string> = {
-  queued: 'en attente',
-  running: 'en cours',
-  done: 'terminée',
-  failed: 'échouée',
-  cancelled: 'annulée',
-  interrupted: 'interrompue',
+const OPERATION_STATE_KEYS: Record<OperationRecord['state'], MessageKey> = {
+  queued: 'shell.operation.state.queued',
+  running: 'shell.operation.state.running',
+  done: 'shell.operation.state.done',
+  failed: 'shell.operation.state.failed',
+  cancelled: 'shell.operation.state.cancelled',
+  interrupted: 'shell.operation.state.interrupted',
 }
 
 export function StatusBar({
@@ -68,11 +69,11 @@ export function StatusBar({
   onUndo,
   onError,
 }: Props) {
+  const { t, plural } = useI18n()
   const repoId = repo?.repo.repoId ?? null
   const worktree = repo?.state.worktree
   const conflicts = repo?.state.conflicts.files.length ?? 0
-  const activeOperation = operation(repo)
-  const undoLabel = lastOperation?.replace(/^annuler\s+/i, '') ?? null
+  const activeOperation = operation(repo, t)
   const [branches, setBranches] = useState<string[]>([])
   const [branchesLoading, setBranchesLoading] = useState(false)
   const [branchPending, setBranchPending] = useState<string | null>(null)
@@ -124,16 +125,16 @@ export function StatusBar({
   }
 
   return (
-    <footer className={styles.status} aria-label="État du dépôt">
+    <footer className={styles.status} aria-label={t('shell.statusBar.aria')}>
       <ActionMenu
-        label={`Choisir une branche · ${branchName(repo)}`}
+        label={t('shell.statusBar.chooseBranch', { name: branchName(repo) })}
         triggerClassName={`${styles.segment} ${styles.branch}`}
         disabled={!repoId}
         onOpen={() => void loadBranches()}
-        triggerContent={<><span aria-hidden="true">⑂</span><span>{branchPending ? `checkout ${branchPending}…` : branchName(repo)}</span></>}
+        triggerContent={<><span aria-hidden="true">⑂</span><span>{branchPending ? t('shell.statusBar.checkoutPending', { name: branchPending }) : branchName(repo)}</span></>}
       >
-        {branchesLoading ? <span className={styles.menuState}>Chargement des branches…</span> : null}
-        {!branchesLoading && branches.length === 0 ? <span className={styles.menuState}>Aucune branche locale.</span> : null}
+        {branchesLoading ? <span className={styles.menuState}>{t('shell.statusBar.loadingBranches')}</span> : null}
+        {!branchesLoading && branches.length === 0 ? <span className={styles.menuState}>{t('shell.statusBar.noLocalBranch')}</span> : null}
         {branches.map((name) => (
           <button
             key={name}
@@ -151,16 +152,16 @@ export function StatusBar({
             {name}
           </button>
         ))}
-        <button type="button" onClick={onNewBranch}>Créer une branche dans le graphe…</button>
+        <button type="button" onClick={onNewBranch}>{t('shell.action.createBranchInGraph')}</button>
       </ActionMenu>
       {worktree ? (
-        <button type="button" className={`${styles.segment} ${styles.counts}`} onClick={() => onNavigate('status')} title="Ouvrir les modifications">
-          {worktree.staged} préparé(s) · {worktree.unstaged} modifié(s) · {worktree.untracked} nouveau(x)
+        <button type="button" className={`${styles.segment} ${styles.counts}`} onClick={() => onNavigate('status')} title={t('shell.statusBar.openChanges')}>
+          {plural('shell.statusBar.staged.one', 'shell.statusBar.staged.other', worktree.staged, { count: formatNumber(worktree.staged) })} · {plural('shell.statusBar.modified.one', 'shell.statusBar.modified.other', worktree.unstaged, { count: formatNumber(worktree.unstaged) })} · {plural('shell.statusBar.untracked.one', 'shell.statusBar.untracked.other', worktree.untracked, { count: formatNumber(worktree.untracked) })}
         </button>
       ) : null}
       {conflicts > 0 ? (
         <button type="button" className={`${styles.segment} ${styles.conflicts}`} onClick={() => onNavigate('conflicts')}>
-          {conflicts} conflit(s)
+          {plural('shell.statusBar.conflicts.one', 'shell.statusBar.conflicts.other', conflicts, { count: formatNumber(conflicts) })}
         </button>
       ) : null}
       {activeOperation ? (
@@ -169,9 +170,9 @@ export function StatusBar({
           type="button"
           className={`${styles.segment} ${styles.operation}`}
           onClick={() => onNavigate(repo?.state.operation?.kind === 'rebase' ? 'rebase' : 'conflicts')}
-          title="Gérer l’opération en cours"
+          title={t('shell.statusBar.manageOperation')}
         >
-          opération : {activeOperation}
+          {t('shell.statusBar.operation', { operation: activeOperation })}
         </button>
       ) : null}
       <span className={styles.spacer} />
@@ -180,7 +181,7 @@ export function StatusBar({
         type="button"
         className={styles.segment}
         onClick={() => onNavigate(gitlabConnected ? 'gitlab' : 'github')}
-        title={gitlabConnected ? 'Ouvrir la connexion GitLab' : 'Ouvrir la connexion GitHub'}
+        title={gitlabConnected ? t('shell.statusBar.openGitlab') : t('shell.statusBar.openGithub')}
       >
         <span
           className={styles.dot}
@@ -191,40 +192,40 @@ export function StatusBar({
           {gitlabConnected && githubConnected
             ? 'GitLab + GitHub'
             : gitlabConnected
-              ? 'GitLab connecté'
+              ? t('shell.statusBar.gitlabConnected')
               : githubConnected
-                ? 'GitHub connecté'
-                : 'Local-first'}
+                ? t('shell.statusBar.githubConnected')
+                : t('shell.statusBar.localFirst')}
         </span>
       </button>
       <ActionMenu
-        label="Journal des opérations"
+        label={t('shell.statusBar.journal')}
         triggerClassName={`${styles.segment} ${styles.journal}`}
         disabled={!repoId}
         onOpen={() => void loadJournal()}
-        triggerContent="Opérations"
+        triggerContent={t('shell.statusBar.operations')}
       >
-        <span className={styles.menuHeading}>Opérations récentes</span>
+        <span className={styles.menuHeading}>{t('shell.statusBar.recentOperations')}</span>
         {activeOperation ? (
           <button type="button" onClick={() => onNavigate(repo?.state.operation?.kind === 'rebase' ? 'rebase' : 'conflicts')}>
-            Gérer l’opération en cours
+            {t('shell.statusBar.manageOperation')}
           </button>
         ) : null}
-        {canUndo && undoLabel ? (
-          <button type="button" onClick={onUndo}>Annuler · {undoLabel}</button>
+        {canUndo && lastOperation ? (
+          <button type="button" onClick={onUndo}>{t('shell.undo.action', { action: lastOperation })}</button>
         ) : null}
-        {journalLoading ? <span className={styles.menuState}>Chargement…</span> : null}
-        {!journalLoading && journal.length === 0 ? <span className={styles.menuState}>Aucune opération récente.</span> : null}
+        {journalLoading ? <span className={styles.menuState}>{t('common.loading')}</span> : null}
+        {!journalLoading && journal.length === 0 ? <span className={styles.menuState}>{t('shell.statusBar.noRecentOperation')}</span> : null}
         {journal.map((record) => (
           <span key={record.id} className={styles.journalRow}>
             <span>{record.kind}</span>
-            <em data-state={record.state}>{OPERATION_LABELS[record.state]}</em>
+            <em data-state={record.state}>{t(OPERATION_STATE_KEYS[record.state])}</em>
           </span>
         ))}
-        <button type="button" onClick={() => onNavigate('recovery')}>Journal et récupération</button>
+        <button type="button" onClick={() => onNavigate('recovery')}>{t('shell.action.journalAndRecovery')}</button>
       </ActionMenu>
       <span className={styles.srOnly} role="status">
-        {activeOperation ? `Opération en cours : ${activeOperation}` : ''}
+        {activeOperation ? t('shell.operation.inProgressValue', { operation: activeOperation }) : ''}
       </span>
     </footer>
   )

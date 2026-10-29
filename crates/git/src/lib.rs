@@ -22,6 +22,7 @@ mod error;
 mod exec;
 pub mod graph;
 pub mod history;
+pub mod hooks;
 pub mod index;
 pub mod init;
 pub mod integration;

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { operationJournal, recoveryList, undoAcknowledge, undoFailed } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { dateFromSeconds, formatDateTime, t, useI18n } from '../i18n'
+import { undoActionLabel } from '../lib/undoLabel'
 import type { OperationRecord, RecoveryItem, UndoEntry } from '../types/git'
 import shared from './p1.module.css'
 import styles from './RecoveryPanel.module.css'
@@ -12,25 +14,26 @@ type Props = {
 function operationLabel(item: RecoveryItem): string {
   const state = item.state
   if (!state?.operation) {
-    return 'aucune opération Git en cours'
+    return t('ops.recovery.noOperation')
   }
   switch (state.operation.kind) {
     case 'merge':
-      return 'merge interrompu'
+      return t('ops.recovery.mergeInterrupted')
     case 'rebase':
-      return `rebase interrompu (${state.operation.variant})`
+      return t('ops.recovery.rebaseInterrupted', { variant: state.operation.variant })
     case 'cherryPick':
-      return 'cherry-pick interrompu'
+      return t('ops.recovery.cherryPickInterrupted')
     case 'revert':
-      return 'revert interrompu'
+      return t('ops.recovery.revertInterrupted')
     case 'sequencer':
-      return `séquence ${state.operation.sequencer} interrompue`
+      return t('ops.recovery.sequencerInterrupted', { sequencer: state.operation.sequencer })
     case 'bisect':
-      return 'bisect en cours'
+      return t('ops.recovery.bisectRunning')
   }
 }
 
 export function RecoveryPanel({ onOpenRepo }: Props) {
+  const { t } = useI18n()
   const [items, setItems] = useState<RecoveryItem[]>([])
   const [journal, setJournal] = useState<OperationRecord[]>([])
   const [failed, setFailed] = useState<UndoEntry[]>([])
@@ -64,14 +67,11 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
     <div className={styles.root}>
       <header className={styles.header}>
         <div>
-          <h2>Reprise après interruption</h2>
-          <p>
-            Vérifiez les opérations interrompues avant de reprendre votre travail.
-            Les verrous détectés restent en place jusqu’à votre intervention.
-          </p>
+          <h2>{t('ops.recovery.title')}</h2>
+          <p>{t('ops.recovery.intro')}</p>
         </div>
         <button type="button" onClick={() => void reload()} className={styles.refresh}>
-          Revalider
+          {t('ops.recovery.refresh')}
         </button>
       </header>
 
@@ -82,13 +82,11 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
       ) : null}
 
       {loading && items.length === 0 ? (
-        <p className={styles.empty}>Lecture du journal…</p>
+        <p className={styles.empty}>{t('ops.recovery.loading')}</p>
       ) : null}
 
       {!loading && items.length === 0 ? (
-        <p className={styles.empty}>
-          Aucune opération interrompue. Vous pouvez continuer à travailler.
-        </p>
+        <p className={styles.empty}>{t('ops.recovery.empty')}</p>
       ) : null}
 
       <ul className={styles.list}>
@@ -98,17 +96,17 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
               <span className={styles.kind}>{item.operation.kind}</span>
               <span className={styles.state}>{item.operation.state}</span>
               <span className={styles.date}>
-                {new Date(item.operation.updatedAt * 1000).toLocaleString('fr-FR')}
+                {formatDateTime(dateFromSeconds(item.operation.updatedAt))}
               </span>
             </div>
-            <p className={styles.path}>{item.operation.repoPath ?? 'dépôt inconnu'}</p>
+            <p className={styles.path}>{item.operation.repoPath ?? t('ops.recovery.unknownRepo')}</p>
             <p className={styles.opState}>{operationLabel(item)}</p>
             {item.locks.length > 0 ? (
               <ul className={styles.locks}>
                 {item.locks.map((lock) => (
                   <li key={lock}>
-                    Verrou détecté : <code>{lock}</code> — vérifiez qu'aucun autre
-                    processus Git ne tourne.
+                    {t('ops.recovery.lockDetectedPrefix')} <code>{lock}</code>{' '}
+                    {t('ops.recovery.lockDetectedSuffix')}
                   </li>
                 ))}
               </ul>
@@ -127,7 +125,7 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
                   }
                 }}
               >
-                Ouvrir le dépôt
+                {t('ops.recovery.openRepo')}
               </button>
             </div>
           </li>
@@ -135,21 +133,20 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
       </ul>
 
       <section className={shared.card} style={{ marginTop: 16 }} aria-labelledby="undo-recovery-title">
-        <h2 id="undo-recovery-title">Annulations en échec</h2>
+        <h2 id="undo-recovery-title">{t('ops.recovery.failedTitle')}</h2>
         <p className={shared.notice}>
-          Aucun fichier n'est copié par l'application. Une restauration partielle
-          conserve l'étape, la commande et le SHA de récupération ; utilisez
-          <code> git reflog </code> pour retrouver l'état antérieur.
+          {t('ops.recovery.failedNoticePrefix')}
+          <code> git reflog </code> {t('ops.recovery.failedNoticeSuffix')}
         </p>
         <div className={shared.list}>
           {failed.map((record) => (
             <div key={record.id} className={shared.item}>
               <div>
                 <span>
-                  {record.label} · {record.state}
+                  {undoActionLabel(record)} · {record.state}
                 </span>
                 <span className={shared.mono}>
-                  {record.step ? `étape ${record.step}` : ''}
+                  {record.step ? t('ops.recovery.undoStep', { step: record.step }) : ''}
                   {record.command ? ` · ${record.command}` : ''}
                   {record.recoverySha ? ` · sha ${record.recoverySha}` : ''}
                   {record.detail ? ` · ${record.detail}` : ''}
@@ -161,22 +158,20 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
                   void undoAcknowledge(record.id).then(() => void reload())
                 }
               >
-                Marquer comme vu
+                {t('ops.recovery.acknowledge')}
               </button>
             </div>
           ))}
           {failed.length === 0 ? (
-            <p className={shared.notice}>Aucune annulation en échec.</p>
+            <p className={shared.notice}>{t('ops.recovery.noFailedUndo')}</p>
           ) : null}
         </div>
       </section>
 
       <section className={`${shared.card}`} style={{ marginTop: 16 }}>
-        <h2>Journal des opérations récentes</h2>
+        <h2>{t('ops.recovery.journalTitle')}</h2>
         <p className={shared.notice}>
-          Chaque action destructive (discard, suppression de branche, force push,
-          drop de stash, abort) est journalisée avec ses conséquences. Aucune
-          sauvegarde applicative n'est créée.
+          {t('ops.recovery.journalNotice')}
         </p>
         <div className={shared.list}>
           {journal.map((record) => (
@@ -186,7 +181,7 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
                   {record.kind} · {record.state}
                 </span>
                 <span className={shared.mono}>
-                  {new Date(record.updatedAt * 1000).toLocaleString('fr-FR')}
+                  {formatDateTime(dateFromSeconds(record.updatedAt))}
                   {record.repoPath ? ` · ${record.repoPath}` : ''}
                   {record.detail ? ` · ${record.detail}` : ''}
                 </span>
@@ -197,7 +192,7 @@ export function RecoveryPanel({ onOpenRepo }: Props) {
             </div>
           ))}
           {journal.length === 0 ? (
-            <p className={shared.notice}>Journal vide.</p>
+            <p className={shared.notice}>{t('ops.recovery.journalEmpty')}</p>
           ) : null}
         </div>
       </section>

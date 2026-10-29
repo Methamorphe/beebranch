@@ -284,6 +284,7 @@ dependencies = [
 name = "beebranch-app"
 version = "0.7.2"
 dependencies = [
+ "base64 0.22.1",
  "beebranch-core",
  "beebranch-git",
  "beebranch-github",
@@ -295,6 +296,7 @@ dependencies = [
  "tauri",
  "tauri-plugin-updater",
  "tempfile",
+ "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

@@ -181,6 +181,45 @@ export function gitlabConfigure(input: GitlabConfigureInput): Promise<GitlabSess
   return call<GitlabSession>('gitlab_configure', { input })
 }
 
+export type ForgeConnectFromGitInput = {
+  baseUrl: string
+  displayName?: string
+}
+
+export function gitlabConnectFromGit(
+  input: ForgeConnectFromGitInput,
+): Promise<GitlabSession> {
+  return call<GitlabSession>('gitlab_connect_from_git', { input })
+}
+
+export type GitlabDeviceFlowStart = {
+  userCode: string
+  verificationUri: string
+  expiresIn: number
+  interval: number
+}
+
+export type GitlabDeviceFlowPoll = {
+  status: 'pending' | 'connected'
+  interval?: number
+  session?: GitlabSession
+}
+
+export function gitlabDeviceFlowStart(input: {
+  baseUrl?: string
+  displayName?: string
+}): Promise<GitlabDeviceFlowStart> {
+  return call<GitlabDeviceFlowStart>('gitlab_device_flow_start', { input })
+}
+
+export function gitlabDeviceFlowPoll(): Promise<GitlabDeviceFlowPoll> {
+  return call<GitlabDeviceFlowPoll>('gitlab_device_flow_poll')
+}
+
+export function gitlabDeviceFlowCancel(): Promise<boolean> {
+  return call<boolean>('gitlab_device_flow_cancel')
+}
+
 export function gitlabStatus(): Promise<GitlabSession> {
   return call<GitlabSession>('gitlab_status')
 }
@@ -211,6 +250,7 @@ import type {
   HistoryOutcome,
   IndexResult,
   IntegrationMode,
+  MergeFastForward,
   MutationResult,
   PathSelection,
   PullStrategy,
@@ -383,7 +423,8 @@ export function branchIntegrationStart(input: {
   source: string
   target: string
   mode: IntegrationMode
-  noFf?: boolean
+  /** Merge behaviour; ignored by a rebase. Defaults to `auto`. */
+  fastForward?: MergeFastForward
   confirmation: Confirmation
 }): Promise<MutationResult<BranchIntegrationOutcome>> {
   return call<MutationResult<BranchIntegrationOutcome>>(
@@ -425,7 +466,7 @@ export function operationCancel(operationId: string): Promise<boolean> {
 export function historyMerge(input: {
   repoId: string
   target: string
-  noFf?: boolean
+  fastForward?: MergeFastForward
 }): Promise<MutationResult<HistoryOutcome>> {
   return call<MutationResult<HistoryOutcome>>('history_merge', { request: input })
 }
@@ -537,6 +578,11 @@ export function preferenceGet(key: string): Promise<string | null> {
 
 export function preferenceSet(key: string, value: string): Promise<void> {
   return call<void>('preference_set', { input: { key, value } })
+}
+
+/** Reads a wallpaper chosen by the user and returns it as a `data:` URL. */
+export function backgroundRead(path: string): Promise<string> {
+  return call<string>('background_read', { path })
 }
 
 export function toolsDetect(): Promise<ToolsReport> {
@@ -1170,6 +1216,39 @@ export function gitlabMrDiffRefs(input: {
 
 export function githubConfigure(input: GitlabConfigureInput): Promise<GithubSession> {
   return call<GithubSession>('github_configure', { input })
+}
+
+export function githubConnectFromGit(
+  input: ForgeConnectFromGitInput,
+): Promise<GithubSession> {
+  return call<GithubSession>('github_connect_from_git', { input })
+}
+
+export type GithubDeviceFlowStart = {
+  userCode: string
+  verificationUri: string
+  expiresIn: number
+  interval: number
+}
+
+export type GithubDeviceFlowPoll = {
+  status: 'pending' | 'connected'
+  interval?: number
+  session?: GithubSession
+}
+
+export function githubDeviceFlowStart(input: {
+  baseUrl?: string
+}): Promise<GithubDeviceFlowStart> {
+  return call<GithubDeviceFlowStart>('github_device_flow_start', { input })
+}
+
+export function githubDeviceFlowPoll(): Promise<GithubDeviceFlowPoll> {
+  return call<GithubDeviceFlowPoll>('github_device_flow_poll')
+}
+
+export function githubDeviceFlowCancel(): Promise<boolean> {
+  return call<boolean>('github_device_flow_cancel')
 }
 
 export function githubStatus(): Promise<GithubSession> {

@@ -61,6 +61,35 @@ Règles :
 - Jamais dans SQLite, les logs, les URLs de remote, les crash reports ou le frontend.
 - Expiration : un `401` déclenche `gitlab://auth-expired` ; l'utilisateur remplace le token ; aucune suppression automatique.
 
+### Device flow OAuth (gitlab.com)
+
+Pour `gitlab.com`, BeeBranch peut se connecter sans Personal Access Token via
+le device authorization grant de GitLab (≥ 17.9) :
+
+1. `POST https://gitlab.com/oauth/authorize_device` avec l'Application ID et
+   les scopes `api read_user read_repository` ;
+2. le frontend affiche le `user_code` et ouvre la `verification_uri` (forme
+   `verification_uri_complete` qui préremplit le code) ;
+3. `gitlab_device_flow_poll` interroge `POST /oauth/token`
+   (`grant_type=device_code`) au rythme de `interval` ;
+4. les jetons OAuth sont stockés ensemble dans le keychain
+   (`<host>#<instance>#oauth`, JSON) — l'access token et le refresh token ne
+   sont jamais renvoyés au frontend ni journalisés.
+
+Les access tokens GitLab expirent après 2 h. Un refresh token est conservé et
+renouvelé en arrière-plan deux minutes avant l'expiration
+(`grant_type=refresh_token`, rotation obligatoire : le nouveau refresh token
+remplace l'ancien dans le keychain). Le client GitLab partage sa cellule de
+token, donc la rotation profite à tous les clones déjà détenus par les
+commandes. Si le refresh échoue, la session est invalidée (`gitlab://auth-expired`)
+et l'écran de connexion revient.
+
+Prérequis de build : `BEEBRANCH_GITLAB_CLIENT_ID` (Application ID public de
+l'application OAuth gitlab.com, **client public**). Une instance auto-hébergée
+nécessite sa propre application OAuth : le device flow intégré est refusé
+(`gitlab.device_flow_unavailable`) et les méthodes PAT / identifiants Git
+restent disponibles.
+
 ### Réutilisation des credentials Git
 
 Un poste où `git clone https://<instance>/…` fonctionne possède déjà un
@@ -69,17 +98,27 @@ identifiant. BeeBranch le détecte **sans réseau** au démarrage et à chaque
 
 | Source | Lecture | Exemple |
 |---|---|---|
+| `git credential fill` pour l'hôte de l'instance | le helper configuré répond (trousseau macOS, Gestionnaire d'identifiants Windows, `gh auth git-credential`, …) | `username=oauth2` + `password=glpat-…` |
 | `url.<base>.insteadOf` (global et système) | la base de réécriture porte les identifiants | `https://oauth2:glpat-…@gitlab.example.com/` |
 | helper `store --file=<chemin>` | fichier indiqué par la configuration | `credential.helper = store --file=~/work/creds` |
 | fichiers par défaut du helper `store` | `$XDG_CONFIG_HOME/git/credentials`, `~/.git-credentials` | `https://oauth2:glpat-…@gitlab.example.com` |
 
+L'écran de connexion expose « Utiliser mes identifiants Git » : l'URL de
+l'instance suffit, le helper est interrogé pour cet hôte puis la session est
+validée par `GET /user`. Aucun token n'est saisi ni copié.
+
 Règles de sûreté :
 
+- l'interrogation du helper est bornée (5 s), sans invite terminale
+  (`GIT_TERMINAL_PROMPT=0`) et avec `GCM_INTERACTIVE=never` : un helper
+  interactif ne peut ni bloquer le démarrage ni ouvrir une fenêtre ;
+- le helper n'est interrogé que pour l'hôte d'une instance connue ; sans
+  instance, seuls les fichiers ci-dessus sont scannés et seul un token de forme
+  GitLab (`glpat-`, `gloas-`, …) est utilisé — un token GitHub n'est jamais
+  pris pour GitLab ;
 - seules les entrées `https://user:password@host` avec un mot de passe sont
-  retenues ; SSH, `osxkeychain`, GCM et `http://` sont ignorés ;
+  retenues ; SSH et `http://` sont ignorés ;
 - une instance déjà configurée n'accepte que l'identifiant de **son** hôte ;
-  sans instance, seul un token de forme GitLab (`glpat-`, `gloas-`, …) est
-  utilisé — un token GitHub n'est jamais pris pour GitLab ;
 - le token n'est ni recopié dans le keychain, ni dans SQLite, ni journalisé ;
   la session indique sa provenance (`credentialSource`) et « Déconnecter » est
   masqué : le secret reste géré par Git ;

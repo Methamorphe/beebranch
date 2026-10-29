@@ -2,6 +2,7 @@
 
 use beebranch_core::{AppError, Confirmation, DestructiveAction, InProgressOperation};
 use beebranch_git::branches::{self, BranchComparison, BranchPreflight};
+use beebranch_git::history::MergeFastForward;
 use beebranch_git::integration::{
     self, AutoStashOutcome, BranchIntegrationPreview, IntegrationMode,
 };
@@ -188,9 +189,10 @@ pub struct IntegrationStartRequest {
     pub source: String,
     pub target: String,
     pub mode: IntegrationMode,
-    /// Create a merge commit even when a fast-forward is possible.
+    /// Merge behaviour: `auto` (`--ff`), `only` (`--ff-only`) or `never`
+    /// (`--no-ff`). Ignored by a rebase.
     #[serde(default)]
-    pub no_ff: bool,
+    pub fast_forward: MergeFastForward,
     #[serde(default)]
     pub confirmation: Confirmation,
 }
@@ -230,7 +232,7 @@ pub async fn branch_integration_start(
                 &source,
                 &target,
                 request.mode,
-                request.no_ff,
+                request.fast_forward,
             )?;
             let builder_label = label.clone();
             let target = target.clone();
@@ -918,7 +920,7 @@ mod tests {
             "feature",
             "main",
             IntegrationMode::Merge,
-            false,
+            MergeFastForward::Auto,
         )
         .expect("integration");
         assert!(dir.path().join("b.txt").exists());

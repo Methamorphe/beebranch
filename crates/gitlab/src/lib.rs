@@ -5,6 +5,7 @@
 
 pub mod cache;
 pub mod client;
+pub mod device_flow;
 pub mod error;
 pub mod models;
 pub mod pipeline;

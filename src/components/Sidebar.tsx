@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { navigationItems, type ViewId } from '../data/navigation'
+import { useI18n, type MessageKey } from '../i18n'
 import { ViewIcon } from './ViewIcon'
 import styles from './Sidebar.module.css'
 
@@ -16,50 +17,52 @@ type Props = {
   onSelect: (view: ViewId) => void
 }
 
-const sections: { label: string; ids: ViewId[]; expandable?: boolean }[] = [
-  { label: 'Espace de travail', ids: ['graph', 'workspaces', 'stash', 'mrs', 'prs', 'search'] },
-  { label: 'Outils avancés', ids: ['rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync'], expandable: true },
-  { label: 'Préférences', ids: ['profiles', 'gitlab', 'github', 'tools', 'recovery'], expandable: true },
+const sections: { id: string; labelKey: MessageKey; ids: ViewId[]; expandable?: boolean }[] = [
+  { id: 'workspace', labelKey: 'nav.group.workspace', ids: ['graph', 'workspaces', 'stash', 'mrs', 'prs', 'search'] },
+  { id: 'operations', labelKey: 'nav.group.operations', ids: ['rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync'], expandable: true },
+  { id: 'system', labelKey: 'nav.group.system', ids: ['profiles', 'gitlab', 'github', 'tools', 'recovery'], expandable: true },
 ]
 
 export function Sidebar(props: Props) {
   const { active, repoName, conflicts, stashes, gitlabConnected, githubConnected, onSelect } = props
+  const { t } = useI18n()
   const forgeView: ViewId = gitlabConnected || !githubConnected ? 'gitlab' : 'github'
   const forgeLabel = gitlabConnected
-    ? 'GitLab connecté'
+    ? t('shell.sidebar.gitlabConnected')
     : githubConnected
-      ? 'GitHub connecté'
-      : 'Connecter GitLab'
+      ? t('shell.sidebar.githubConnected')
+      : t('shell.sidebar.connectGitlab')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const current = active === 'commit' || active === 'diff' ? 'graph' : active
   const item = (id: ViewId) => {
     const entry = navigationItems.find((value) => value.id === id)!
+    const label = t(entry.labelKey)
     const count = id === 'stash' ? stashes : id === 'conflicts' ? conflicts : 0
     return <button key={id} type="button" data-view={id}
       className={current === id ? styles.itemActive : styles.item}
       disabled={entry.requiresRepo && !repoName}
       aria-current={current === id ? 'page' : undefined}
-      title={entry.requiresRepo && !repoName ? 'Ouvrez un dépôt pour continuer' : entry.label}
+      title={entry.requiresRepo && !repoName ? t('shell.sidebar.openRepoToContinue') : label}
       onClick={() => onSelect(id)}>
       <span className={styles.icon} aria-hidden="true"><ViewIcon view={id} /></span>
-      <span className={styles.label}>{entry.label}</span>
+      <span className={styles.label}>{label}</span>
       {count > 0 ? <span className={styles.count}>{count}</span> : null}
     </button>
   }
-  return <aside className={styles.sidebar} aria-label="Navigation principale">
-    <div className={styles.caption}>VOTRE DÉPÔT</div>
-    <div className={styles.repoTitle} title={repoName ?? undefined}>◇ <span>{repoName ?? 'Bienvenue'}</span></div>
+  return <aside className={styles.sidebar} aria-label={t('shell.sidebar.aria')}>
+    <div className={styles.caption}>{t('shell.sidebar.caption')}</div>
+    <div className={styles.repoTitle} title={repoName ?? undefined}>◇ <span>{repoName ?? t('shell.sidebar.welcome')}</span></div>
     <nav className={styles.nav}>
       {sections.map((section) => {
         const containsActive = section.ids.includes(current)
-        const open = !section.expandable || (expanded[section.label] ?? containsActive)
-        return <section key={section.label} className={styles.group}>
+        const open = !section.expandable || (expanded[section.id] ?? containsActive)
+        return <section key={section.id} className={styles.group}>
           {section.expandable ? <button type="button" className={styles.summary}
-            aria-expanded={open} aria-controls={`nav-${section.label.replaceAll(" ", "-")}`}
-            onClick={() => setExpanded((value) => ({ ...value, [section.label]: !open }))}>
-            {section.label}<span className={styles.chevron} data-open={open} aria-hidden="true">⌄</span>
-          </button> : <div className={styles.summary}>{section.label}</div>}
-          <div id={`nav-${section.label.replaceAll(" ", "-")}`} hidden={!open} className={styles.items}>
+            aria-expanded={open} aria-controls={`nav-${section.id}`}
+            onClick={() => setExpanded((value) => ({ ...value, [section.id]: !open }))}>
+            {t(section.labelKey)}<span className={styles.chevron} data-open={open} aria-hidden="true">⌄</span>
+          </button> : <div className={styles.summary}>{t(section.labelKey)}</div>}
+          <div id={`nav-${section.id}`} hidden={!open} className={styles.items}>
             {section.ids.map(item)}
             {section.ids.includes('graph') && (conflicts > 0 || active === 'conflicts') ? item('conflicts') : null}
           </div>
@@ -76,8 +79,8 @@ export function Sidebar(props: Props) {
         {forgeLabel}
         <small>
           {gitlabConnected || githubConnected
-            ? 'Revues, CI et dépôts'
-            : 'Vos dépôts restent accessibles'}
+            ? t('shell.sidebar.connectedHint')
+            : t('shell.sidebar.disconnectedHint')}
         </small>
       </span>
       <span aria-hidden="true">↗</span>

@@ -13,6 +13,7 @@ import {
   type DiffRequest,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { t, useI18n } from '../i18n'
 import { buildFileTree, flattenFileTree, type FileTreeRow } from '../lib/fileTree'
 import { splitPath } from '../lib/paths'
 import type { Fingerprint, StatusEntry, StatusReport } from '../types/git'
@@ -40,15 +41,15 @@ type FileView = 'path' | 'tree'
 function entryLabel(entry: StatusEntry): string {
   switch (entry.kind) {
     case 'untracked':
-      return 'non suivi'
+      return t('status.entry.untracked')
     case 'unmerged':
-      return 'conflit'
+      return t('status.entry.unmerged')
     case 'renamed':
-      return 'renommé'
+      return t('status.entry.renamed')
     case 'copied':
-      return 'copié'
+      return t('status.entry.copied')
     case 'ignored':
-      return 'ignoré'
+      return t('status.entry.ignored')
     default:
       return `${entry.index}${entry.worktree}`
   }
@@ -82,6 +83,7 @@ export function RepoStatus({
   onNavigate,
   selectedPath,
 }: Props) {
+  const { t, plural } = useI18n()
   const [status, setStatus] = useState<StatusReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -154,11 +156,11 @@ export function RepoStatus({
   }, [status, filter])
 
   const groups = useMemo(() => [
-    { id: 'conflicts', label: 'Conflits à résoudre', entries: entries.filter((e) => e.kind === 'unmerged'), staged: false },
-    { id: 'worktree', label: 'À préparer', entries: entries.filter((e) => e.kind !== 'unmerged' && e.kind !== 'ignored' && (e.kind === 'untracked' || e.worktree !== '.')), staged: false },
-    { id: 'index', label: 'Prêts à committer', entries: entries.filter((e) => e.kind !== 'unmerged' && e.kind !== 'untracked' && e.kind !== 'ignored' && e.index !== '.'), staged: true },
-    { id: 'ignored', label: 'Ignorés', entries: entries.filter((e) => e.kind === 'ignored'), staged: false },
-  ], [entries])
+    { id: 'conflicts', label: t('status.group.conflicts'), entries: entries.filter((e) => e.kind === 'unmerged'), staged: false },
+    { id: 'worktree', label: t('status.group.worktree'), entries: entries.filter((e) => e.kind !== 'unmerged' && e.kind !== 'ignored' && (e.kind === 'untracked' || e.worktree !== '.')), staged: false },
+    { id: 'index', label: t('status.group.index'), entries: entries.filter((e) => e.kind !== 'unmerged' && e.kind !== 'untracked' && e.kind !== 'ignored' && e.index !== '.'), staged: true },
+    { id: 'ignored', label: t('status.group.ignored'), entries: entries.filter((e) => e.kind === 'ignored'), staged: false },
+  ], [entries, t])
 
   /** Ignored paths may name directories (`build/`), so they stay a flat list. */
   const trees = useMemo(() => {
@@ -261,7 +263,7 @@ export function RepoStatus({
 
   const stage = (entry: StatusEntry) => {
     markFlash(entryPaths(entry))
-    return run(`Indexé : ${entry.path}`, () =>
+    return run(t('status.notice.staged', { path: entry.path }), () =>
       indexStage(
         repoId,
         entryPaths(entry).map((path) => ({ path, hunks: [] })),
@@ -271,7 +273,7 @@ export function RepoStatus({
 
   const unstage = (entry: StatusEntry) => {
     markFlash(entryPaths(entry))
-    return run(`Retiré de l'index : ${entry.path}`, () =>
+    return run(t('status.notice.unstaged', { path: entry.path }), () =>
       indexUnstage(
         repoId,
         entryPaths(entry).map((path) => ({ path, hunks: [] })),
@@ -285,7 +287,7 @@ export function RepoStatus({
       (entry) => entry.kind !== 'untracked' && entry.kind !== 'unmerged',
     )
     if (eligible.length === 0) {
-      setError('Un fichier non suivi ou en conflit ne peut pas être discardé ici.')
+      setError(t('status.error.discardUnsupported'))
       return
     }
     try {
@@ -312,8 +314,8 @@ export function RepoStatus({
     }
     const target = pendingDiscard
     const label = target.entries.length === 1
-      ? `Discard irréversible : ${target.entries[0]!.path}`
-      : `Discard irréversible : ${target.entries.length} fichiers`
+      ? t('status.notice.discardOne', { path: target.entries[0]!.path })
+      : t('status.notice.discardMany', { count: target.entries.length })
     await run(label, () =>
       indexDiscard(
         repoId,
@@ -327,18 +329,18 @@ export function RepoStatus({
   }
 
   const ignore = (pattern: string) =>
-    run(`Ajouté au .gitignore : ${pattern}`, () => indexIgnore(repoId, pattern))
+    run(t('status.notice.ignored', { pattern }), () => indexIgnore(repoId, pattern))
 
   const openTool = (entry: StatusEntry, kind: 'editor' | 'merge') =>
     run(
       kind === 'merge'
-        ? `Merge tool ouvert : ${entry.path}`
-        : `Éditeur ouvert : ${entry.path}`,
+        ? t('status.notice.mergeTool', { path: entry.path })
+        : t('status.notice.editor', { path: entry.path }),
       () => toolOpen({ repoId, kind, path: entry.path }),
     )
 
   const resolve = (entry: StatusEntry) =>
-    run(`Conflit marqué résolu : ${entry.path}`, () =>
+    run(t('status.notice.resolved', { path: entry.path }), () =>
       conflictMarkResolved(repoId, entry.path),
     )
 
@@ -350,7 +352,7 @@ export function RepoStatus({
     )
   }
   if (!status) {
-    return <div className={styles.loading}>{loading ? 'Lecture du status…' : 'Aucun status.'}</div>
+    return <div className={styles.loading}>{loading ? t('status.loading') : t('status.empty')}</div>
   }
 
   const select = (entry: StatusEntry, staged: boolean) => onSelectDiff({
@@ -398,7 +400,7 @@ export function RepoStatus({
     const paths = [...new Set(targets.flatMap((item) => entryPaths(item.entry)))]
     markFlash(paths)
     const ok = await run(
-      `${targets.length} fichier(s) préparé(s).`,
+      plural('status.bulk.staged.one', 'status.bulk.staged.other', targets.length, { count: targets.length }),
       () => indexStage(repoId, paths.map((path) => ({ path, hunks: [] }))),
     )
     if (ok) {
@@ -413,7 +415,7 @@ export function RepoStatus({
     const paths = [...new Set(targets.flatMap((item) => entryPaths(item.entry)))]
     markFlash(paths)
     const ok = await run(
-      `${targets.length} fichier(s) retiré(s) de l’index.`,
+      plural('status.bulk.unstaged.one', 'status.bulk.unstaged.other', targets.length, { count: targets.length }),
       () => indexUnstage(repoId, paths.map((path) => ({ path, hunks: [] }))),
     )
     if (ok) {
@@ -431,7 +433,7 @@ export function RepoStatus({
   const stageGroup = (list: StatusEntry[], staged: boolean) => {
     const paths = [...new Set(list.flatMap(entryPaths))]
     markFlash(paths)
-    void run(staged ? 'Fichiers retirés de l’index.' : 'Fichiers ajoutés à l’index.', () =>
+    void run(staged ? t('status.group.unstageAll') : t('status.group.stageAll'), () =>
       (staged ? indexUnstage : indexStage)(repoId, paths.map((path) => ({ path, hunks: [] }))))
   }
   const toggleDir = (key: string) => {
@@ -457,8 +459,8 @@ export function RepoStatus({
           className={styles.select}
           checked={selectedKeys.has(selectionKey)}
           disabled={!selectable || busy}
-          aria-label={`Sélectionner ${entry.path}`}
-          title={selectable ? `Sélectionner ${entry.path} · Maj+clic pour une plage` : undefined}
+          aria-label={t('status.row.select', { path: entry.path })}
+          title={selectable ? t('status.row.selectRange', { path: entry.path }) : undefined}
           onChange={(event) => {
             const native = event.nativeEvent
             toggleSelection(selectionKey, Boolean('shiftKey' in native && native.shiftKey))
@@ -469,12 +471,12 @@ export function RepoStatus({
           disabled={entry.kind === 'ignored'} onClick={() => entry.kind === 'unmerged' ? onNavigate('conflicts') : select(entry, staged)}>
           {fileView === 'tree' ? <span className={styles.filename}>{name}</span> : <><span className={styles.folder}>{directory}</span><span className={styles.filename}>{name}</span></>}
         </button>
-        {entry.kind === 'unmerged' ? <button type="button" className={styles.stage} onClick={() => onNavigate('conflicts')}>Résoudre</button> : entry.kind !== 'ignored' ? <button type="button" className={styles.stage} disabled={busy} title={staged ? 'Retirer de l’index' : 'Préparer ce fichier'} aria-label={`${staged ? 'Retirer' : 'Préparer'} ${entry.path}`} onClick={() => void (staged ? unstage(entry) : stage(entry))}>{staged ? '−' : '+'}</button> : null}
-        <ActionMenu label={`Actions pour ${entry.path}`}>
-            <button type="button" disabled={busy} onClick={() => void openTool(entry, 'editor')}>Ouvrir dans l’éditeur</button>
-            {entry.kind === 'unmerged' ? <><button type="button" disabled={busy} onClick={() => void openTool(entry, 'merge')}>Outil de fusion</button><button type="button" disabled={busy} onClick={() => void resolve(entry)}>Marquer résolu</button></> : null}
-            {entry.kind === 'untracked' ? <><button type="button" disabled={busy} onClick={() => void ignore(entry.path)}>Ignorer le fichier</button>{extPattern(entry.path) ? <button type="button" disabled={busy} onClick={() => void ignore(extPattern(entry.path)!)}>Ignorer {extPattern(entry.path)}</button> : null}{entry.path.includes('/') ? <button type="button" disabled={busy} onClick={() => void ignore(dirPattern(entry.path))}>Ignorer le dossier</button> : null}</> : null}
-            {!staged && entry.kind === 'ordinary' ? <button type="button" className={styles.danger} disabled={busy} onClick={() => void requestDiscard([entry])}>Abandonner les modifications…</button> : null}
+        {entry.kind === 'unmerged' ? <button type="button" className={styles.stage} onClick={() => onNavigate('conflicts')}>{t('status.row.resolve')}</button> : entry.kind !== 'ignored' ? <button type="button" className={styles.stage} disabled={busy} title={staged ? t('status.row.unstageTitle') : t('status.row.stageTitle')} aria-label={staged ? t('status.row.unstageAria', { path: entry.path }) : t('status.row.stageAria', { path: entry.path })} onClick={() => void (staged ? unstage(entry) : stage(entry))}>{staged ? '−' : '+'}</button> : null}
+        <ActionMenu label={t('status.row.actionsAria', { path: entry.path })}>
+            <button type="button" disabled={busy} onClick={() => void openTool(entry, 'editor')}>{t('status.row.openEditor')}</button>
+            {entry.kind === 'unmerged' ? <><button type="button" disabled={busy} onClick={() => void openTool(entry, 'merge')}>{t('status.row.mergeTool')}</button><button type="button" disabled={busy} onClick={() => void resolve(entry)}>{t('status.row.markResolved')}</button></> : null}
+            {entry.kind === 'untracked' ? <><button type="button" disabled={busy} onClick={() => void ignore(entry.path)}>{t('status.row.ignoreFile')}</button>{extPattern(entry.path) ? <button type="button" disabled={busy} onClick={() => void ignore(extPattern(entry.path)!)}>{t('status.row.ignorePattern', { pattern: extPattern(entry.path)! })}</button> : null}{entry.path.includes('/') ? <button type="button" disabled={busy} onClick={() => void ignore(dirPattern(entry.path))}>{t('status.row.ignoreDir')}</button> : null}</> : null}
+            {!staged && entry.kind === 'ordinary' ? <button type="button" className={styles.danger} disabled={busy} onClick={() => void requestDiscard([entry])}>{t('status.row.discardAction')}</button> : null}
         </ActionMenu>
       </div>
     )
@@ -487,38 +489,38 @@ export function RepoStatus({
           setSelectedKeys(new Set())
           selectionAnchor.current = null
         }}
-          placeholder="Filtrer les fichiers…" aria-label="Filtrer les chemins" />
-        <ActionMenu label="Options d’affichage des fichiers">
-          <label className={styles.ignoredToggle} title="Regrouper les fichiers par dossier, avec des dossiers repliables">
-            <input type="checkbox" checked={fileView === 'tree'} onChange={(event) => chooseView(event.target.checked ? 'tree' : 'path')} /> Afficher en arborescence
+          placeholder={t('status.filter.placeholder')} aria-label={t('status.filter.aria')} />
+        <ActionMenu label={t('status.view.options')}>
+          <label className={styles.ignoredToggle} title={t('status.view.treeTitle')}>
+            <input type="checkbox" checked={fileView === 'tree'} onChange={(event) => chooseView(event.target.checked ? 'tree' : 'path')} /> {t('status.view.tree')}
           </label>
-          <label className={styles.ignoredToggle} title="Afficher les fichiers ignorés">
-            <input type="checkbox" checked={includeIgnored} onChange={(event) => setIncludeIgnored(event.target.checked)} /> Afficher les fichiers ignorés
+          <label className={styles.ignoredToggle} title={t('status.view.ignoredTitle')}>
+            <input type="checkbox" checked={includeIgnored} onChange={(event) => setIncludeIgnored(event.target.checked)} /> {t('status.view.ignored')}
           </label>
         </ActionMenu>
       </div>
-      {locks.length > 0 ? <p className={styles.banner} role="alert">Verrous Git : {locks.join(', ')}</p> : null}
+      {locks.length > 0 ? <p className={styles.banner} role="alert">{t('status.locks', { list: locks.join(', ') })}</p> : null}
       {error ? <p className={styles.error} role="alert">{error}</p> : null}
       {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
-      {status.truncated ? <p className={styles.banner}>Liste partielle. Filtrez pour affiner les résultats.</p> : null}
+      {status.truncated ? <p className={styles.banner}>{t('status.truncated')}</p> : null}
       {selectedEntries.length > 0 ? (
-        <div className={styles.bulkBar} role="region" aria-label="Fichiers sélectionnés">
-          <strong>{selectedEntries.length} sélectionné{selectedEntries.length > 1 ? 's' : ''}</strong>
+        <div className={styles.bulkBar} role="region" aria-label={t('status.bulk.regionAria')}>
+          <strong>{plural('status.bulk.selected.one', 'status.bulk.selected.other', selectedEntries.length, { count: selectedEntries.length })}</strong>
           <button type="button" disabled={busy || !selectedEntries.some((item) => !item.staged)} onClick={() => void bulkStage()}>
-            Préparer
+            {t('status.bulk.stage')}
           </button>
           <button type="button" disabled={busy || !selectedEntries.some((item) => item.staged)} onClick={() => void bulkUnstage()}>
-            Retirer
+            {t('status.bulk.unstage')}
           </button>
-          <button type="button" className={styles.danger} disabled={busy || !canDiscardSelection} title={canDiscardSelection ? undefined : 'Sélectionnez uniquement des fichiers modifiés non préparés.'} onClick={() => void requestDiscard(discardableSelection.map((item) => item.entry))}>
-            Abandonner…
+          <button type="button" className={styles.danger} disabled={busy || !canDiscardSelection} title={canDiscardSelection ? undefined : t('status.bulk.discardTitle')} onClick={() => void requestDiscard(discardableSelection.map((item) => item.entry))}>
+            {t('status.bulk.discard')}
           </button>
-          <button type="button" className={styles.clearSelection} aria-label="Vider la sélection" onClick={() => setSelectedKeys(new Set())}>×</button>
+          <button type="button" className={styles.clearSelection} aria-label={t('common.clearSelection')} onClick={() => setSelectedKeys(new Set())}>×</button>
         </div>
       ) : null}
       <div className={styles.fileList}>
-        {status.entries.length === 0 ? <div className={styles.clean}><span aria-hidden="true">✓</span><strong>Tout est à jour</strong><p>Aucune modification locale. Votre prochain commit commence ici.</p></div> : null}
-        {filter && entries.length === 0 ? <p className={styles.notice}>Aucun fichier ne correspond à « {filter} ».</p> : null}
+        {status.entries.length === 0 ? <div className={styles.clean}><span aria-hidden="true">✓</span><strong>{t('status.clean.title')}</strong><p>{t('status.clean.body')}</p></div> : null}
+        {filter && entries.length === 0 ? <p className={styles.notice}>{t('status.filter.none', { filter })}</p> : null}
         {groups.map((group) => {
           if (group.entries.length === 0 && (group.id === 'conflicts' || group.id === 'ignored' || status.entries.length === 0)) {
             return null
@@ -529,9 +531,9 @@ export function RepoStatus({
           return (
             <section key={group.id} className={styles.fileGroup} aria-label={group.label}>
               <header className={styles.groupHeading}><h2>{group.label} <span>{group.entries.length}</span></h2>
-                {group.entries.length > 0 && selectable ? <button type="button" disabled={busy} onClick={() => stageGroup(group.entries, group.staged)}>{group.staged ? 'Tout retirer' : 'Tout préparer'}</button> : null}
+                {group.entries.length > 0 && selectable ? <button type="button" disabled={busy} onClick={() => stageGroup(group.entries, group.staged)}>{group.staged ? t('status.group.unstageAllAction') : t('status.group.stageAllAction')}</button> : null}
               </header>
-              {group.entries.length === 0 ? <p className={styles.empty}>{group.staged ? 'Préparez les fichiers à inclure dans le commit.' : 'Aucun fichier à préparer.'}</p> : null}
+              {group.entries.length === 0 ? <p className={styles.empty}>{group.staged ? t('status.group.emptyStaged') : t('status.group.emptyUnstaged')}</p> : null}
               {rows
                 ? rows.map((row) => row.kind === 'dir'
                   ? <button key={`dir:${row.key}`} type="button" className={styles.dirRow}
@@ -543,21 +545,24 @@ export function RepoStatus({
                     </button>
                   : fileRow(row.item, group.staged, selectable, row.depth))
                 : group.entries.slice(0, MAX_ROWS).map((entry) => fileRow(entry, group.staged, selectable, 0))}
-              {group.entries.length > MAX_ROWS ? <p className={styles.banner}>{group.entries.length - MAX_ROWS} autres fichiers. Affinez le filtre.</p> : null}
+              {group.entries.length > MAX_ROWS ? <p className={styles.banner}>{t('status.more', { count: group.entries.length - MAX_ROWS })}</p> : null}
             </section>
           )
         })}
       </div>
       <ConfirmDialog
         open={pendingDiscard !== null}
-        title="Discard irréversible"
+        title={t('status.discard.title')}
         consequence={pendingDiscard
           ? pendingDiscard.entries.length === 1
-            ? `1 fichier (${pendingDiscard.entries[0]!.path}) : le contenu non indexé sera remplacé par la version de l'index.`
-            : `${pendingDiscard.entries.length} fichiers (${pendingDiscard.entries.slice(0, 3).map((entry) => entry.path).join(', ')}${pendingDiscard.entries.length > 3 ? '…' : ''}) : le contenu non indexé sera remplacé par la version de l'index.`
+            ? t('status.discard.consequenceOne', { path: pendingDiscard.entries[0]!.path })
+            : t('status.discard.consequenceMany', {
+                count: pendingDiscard.entries.length,
+                list: `${pendingDiscard.entries.slice(0, 3).map((entry) => entry.path).join(', ')}${pendingDiscard.entries.length > 3 ? '…' : ''}`,
+              })
           : ''}
         irreversible
-        confirmLabel="Discard"
+        confirmLabel={t('status.discard.confirm')}
         busy={busy}
         onCancel={() => setPendingDiscard(null)}
         onConfirm={() => void confirmDiscard()}

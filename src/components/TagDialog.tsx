@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { tagCreate } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { useI18n } from '../i18n'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
 import shared from './p1.module.css'
@@ -21,6 +22,7 @@ type Props = {
  * would silently ignore it.
  */
 export function TagDialog({ repoId, target, annotated, onClose, onCreated }: Props) {
+  const { t } = useI18n()
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -51,21 +53,20 @@ export function TagDialog({ repoId, target, annotated, onClose, onCreated }: Pro
   return (
     <Dialog open onClose={onClose} busy={busy} titleId="tag-dialog-title">
         <h2 id="tag-dialog-title">
-          {annotated ? 'Créer un tag annoté' : 'Créer un tag'}
+          {annotated ? t('commit.tag.titleAnnotated') : t('commit.tag.title')}
         </h2>
         <p>
-          Le tag pointe sur <code>{target.slice(0, 10)}</code>. Le push d’un tag
-          reste une action explicite depuis l’onglet Tags.
+          {t('commit.tag.pointsTo')} <code>{target.slice(0, 10)}</code>. {t('commit.tag.pushHint')}
         </p>
         <label className={shared.field}>
-          Nom
+          {t('common.name')}
           <input
             data-autofocus
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder={annotated ? 'v1.0.0' : 'v1.0.0-rc1'}
+            placeholder={annotated ? t('commit.tag.namePlaceholder') : t('commit.tag.namePlaceholderRc')}
             spellCheck={false}
-            aria-label="Nom du tag"
+            aria-label={t('commit.tag.nameAria')}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !annotated) void submit()
             }}
@@ -73,13 +74,13 @@ export function TagDialog({ repoId, target, annotated, onClose, onCreated }: Pro
         </label>
         {annotated ? (
           <label className={shared.field}>
-            Message
+            {t('common.message')}
             <textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               rows={4}
-              placeholder="chore(release): prépare la version"
-              aria-label="Message du tag annoté"
+              placeholder={t('commit.tag.messagePlaceholder')}
+              aria-label={t('commit.tag.messageAria')}
             />
           </label>
         ) : null}
@@ -90,7 +91,7 @@ export function TagDialog({ repoId, target, annotated, onClose, onCreated }: Pro
         ) : null}
         <div className={shared.dialogActions}>
           <Button type="button" onClick={onClose} disabled={busy}>
-            Annuler
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -98,7 +99,7 @@ export function TagDialog({ repoId, target, annotated, onClose, onCreated }: Pro
             onClick={() => void submit()}
             disabled={!ready || busy}
           >
-            {busy ? 'Création…' : 'Créer le tag'}
+            {busy ? t('commit.tag.creating') : t('commit.tag.submit')}
           </Button>
         </div>
     </Dialog>

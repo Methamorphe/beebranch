@@ -6,6 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { clamp } from '../lib/layout'
+import { t } from '../i18n'
 import styles from './Resizer.module.css'
 
 type Props = {
@@ -97,7 +98,7 @@ export function Resizer({
       aria-valuetext={`${Math.round(value)} px`}
       tabIndex={0}
       data-dragging={dragging ? 'true' : undefined}
-      title={`${label} — glisser ou utiliser les flèches`}
+      title={t('shell.resizer.hint', { label })}
       onPointerDown={(event) => {
         if (event.button !== 0) return
         event.preventDefault()

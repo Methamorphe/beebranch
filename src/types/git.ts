@@ -175,6 +175,8 @@ export type CommitFile = {
   additions?: number
   deletions?: number
   binary: boolean
+  /** Revision holding the new side when it is not the commit itself (stash untracked files). */
+  revision?: string
 }
 
 export type CommitDetail = {
@@ -183,6 +185,8 @@ export type CommitDetail = {
   files: CommitFile[]
   filesTruncated: boolean
   messageTruncated: boolean
+  /** Set when the commit is a stash entry. */
+  stash?: { selector: string; untracked?: string }
 }
 
 export type DiffLineKind = 'context' | 'added' | 'removed'
@@ -253,6 +257,13 @@ export type RecoveryItem = {
 }
 
 export type IntegrationMode = 'merge' | 'rebase'
+
+/**
+ * How a merge may move the target branch. The backend passes the matching Git
+ * flag explicitly (`--ff`, `--ff-only`, `--no-ff`), so the choice never depends
+ * on the repository's `merge.ff` configuration.
+ */
+export type MergeFastForward = 'auto' | 'only' | 'never'
 
 export type BranchIntegrationPreview = {
   source: string
@@ -614,12 +625,14 @@ export type RepoLink = {
 
 export type OperationProgress = {
   operationId: string
+  repoId: string
   stream: 'stdout' | 'stderr' | 'meta'
   line: string
 }
 
 export type OperationStarted = {
   operationId: string
+  repoId: string
   pid?: number
 }
 

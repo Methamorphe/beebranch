@@ -7,6 +7,7 @@ import {
   stashPop,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { formatDateTime, dateFromSeconds, useI18n } from '../i18n'
 import type { StashEntry } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
 import shared from './p1.module.css'
@@ -18,6 +19,7 @@ type Props = {
 }
 
 export function StashPanel({ repoId, generation, onMutated }: Props) {
+  const { t } = useI18n()
   const [entries, setEntries] = useState<StashEntry[]>([])
   const [message, setMessage] = useState('')
   const [includeUntracked, setIncludeUntracked] = useState(false)
@@ -64,15 +66,15 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
   return (
     <div className={shared.root}>
       <section className={shared.card}>
-        <h2>Créer un stash</h2>
+        <h2>{t('commit.stash.title')}</h2>
         <div className={shared.row}>
           <label className={shared.field}>
-            Message du stash (optionnel)
+            {t('commit.stash.messageLabel')}
             <input
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder="Message du stash"
-              aria-label="Message du stash"
+              placeholder={t('commit.stash.messagePlaceholder')}
+              aria-label={t('commit.stash.messageAria')}
             />
           </label>
           <label className={shared.checkbox}>
@@ -81,14 +83,14 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
               checked={includeUntracked}
               onChange={(event) => setIncludeUntracked(event.target.checked)}
             />
-            Inclure les fichiers non suivis
+            {t('commit.stash.includeUntracked')}
           </label>
           <button
             type="button"
             className={shared.primary}
             disabled={busy}
             onClick={() =>
-              void run('Stash créé.', () =>
+              void run(t('commit.stash.createdNotice'), () =>
                 stashCreate({
                   repoId,
                   message: message.trim() || undefined,
@@ -97,12 +99,11 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
               )
             }
           >
-            Créer le stash
+            {t('commit.stash.create')}
           </button>
         </div>
         <p className={shared.notice}>
-          Les fichiers non suivis ne sont jamais inclus implicitement. Un pop en
-          conflit laisse le stash intact.
+          {t('commit.stash.notice')}
         </p>
         {error ? (
           <p className={shared.danger} role="alert">
@@ -113,10 +114,10 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
       </section>
 
       <section className={shared.card}>
-        <h2>Stashes ({entries.length})</h2>
+        <h2>{t('commit.stash.listTitle', { count: entries.length })}</h2>
         <div className={shared.list}>
           {entries.length === 0 ? (
-            <div className={shared.empty}><strong>Aucun stash enregistré</strong><p>Mettez vos modifications de côté pour les reprendre plus tard.</p></div>
+            <div className={shared.empty}><strong>{t('commit.stash.emptyTitle')}</strong><p>{t('commit.stash.emptyHint')}</p></div>
           ) : null}
           {entries.map((entry) => (
             <div key={entry.selector} className={shared.item}>
@@ -124,7 +125,7 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
                 <span>{entry.selector} · {entry.message}</span>
                 <span className={shared.mono}>
                   {entry.sha.slice(0, 12)} ·{' '}
-                  {new Date(entry.timestamp * 1000).toLocaleString('fr-FR')}
+                  {formatDateTime(dateFromSeconds(entry.timestamp))}
                 </span>
               </div>
               <div className={shared.row} style={{ marginBottom: 0 }}>
@@ -133,24 +134,24 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
                   className={shared.small}
                   disabled={busy}
                   onClick={() =>
-                    void run(`Stash ${entry.selector} appliqué.`, () =>
+                    void run(t('commit.stash.appliedNotice', { selector: entry.selector }), () =>
                       stashApply(repoId, entry.selector),
                     )
                   }
                 >
-                  Appliquer
+                  {t('common.apply')}
                 </button>
                 <button
                   type="button"
                   className={shared.small}
                   disabled={busy}
                   onClick={() =>
-                    void run(`Stash ${entry.selector} poppé.`, () =>
+                    void run(t('commit.stash.poppedNotice', { selector: entry.selector }), () =>
                       stashPop(repoId, entry.selector),
                     )
                   }
                 >
-                  Appliquer et retirer
+                  {t('commit.stash.applyAndDrop')}
                 </button>
                 <button
                   type="button"
@@ -158,7 +159,7 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
                   disabled={busy}
                   onClick={() => setPendingDrop(entry)}
                 >
-                  Supprimer…
+                  {t('commit.stash.delete')}
                 </button>
               </div>
             </div>
@@ -168,17 +169,20 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
 
       <ConfirmDialog
         open={pendingDrop !== null}
-        title={`Supprimer ${pendingDrop?.selector ?? ''}`}
-        consequence={`L'entrée de stash ${pendingDrop?.selector ?? ''} sera supprimée. Le commit ${pendingDrop?.sha.slice(0, 12) ?? ''} reste récupérable via le reflog Git, sans interface d'undo.`}
+        title={t('commit.stash.deleteTitle', { selector: pendingDrop?.selector ?? '' })}
+        consequence={t('commit.stash.deleteConsequence', {
+          selector: pendingDrop?.selector ?? '',
+          sha: pendingDrop?.sha.slice(0, 12) ?? '',
+        })}
         irreversible
-        confirmLabel="Supprimer"
+        confirmLabel={t('common.delete')}
         busy={busy}
         onCancel={() => setPendingDrop(null)}
         onConfirm={() => {
           const target = pendingDrop
           setPendingDrop(null)
           if (target) {
-            void run(`Stash supprimé · SHA ${target.sha.slice(0, 12)}`, () =>
+            void run(t('commit.stash.droppedNotice', { sha: target.sha.slice(0, 12) }), () =>
               stashDrop(repoId, target.selector, { acknowledged: true }),
             )
           }

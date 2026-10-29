@@ -10,7 +10,7 @@
 //! responses are cached and revalidated with `If-None-Match`.
 
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use beebranch_core::now_unix;
@@ -127,7 +127,7 @@ impl ProjectsQuery {
 pub struct GitlabClient {
     http: Client,
     url: NormalizedUrl,
-    token: SecretToken,
+    token: Arc<RwLock<SecretToken>>,
     cache: Option<Arc<dyn ResponseCache>>,
     cache_ttl: Duration,
     max_pages: u32,
@@ -157,7 +157,7 @@ impl GitlabClient {
         Ok(Self {
             http,
             url,
-            token,
+            token: Arc::new(RwLock::new(token)),
             cache: None,
             cache_ttl: DEFAULT_CACHE_TTL,
             max_pages: DEFAULT_MAX_PAGES,
@@ -187,7 +187,7 @@ impl GitlabClient {
         Self {
             http: build_http_client(&config).expect("test HTTP client"),
             url,
-            token: SecretToken::new(token).expect("test token"),
+            token: Arc::new(RwLock::new(SecretToken::new(token).expect("test token"))),
             cache: None,
             cache_ttl: DEFAULT_CACHE_TTL,
             max_pages: DEFAULT_MAX_PAGES,
@@ -225,6 +225,26 @@ impl GitlabClient {
     /// Instance host, including an explicit port.
     pub fn host(&self) -> &str {
         &self.url.host
+    }
+
+    /// Replace the access token in place.
+    ///
+    /// Clones share the same token cell, so an OAuth refresh updates every
+    /// client already held by the commands without rebuilding them.
+    pub fn set_token(&self, token: &str) -> Result<(), GitlabError> {
+        let secret = SecretToken::new(token)?;
+        *self
+            .token
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = secret;
+        Ok(())
+    }
+
+    fn token_header(&self) -> HeaderValue {
+        self.token
+            .read()
+            .map(|token| token.header())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().header())
     }
 
     /// Validate the token with `GET /user`.
@@ -709,7 +729,7 @@ impl GitlabClient {
             .http
             .get(url.clone())
             .header(ACCEPT, HeaderValue::from_static("text/plain"))
-            .header("PRIVATE-TOKEN", self.token.header());
+            .header("PRIVATE-TOKEN", self.token_header());
         if offset > 0 {
             request = request.header(
                 "RANGE",
@@ -786,7 +806,7 @@ impl GitlabClient {
             .http
             .request(method, url.clone())
             .header(ACCEPT, HeaderValue::from_static("application/json"))
-            .header("PRIVATE-TOKEN", self.token.header())
+            .header("PRIVATE-TOKEN", self.token_header())
             .json(body)
             .send()
             .await
@@ -819,7 +839,7 @@ impl GitlabClient {
             .http
             .post(url.clone())
             .header(ACCEPT, HeaderValue::from_static("application/json"))
-            .header("PRIVATE-TOKEN", self.token.header())
+            .header("PRIVATE-TOKEN", self.token_header())
             .json(body)
             .send()
             .await
@@ -978,7 +998,7 @@ impl GitlabClient {
             .http
             .get(url.clone())
             .header(ACCEPT, HeaderValue::from_static("application/json"))
-            .header("PRIVATE-TOKEN", self.token.header());
+            .header("PRIVATE-TOKEN", self.token_header());
 
         if let Some(etag) = etag {
             if let Ok(value) = HeaderValue::from_str(etag) {
@@ -1113,7 +1133,7 @@ impl ResponseMeta {
     }
 }
 
-fn build_http_client(config: &GitlabConfig) -> Result<Client, GitlabError> {
+pub(crate) fn build_http_client(config: &GitlabConfig) -> Result<Client, GitlabError> {
     let mut builder = Client::builder()
         .timeout(config.timeout)
         .user_agent(USER_AGENT)
@@ -1172,7 +1192,7 @@ fn deterministic_jitter(key: &str, attempt: u32, base_ms: u64) -> u64 {
     value % (base_ms / 4 + 1)
 }
 
-fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+pub(crate) fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
     let mut parts = Vec::new();
     let mut current = Some(error);
     while let Some(error) = current {
@@ -1185,7 +1205,7 @@ fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
     parts.join(" : ")
 }
 
-fn looks_like_tls(detail: &str) -> bool {
+pub(crate) fn looks_like_tls(detail: &str) -> bool {
     let detail = detail.to_ascii_lowercase();
     [
         "certificate",

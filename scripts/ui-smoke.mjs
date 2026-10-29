@@ -224,7 +224,14 @@ function mockScript(commits, rows, diffLines) {
       : { commits, rows, next: undefined, generation: 1, truncated: false },
     recovery_list: () => [],
     operation_journal: () => [],
-    preference_get: () => null,
+    preference_get: (args) => {
+      // The interface language is read on boot; the mock keeps French by
+      // default and lets the English pass opt in through localStorage.
+      if (args?.key === 'ui.language') {
+        return window.localStorage.getItem('__smokeLang') ?? 'fr'
+      }
+      return null
+    },
     preference_set: (args) => { (window.__preferenceSets ??= []).push(args); return null },
     tools_detect: () => ({ editors: [], terminals: [], diffTools: [], mergeTools: [], configured: [] }),
     stash_list: () => [],
@@ -278,11 +285,33 @@ function mockScript(commits, rows, diffLines) {
     index_stage: (args) => { (window.__p1Calls ??= []).push(['stage', args]); return { data: { files: ['src/module-1.ts'], hunks: 1, patchBytes: 42 }, generation: 2, state: repo.state }; },
     index_unstage: (args) => { (window.__p1Calls ??= []).push(['unstage', args]); return { data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state }; },
     index_discard: (args) => { (window.__p1Calls ??= []).push(['discard', args]); return { data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state } },
-    gitlab_status: () => ({
+    gitlab_status: () => window.__gitlabDisconnected ? { connected: false } : ({
       connected: true,
       instance: { id: 'gl_demo', baseUrl: 'https://gitlab.example.test', displayName: 'GitLab' },
       user: { id: 1, username: 'alice', name: 'Alice', avatarUrl: undefined },
     }),
+    gitlab_device_flow_start: () => ({
+      userCode: 'WXYZ-9876',
+      verificationUri: 'https://gitlab.com/oauth/device?user_code=WXYZ-9876',
+      expiresIn: 300,
+      interval: 1,
+    }),
+    gitlab_device_flow_cancel: () => true,
+    gitlab_device_flow_poll: () => {
+      window.__gitlabDevicePolls = (window.__gitlabDevicePolls ?? 0) + 1
+      if (window.__gitlabDevicePolls < 2) {
+        return { status: 'pending', interval: 1 }
+      }
+      return {
+        status: 'connected',
+        session: {
+          connected: true,
+          instance: { id: 'gl_demo', baseUrl: 'https://gitlab.com', displayName: 'GitLab.com' },
+          user: { id: 1, username: 'alice', name: 'Alice', avatarUrl: undefined },
+          credentialSource: 'keychain',
+        },
+      }
+    },
     gitlab_projects_page: () => ({
       items: [{
         id: 42,
@@ -304,11 +333,37 @@ function mockScript(commits, rows, diffLines) {
     }),
     gitlab_repo_link_get: () => null,
     gitlab_mr_page: () => ({ items: [], page: 1, perPage: 25, nextPage: undefined, notModified: false, fromCache: false }),
-    github_status: () => ({
+    github_status: () => window.__githubDisconnected ? { connected: false } : ({
       connected: true,
       instance: { id: 'gh_demo', baseUrl: 'https://github.com', displayName: 'GitHub' },
       user: { id: 2, username: 'octocat', name: 'Octocat', avatarUrl: undefined },
     }),
+    github_device_flow_start: () => ({
+      userCode: 'ABCD-1234',
+      verificationUri: 'https://github.com/login/device',
+      expiresIn: 900,
+      interval: 1,
+    }),
+    github_device_flow_cancel: () => true,
+    github_device_flow_poll: () => {
+      window.__devicePolls = (window.__devicePolls ?? 0) + 1
+      if (window.__devicePolls < 2) {
+        return { status: 'pending', interval: 1 }
+      }
+      return {
+        status: 'connected',
+        session: {
+          connected: true,
+          instance: { id: 'gh_demo', baseUrl: 'https://github.com', displayName: 'GitHub' },
+          user: { id: 2, username: 'octocat', name: 'Octocat', avatarUrl: undefined },
+          credentialSource: 'keychain',
+        },
+      }
+    },
+    open_external_url: (args) => {
+      (window.__openUrls ??= []).push(args.input.url)
+      return null
+    },
     github_projects_page: () => ({
       items: [{
         id: 84,
@@ -347,19 +402,21 @@ function mockScript(commits, rows, diffLines) {
     },
     branch_integration_preview: (args) => {
       (window.__p3Calls ??= []).push(['branch_integration_preview', args])
+      const fastForward = args.request.mode === 'merge' && args.request.target === 'main'
       return {
         source: args.request.source, target: args.request.target, mode: args.request.mode,
         sourceSha: commits[12].sha, targetSha: commits[0].sha,
-        ahead: 3, behind: 1, fastForward: args.request.mode === 'merge' && args.request.target === 'main', currentBranch: 'main',
+        ahead: 3, behind: fastForward ? 0 : 1, fastForward, currentBranch: 'main',
         requiresCheckout: args.request.target !== 'main', worktreeDirty: false,
         applicable: true,
       }
     },
     branch_integration_start: (args) => {
       (window.__p3Calls ??= []).push(['branch_integration_start', args])
+      const fastForward = args.request.mode === 'merge' && args.request.fastForward === 'only'
       return { data: { preview: { source: args.request.source, target: args.request.target,
           mode: args.request.mode, sourceSha: commits[12].sha, targetSha: commits[0].sha,
-          ahead: 3, behind: 1, fastForward: false, requiresCheckout: true, worktreeDirty: false,
+          ahead: 3, behind: 0, fastForward, requiresCheckout: true, worktreeDirty: false,
           applicable: true }, checkedOutTarget: true, originalBranch: 'main',
           outcome: { state: repo.state, output: '', conflicted: false } },
         generation: 2, state: repo.state }
@@ -372,18 +429,31 @@ function mockScript(commits, rows, diffLines) {
       (window.__p3Calls ??= []).push(['history_rebase_interactive', args])
       return { data: { state: repo.state, output: '', conflicted: false }, generation: 2, state: repo.state }
     },
-    workspace_list: () => ([{
-      id: 'ws_demo', name: 'Produit', createdAt: 1700000000, updatedAt: 1700000000,
-      repos: [
-        { path: '/tmp/beebranch-demo', name: 'beebranch-demo', addedAt: 1700000000 },
-        { path: '/tmp/beebranch-api', name: 'beebranch-api', addedAt: 1700000001 },
-      ],
-    }]),
+    workspace_list: () => ([
+      {
+        id: 'ws_demo', name: 'Produit', createdAt: 1700000000, updatedAt: 1700000000,
+        repos: [
+          { path: '/tmp/beebranch-demo', name: 'beebranch-demo', addedAt: 1700000000 },
+          { path: '/tmp/beebranch-api', name: 'beebranch-api', addedAt: 1700000001 },
+        ],
+      },
+      {
+        id: 'ws_infra', name: 'Infra', createdAt: 1700000002, updatedAt: 1700000002,
+        repos: [
+          { path: '/tmp/beebranch-infra-front', name: 'infra-front', addedAt: 1700000002 },
+          { path: '/tmp/beebranch-infra-deploy', name: 'infra-deploy', addedAt: 1700000003 },
+        ],
+      },
+    ]),
     workspace_status: () => ([
       { path: '/tmp/beebranch-demo', name: 'beebranch-demo', available: true,
         repoId: 'repo_demo', state: repo.state },
       { path: '/tmp/beebranch-api', name: 'beebranch-api', available: false,
         error: 'dépôt déplacé' },
+      { path: '/tmp/beebranch-infra-front', name: 'infra-front', available: true,
+        repoId: 'repo_ws_beebranch-infra-front', state: repo.state },
+      { path: '/tmp/beebranch-infra-deploy', name: 'infra-deploy', available: true,
+        repoId: 'repo_ws_beebranch-infra-deploy', state: repo.state },
     ]),
     workspace_sync: (args) => {
       (window.__p3Calls ??= []).push(['workspace_sync', args])
@@ -653,6 +723,7 @@ try {
 
   await waitFor(client, `document.querySelector('canvas') !== null`, 'graph canvas')
   await delay(500)
+
   const graphStats = await evaluate(client, `({
     stats: window.__beebranchGraphStats ?? null,
     firstPage: performance.getEntriesByName('graph.first-page').length,
@@ -1080,6 +1151,58 @@ try {
   await evaluate(client, `[...document.querySelectorAll('section[aria-label="À préparer"] button[aria-expanded="false"]')].forEach((item) => item.click())`)
   await waitFor(client, `document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]') !== null`, 'status tree restored')
 
+  // Git hook visibility: the panel announces the hooks Git is about to run,
+  // streams their output while the commit is in flight, and keeps both on
+  // screen when a hook blocks the commit.
+  await evaluate(client, `(() => {
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__hookInvokeBefore = original
+    window.__TAURI_INTERNALS__.invoke = (command, args) =>
+      command === 'commit_create'
+        ? new Promise((resolve, reject) => {
+            window.__hookCommit = { resolve: () => original(command, args).then(resolve, reject), reject }
+          })
+        : original(command, args)
+  })()`)
+  const setCommitMessage = async (value) => evaluate(client, `(() => {
+    const editor = document.querySelector('textarea[aria-label="Message de commit"]')
+    if (!editor) return false
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+    setter.call(editor, ${JSON.stringify(value)})
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  if (!(await setCommitMessage('feat: rendre les hooks visibles'))) throw new Error('commit composer missing')
+  await evaluate(client, `([...document.querySelectorAll('button')].find((button) => button.textContent.includes('Créer le commit') && !button.disabled)).click()`)
+  await waitFor(client, `Boolean(window.__hookCommit)`, 'commit in flight')
+  await evaluate(client, `(() => {
+    window.__emitTauriEvent('op://progress', { operationId: 'commit_hook_1', repoId: 'repo_demo', stream: 'meta', line: 'hook Git actif : pre-commit (/tmp/beebranch-demo/.git/hooks/pre-commit)' })
+    window.__emitTauriEvent('op://progress', { operationId: 'commit_hook_1', repoId: 'repo_demo', stream: 'stderr', line: 'npm test: 12 passing (4s)' })
+    window.__emitTauriEvent('op://progress', { operationId: 'commit_hook_1', repoId: 'repo_other', stream: 'stderr', line: 'autre dépôt : ne doit pas apparaître' })
+  })()`)
+  // The title is uppercased by CSS, so read `textContent` rather than `innerText`.
+  await waitFor(client, `[...document.querySelectorAll('p')].some((node) => node.textContent.includes('Hooks Git — en cours'))`, 'hook console visible')
+  await waitFor(client, `[...document.querySelectorAll('pre')].some((node) => node.textContent.includes('npm test: 12 passing'))`, 'hook output streamed')
+  assertUI('commit-hook-announced', await evaluate(client, `[...document.querySelectorAll('pre')].some((node) => node.textContent.includes('hook Git actif : pre-commit'))`))
+  assertUI('commit-hook-output-streamed', await evaluate(client, `[...document.querySelectorAll('pre')].some((node) => node.textContent.includes('npm test: 12 passing'))`))
+  assertUI('commit-hook-events-scoped-to-repo', await evaluate(client, `![...document.querySelectorAll('pre')].some((node) => node.textContent.includes('autre dépôt'))`))
+  await screenshot(client, 'commit-hook-running.png')
+  await evaluate(client, `(() => {
+    window.__emitTauriEvent('op://progress', { operationId: 'commit_hook_1', repoId: 'repo_demo', stream: 'stderr', line: 'pre-commit: lint failed (1 error)' })
+    window.__hookCommit.reject({ code: 'commit.failed', message: 'Le commit a échoué.', detail: 'pre-commit: lint failed (1 error)' })
+  })()`)
+  await waitFor(client, `document.body.textContent.includes('pre-commit: lint failed')`, 'hook failure reason visible')
+  assertUI('commit-hook-failure-keeps-output', await evaluate(client, `[...document.querySelectorAll('p')].some((node) => node.textContent.includes('Sortie des hooks Git')) && [...document.querySelectorAll('pre')].some((node) => node.textContent.includes('npm test: 12 passing'))`))
+  assertUI('commit-hook-failure-not-duplicated', await evaluate(client, `(document.body.textContent.match(/pre-commit: lint failed/g) ?? []).length === 1`))
+  await screenshot(client, 'commit-hook-failed.png')
+  await evaluate(client, `(() => {
+    window.__TAURI_INTERNALS__.invoke = window.__hookInvokeBefore
+    delete window.__hookInvokeBefore
+    delete window.__hookCommit
+    return true
+  })()`)
+  await setCommitMessage('')
+
   const clicked = await evaluate(client, `(() => {
     const button = document.querySelector('section[aria-label="Prêts à committer"] button[title="src/module-3.ts"]')
     if (!button) return false
@@ -1298,6 +1421,40 @@ try {
   await waitFor(client, `document.querySelector('main').innerText.includes('Dépôts accessibles')`, 'GitHub repositories panel')
   await waitFor(client, `document.querySelector('main').innerText.includes('team/beebranch-demo')`, 'GitHub repository list')
   assertUI('github-connection-lists-repositories', await evaluate(client, `document.body.innerText.includes('octocat') && document.body.innerText.includes('github.com')`))
+
+  // OAuth device flow: disconnected panel, code display, polling, session.
+  await evaluate(client, `(() => { window.__githubDisconnected = true; window.__devicePolls = 0; return true })()`)
+  await go('graph')
+  await go('github')
+  await waitFor(client, `document.body.innerText.includes('Se connecter avec GitHub')`, 'GitHub OAuth button')
+  const oauthClicked = await evaluate(client, `(() => {
+    const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent.trim() === 'Se connecter avec GitHub')
+    button?.click()
+    return Boolean(button)
+  })()`)
+  assertUI('github-oauth-button-clickable', oauthClicked)
+  await waitFor(client, `document.body.innerText.includes('ABCD-1234')`, 'GitHub device code')
+  assertUI('github-oauth-opens-verification', await evaluate(client, `window.__openUrls?.includes('https://github.com/login/device')`))
+  await waitFor(client, `document.body.innerText.includes('octocat') && document.body.innerText.includes('connecté')`, 'GitHub OAuth completion')
+  assertUI('github-oauth-device-flow-completes', await evaluate(client, `window.__devicePolls >= 2`))
+  await evaluate(client, `(() => { window.__githubDisconnected = false; return true })()`)
+
+  // GitLab.com OAuth device flow.
+  await evaluate(client, `(() => { window.__gitlabDisconnected = true; window.__gitlabDevicePolls = 0; return true })()`)
+  await go('graph')
+  await go('gitlab')
+  await waitFor(client, `document.body.innerText.includes('Se connecter avec GitLab.com')`, 'GitLab OAuth button')
+  const gitlabOauthClicked = await evaluate(client, `(() => {
+    const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent.trim() === 'Se connecter avec GitLab.com')
+    button?.click()
+    return Boolean(button)
+  })()`)
+  assertUI('gitlab-oauth-button-clickable', gitlabOauthClicked)
+  await waitFor(client, `document.body.innerText.includes('WXYZ-9876')`, 'GitLab device code')
+  assertUI('gitlab-oauth-opens-verification', await evaluate(client, `window.__openUrls?.includes('https://gitlab.com/oauth/device?user_code=WXYZ-9876')`))
+  await waitFor(client, `document.body.innerText.includes('alice') && document.body.innerText.includes('connecté')`, 'GitLab OAuth completion')
+  assertUI('gitlab-oauth-device-flow-completes', await evaluate(client, `window.__gitlabDevicePolls >= 2`))
+  await evaluate(client, `(() => { window.__gitlabDisconnected = false; return true })()`)
   await client.send('Emulation.setDeviceMetricsOverride', {
     width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
   })
@@ -1396,6 +1553,85 @@ try {
   await waitFor(client, `document.body.innerText.includes('Profil supprimé.')`, 'delete edited profile')
   assertUI('profile-delete-exits-edit-mode', await evaluate(client, `document.querySelector('#profile-editor-title').textContent === 'Créer un profil' && document.querySelector('input[name="profileName"]').value === '' && !document.querySelector('article[aria-label="Profil Personnel modifié"]')`))
   await client.send('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false })
+
+  // Custom wallpaper: the native picker is faked, then the whole chain must
+  // run — backend read, CSS layer, option sliders and persistence.
+  await evaluate(client, `(() => {
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__wallpaperInvokeBefore = original
+    window.__wallpaperReads = []
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'plugin:dialog|open') {
+        (window.__pickerCalls ??= []).push(args.options)
+        // Wallpaper, then splash, then a deliberately missing file.
+        const picked = ['/tmp/wallpaper.gif', '/tmp/splash.gif', '/tmp/missing.gif']
+        return picked[Math.min((window.__dialogPicks = (window.__dialogPicks ?? 0) + 1) - 1, picked.length - 1)]
+      }
+      if (command === 'background_read') {
+        window.__wallpaperReads.push(args.path)
+        if (window.__wallpaperFailure) throw { code:'background.read_failed', message:'image introuvable' }
+        return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg=='
+      }
+      return original(command, args)
+    }
+    ;[...document.querySelectorAll('button')].find((button) => button.textContent.includes('Choisir une image')).click()
+    return true
+  })()`)
+  await waitFor(client, `document.documentElement.dataset.background === 'image'`, 'wallpaper applied')
+  assertUI('wallpaper-reads-picked-file', await evaluate(client, `window.__wallpaperReads.join(',') === '/tmp/wallpaper.gif'`))
+  assertUI('wallpaper-picker-image-only', await evaluate(client, `window.__pickerCalls.at(-1).directory === false && window.__pickerCalls.at(-1).filters?.[0]?.extensions?.includes('gif')`))
+  assertUI('wallpaper-css-layer', await evaluate(client, `(() => {
+    const root = getComputedStyle(document.documentElement)
+    const shell = getComputedStyle(document.querySelector('#root > div'))
+    return root.getPropertyValue('--app-bg-image').startsWith('url("data:image/png;base64,')
+      && root.getPropertyValue('--app-bg-dim').trim() === '0.45'
+      && root.getPropertyValue('--app-bg-size').trim() === 'cover'
+      && shell.backgroundColor === 'rgba(0, 0, 0, 0)'
+  })()`))
+  await evaluate(client, `(() => {
+    const input = document.querySelector('input[aria-label="Atténuation du fond d’écran"]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '20')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await waitFor(client, `getComputedStyle(document.documentElement).getPropertyValue('--app-bg-dim').trim() === '0.2'`, 'wallpaper dim slider')
+  assertUI('wallpaper-options-reuse-image', await evaluate(client, `window.__wallpaperReads.length === 1`))
+  await delay(400)
+  assertUI('wallpaper-persisted', await evaluate(client, `window.__preferenceSets.some((entry) => entry.input.key === 'ui.background' && entry.input.value.includes('/tmp/wallpaper.gif') && entry.input.value.includes('"dim":20'))`))
+  await screenshot(client, 'settings-wallpaper.png')
+
+  // The boot splash shares the picker and the schema; its file is validated on
+  // selection but only decoded by the splash window at the next launch.
+  await evaluate(client, `(() => {
+    [...document.querySelectorAll('button')].filter((button) => button.textContent.includes('Choisir une image')).at(-1).click()
+    return true
+  })()`)
+  await waitFor(client, `document.body.innerText.includes('splash.gif')`, 'splash selection shown')
+  await delay(400)
+  assertUI('splash-persisted', await evaluate(client, `window.__preferenceSets.some((entry) => entry.input.key === 'ui.splash' && entry.input.value.includes('/tmp/splash.gif'))`))
+  assertUI('splash-settings-note', await evaluate(client, `document.body.innerText.includes('Écran de démarrage') && document.body.innerText.includes('Appliqué au prochain démarrage')`))
+  await evaluate(client, `(() => {
+    window.__wallpaperFailure = true
+    // The splash block is the second one: its own Changer button is the last.
+    const trigger = [...document.querySelectorAll('button')]
+      .filter((button) => button.textContent.includes('Changer'))
+      .at(-1)
+    trigger?.click()
+    return true
+  })()`)
+  await delay(300)
+  await waitFor(client, `document.body.innerText.includes('Écran de démarrage indisponible')`, 'splash rejection')
+  assertUI('splash-failure-keeps-previous', await evaluate(client, `window.__wallpaperReads.at(-1) === '/tmp/missing.gif' && document.body.innerText.includes('splash.gif') && window.__preferenceSets.filter((entry) => entry.input.key === 'ui.splash').every((entry) => !entry.input.value.includes('missing.gif'))`))
+  await evaluate(client, `window.__wallpaperFailure = false`)
+
+  await go('graph')
+  await delay(200)
+  await screenshot(client, 'wallpaper-graph.png')
+  await go('profiles')
+  await evaluate(client, `[...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Retirer').click()`)
+  await waitFor(client, `document.documentElement.dataset.background === undefined`, 'wallpaper removed')
+  assertUI('wallpaper-remove-clears-layer', await evaluate(client, `!document.documentElement.style.getPropertyValue('--app-bg-image') && !document.body.innerText.includes('wallpaper.gif')`))
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__wallpaperInvokeBefore; return true })()`)
 
   await go('graph')
   await evaluate(client, `document.querySelectorAll('aside button[aria-expanded="true"]').forEach((button) => button.click())`)
@@ -2586,12 +2822,23 @@ try {
     const dialog = document.querySelector('[aria-labelledby="confirm-title"]')
     return { text: dialog.innerText, preview: (window.__p3Calls ?? []).filter(([name]) => name === 'branch_integration_preview').map(([, args]) => args.request) }
   })()`)
-  assertUI('graph-integration-preview', integrationDialog.text.includes('3 commit(s) de feature') && integrationDialog.text.includes('1 commit(s) de retard') && integrationDialog.text.includes('sans mutation avant confirmation') && integrationDialog.preview.some((request) => request.mode === 'merge' && request.source === 'feature' && request.target === 'main'))
+  assertUI('graph-integration-preview', integrationDialog.text.includes('3 commit(s) de feature') && integrationDialog.text.includes('0 commit(s) de retard') && integrationDialog.text.includes('sans mutation avant confirmation') && integrationDialog.preview.some((request) => request.mode === 'merge' && request.source === 'feature' && request.target === 'main'))
+  assertUI(
+    'graph-integration-strategy',
+    integrationDialog.text.includes('Avance rapide, sans commit de fusion') &&
+      integrationDialog.text.includes('Commit de fusion') &&
+      await evaluate(client, `(() => {
+        const dialog = document.querySelector('[aria-labelledby="confirm-title"]')
+        const checked = dialog.querySelector('input[value="only"]')
+        return checked !== null && checked.checked && !checked.disabled
+      })()`),
+  )
+  await screenshot(client, 'p3-graph-integration-strategy.png')
   await evaluate(client, `(() => { const dialog = document.querySelector('[aria-labelledby="confirm-title"]'); [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Fusionner').click() })()`)
   await waitFor(client, `(window.__p3Calls ?? []).some(([name]) => name === 'branch_integration_start')`, 'integration start')
   assertUI('graph-integration-start', await evaluate(client, `(() => {
     const call = (window.__p3Calls ?? []).find(([name]) => name === 'branch_integration_start')
-    return call[1].request.mode === 'merge' && call[1].request.source === 'feature' && call[1].request.target === 'main' && call[1].request.confirmation.acknowledged === true
+    return call[1].request.mode === 'merge' && call[1].request.source === 'feature' && call[1].request.target === 'main' && call[1].request.fastForward === 'only' && call[1].request.confirmation.acknowledged === true
   })()`))
   assertUI('graph-integration-notice', await evaluate(client, `document.body.innerText.includes('Fusion de feature appliqué')`))
   await screenshot(client, 'p3-graph-drop.png')
@@ -2833,6 +3080,169 @@ try {
   await evaluate(client, `document.querySelector('main').focus()`)
   assertUI('skip-link-target', await evaluate(client, `document.activeElement.id === 'main-content'`))
   await screenshot(client, 'p3-light.png')
+
+  // Workspace switching: the header selector replaces the tab strip with the
+  // chosen workspace, reuses an already-open tab, closes clean tabs outside the
+  // workspace, keeps a tab with an operation in progress, and restores the last
+  // focused repository of the workspace.
+  if (
+    !(await evaluate(
+      client,
+      `document.querySelector('header [role="group"] button[title="/tmp/beebranch-demo"]') !== null`,
+    ))
+  ) {
+    // A previous scenario may have reloaded the page; reopen the dirty demo
+    // repository through the launcher so the "keep this tab" case still runs.
+    await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
+    await waitFor(client, `[...document.querySelectorAll('main button')].some((button) => button.textContent.includes('beebranch-demo'))`, 'recent demo repository')
+    await evaluate(client, `[...document.querySelectorAll('main button')].find((button) => button.textContent.includes('beebranch-demo')).click()`)
+    await waitFor(client, `document.querySelector('header [role="group"] button[title="/tmp/beebranch-demo"]') !== null`, 'demo tab reopened')
+  }
+  await evaluate(client, `(() => {
+    const cleanState = { head: { kind: 'branch', name: 'main', upstream: 'origin/main' }, operation: null, conflicts: { files: [] }, worktree: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 } }
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__wsRepos = {}
+    window.__wsOpens = []
+    window.__wsCloses = []
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'repo_open') {
+        window.__wsOpens.push(args.path)
+        const name = args.path.split('/').pop()
+        const repoId = 'repo_ws_' + name
+        const view = {
+          repo: { repoId, name, worktree: args.path, gitDir: args.path + '/.git', commonDir: args.path + '/.git', bare: false, linkedWorktree: false, submodule: false, shallow: false, gitVersion: '2.55.0' },
+          state: cleanState,
+          generation: 7, created: true, locks: [],
+        }
+        window.__wsRepos[repoId] = view
+        return view
+      }
+      if (command === 'repo_get_state' && window.__wsRepos[args.repoId]) {
+        return window.__wsRepos[args.repoId]
+      }
+      if (command === 'repo_close_checked') {
+        window.__wsCloses.push(args.repoId)
+        return true
+      }
+      return original(command, args)
+    }
+    return true
+  })()`)
+  const wsTabs = () => evaluate(client, `[...document.querySelectorAll('[aria-label="Dépôts ouverts"] button[title]')].map((button) => button.getAttribute('title'))`)
+  const wsActiveTab = () => evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"] button[aria-current="page"]')?.getAttribute('title') ?? null`)
+  const workspaceTrigger = 'header button[aria-haspopup="menu"]'
+  const wsSelectorText = () => evaluate(client, `document.querySelector('${workspaceTrigger}')?.textContent ?? ''`)
+  const openWorkspaceMenu = async () => {
+    await evaluate(client, `document.querySelector('${workspaceTrigger}').click()`)
+    await waitFor(client, `document.querySelector('[role="menuitemradio"]') !== null`, 'workspace menu')
+  }
+  const chooseWorkspace = async (name) => {
+    await openWorkspaceMenu()
+    await evaluate(client, `[...document.querySelectorAll('[role="menuitemradio"]')].find((button) => button.textContent.includes(${JSON.stringify(name)})).click()`)
+    await waitFor(client, `document.querySelector('[role="menu"]') === null`, 'workspace menu closed')
+    await waitFor(client, `(document.querySelector('${workspaceTrigger}')?.textContent ?? '').includes(${JSON.stringify(name)})`, 'active workspace pill')
+    await delay(250)
+  }
+
+  const probeTabs = await wsTabs()
+  const expectedClosed = probeTabs.filter(
+    (path) => path !== '/tmp/beebranch-demo' && path !== '/tmp/beebranch-api',
+  )
+  const initialSelector = await wsSelectorText()
+  assertUI('workspace-selector-visible', initialSelector.trim().length > 0 && !initialSelector.includes('Produit') && !initialSelector.includes('Infra'))
+  await evaluate(client, `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'W', metaKey: true, shiftKey: true, bubbles: true }))`)
+  await waitFor(client, `document.querySelector('[role="menuitemradio"]') !== null`, 'workspace menu via shortcut')
+  assertUI('workspace-shortcut-lists-workspaces', await evaluate(client, `(() => {
+    const names = [...document.querySelectorAll('[role="menuitemradio"]')].map((button) => button.textContent)
+    return names.length === 2 && names.some((name) => name.includes('Produit')) && names.some((name) => name.includes('Infra'))
+  })()`))
+  await key('Escape')
+  await waitFor(client, `document.querySelector('[role="menu"]') === null`, 'workspace menu escape')
+
+  await chooseWorkspace('Produit')
+  assertUI('workspace-switch-opens-ordered-tabs', JSON.stringify(await wsTabs()) === JSON.stringify(['/tmp/beebranch-demo', '/tmp/beebranch-api']))
+  assertUI('workspace-switch-reuses-open-tab', await evaluate(client, `!window.__wsOpens.includes('/tmp/beebranch-demo') && window.__wsOpens.includes('/tmp/beebranch-api')`))
+  assertUI('workspace-switch-closes-outside-tabs', await evaluate(client, `window.__wsCloses.length === ${expectedClosed.length} && !window.__wsCloses.includes('repo_demo')`))
+  assertUI('workspace-switch-focuses-first-repo', (await wsActiveTab()) === '/tmp/beebranch-demo')
+
+  await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"] button[title="/tmp/beebranch-api"]')?.click()`)
+  await waitFor(client, `document.querySelector('[aria-label="Dépôts ouverts"] button[aria-current="page"]')?.getAttribute('title') === '/tmp/beebranch-api'`, 'api tab focused')
+
+  await chooseWorkspace('Infra')
+  assertUI('workspace-switch-second-workspace-order', JSON.stringify(await wsTabs()) === JSON.stringify(['/tmp/beebranch-infra-front', '/tmp/beebranch-infra-deploy', '/tmp/beebranch-demo']))
+  assertUI('workspace-switch-keeps-dirty-tab', await evaluate(client, `!window.__wsCloses.includes('repo_demo') && window.__wsCloses.includes('repo_ws_beebranch-api')`))
+  assertUI('workspace-switch-second-workspace-focus', (await wsActiveTab()) === '/tmp/beebranch-infra-front')
+
+  await chooseWorkspace('Produit')
+  assertUI('workspace-switch-back-restores-last-repo', (await wsActiveTab()) === '/tmp/beebranch-api')
+  assertUI('workspace-switch-back-closes-infra-tabs', await evaluate(client, `window.__wsCloses.includes('repo_ws_beebranch-infra-front') && window.__wsCloses.includes('repo_ws_beebranch-infra-deploy')`))
+  assertUI('workspace-switch-back-tab-order', JSON.stringify(await wsTabs()) === JSON.stringify(['/tmp/beebranch-demo', '/tmp/beebranch-api']))
+  await screenshot(client, 'p3-workspace-switcher.png')
+
+  // Interface language: a stored English preference must switch the whole
+  // shell, including the `<html lang>` attribute read by assistive tech.
+  await evaluate(client, `localStorage.setItem('__smokeLang', 'en')`)
+  await client.send('Page.reload', {})
+  await waitFor(client, `document.documentElement.lang === 'en'`, 'english locale')
+  await waitFor(client, `document.querySelectorAll('aside button').length > 0`, 'english sidebar')
+  assertUI('i18n-english-nav-labels', await evaluate(client, `(() => {
+    const labels = [...document.querySelectorAll('aside button')].map((item) => item.textContent.trim())
+    return labels.includes('History') && labels.includes('Settings') && labels.includes('Search') && !labels.includes('Historique')
+  })()`))
+  await screenshot(client, 'i18n-english.png')
+
+  // Switching the language from Settings re-renders the shell without a reload.
+  await evaluate(client, `[...document.querySelectorAll('aside button')].find((item) => item.textContent.trim() === 'Settings')?.click()`)
+  await waitFor(client, `document.querySelector('select[aria-label="Language"]') !== null`, 'language selector')
+  await evaluate(client, `(() => {
+    const select = document.querySelector('select[aria-label="Language"]')
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
+    setter.call(select, 'fr')
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    return true
+  })()`)
+  await waitFor(client, `document.documentElement.lang === 'fr'`, 'runtime language switch')
+  assertUI('i18n-runtime-switch', await evaluate(client, `[...document.querySelectorAll('aside button')].some((item) => item.textContent.trim() === 'Historique')`))
+  await screenshot(client, 'i18n-switch-fr.png')
+
+  await evaluate(client, `localStorage.setItem('__smokeLang', 'fr')`)
+
+  // Splash window: same bundle, its own frameless window. The logo is the
+  // default; a stored `ui.splash` preference swaps in the image before the
+  // page reveals itself.
+  const origin = await evaluate(client, 'location.origin')
+  await client.send('Page.navigate', { url: origin + '/splash.html' })
+  await waitFor(client, `document.documentElement.dataset.splash === 'logo'`, 'default splash')
+  assertUI('splash-default-logo', await evaluate(client, `getComputedStyle(document.querySelector('.badge')).display !== 'none' && !document.documentElement.style.getPropertyValue('--splash-image')`))
+  await screenshot(client, 'splash-logo.png')
+
+  await client.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    (() => {
+      const original = window.__TAURI_INTERNALS__.invoke
+      window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        if (command === 'preference_get' && args.key === 'ui.splash') {
+          return JSON.stringify({ path: '/tmp/splash.gif', fit: 'tile', dim: 30, blur: 6 })
+        }
+        if (command === 'background_read') {
+          return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg=='
+        }
+        return original(command, args)
+      }
+    })()
+  ` })
+  await client.send('Page.navigate', { url: origin + '/splash.html' })
+  await waitFor(client, `document.documentElement.dataset.splash === 'image'`, 'custom splash applied')
+  assertUI('splash-custom-layers', await evaluate(client, `(() => {
+    const root = getComputedStyle(document.documentElement)
+    const backdrop = getComputedStyle(document.querySelector('.backdrop'))
+    return root.getPropertyValue('--splash-size').trim() === 'auto'
+      && root.getPropertyValue('--splash-repeat').trim() === 'repeat'
+      && root.getPropertyValue('--splash-dim').trim() === '0.3'
+      && root.getPropertyValue('--splash-blur').trim() === '6px'
+      && backdrop.backgroundImage.startsWith('url("data:image/png;base64,')
+      && getComputedStyle(document.querySelector('.badge')).display === 'none'
+  })()`))
+  await screenshot(client, 'splash-custom.png')
 
   await writeFile(join(outDir, 'ux-checks.json'), JSON.stringify(uxChecks, null, 2))
 

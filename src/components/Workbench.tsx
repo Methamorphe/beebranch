@@ -31,13 +31,18 @@ import {
   preferenceGet,
   preferenceSet,
   refsGet,
+  stashApply,
+  stashDrop,
+  stashPop,
   syncPull,
   syncPush,
   type DiffRequest,
 } from '../ipc/commands'
 import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
 import { errorMessage } from '../ipc/client'
+import { formatNumber, useI18n } from '../i18n'
 import { isCheckoutableRef, resolveGraphRef, shortRevision } from '../lib/graphRefs'
+import type { MediaSettings } from '../lib/mediaSettings'
 import { projectWebUrl, refWebUrl } from '../lib/refLinks'
 import {
   INSPECTOR_MAX,
@@ -52,9 +57,11 @@ import type {
   CommitDetail,
   CommitSummary,
   DiffReport,
+  MergeFastForward,
   RefEntry,
   RefsSnapshot,
   RepoView,
+  Workspace,
 } from '../types/git'
 import { ActionMenu } from './ActionMenu'
 import { AmendDialog } from './AmendDialog'
@@ -109,10 +116,19 @@ type Props = {
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void
   density: 'compact' | 'comfortable'
   onDensityChange: (density: 'compact' | 'comfortable') => void
+  background: MediaSettings | null
+  backgroundError: string | null
+  onBackgroundChange: (next: MediaSettings | null) => void
+  splash: MediaSettings | null
+  splashError: string | null
+  onSplashChange: (next: MediaSettings | null) => void
   shortcuts: import('../lib/shortcuts').ShortcutMap
   onShortcutsChange: (next: import('../lib/shortcuts').ShortcutMap) => void
   layout: LayoutPreferences
   onLayoutChange: (patch: Partial<LayoutPreferences>) => void
+  activeWorkspaceId: string | null
+  onActivateWorkspace: (workspaceId: string) => void
+  onWorkspacesChanged: (workspaces: Workspace[]) => void
 }
 
 /** The two revisions of an A→B comparison, as git revspecs. */
@@ -125,6 +141,8 @@ type Comparison = {
 
 type ContextMenuState = {
   commit: CommitSummary
+  /** Stash selector when the row is a stash entry (`stash@{0}`). */
+  stash?: string
   x: number
   y: number
   /** Inline expansion: checkout targets or reset modes, never a nested menu. */
@@ -161,36 +179,8 @@ type PendingIntegration = {
   source: RefEntry
   target: RefEntry
   mode: 'merge' | 'rebase'
-  noFf: boolean
+  fastForward: MergeFastForward
   preview: BranchIntegrationPreview
-}
-
-function integrationConsequence(pending: PendingIntegration | null) {
-  if (!pending) return ''
-  const { source, target, mode, noFf, preview } = pending
-  const parts = [
-    `${preview.ahead} commit(s) de ${source.name} à intégrer`,
-    `${preview.behind} commit(s) de retard`,
-  ]
-  if (preview.fastForward) {
-    parts.push(
-      noFf
-        ? 'commit de fusion créé au lieu d’un fast-forward'
-        : 'fast-forward, aucun commit de fusion',
-    )
-  } else if (mode === 'merge') {
-    parts.push('commit de fusion créé')
-  }
-  if (preview.requiresCheckout) parts.push(`${target.name} sera extraite pendant l'opération`)
-  if (preview.stashRequired) {
-    parts.push('modifications locales stashées puis restaurées après la fusion')
-  } else if (preview.worktreeDirty) {
-    parts.push('fichiers non suivis laissés en place')
-  }
-  if (preview.currentBranch && preview.currentBranch !== target.name) {
-    parts.push(`branche courante : ${preview.currentBranch}`)
-  }
-  return `${parts.join(' · ')}. ${mode === 'merge' ? 'Fusion' : 'Rebase'} sans mutation avant confirmation.`
 }
 
 type RefMenuState = {
@@ -233,11 +223,105 @@ export function Workbench({
   onThemeChange,
   density,
   onDensityChange,
+  background,
+  backgroundError,
+  onBackgroundChange,
+  splash,
+  splashError,
+  onSplashChange,
   shortcuts,
   onShortcutsChange,
   layout,
   onLayoutChange,
+  activeWorkspaceId,
+  onActivateWorkspace,
+  onWorkspacesChanged,
 }: Props) {
+  const { t, plural } = useI18n()
+
+  /** Why a fast-forward is unavailable, in the user's terms. */
+  const fastForwardReason = (preview: BranchIntegrationPreview) => {
+    if (preview.mode !== 'merge') return null
+    if (preview.fastForward) return null
+    if (preview.ahead === 0 && preview.behind === 0) {
+      return t('workbench.integration.sameCommit', {
+        target: preview.target,
+        source: preview.source,
+      })
+    }
+    if (preview.ahead === 0) {
+      return t('workbench.integration.alreadyIntegrated', {
+        target: preview.target,
+        source: preview.source,
+      })
+    }
+    if (preview.behind > 0) {
+      return plural(
+        'workbench.integration.missingCommits.one',
+        'workbench.integration.missingCommits.other',
+        preview.behind,
+        {
+          count: formatNumber(preview.behind),
+          target: preview.target,
+          source: preview.source,
+        },
+      )
+    }
+    return null
+  }
+
+  const integrationConsequence = (pending: PendingIntegration | null) => {
+    if (!pending) return ''
+    const { source, target, mode, fastForward, preview } = pending
+    const parts = [
+      plural(
+        'workbench.integration.commitsToIntegrate.one',
+        'workbench.integration.commitsToIntegrate.other',
+        preview.ahead,
+        { count: formatNumber(preview.ahead), source: source.name },
+      ),
+      plural(
+        'workbench.integration.commitsBehind.one',
+        'workbench.integration.commitsBehind.other',
+        preview.behind,
+        { count: formatNumber(preview.behind) },
+      ),
+    ]
+    if (mode === 'merge') {
+      if (preview.fastForward) {
+        parts.push(
+          t(
+            fastForward === 'never'
+              ? 'workbench.integration.mergeCommitInstead'
+              : 'workbench.integration.fastForwardNoMerge',
+          ),
+        )
+      } else if (preview.ahead === 0) {
+        parts.push(t('workbench.integration.nothingToIntegrate'))
+      } else {
+        parts.push(t('workbench.integration.fastForwardImpossible'))
+      }
+    }
+    if (preview.requiresCheckout) {
+      parts.push(t('workbench.integration.checkoutRequired', { target: target.name }))
+    }
+    if (preview.stashRequired) {
+      parts.push(t('workbench.integration.stashRequired'))
+    } else if (preview.worktreeDirty) {
+      parts.push(t('workbench.integration.untrackedLeft'))
+    }
+    if (preview.currentBranch && preview.currentBranch !== target.name) {
+      parts.push(t('workbench.integration.currentBranch', { branch: preview.currentBranch }))
+    }
+    return t('workbench.integration.noMutation', {
+      parts: parts.join(' · '),
+      operation:
+        mode === 'merge'
+          ? t('workbench.integration.operation.merge')
+          : t('workbench.integration.operation.rebase'),
+    })
+  }
+
   const repoId = repo?.repo.repoId ?? null
   const [localDiff, setLocalDiff] = useState<DiffRequest | null>(null)
   const [revision, setRevision] = useState('')
@@ -343,6 +427,8 @@ export function Workbench({
   const [branchName, setBranchName] = useState('')
   const [refMenu, setRefMenu] = useState<RefMenuState | null>(null)
   const [pendingDelete, setPendingDelete] = useState<RefEntry | null>(null)
+  /** Stash entry awaiting an irreversible drop confirmation. */
+  const [pendingStashDrop, setPendingStashDrop] = useState<{ selector: string; sha: string } | null>(null)
   const [dropMenu, setDropMenu] = useState<DropMenuState | null>(null)
   const [pendingIntegration, setPendingIntegration] = useState<PendingIntegration | null>(null)
   const [integrationBusy, setIntegrationBusy] = useState(false)
@@ -676,7 +762,7 @@ export function Workbench({
     if (view === 'diff') {
       onOpenDiff({ target: 'commit', base: sha, path: diffRequest?.path })
     }
-    setActionNotice(`Commit ${sha.slice(0, 10)} amendé.`)
+    setActionNotice(t('workbench.notice.amended', { sha: sha.slice(0, 10) }))
     onMutated()
   }
 
@@ -702,7 +788,7 @@ export function Workbench({
     if (!repoId || !branchTarget || name.length === 0) return
     const start = branchTarget
     cancelBranchCreate()
-    void runAction(`Branche ${name} créée.`, () =>
+    void runAction(t('workbench.notice.branchCreated', { name }), () =>
       branchCreate({ repoId, name, start, checkout: true }),
     )
   }
@@ -758,7 +844,7 @@ export function Workbench({
     if (!repoId) return
     const { remote } = pushTarget(entry)
     setRefMenu(null)
-    void runAction(`Branche ${entry.name} poussée vers ${remote}.`, () =>
+    void runAction(t('workbench.notice.branchPushed', { branch: entry.name, remote }), () =>
       syncPush({ repoId, remote, branch: entry.name }),
     )
   }
@@ -766,7 +852,7 @@ export function Workbench({
   const applyUpstream = (branch: RefEntry, upstream: string) => {
     if (!repoId) return
     setRefMenu(null)
-    void runAction(`Upstream de ${branch.name} : ${upstream}.`, () =>
+    void runAction(t('workbench.notice.upstreamSet', { branch: branch.name, upstream }), () =>
       branchUpstream({ repoId, branch: branch.name, upstream }),
     )
   }
@@ -798,7 +884,7 @@ export function Workbench({
 
   const requestIntegration = async (
     mode: 'merge' | 'rebase',
-    noFf = false,
+    requested: MergeFastForward = 'auto',
     pair?: { source: RefEntry; target: RefEntry },
   ) => {
     const menu = dropMenu
@@ -816,14 +902,28 @@ export function Workbench({
         mode,
       })
       if (!preview.applicable) {
-        setActionError(preview.blockedReason ?? 'Intégration impossible pour ces branches.')
+        setActionError(
+          preview.blockedReason ?? t('workbench.error.integrationImpossible'),
+        )
         return
       }
-      setPendingIntegration({ source, target, mode, noFf, preview })
+      // A fast-forward is possible exactly when the target has no commit the
+      // source lacks; anything else needs a merge commit.
+      const canFastForward = preview.behind === 0
+      const fastForward: MergeFastForward =
+        mode === 'merge'
+          ? requested === 'never' || !canFastForward
+            ? 'never'
+            : 'only'
+          : 'auto'
+      setPendingIntegration({ source, target, mode, fastForward, preview })
     } catch (cause) {
       setActionError(errorMessage(cause))
     }
   }
+
+  const chooseIntegrationStrategy = (fastForward: MergeFastForward) =>
+    setPendingIntegration((current) => (current ? { ...current, fastForward } : current))
 
   const confirmIntegration = async () => {
     const pending = pendingIntegration
@@ -836,23 +936,45 @@ export function Workbench({
         source: pending.source.name,
         target: pending.target.name,
         mode: pending.mode,
-        noFf: pending.noFf,
+        fastForward: pending.fastForward,
         confirmation: { acknowledged: true },
       })
       setPendingIntegration(null)
       const stash = result.data.autoStash
       const stashNote = stash
         ? stash.popped
-          ? ' Modifications locales restaurées.'
+          ? t('workbench.notice.localChangesRestored')
           : stash.conflicts.length > 0
-            ? ` Le stash ${stash.selector} n'a pas pu être réappliqué (conflits) et il est conservé.`
-            : ` Modifications locales conservées dans ${stash.selector} (${stash.sha.slice(0, 8)}).`
+            ? t('workbench.notice.stashConflict', { selector: stash.selector })
+            : t('workbench.notice.stashPreserved', {
+                selector: stash.selector,
+                sha: stash.sha.slice(0, 8),
+              })
         : ''
+      const mergeNote =
+        pending.mode === 'merge'
+          ? pending.fastForward === 'only'
+            ? t('workbench.notice.fastForwardNote')
+            : pending.preview.fastForward
+              ? t('workbench.notice.mergeCommitNote')
+              : ''
+          : ''
       setActionNotice(
         (result.data.outcome.conflicted
-          ? `Conflit pendant ${pending.mode === 'merge' ? 'la fusion' : 'le rebase'} : résolvez les fichiers puis poursuivez.`
-          : `${pending.mode === 'merge' ? 'Fusion' : 'Rebase'} de ${pending.source.name} appliqué${pending.mode === 'merge' && pending.noFf ? ' (commit de fusion)' : ''}.`) +
-          stashNote,
+          ? t('workbench.notice.conflictDuringIntegration', {
+              operation:
+                pending.mode === 'merge'
+                  ? t('workbench.integration.during.merge')
+                  : t('workbench.integration.during.rebase'),
+            })
+          : t('workbench.notice.integrationApplied', {
+              operation:
+                pending.mode === 'merge'
+                  ? t('workbench.integration.operation.merge')
+                  : t('workbench.integration.operation.rebase'),
+              source: pending.source.name,
+              note: mergeNote,
+            })) + stashNote,
       )
       onMutated()
     } catch (cause) {
@@ -872,6 +994,12 @@ export function Workbench({
           onThemeChange={onThemeChange}
           density={density}
           onDensityChange={onDensityChange}
+          background={background}
+          backgroundError={backgroundError}
+          onBackgroundChange={onBackgroundChange}
+          splash={splash}
+          splashError={splashError}
+          onSplashChange={onSplashChange}
           onMutated={onMutated}
           onOpenGitlab={() => onNavigate('gitlab')}
           shortcuts={shortcuts}
@@ -908,7 +1036,12 @@ export function Workbench({
   if (view === 'workspaces') {
     return (
       <div className={styles.content}>
-        <WorkspacesPanel onOpenRepo={onOpenRepo} />
+        <WorkspacesPanel
+          onOpenRepo={onOpenRepo}
+          activeWorkspaceId={activeWorkspaceId}
+          onActivateWorkspace={onActivateWorkspace}
+          onWorkspacesChanged={onWorkspacesChanged}
+        />
       </div>
     )
   }
@@ -917,8 +1050,8 @@ export function Workbench({
     return (
       <div className={styles.content}>
         <div className={styles.placeholder}>
-          <h2>Aucun dépôt ouvert</h2>
-          <p>Ouvrez un dépôt avec la barre ci-dessus.</p>
+          <h2>{t('workbench.empty.noRepo.title')}</h2>
+          <p>{t('workbench.empty.noRepo.body')}</p>
         </div>
       </div>
     )
@@ -1048,7 +1181,7 @@ export function Workbench({
           generation={generation}
           connected={view === 'prs' ? githubConnected : gitlabConnected}
           onCheckout={(branch: string) =>
-            void runAction(`Checkout ${branch}.`, () =>
+            void runAction(t('workbench.notice.checkout', { branch }), () =>
               branchCheckout({ repoId, name: branch }),
             )
           }
@@ -1064,14 +1197,14 @@ export function Workbench({
         : undefined
     const diffSha = diffRequest?.target === 'commit' ? diffRequest.base : undefined
     const source = !diffRequest
-      ? 'Aucune sélection'
+      ? t('workbench.diff.source.none')
       : diffRequest.target === 'commit'
-        ? `Commit ${diffRequest.base?.slice(0, 8) ?? ''}`
+        ? t('workbench.diff.source.commit', { sha: diffRequest.base?.slice(0, 8) ?? '' })
         : diffRequest.target === 'range'
           ? `${shortRevision(diffRequest.base ?? 'HEAD')}…${shortRevision(diffRequest.targetRef ?? 'HEAD')}`
           : diffRequest.target === 'index'
-            ? 'Index (préparé)'
-            : 'Modifications locales'
+            ? t('workbench.diff.source.index')
+            : t('workbench.diff.source.worktree')
     const staging =
       diffRequest?.allowActions &&
       repoId &&
@@ -1091,7 +1224,7 @@ export function Workbench({
           </div>
         ) : null}
         {diffLoading ? (
-          <div className={styles.placeholder}>Calcul du diff…</div>
+          <div className={styles.placeholder}>{t('workbench.diff.calculating')}</div>
         ) : report ? (
           <DiffViewer
             report={report}
@@ -1120,11 +1253,8 @@ export function Workbench({
           />
         ) : (
           <div className={styles.placeholder}>
-            <h2>Sélectionnez un fichier ou un commit</h2>
-            <p>
-              Le diff s'ouvre depuis le status, la recherche, ou le détail d'un
-              commit.
-            </p>
+            <h2>{t('workbench.diff.empty.title')}</h2>
+            <p>{t('workbench.diff.empty.body')}</p>
           </div>
         )}
         {amendDialog}
@@ -1142,7 +1272,7 @@ export function Workbench({
     if (!isCheckoutableRef(entry)) return
     if (entry.isHead) return
     if (repo.state.operation || repo.state.conflicts.files.length > 0) {
-      setActionError('Terminez l’opération Git et résolvez les conflits avant de changer de branche.')
+      setActionError(t('workbench.error.checkoutBlocked'))
       return
     }
     checkoutPending.current = true
@@ -1167,14 +1297,18 @@ export function Workbench({
         } else {
           const remote = entry.remote ?? entry.name.split('/')[0]!
           const name = entry.name.slice(remote.length + 1)
-          if (!name) throw new Error('Impossible de déterminer le nom de la branche distante.')
-          if (localBranches.some((ref) => ref.name === name)) throw new Error(`La branche locale « ${name} » existe déjà avec un autre suivi. Sélectionnez-la directement ou configurez son upstream dans Branches.`)
+          if (!name) {
+            throw new Error(t('workbench.error.remoteBranchNameUndetermined'))
+          }
+          if (localBranches.some((ref) => ref.name === name)) {
+            throw new Error(t('workbench.error.localBranchAlreadyTracks', { name }))
+          }
           activeBranch = name
           await branchCreate({ repoId, name, start:entry.fullName, checkout:true })
           await branchUpstream({ repoId, branch:name, upstream:entry.name })
         }
       }
-      setActionNotice(`Branche active : ${activeBranch}`)
+      setActionNotice(t('workbench.notice.activeBranch', { branch: activeBranch }))
     } catch (cause) {
       setActionError(errorMessage(cause))
     } finally {
@@ -1191,10 +1325,10 @@ export function Workbench({
             setAllRefs(event.target.value === '__all__')
             if (event.target.value !== '__all__') setRevision(event.target.value)
           }}
-          aria-label="Filtrer le graphe par branche"
+          aria-label={t('workbench.graph.filterAriaLabel')}
         >
-          <option value="__all__">Toutes les branches et tags</option>
-          <option value="">Branche courante</option>
+          <option value="__all__">{t('workbench.graph.filterAll')}</option>
+          <option value="">{t('workbench.graph.filterCurrent')}</option>
           {revision && !branches.some((entry) => entry.name === revision) ? (
             <option value={revision}>{revision}</option>
           ) : null}
@@ -1204,7 +1338,7 @@ export function Workbench({
             </option>
           ))}
         </select>
-    <ActionMenu label="Options d’affichage du graphe">
+    <ActionMenu label={t('workbench.graph.optionsLabel')}>
         <label className={styles.viewOption}>
           <input
             type="checkbox"
@@ -1216,11 +1350,11 @@ export function Workbench({
               }
             }}
           />
-          Sélection multiple
+          {t('workbench.graph.multiSelect')}
         </label>
         {layout.graph ? (
           <button type="button" onClick={() => onLayoutChange({ graph: null })}>
-            Réinitialiser les colonnes
+            {t('workbench.graph.resetColumns')}
           </button>
         ) : null}
     </ActionMenu>
@@ -1229,14 +1363,19 @@ export function Workbench({
   const worktreeRow = hasChanges ? (
     <button type="button" className={styles.worktreeRow} data-active={showWorktree} aria-pressed={showWorktree}
             onClick={() => { setSelected(undefined); setComparison(null); setComparePath(null); setLocalDiff(null); setWorktreeSelected((current) => !current) }}>
-            <span className={styles.wipRef}>En cours</span>
+            <span className={styles.wipRef}>{t('workbench.graph.worktreeStatus')}</span>
             <span className={styles.wipMarker} aria-hidden="true">◌</span>
-            <span className={styles.wipMessage}><strong>Modifications locales</strong><span>{repo.state.worktree.staged} préparé(s) · {repo.state.worktree.unstaged} modifié(s) · {repo.state.worktree.untracked} nouveau(x)</span></span>
+            <span className={styles.wipMessage}><strong>{t('workbench.graph.worktreeTitle')}</strong><span>{plural('workbench.graph.staged.one', 'workbench.graph.staged.other', repo.state.worktree.staged, { count: formatNumber(repo.state.worktree.staged) })} · {plural('workbench.graph.unstaged.one', 'workbench.graph.unstaged.other', repo.state.worktree.unstaged, { count: formatNumber(repo.state.worktree.unstaged) })} · {plural('workbench.graph.untracked.one', 'workbench.graph.untracked.other', repo.state.worktree.untracked, { count: formatNumber(repo.state.worktree.untracked) })}</span></span>
           </button>
   ) : null
 
-  const openContextMenu = (commit: CommitSummary, x: number, y: number) => {
-    setContextMenu({ commit, x, y, panel: null })
+  const openContextMenu = (
+    commit: CommitSummary,
+    stash: string | undefined,
+    x: number,
+    y: number,
+  ) => {
+    setContextMenu({ commit, stash, x, y, panel: null })
   }
 
   const closeMenu = () => setContextMenu(null)
@@ -1258,7 +1397,7 @@ export function Workbench({
       await navigator.clipboard.writeText(text)
       setActionNotice(notice)
     } catch {
-      setActionError('Presse-papiers indisponible : autorisez l’accès et réessayez.')
+      setActionError(t('workbench.error.clipboardUnavailable'))
     }
   }
 
@@ -1270,10 +1409,10 @@ export function Workbench({
     const root = projectWebUrl(refs?.remoteUrls, linkWebUrl, remoteName ?? null)
     const url = root ? refWebUrl(root, target, reference) : null
     if (!url) {
-      setActionError('Aucun remote reconnu : ajoutez un remote ou associez un projet GitLab.')
+      setActionError(t('workbench.error.unknownRemote'))
       return
     }
-    void copyText(url, `Lien copié : ${url}`)
+    void copyText(url, t('workbench.notice.linkCopied', { url }))
   }
 
   /**
@@ -1289,7 +1428,7 @@ export function Workbench({
         source: { kind: 'commit', sha, paths: [] },
       })
       if (!saveFile) {
-        await copyText(patch.text, 'Patch du commit copié pour partage.')
+        await copyText(patch.text, t('workbench.notice.patchCopied'))
         return
       }
       const path = await saveNativeDialog({
@@ -1297,7 +1436,7 @@ export function Workbench({
       })
       if (!path) return
       await patchSave(path, patch.text)
-      setActionNotice(`Patch enregistré : ${path}`)
+      setActionNotice(t('workbench.notice.patchSaved', { path }))
     } catch (cause) {
       setActionError(errorMessage(cause))
     }
@@ -1309,7 +1448,14 @@ export function Workbench({
     closeMenu()
     setRefMenu(null)
     void runAction(
-      `${currentBranch} réinitialisée (${mode === 'soft' ? 'douce' : 'mixte'}) sur ${sha.slice(0, 10)}.`,
+      t('workbench.notice.branchReset', {
+        branch: currentBranch,
+        mode:
+          mode === 'soft'
+            ? t('workbench.reset.mode.soft')
+            : t('workbench.reset.mode.mixed'),
+        sha: sha.slice(0, 10),
+      }),
       () => historyReset({ repoId, revision: sha, mode }),
     )
   }
@@ -1323,8 +1469,8 @@ export function Workbench({
     setPins(next)
     setActionNotice(
       pinned
-        ? `${entry.name} désépinglée.`
-        : `${entry.name} épinglée à gauche du graphe.`,
+        ? t('workbench.notice.unpinned', { branch: entry.name })
+        : t('workbench.notice.pinned', { branch: entry.name }),
     )
     void preferenceSet('ui.graph.pins', JSON.stringify(next)).catch((cause: unknown) =>
       setActionError(errorMessage(cause)),
@@ -1337,7 +1483,7 @@ export function Workbench({
     setAllRefs(false)
     setRevision(entry.name)
     setRefMenu(null)
-    setActionNotice(`Graphe isolé sur ${entry.name}.`)
+    setActionNotice(t('workbench.notice.graphIsolated', { branch: entry.name }))
   }
 
   const action = (
@@ -1428,11 +1574,10 @@ export function Workbench({
       {picked.length > 0 ? <div className={styles.graphToolbar}>
         {picked.length > 0 ? (
           <>
-            <span className={shared.notice}>{picked.length} commit(s) sélectionné(s)</span>
+            <span className={shared.notice}>{plural('workbench.selection.count.one', 'workbench.selection.count.other', picked.length, { count: formatNumber(picked.length) })}</span>
             {picked.length === 1 ? (
               <span className={shared.small}>
-                Maj+clic sur un autre commit pour sélectionner la plage,
-                ⌘/Ctrl+clic pour ne comparer que les deux extrémités.
+                {t('workbench.selection.hint')}
               </span>
             ) : null}
             {canCompare ? (
@@ -1440,10 +1585,22 @@ export function Workbench({
                 type="button"
                 className={shared.secondary}
                 aria-pressed={comparison !== null}
-                title={`Comparer ${shortRevision(compareBase!)} et ${shortRevision(compareTarget!)} : ${picked.length} commit(s) de A vers B, affichés à droite du graphe`}
+                title={t('workbench.selection.compareTitle', {
+                  base: shortRevision(compareBase!),
+                  target: shortRevision(compareTarget!),
+                  count: plural(
+                    'workbench.selection.compareCount.one',
+                    'workbench.selection.compareCount.other',
+                    picked.length,
+                    { count: formatNumber(picked.length) },
+                  ),
+                })}
                 onClick={() => startComparison(compareBase!, compareTarget!, graphOrder(picked))}
               >
-                Comparer {shortRevision(compareBase!)} → {shortRevision(compareTarget!)}
+                {t('workbench.selection.compare', {
+                  base: shortRevision(compareBase!),
+                  target: shortRevision(compareTarget!),
+                })}
               </button>
             ) : null}
             <button
@@ -1453,12 +1610,12 @@ export function Workbench({
               onClick={() => {
                 const shas = [...picked]
                 setPicked([])
-                void runAction('Cherry-pick terminé.', () =>
+                void runAction(t('workbench.notice.cherryPickDone'), () =>
                   historyCherryPick(repoId, shas),
                 )
               }}
             >
-              Cherry-pick
+              {t('workbench.action.cherryPick')}
             </button>
             <button
               type="button"
@@ -1467,13 +1624,13 @@ export function Workbench({
               onClick={() => {
                 const shas = [...picked]
                 setPicked([])
-                void runAction('Revert terminé.', () => historyRevert(repoId, shas))
+                void runAction(t('workbench.notice.revertDone'), () => historyRevert(repoId, shas))
               }}
             >
-              Revert
+              {t('workbench.action.revert')}
             </button>
             <button type="button" className={shared.small} onClick={() => setPicked([])}>
-              Vider
+              {t('workbench.action.clear')}
             </button>
           </>
         ) : null}
@@ -1493,8 +1650,8 @@ export function Workbench({
         {graph.commits.length === 0 && !graph.loading ? (
           <div className={styles.emptyHistory}>
             {worktreeRow}
-            <div className={styles.placeholder}><h2>Historique vide</h2>
-            <p>Le dépôt n'a pas encore de commit, ou aucune page n'a pu être lue.</p></div>
+            <div className={styles.placeholder}><h2>{t('workbench.graph.emptyTitle')}</h2>
+            <p>{t('workbench.graph.emptyBody')}</p></div>
           </div>
         ) : (
           <GraphCanvas
@@ -1579,26 +1736,29 @@ export function Workbench({
         )}
           </div>
           {previewDiff ? <>
-        <div className={styles.diffPreview} aria-label="Aperçu des modifications" aria-busy={diffLoading}>
+        <div className={styles.diffPreview} aria-label={t('workbench.preview.ariaLabel')} aria-busy={diffLoading}>
           <div className={styles.previewHeading}>
             <span>{previewDiff.target === 'index'
-              ? 'Prêt à committer'
+              ? t('workbench.preview.index')
               : previewDiff.target === 'range'
-                ? `Comparaison ${shortRevision(previewDiff.base ?? 'HEAD')} → ${shortRevision(previewDiff.targetRef ?? 'HEAD')}`
-                : 'Modification locale'}</span>
+                ? t('workbench.preview.comparison', {
+                    base: shortRevision(previewDiff.base ?? 'HEAD'),
+                    target: shortRevision(previewDiff.targetRef ?? 'HEAD'),
+                  })
+                : t('workbench.preview.worktree')}</span>
             <code title={previewDiff.path}>{previewDiff.path}</code>
             <button
               type="button"
               onClick={() => { setLocalDiff(null); setComparePath(null) }}
-              aria-label="Fermer l’aperçu"
+              aria-label={t('workbench.preview.closeAriaLabel')}
             >
               ×
             </button>
           </div>
           {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
-          {diffLoading ? <div className={styles.placeholder} role="status">Chargement des modifications…</div> : report ?
+          {diffLoading ? <div className={styles.placeholder} role="status">{t('workbench.preview.loading')}</div> : report ?
             <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument} staging={localDiff && localDiff.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index') ? { repoId, target: localDiff.target, onMutated } : undefined} /> :
-            <div className={styles.placeholder}><h2>Chaque changement compte.</h2><p>Sélectionnez un fichier pour voir ses modifications.<br />Préparez les fichiers avec +, puis créez votre commit.</p></div>}
+            <div className={styles.placeholder}><h2>{t('workbench.preview.emptyTitle')}</h2><p>{t('workbench.preview.emptyBodyBeforeBreak')}<br />{t('workbench.preview.emptyBodyAfterBreak')}</p></div>}
         </div>
           </> : null}
         </div>
@@ -1606,7 +1766,7 @@ export function Workbench({
           <div className={styles.inspectorDock}>
             <Resizer
               className={styles.inspectorResizer}
-              label="Redimensionner le panneau latéral"
+              label={t('workbench.inspector.resizeLabel')}
               side="left"
               value={layout.inspector}
               min={INSPECTOR_MIN}
@@ -1636,8 +1796,8 @@ export function Workbench({
               loading={detailLoading && !(detail && detail.summary.sha === selected)}
               error={detailError}
               onShowDiff={(sha, path) => onOpenDiff({ target: 'commit', base: sha, path })}
-            /> : showWorktree ? <aside className={styles.worktreePanel} aria-label="Préparation du prochain commit">
-              <div className={styles.worktreeHeading}><strong>Fichiers</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" aria-label="Fermer la préparation du commit" onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
+            /> : showWorktree ? <aside className={styles.worktreePanel} aria-label={t('workbench.inspector.worktreeAriaLabel')}>
+              <div className={styles.worktreeHeading}><strong>{t('common.files')}</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" aria-label={t('workbench.inspector.closeWorktreeAriaLabel')} onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
               <RepoStatus repoId={repoId} generation={generation} locks={repo.locks}
                 selectedPath={localDiff?.path} onSelectDiff={setLocalDiff} onMutated={onMutated} onNavigate={onNavigate} />
               <CommitPanel compact repoId={repoId} generation={generation} onMutated={onMutated} onUndo={onUndo} />
@@ -1647,9 +1807,41 @@ export function Workbench({
       </div>
 
       {contextMenu ? (
-        <ContextMenu x={contextMenu.x} y={contextMenu.y} title={contextMenu.commit.sha.slice(0, 10)} subtitle={contextMenu.commit.subject} onClose={closeMenu}>
+        <ContextMenu x={contextMenu.x} y={contextMenu.y} title={contextMenu.stash ?? contextMenu.commit.sha.slice(0, 10)} subtitle={contextMenu.commit.subject} onClose={closeMenu}>
           <div className={styles.contextActions}>
-            {expander('checkout', 'branch', 'Checkout', contextMenu.panel === 'checkout', () =>
+            {contextMenu.stash ? (
+              <>
+                {action('stash-apply', 'stash', t('workbench.menu.stashApply'), () => {
+                  const selector = contextMenu.stash!
+                  closeMenu()
+                  if (!repoId) return
+                  void runAction(t('workbench.notice.stashApplied', { selector }), () => stashApply(repoId, selector))
+                })}
+                {action('stash-pop', 'stash', t('workbench.menu.stashApplyRemove'), () => {
+                  const selector = contextMenu.stash!
+                  closeMenu()
+                  if (!repoId) return
+                  void runAction(t('workbench.notice.stashAppliedRemoved', { selector }), () =>
+                    stashPop(repoId, selector),
+                  )
+                })}
+                {separator('stash-copy')}
+                {action('copy-sha', 'patches', t('workbench.menu.copySha'), () => {
+                  const { sha } = contextMenu.commit
+                  closeMenu()
+                  void copyText(sha, t('workbench.notice.shaCopied', { sha }))
+                })}
+                {separator('stash-drop')}
+                {action('stash-drop-action', 'diff', t('workbench.menu.stashDelete'), () => {
+                  const { sha } = contextMenu.commit
+                  const selector = contextMenu.stash!
+                  closeMenu()
+                  setPendingStashDrop({ selector, sha })
+                })}
+              </>
+            ) : (
+              <>
+            {expander('checkout', 'branch', t('workbench.menu.checkout'), contextMenu.panel === 'checkout', () =>
               setContextMenu((current) =>
                 current
                   ? { ...current, panel: current.panel === 'checkout' ? null : 'checkout' }
@@ -1662,7 +1854,7 @@ export function Workbench({
                   action(
                     `checkout-${entry.fullName}`,
                     entry.kind === 'branch' ? 'branch' : 'remotes',
-                    `Basculer sur ${entry.name}`,
+                    t('workbench.menu.switchTo', { name: entry.name }),
                     () => {
                       closeMenu()
                       void checkoutGraphRef(entry.fullName)
@@ -1671,33 +1863,33 @@ export function Workbench({
                       disabled: entry.isHead || checkoutBusy,
                       title:
                         entry.kind === 'remoteBranch'
-                          ? 'Crée une branche locale qui suit la branche distante'
+                          ? t('workbench.menu.remoteCheckoutTitle')
                           : undefined,
                     },
                   ),
                 )}
-                {action('checkout-detached', 'graph', 'HEAD détachée sur ce commit', () => {
+                {action('checkout-detached', 'graph', t('workbench.menu.detachedHead'), () => {
                   const sha = contextMenu.commit.sha
                   closeMenu()
-                  void runAction('Checkout détaché.', () =>
+                  void runAction(t('workbench.notice.detachedCheckout'), () =>
                     branchCheckout({ repoId, detachedAt: sha }),
                   )
                 })}
               </>
             ) : null}
-            {action('worktree', 'worktrees', 'Créer un worktree ici…', () => {
+            {action('worktree', 'worktrees', t('workbench.menu.createWorktreeHere'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
               setWorktreeTarget(sha)
             })}
-            {action('branch-here', 'branch', 'Créer une branche ici…', () =>
+            {action('branch-here', 'branch', t('workbench.menu.createBranchHere'), () =>
               startBranchCreate(contextMenu.commit.sha),
             )}
             {separator('history')}
-            {action('cherry-pick', 'commit', 'Cherry-picker ce commit', () => {
+            {action('cherry-pick', 'commit', t('workbench.menu.cherryPickCommit'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
-              void runAction('Cherry-pick terminé.', () =>
+              void runAction(t('workbench.notice.cherryPickDone'), () =>
                 historyCherryPick(repoId, [sha]),
               )
             })}
@@ -1705,7 +1897,7 @@ export function Workbench({
               ? expander(
                   'reset',
                   'recovery',
-                  `Réinitialiser ${currentBranch} sur ce commit`,
+                  t('workbench.menu.resetCurrent', { branch: currentBranch }),
                   contextMenu.panel === 'reset',
                   () =>
                     setContextMenu((current) =>
@@ -1720,53 +1912,53 @@ export function Workbench({
                 {action(
                   'reset-soft',
                   'recovery',
-                  'Douce — garde l’index et les fichiers',
+                  t('workbench.menu.resetSoft'),
                   () => resetCurrentTo(contextMenu.commit.sha, 'soft'),
                 )}
                 {action(
                   'reset-mixed',
                   'recovery',
-                  'Mixte — vide l’index, garde les fichiers',
+                  t('workbench.menu.resetMixed'),
                   () => resetCurrentTo(contextMenu.commit.sha, 'mixed'),
                 )}
                 <p className={styles.contextHint}>
-                  Recul de {currentBranch} seulement : aucun fichier n’est perdu.
+                  {t('workbench.menu.resetHint', { branch: currentBranch })}
                 </p>
               </>
             ) : null}
-            {action('revert', 'patches', 'Revenir sur ce commit (revert)', () => {
+            {action('revert', 'patches', t('workbench.menu.revertCommit'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
-              void runAction('Revert terminé.', () => historyRevert(repoId, [sha]))
+              void runAction(t('workbench.notice.revertDone'), () => historyRevert(repoId, [sha]))
             })}
             {canAmend(contextMenu.commit.sha)
               ? action(
                   'amend',
                   'commit',
-                  'Amender ce commit…',
+                  t('workbench.menu.amendCommit'),
                   () => {
                     const { sha, subject } = contextMenu.commit
                     closeMenu()
                     setAmendTarget({ sha, subject })
                   },
-                  { title: 'Amender HEAD réécrit l’historique' },
+                  { title: t('workbench.menu.amendTitle') },
                 )
               : null}
-            {action('compare', 'diff', 'Comparer à la branche courante', () => {
+            {action('compare', 'diff', t('workbench.menu.compareCurrentBranch'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
               startComparison(sha, 'HEAD')
             })}
             {separator('copy')}
-            {action('copy-sha', 'patches', 'Copier le SHA', () => {
+            {action('copy-sha', 'patches', t('workbench.menu.copySha'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
-              void copyText(sha, `SHA copié : ${sha}`)
+              void copyText(sha, t('workbench.notice.shaCopied', { sha }))
             })}
             {action(
               'copy-link',
               'remotes',
-              'Copier le lien du commit',
+              t('workbench.menu.copyCommitLink'),
               () => {
                 const sha = contextMenu.commit.sha
                 closeMenu()
@@ -1774,38 +1966,38 @@ export function Workbench({
               },
               {
                 disabled: !linkWebUrl && !refs?.remoteUrls?.length,
-                title: 'Nécessite un remote reconnu ou un projet GitLab associé',
+                title: t('workbench.menu.recognizedRemoteTitle'),
               },
             )}
             {separator('patch')}
-            {action('patch-save', 'patches', 'Créer un patch depuis ce commit…', () => {
+            {action('patch-save', 'patches', t('workbench.menu.createPatch'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
               void exportPatch(sha, true)
             })}
-            {action('patch-copy', 'patches', 'Copier le patch pour partage', () => {
+            {action('patch-copy', 'patches', t('workbench.menu.copyPatch'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
               void exportPatch(sha, false)
             })}
             {separator('tags')}
-            {action('tag', 'tags', 'Créer un tag ici…', () => {
+            {action('tag', 'tags', t('workbench.menu.createTagHere'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
               setTagTarget({ sha, annotated: false })
             })}
-            {action('tag-annotated', 'tags', 'Créer un tag annoté ici…', () => {
+            {action('tag-annotated', 'tags', t('workbench.menu.createAnnotatedTagHere'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
               setTagTarget({ sha, annotated: true })
             })}
             {separator('mr')}
-            {action('mr', 'mrs', 'Ouvrir une merge request', () => {
+            {action('mr', 'mrs', t('workbench.menu.openMergeRequest'), () => {
               const atCommit = branchesAtCommit(contextMenu.commit.sha)[0]?.name
               const branch = atCommit ?? currentBranch
               closeMenu()
               if (!linkWebUrl || !branch) {
-                setActionError('Associez le dépôt à un projet GitLab et poussez la branche.')
+                setActionError(t('workbench.error.mergeRequestUnavailable'))
                 return
               }
               const url =
@@ -1814,6 +2006,8 @@ export function Workbench({
                   : `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`
               void openExternalUrl(url)
             })}
+              </>
+            )}
           </div>
         </ContextMenu>
       ) : null}
@@ -1823,7 +2017,7 @@ export function Workbench({
           x={dropMenu.x}
           y={dropMenu.y}
           title={`${dropMenu.source.name} → ${dropMenu.target.name}`}
-          subtitle="Glisser-déposer"
+          subtitle={t('workbench.menu.dragDrop')}
           onClose={() => setDropMenu(null)}
         >
           <div className={styles.contextActions}>
@@ -1832,29 +2026,29 @@ export function Workbench({
                 type="button"
                 className={styles.contextAction}
                 role="menuitem"
-                title={`Avancer ${dropMenu.target.name} sur ${dropMenu.source.name} sans commit de fusion`}
-                onClick={() => void requestIntegration('merge')}
+                title={t('workbench.drop.advanceTitle', { target: dropMenu.target.name, source: dropMenu.source.name })}
+                onClick={() => void requestIntegration('merge', 'only')}
               >
-                <ViewIcon view="sync" /><span>Avancer {dropMenu.target.name} sur {dropMenu.source.name}</span>
+                <ViewIcon view="sync" /><span>{t('workbench.drop.advance', { target: dropMenu.target.name, source: dropMenu.source.name })}</span>
               </button>
             ) : null}
             <button
               type="button"
               className={styles.contextAction}
               role="menuitem"
-              title={`Fusionner ${dropMenu.source.name} dans ${dropMenu.target.name} avec un commit de fusion`}
-              onClick={() => void requestIntegration('merge', true)}
+              title={t('workbench.drop.mergeTitle', { source: dropMenu.source.name, target: dropMenu.target.name })}
+              onClick={() => void requestIntegration('merge')}
             >
-              <ViewIcon view="mrs" /><span>Fusionner {dropMenu.source.name} dans {dropMenu.target.name}</span>
+              <ViewIcon view="mrs" /><span>{t('workbench.drop.merge', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
             <button
               type="button"
               className={styles.contextAction}
               role="menuitem"
-              title={`Rebaser ${dropMenu.source.name} sur ${dropMenu.target.name}`}
+              title={t('workbench.drop.rebaseTitle', { source: dropMenu.source.name, target: dropMenu.target.name })}
               onClick={() => void requestIntegration('rebase')}
             >
-              <ViewIcon view="rebase" /><span>Rebaser {dropMenu.source.name} sur {dropMenu.target.name}</span>
+              <ViewIcon view="rebase" /><span>{t('workbench.drop.rebase', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
             <button
               type="button"
@@ -1865,7 +2059,7 @@ export function Workbench({
                 startComparison(source.name, target.name)
               }}
             >
-              <ViewIcon view="diff" /><span>Comparer {dropMenu.source.name} et {dropMenu.target.name}</span>
+              <ViewIcon view="diff" /><span>{t('workbench.drop.compare', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
           </div>
         </ContextMenu>
@@ -1875,15 +2069,65 @@ export function Workbench({
         open={pendingIntegration !== null}
         title={
           pendingIntegration
-            ? `${pendingIntegration.mode === 'merge' ? 'Fusionner' : 'Rebaser'} ${pendingIntegration.source.name}${pendingIntegration.mode === 'merge' ? ' dans ' : ' sur '}${pendingIntegration.target.name}`
+            ? t(
+                pendingIntegration.mode === 'merge'
+                  ? 'workbench.integration.dialogMerge'
+                  : 'workbench.integration.dialogRebase',
+                { source: pendingIntegration.source.name, target: pendingIntegration.target.name },
+              )
             : ''
         }
         consequence={integrationConsequence(pendingIntegration)}
-        confirmLabel={pendingIntegration?.mode === 'rebase' ? 'Rebaser' : 'Fusionner'}
+        confirmLabel={t(
+          pendingIntegration?.mode === 'rebase'
+            ? 'workbench.integration.rebaseAction'
+            : 'workbench.integration.mergeAction',
+        )}
         busy={integrationBusy}
         onCancel={() => setPendingIntegration(null)}
         onConfirm={() => void confirmIntegration()}
-      />
+      >
+        {pendingIntegration?.mode === 'merge' ? (
+          <fieldset className={styles.strategy}>
+            <legend>{t('workbench.integration.strategyLegend')}</legend>
+            <label className={styles.strategyOption}>
+              <input
+                type="radio"
+                name="integration-fast-forward"
+                value="only"
+                checked={pendingIntegration.fastForward === 'only'}
+                disabled={pendingIntegration.preview.behind > 0}
+                onChange={() => chooseIntegrationStrategy('only')}
+              />
+              <span>
+                {t('workbench.integration.strategyFastForward')}
+                <span className={styles.strategyNote}>
+                  {fastForwardReason(pendingIntegration.preview) ??
+                    t('workbench.integration.strategyUpToDate', {
+                      target: pendingIntegration.target.name,
+                      source: pendingIntegration.source.name,
+                    })}
+                </span>
+              </span>
+            </label>
+            <label className={styles.strategyOption}>
+              <input
+                type="radio"
+                name="integration-fast-forward"
+                value="never"
+                checked={pendingIntegration.fastForward === 'never'}
+                onChange={() => chooseIntegrationStrategy('never')}
+              />
+              <span>
+                {t('workbench.integration.strategyMergeCommit')} (<code>--no-ff</code>)
+                <span className={styles.strategyNote}>
+                  {t('workbench.integration.strategyMergeNote')}
+                </span>
+              </span>
+            </label>
+          </fieldset>
+        ) : null}
+      </ConfirmDialog>
 
       {amendDialog}
 
@@ -1895,7 +2139,7 @@ export function Workbench({
           onClose={() => setTagTarget(null)}
           onCreated={(name) => {
             setTagTarget(null)
-            setActionNotice(`Tag ${name} créé.`)
+            setActionNotice(t('workbench.notice.tagCreated', { name }))
             onMutated()
           }}
         />
@@ -1907,7 +2151,7 @@ export function Workbench({
           onClose={() => setWorktreeTarget(null)}
           onCreated={(path) => {
             setWorktreeTarget(null)
-            setActionNotice(`Worktree créé : ${path}`)
+            setActionNotice(t('workbench.notice.worktreeCreated', { path }))
             onMutated()
           }}
         />
@@ -1920,10 +2164,10 @@ export function Workbench({
           title={refMenu.entry.name}
           subtitle={
             refMenu.entry.kind === 'remoteBranch'
-              ? 'branche distante'
+              ? t('workbench.refMenu.remoteBranch')
               : refMenu.entry.kind === 'tag'
-                ? 'tag'
-                : 'branche locale'
+                ? t('workbench.refMenu.tag')
+                : t('workbench.refMenu.localBranch')
           }
           onClose={() => setRefMenu(null)}
         >
@@ -1932,7 +2176,7 @@ export function Workbench({
               ? action(
                   'checkout',
                   'branch',
-                  `Basculer sur ${refMenu.entry.name}`,
+                  t('workbench.menu.switchTo', { name: refMenu.entry.name }),
                   () => {
                     const raw = refMenu.entry.fullName
                     setRefMenu(null)
@@ -1940,17 +2184,17 @@ export function Workbench({
                   },
                   {
                     disabled: refMenu.entry.isHead || checkoutBusy,
-                    title: refMenu.entry.isHead ? 'Branche déjà extraite' : undefined,
+                    title: refMenu.entry.isHead ? t('workbench.refMenu.branchAlreadyCheckedOut') : undefined,
                   },
                 )
               : null}
             {refMenu.entry.kind === 'branch' ? (
               <>
                 {refMenu.entry.isHead
-                  ? action('pull', 'sync', 'Pull (fast-forward seulement)', () => {
+                  ? action('pull', 'sync', t('workbench.refMenu.pullFastForwardOnly'), () => {
                       const entry = refMenu.entry
                       setRefMenu(null)
-                      void runAction(`Pull (fast-forward) de ${entry.name}.`, () =>
+                      void runAction(t('workbench.notice.pulledFastForward', { branch: entry.name }), () =>
                         syncPull({
                           repoId,
                           remote: pushTarget(entry).remote,
@@ -1963,15 +2207,15 @@ export function Workbench({
                 {action(
                   'push',
                   'sync',
-                  `Pousser vers ${pushTarget(refMenu.entry).target}`,
+                  t('workbench.refMenu.pushTo', { target: pushTarget(refMenu.entry).target }),
                   () => pushBranch(refMenu.entry),
                 )}
                 {expander(
                   'upstream',
                   'remotes',
                   refMenu.entry.upstream
-                    ? `Upstream : ${refMenu.entry.upstream}`
-                    : "Définir l'upstream…",
+                    ? t('workbench.refMenu.upstream', { upstream: refMenu.entry.upstream })
+                    : t('workbench.refMenu.setUpstream'),
                   refMenu.panel === 'upstream',
                   () =>
                     setRefMenu((current) =>
@@ -1993,7 +2237,7 @@ export function Workbench({
                         return action(
                           'upstream-empty',
                           'remotes',
-                          'Aucune branche distante : lancez un fetch.',
+                          t('workbench.refMenu.noRemoteBranches'),
                           () => undefined,
                           { disabled: true },
                         )
@@ -2002,7 +2246,7 @@ export function Workbench({
                         action(
                           `upstream-${remoteBranch.fullName}`,
                           'remotes',
-                          `${remoteBranch.name}${remoteBranch.name === refMenu.entry.upstream ? ' · actuel' : ''}`,
+                          `${remoteBranch.name}${remoteBranch.name === refMenu.entry.upstream ? t('workbench.refMenu.currentSuffix') : ''}`,
                           () => applyUpstream(refMenu.entry, remoteBranch.name),
                         ),
                       )
@@ -2018,39 +2262,39 @@ export function Workbench({
                 {action(
                   'fast-forward',
                   'sync',
-                  `Avancer ${refMenu.entry.name} sur ${currentBranchEntry.name}`,
+                  t('workbench.drop.advance', { target: refMenu.entry.name, source: currentBranchEntry.name }),
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
-                    void requestIntegration('merge', false, {
+                    void requestIntegration('merge', 'only', {
                       source: currentBranchEntry,
                       target: entry,
                     })
                   },
-                  { title: 'Fast-forward, sans commit de fusion' },
+                  { title: t('workbench.integration.strategyFastForward') },
                 )}
                 {action(
                   'merge',
                   'mrs',
-                  `Fusionner ${currentBranchEntry.name} dans ${refMenu.entry.name}`,
+                  t('workbench.drop.merge', { source: currentBranchEntry.name, target: refMenu.entry.name }),
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
-                    void requestIntegration('merge', true, {
+                    void requestIntegration('merge', 'auto', {
                       source: currentBranchEntry,
                       target: entry,
                     })
                   },
-                  { title: 'Commit de fusion créé' },
+                  { title: t('workbench.integration.fastForwardHint') },
                 )}
                 {action(
                   'rebase',
                   'rebase',
-                  `Rebaser ${currentBranchEntry.name} sur ${refMenu.entry.name}`,
+                  t('workbench.drop.rebase', { source: currentBranchEntry.name, target: refMenu.entry.name }),
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
-                    void requestIntegration('rebase', false, {
+                    void requestIntegration('rebase', 'auto', {
                       source: currentBranchEntry,
                       target: entry,
                     })
@@ -2059,18 +2303,18 @@ export function Workbench({
               </>
             ) : null}
             {separator('navigate')}
-            {action('worktree', 'worktrees', 'Créer un worktree à partir d’ici…', () => {
+            {action('worktree', 'worktrees', t('workbench.refMenu.createWorktreeHere'), () => {
               const reference = refMenu.entry.name
               setRefMenu(null)
               setWorktreeTarget(reference)
             })}
-            {action('branch-here', 'branch', 'Créer une branche ici…', () =>
+            {action('branch-here', 'branch', t('workbench.menu.createBranchHere'), () =>
               startBranchCreate(refMenu.entry.targetOid),
             )}
-            {action('cherry-pick', 'commit', 'Cherry-picker ce commit', () => {
+            {action('cherry-pick', 'commit', t('workbench.menu.cherryPickCommit'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
-              void runAction('Cherry-pick terminé.', () =>
+              void runAction(t('workbench.notice.cherryPickDone'), () =>
                 historyCherryPick(repoId, [sha]),
               )
             })}
@@ -2078,7 +2322,7 @@ export function Workbench({
               ? expander(
                   'ref-reset',
                   'recovery',
-                  `Réinitialiser ${currentBranch} sur ce commit`,
+                  t('workbench.menu.resetCurrent', { branch: currentBranch }),
                   refMenu.panel === 'reset',
                   () =>
                     setRefMenu((current) =>
@@ -2093,21 +2337,21 @@ export function Workbench({
                 {action(
                   'ref-reset-soft',
                   'recovery',
-                  'Douce — garde l’index et les fichiers',
+                  t('workbench.menu.resetSoft'),
                   () => resetCurrentTo(refMenu.entry.targetOid, 'soft'),
                 )}
                 {action(
                   'ref-reset-mixed',
                   'recovery',
-                  'Mixte — vide l’index, garde les fichiers',
+                  t('workbench.menu.resetMixed'),
                   () => resetCurrentTo(refMenu.entry.targetOid, 'mixed'),
                 )}
               </>
             ) : null}
-            {action('revert', 'patches', 'Revenir sur ce commit (revert)', () => {
+            {action('revert', 'patches', t('workbench.menu.revertCommit'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
-              void runAction('Revert terminé.', () => historyRevert(repoId, [sha]))
+              void runAction(t('workbench.notice.revertDone'), () => historyRevert(repoId, [sha]))
             })}
             {separator('branch')}
             {refMenu.entry.kind === 'branch'
@@ -2122,7 +2366,7 @@ export function Workbench({
                             current ? { ...current, name: event.target.value } : current,
                           )
                         }
-                        aria-label="Nouveau nom de branche"
+                        aria-label={t('workbench.refMenu.renameBranchAria')}
                         spellCheck={false}
                       />
                       <button
@@ -2136,30 +2380,30 @@ export function Workbench({
                           const next = refMenu.name.trim()
                           const old = refMenu.entry.name
                           setRefMenu(null)
-                          void runAction(`Branche ${old} renommée en ${next}.`, () =>
+                          void runAction(t('workbench.notice.branchRenamed', { old, new: next }), () =>
                             branchRename({ repoId, old, new: next }),
                           )
                         }}
                       >
-                        Renommer
+                        {t('workbench.refMenu.renameConfirm')}
                       </button>
                     </div>
                   )
-                : action('rename', 'patches', 'Renommer…', () =>
+                : action('rename', 'patches', t('workbench.refMenu.rename'), () =>
                     setRefMenu((current) =>
                       current ? { ...current, renaming: true } : current,
                     ),
                   )
               : null}
             {refMenu.entry.kind === 'branch' && !refMenu.entry.isHead
-              ? action('delete', 'status', 'Supprimer la branche locale…', () => {
+              ? action('delete', 'status', t('workbench.refMenu.deleteLocal'), () => {
                   const entry = refMenu.entry
                   setRefMenu(null)
                   setPendingDelete(entry)
                 })
               : null}
             {refMenu.entry.kind === 'remoteBranch'
-              ? action('delete-remote', 'status', 'Supprimer la branche distante…', () => {
+              ? action('delete-remote', 'status', t('workbench.refMenu.deleteRemote'), () => {
                   const entry = refMenu.entry
                   setRefMenu(null)
                   setPendingRemoteDelete(entry)
@@ -2171,7 +2415,7 @@ export function Workbench({
               ? action(
                   'delete-upstream',
                   'status',
-                  'Supprimer la branche distante suivie…',
+                  t('workbench.refMenu.deleteUpstream'),
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
@@ -2185,7 +2429,7 @@ export function Workbench({
               ? action(
                   'delete-both',
                   'status',
-                  'Supprimer la branche locale et sa distante…',
+                  t('workbench.refMenu.deleteBoth'),
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
@@ -2194,24 +2438,24 @@ export function Workbench({
                 )
               : null}
             {separator('copy')}
-            {action('copy-branch-name', 'branch', 'Copier le nom de la branche', () => {
+            {action('copy-branch-name', 'branch', t('workbench.refMenu.copyBranchName'), () => {
               const entry = refMenu.entry
               const name =
                 entry.kind === 'remoteBranch'
                   ? remoteBranchName(entry) ?? entry.name
                   : entry.name
               setRefMenu(null)
-              void copyText(name, `Nom copié : ${name}`)
+              void copyText(name, t('workbench.notice.branchNameCopied', { name }))
             })}
-            {action('copy-sha', 'patches', 'Copier le SHA', () => {
+            {action('copy-sha', 'patches', t('workbench.menu.copySha'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
-              void copyText(sha, `SHA copié : ${sha}`)
+              void copyText(sha, t('workbench.notice.shaCopied', { sha }))
             })}
             {action(
               'copy-branch-link',
               'remotes',
-              'Copier le lien de la branche',
+              t('workbench.refMenu.copyBranchLink'),
               () => {
                 const entry = refMenu.entry
                 const name =
@@ -2225,13 +2469,13 @@ export function Workbench({
               },
               {
                 disabled: !linkWebUrl && !refs?.remoteUrls?.length,
-                title: 'Nécessite un remote reconnu ou un projet GitLab associé',
+                title: t('workbench.menu.recognizedRemoteTitle'),
               },
             )}
             {action(
               'copy-commit-link',
               'remotes',
-              'Copier le lien du commit',
+              t('workbench.menu.copyCommitLink'),
               () => {
                 const entry = refMenu.entry
                 setRefMenu(null)
@@ -2239,16 +2483,16 @@ export function Workbench({
               },
               {
                 disabled: !linkWebUrl && !refs?.remoteUrls?.length,
-                title: 'Nécessite un remote reconnu ou un projet GitLab associé',
+                title: t('workbench.menu.recognizedRemoteTitle'),
               },
             )}
             {separator('patch')}
-            {action('patch-save', 'patches', 'Créer un patch depuis ce commit…', () => {
+            {action('patch-save', 'patches', t('workbench.menu.createPatch'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
               void exportPatch(sha, true)
             })}
-            {action('patch-copy', 'patches', 'Copier le patch pour partage', () => {
+            {action('patch-copy', 'patches', t('workbench.menu.copyPatch'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
               void exportPatch(sha, false)
@@ -2259,8 +2503,8 @@ export function Workbench({
                   'pin',
                   'graph',
                   pins[repoId ?? ''] === refMenu.entry.fullName
-                    ? 'Désépingler du bord gauche'
-                    : 'Épingler à gauche du graphe',
+                    ? t('workbench.refMenu.unpin')
+                    : t('workbench.refMenu.pin'),
                   () => togglePin(refMenu.entry),
                 )
               : null}
@@ -2269,7 +2513,7 @@ export function Workbench({
                 {expander(
                   'solo',
                   'search',
-                  'Solo',
+                  t('workbench.refMenu.solo'),
                   refMenu.panel === 'solo',
                   () =>
                     setRefMenu((current) =>
@@ -2280,36 +2524,36 @@ export function Workbench({
                 )}
                 {refMenu.panel === 'solo' ? (
                   <>
-                    {action('solo-branch', 'search', `Isoler ${refMenu.entry.name}`, () =>
+                    {action('solo-branch', 'search', t('workbench.refMenu.soloBranch', { branch: refMenu.entry.name }), () =>
                       soloOn(refMenu.entry),
                     )}
-                    {action('solo-all', 'search', 'Tout afficher', () => {
+                    {action('solo-all', 'search', t('workbench.refMenu.showAll'), () => {
                       setAllRefs(true)
                       setRevision('')
                       setRefMenu(null)
-                      setActionNotice('Filtre du graphe retiré.')
+                      setActionNotice(t('workbench.notice.filterRemoved'))
                     })}
                   </>
                 ) : null}
               </>
             ) : null}
             {separator('tags')}
-            {action('tag', 'tags', 'Créer un tag ici…', () => {
+            {action('tag', 'tags', t('workbench.menu.createTagHere'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
               setTagTarget({ sha, annotated: false })
             })}
-            {action('tag-annotated', 'tags', 'Créer un tag annoté ici…', () => {
+            {action('tag-annotated', 'tags', t('workbench.menu.createAnnotatedTagHere'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
               setTagTarget({ sha, annotated: true })
             })}
             {refMenu.entry.kind === 'branch'
-              ? action('mr', 'mrs', 'Ouvrir une merge request', () => {
+              ? action('mr', 'mrs', t('workbench.menu.openMergeRequest'), () => {
                   const name = refMenu.entry.name
                   setRefMenu(null)
                   if (!linkWebUrl) {
-                    setActionError('Associez le dépôt à un projet GitLab et poussez la branche.')
+                    setActionError(t('workbench.error.mergeRequestUnavailable'))
                     return
                   }
                   const url =
@@ -2319,7 +2563,7 @@ export function Workbench({
                   void openExternalUrl(url)
                 })
               : null}
-            {action('compare', 'diff', 'Comparer à HEAD', () => {
+            {action('compare', 'diff', t('workbench.refMenu.compareHead'), () => {
               const name = refMenu.entry.name
               setRefMenu(null)
               startComparison(name, 'HEAD')
@@ -2329,17 +2573,40 @@ export function Workbench({
       ) : null}
 
       <ConfirmDialog
+        open={pendingStashDrop !== null}
+        title={t('workbench.stashDrop.title', { selector: pendingStashDrop?.selector ?? '' })}
+        consequence={t('workbench.stashDrop.consequence', {
+          selector: pendingStashDrop?.selector ?? '',
+          sha: pendingStashDrop?.sha.slice(0, 12) ?? '',
+        })}
+        irreversible
+        confirmLabel={t('common.delete')}
+        onCancel={() => setPendingStashDrop(null)}
+        onConfirm={() => {
+          const target = pendingStashDrop
+          setPendingStashDrop(null)
+          if (!repoId || !target) return
+          void runAction(
+            t('workbench.notice.stashDropped', {
+              selector: target.selector,
+              sha: target.sha.slice(0, 12),
+            }),
+            () => stashDrop(repoId, target.selector, { acknowledged: true }),
+          )
+        }}
+      />
+      <ConfirmDialog
         open={pendingDelete !== null}
-        title={`Supprimer la branche ${pendingDelete?.name ?? ''}`}
-        consequence="La branche locale est supprimée. Ses commits restent joignables par le reflog et les autres branches."
+        title={t('workbench.deleteLocal.title', { name: pendingDelete?.name ?? '' })}
+        consequence={t('workbench.deleteLocal.consequence')}
         typed={pendingDelete?.name}
-        confirmLabel="Supprimer"
+        confirmLabel={t('common.delete')}
         onCancel={() => setPendingDelete(null)}
         onConfirm={(typed) => {
           const entry = pendingDelete
           setPendingDelete(null)
           if (repoId && entry) {
-            void runAction(`Branche ${entry.name} supprimée.`, () =>
+            void runAction(t('workbench.notice.branchDeleted', { name: entry.name }), () =>
               branchDelete({
                 repoId,
                 name: entry.name,
@@ -2351,18 +2618,18 @@ export function Workbench({
       />
       <ConfirmDialog
         open={pendingRemoteDelete !== null}
-        title={`Supprimer ${remoteDeleteLabel}`}
-        consequence="La branche est supprimée sur le remote après un push de suppression. Les autres clones perdent la référence au prochain fetch."
+        title={t('workbench.deleteRemote.title', { label: remoteDeleteLabel })}
+        consequence={t('workbench.deleteRemote.consequence')}
         typed={remoteDeleteTarget?.branch}
         irreversible
-        confirmLabel="Supprimer sur le remote"
+        confirmLabel={t('workbench.deleteRemote.confirm')}
         onCancel={() => setPendingRemoteDelete(null)}
         onConfirm={(typed) => {
           const target = remoteDeleteTarget
           setPendingRemoteDelete(null)
           if (repoId && target) {
             const { remote, branch } = target
-            void runAction(`Branche distante ${remote}/${branch} supprimée.`, () =>
+            void runAction(t('workbench.notice.remoteBranchDeleted', { remote, branch }), () =>
               branchDeleteRemote({
                 repoId,
                 remote,
@@ -2375,11 +2642,11 @@ export function Workbench({
       />
       <ConfirmDialog
         open={pendingDeleteBoth !== null}
-        title={`Supprimer ${pendingDeleteBoth?.name ?? ''} et sa branche distante`}
-        consequence="La branche locale et son upstream sont supprimés. Le push de suppression est irréversible pour les autres clones."
+        title={t('workbench.deleteBoth.title', { name: pendingDeleteBoth?.name ?? '' })}
+        consequence={t('workbench.deleteBoth.consequence')}
         typed={pendingDeleteBoth?.name}
         irreversible
-        confirmLabel="Supprimer les deux"
+        confirmLabel={t('workbench.deleteBoth.confirm')}
         onCancel={() => setPendingDeleteBoth(null)}
         onConfirm={(typed) => {
           const entry = pendingDeleteBoth
@@ -2387,7 +2654,11 @@ export function Workbench({
           const target = entry ? upstreamTarget(entry) : null
           if (!repoId || !entry || !target) return
           void runAction(
-            `Branche ${entry.name} et ${target.remote}/${target.branch} supprimées.`,
+            t('workbench.notice.bothDeleted', {
+              name: entry.name,
+              remote: target.remote,
+              branch: target.branch,
+            }),
             async () => {
               await branchDelete({
                 repoId,

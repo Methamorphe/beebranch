@@ -3,13 +3,12 @@
 use beebranch_core::{AppError, Confirmation, DestructiveAction};
 use beebranch_git::session::InvalidationArea;
 use beebranch_git::sync::{self, PullStrategy, PushRequest, SyncKind, SyncOutcome};
-use beebranch_git::ProcessEvent;
 use serde::Deserialize;
 use tauri::{AppHandle, State};
 
 use crate::commands::util::{
-    begin_destructive, begin_operation, emit_operation, finish_destructive, finish_operation,
-    new_operation_id, run_mutation, MutationResult,
+    announce_hooks, begin_destructive, begin_operation, emit_operation, finish_destructive,
+    finish_operation, new_operation_id, operation_progress, run_mutation, MutationResult,
 };
 use crate::state::AppState;
 
@@ -51,36 +50,6 @@ pub struct CancelRequest {
     pub operation_id: String,
 }
 
-fn progress(app: &AppHandle, operation_id: &str) -> impl FnMut(ProcessEvent) + Send + 'static {
-    let app = app.clone();
-    let operation_id = operation_id.to_owned();
-    move |event| match event {
-        ProcessEvent::Started { .. } => {}
-        ProcessEvent::Stdout(line) => emit_operation(
-            &app,
-            "op://progress",
-            serde_json::json!({ "operationId": operation_id, "stream": "stdout", "line": line }),
-        ),
-        ProcessEvent::Stderr(line) => emit_operation(
-            &app,
-            "op://progress",
-            serde_json::json!({ "operationId": operation_id, "stream": "stderr", "line": line }),
-        ),
-        ProcessEvent::Finished {
-            exit_code,
-            duration,
-        } => emit_operation(
-            &app,
-            "op://progress",
-            serde_json::json!({
-                "operationId": operation_id,
-                "stream": "meta",
-                "line": format!("terminé ({exit_code:?}) en {:.1}s", duration.as_secs_f64())
-            }),
-        ),
-    }
-}
-
 #[tauri::command]
 pub async fn sync_fetch(
     app: AppHandle,
@@ -109,7 +78,7 @@ pub async fn sync_fetch(
                 worktree,
                 &remote,
                 &context,
-                progress(&app, &operation_id),
+                operation_progress(&app, &operation_id, &request.repo_id),
             )?;
             if let Ok(mut flags) = operations.lock() {
                 flags.insert(
@@ -120,7 +89,7 @@ pub async fn sync_fetch(
             emit_operation(
                 &app,
                 "op://started",
-                serde_json::json!({ "operationId": operation_id }),
+                serde_json::json!({ "operationId": operation_id, "repoId": request.repo_id }),
             );
             let outcome = sync::finish(command, SyncKind::Fetch, || None);
             if let Ok(mut flags) = operations.lock() {
@@ -165,7 +134,7 @@ pub async fn sync_pull(
                 &request.branch,
                 request.strategy.unwrap_or(PullStrategy::Auto),
                 &context,
-                progress(&app, &operation_id),
+                operation_progress(&app, &operation_id, &request.repo_id),
             )?;
             if let Ok(mut flags) = operations.lock() {
                 flags.insert(
@@ -261,6 +230,15 @@ pub async fn sync_push(
         let force = request.force;
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
+            // Informational only: failing to list hooks must not block the
+            // push, Git runs them anyway.
+            let hooks = beebranch_git::hooks::active(
+                runner,
+                worktree,
+                beebranch_git::hooks::HookPoint::Push,
+            )
+            .unwrap_or_default();
+            announce_hooks(&app, &operation_id, &request.repo_id, &hooks);
             let force_with_lease = if force {
                 let sha =
                     sync::remote_branch_sha(runner, worktree, &request.remote, &request.branch)
@@ -288,7 +266,7 @@ pub async fn sync_push(
                 worktree,
                 &push,
                 &context,
-                progress(&app, &operation_id),
+                operation_progress(&app, &operation_id, &request.repo_id),
             )?;
             if let Ok(mut flags) = operations.lock() {
                 flags.insert(

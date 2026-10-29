@@ -74,12 +74,13 @@ pub async fn search_commits(
         let command = search::spawn(session.runner(), session.worktree(), &query, &context, {
             let app = app.clone();
             let operation_id = request.operation_id.clone();
+            let repo_id = request.repo_id.clone();
             move |event| {
                 if let beebranch_git::ProcessEvent::Started { pid } = event {
                     emit_operation(
                         &app,
                         "op://started",
-                        serde_json::json!({ "operationId": operation_id, "pid": pid }),
+                        serde_json::json!({ "operationId": operation_id, "repoId": repo_id, "pid": pid }),
                     );
                 }
             }
@@ -93,7 +94,7 @@ pub async fn search_commits(
         emit_operation(
             &app,
             "op://started",
-            serde_json::json!({ "operationId": request.operation_id }),
+            serde_json::json!({ "operationId": request.operation_id, "repoId": request.repo_id }),
         );
         let outcome = command.wait();
         if let Ok(mut flags) = operations.lock() {
@@ -186,12 +187,13 @@ pub async fn search_content(
         let command = session.runner().spawn(&spec, {
             let app = app.clone();
             let operation_id = request.operation_id.clone();
+            let repo_id = request.repo_id.clone();
             move |event| {
                 if let beebranch_git::ProcessEvent::Started { pid } = event {
                     emit_operation(
                         &app,
                         "op://started",
-                        serde_json::json!({ "operationId": operation_id, "pid": pid }),
+                        serde_json::json!({ "operationId": operation_id, "repoId": repo_id, "pid": pid }),
                     );
                 }
             }
@@ -205,7 +207,7 @@ pub async fn search_content(
         emit_operation(
             &app,
             "op://started",
-            serde_json::json!({ "operationId": request.operation_id }),
+            serde_json::json!({ "operationId": request.operation_id, "repoId": request.repo_id }),
         );
         let outcome = command.wait();
         if let Ok(mut flags) = operations.lock() {

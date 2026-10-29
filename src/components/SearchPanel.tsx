@@ -7,6 +7,7 @@ import {
   type DiffRequest,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { dateFromSeconds, formatDateTime, useI18n, type MessageKey } from '../i18n'
 import type {
   ContentSearch,
   PathSearch,
@@ -24,19 +25,28 @@ type Props = {
 
 type Mode = SearchMode | 'path' | 'content'
 
-const MODES: { value: Mode; label: string }[] = [
-  { value: 'message', label: 'Message' },
-  { value: 'author', label: 'Auteur' },
-  { value: 'sha', label: 'SHA' },
-  { value: 'path', label: 'Chemin' },
-  { value: 'content', label: 'Contenu' },
+const MODES: { value: Mode; labelKey: MessageKey }[] = [
+  { value: 'message', labelKey: 'search.mode.message' },
+  { value: 'author', labelKey: 'search.mode.author' },
+  { value: 'sha', labelKey: 'search.mode.sha' },
+  { value: 'path', labelKey: 'search.mode.path' },
+  { value: 'content', labelKey: 'search.mode.content' },
 ]
+
+const PLACEHOLDERS: Record<Mode, MessageKey> = {
+  message: 'search.placeholder.message',
+  author: 'search.placeholder.author',
+  sha: 'search.placeholder.sha',
+  path: 'search.placeholder.path',
+  content: 'search.placeholder.content',
+}
 
 export function SearchPanel({
   repoId,
   onShowInGraph,
   onOpenFile,
 }: Props) {
+  const { t, plural } = useI18n()
   const [text, setText] = useState('')
   const [mode, setMode] = useState<Mode>('message')
   const [depth, setDepth] = useState(5000)
@@ -134,219 +144,287 @@ export function SearchPanel({
     setOperationId(null)
   }
 
+  const commitMode = mode === 'message' || mode === 'author' || mode === 'sha'
   const scope = [
-    allRefs ? 'toutes les refs' : revision.trim() || 'HEAD',
-    `profondeur ${depth}`,
-    pathScope.trim() ? `chemin ${pathScope.trim()}` : null,
+    allRefs ? t('search.scope.allRefs') : revision.trim() || 'HEAD',
+    commitMode ? t('search.scope.depth', { depth }) : null,
+    pathScope.trim() ? t('search.scope.path', { path: pathScope.trim() }) : null,
   ]
     .filter(Boolean)
     .join(' · ')
 
+  const total =
+    mode === 'path'
+      ? (paths?.items.length ?? 0)
+      : mode === 'content'
+        ? (content?.items.length ?? 0)
+        : (result?.commits.length ?? 0)
+  const truncated =
+    mode === 'path'
+      ? Boolean(paths?.truncated)
+      : mode === 'content'
+        ? Boolean(content?.truncated)
+        : Boolean(result?.truncated)
+  const hasResults =
+    mode === 'path' ? paths !== null : mode === 'content' ? content !== null : result !== null
+
   return (
-    <div className={p2.pageColumn}>
-      <div className={p2.stack} style={{ flex: 1, minHeight: 0 }}>
-        <div className={p2.tabs} style={{ padding: '0 0 8px', borderBottom: 0 }}>
+    <div className={p2.screen}>
+      <div className={p2.toolbar}>
+        <div className={p2.segmented} role="group" aria-label={t('search.typeAria')}>
           {MODES.map((item) => (
             <button
               key={item.value}
               type="button"
-              className={mode === item.value ? p2.tabOn : p2.tab}
+              className={mode === item.value ? p2.segmentOn : p2.segment}
+              aria-pressed={mode === item.value}
               onClick={() => setMode(item.value)}
             >
-              {item.label}
+              {t(item.labelKey)}
             </button>
           ))}
         </div>
 
-        <div className={p2.row} style={{ alignItems: 'flex-end' }}>
-          <label className={p2.field} style={{ flex: 2 }}>
-            Recherche
-            <input
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  void run()
-                }
-              }}
-              placeholder={
-                mode === 'sha'
-                  ? 'sha ou préfixe'
-                  : mode === 'path'
-                    ? 'src/payment'
-                    : mode === 'content'
-                      ? 'texte dans le contenu des fichiers'
-                      : 'texte à chercher'
+        <label className={`${p2.fieldInline} ${p2.grow}`}>
+          <span className={p2.toolbarLabel}>{t('search.label')}</span>
+          <input
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                void run()
               }
-              spellCheck={false}
-            />
-          </label>
-          {mode === 'message' || mode === 'author' ? (
-            <label className={p2.field}>
-              Profondeur
-              <input
-                value={depth}
-                onChange={(event) => setDepth(Number(event.target.value) || 0)}
-                inputMode="numeric"
-              />
-            </label>
-          ) : null}
-          <button type="button" className={p2.primary} disabled={busy || !text.trim()} onClick={() => void run()}>
-            Rechercher
-          </button>
-          {busy ? (
-            <button type="button" className={p2.danger} onClick={() => void cancel()}>
-              Annuler
-            </button>
-          ) : null}
-        </div>
+            }}
+            placeholder={t(PLACEHOLDERS[mode])}
+            aria-label={t('search.termAria')}
+            spellCheck={false}
+          />
+        </label>
 
-        {mode === 'message' || mode === 'author' || mode === 'sha' ? (
-          <div className={p2.row}>
-            <label className={p2.field}>
-              Révision
+        <button
+          type="button"
+          className={p2.primary}
+          disabled={busy || !text.trim()}
+          onClick={() => void run()}
+        >
+          {t('common.search')}
+        </button>
+        {busy ? (
+          <button type="button" className={p2.ghost} onClick={() => void cancel()}>
+            {t('common.cancel')}
+          </button>
+        ) : null}
+        <span className={p2.spacer} />
+        <span className={p2.chip} title={t('search.scopeTitle')}>
+          {scope}
+        </span>
+      </div>
+
+      <div className={p2.toolbar}>
+        {commitMode ? (
+          <>
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('search.revisionLabel')}</span>
               <input
                 value={revision}
                 onChange={(event) => setRevision(event.target.value)}
-                placeholder="HEAD ou branche"
+                placeholder={t('search.revisionPlaceholder')}
                 spellCheck={false}
               />
             </label>
             <label className={p2.checkbox}>
-              <input type="checkbox" checked={allRefs} onChange={(event) => setAllRefs(event.target.checked)} />
-              toutes les refs
-            </label>
-            <label className={p2.field}>
-              Chemin
               <input
-                value={pathScope}
-                onChange={(event) => setPathScope(event.target.value)}
-                placeholder="src/"
-                spellCheck={false}
+                type="checkbox"
+                checked={allRefs}
+                onChange={(event) => setAllRefs(event.target.checked)}
+              />
+              {t('search.allRefs')}
+            </label>
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('search.depthLabel')}</span>
+              <input
+                value={depth}
+                onChange={(event) => setDepth(Number(event.target.value) || 0)}
+                inputMode="numeric"
+                aria-label={t('search.depthAria')}
               />
             </label>
-            <label className={p2.field}>
-              Auteur (filtre)
-              <input value={author} onChange={(event) => setAuthor(event.target.value)} />
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('search.mode.author')}</span>
+              <input
+                value={author}
+                onChange={(event) => setAuthor(event.target.value)}
+                placeholder={t('search.authorPlaceholder')}
+                aria-label={t('search.authorAria')}
+              />
             </label>
-            <label className={p2.field}>
-              Depuis
-              <input value={since} onChange={(event) => setSince(event.target.value)} placeholder="2026-01-01" />
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('search.sinceLabel')}</span>
+              <input
+                value={since}
+                onChange={(event) => setSince(event.target.value)}
+                placeholder="2026-01-01"
+                aria-label={t('search.sinceAria')}
+              />
             </label>
-            <label className={p2.field}>
-              Jusqu’à
-              <input value={until} onChange={(event) => setUntil(event.target.value)} placeholder="2026-12-31" />
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('search.untilLabel')}</span>
+              <input
+                value={until}
+                onChange={(event) => setUntil(event.target.value)}
+                placeholder="2026-12-31"
+                aria-label={t('search.untilAria')}
+              />
             </label>
-          </div>
+          </>
         ) : null}
+        <label className={p2.fieldInline}>
+          <span className={p2.toolbarLabel}>{t('search.mode.path')}</span>
+          <input
+            value={pathScope}
+            onChange={(event) => setPathScope(event.target.value)}
+            placeholder="src/"
+            aria-label={t('search.pathAria')}
+            spellCheck={false}
+          />
+        </label>
+      </div>
 
-        <span className={p2.pill}>Périmètre : {scope}</span>
-        {error ? <p className={p2.errorText} role="alert">{error}</p> : null}
+      {error ? (
+        <p className={p2.alert} role="alert">
+          {error}
+        </p>
+      ) : null}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          {mode === 'path' && paths ? (
-            <>
-              <div className={p2.between}>
-                <span className={p2.small}>{paths.items.length} chemin(s)</span>
-                {paths.truncated ? <span className={p2.warn}>résultats plafonnés</span> : null}
-              </div>
-              <div className={p2.list}>
-                {paths.items.map((item) => (
-                  <button
-                    key={item.path}
-                    type="button"
-                    className={p2.listItem}
-                    onClick={() => onOpenFile(item.path)}
-                  >
-                    <span className={p2.mono}>{item.path}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : null}
-
-          {mode === 'content' && content ? (
-            <>
-              <div className={p2.between}>
-                <span className={p2.small}>
-                  {content.items.length} correspondance(s)
-                  {content.path ? ` dans ${content.path}` : ''}
-                </span>
-                {content.truncated ? <span className={p2.warn}>résultats plafonnés</span> : null}
-              </div>
-              <div className={p2.list}>
-                {content.items.map((item) => (
-                  <button
-                    key={`${item.path}:${item.line}:${item.text}`}
-                    type="button"
-                    className={p2.listItem}
-                    onClick={() => onOpenFile(item.path)}
-                  >
-                    <span className={p2.mono}>
-                      {item.path}:{item.line}
-                    </span>
-                    <span className={p2.listSub} style={{ color: 'var(--text)' }}>
-                      {item.text}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : null}
-
-          {mode !== 'path' && mode !== 'content' && result ? (
-            <>
-              <div className={p2.between}>
-                <span className={p2.small}>
-                  {result.commits.length} commit(s) · profondeur {result.depth}
-                </span>
-                {result.truncated ? <span className={p2.warn}>plafond atteint</span> : null}
-              </div>
-              <div className={p2.list}>
-                {result.commits.map((commit) => (
-                  <button
-                    key={commit.sha}
-                    type="button"
-                    className={p2.listItem}
-                    onClick={() => onShowInGraph(commit.sha)}
-                  >
-                    <span>
-                      <span className={p2.mono}>{commit.sha.slice(0, 10)}</span>{' '}
-                      {commit.subject}
-                    </span>
-                    <span className={p2.listSub}>
-                      {commit.author.name} ·{' '}
-                      {new Date(commit.author.timestamp * 1000).toLocaleString()}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {result.next ? (
-                <button type="button" className={p2.secondary} onClick={() => void run(result.next)}>
-                  Page suivante
-                </button>
+      <div className={p2.screenBody}>
+        <div className={p2.screenMain}>
+          {hasResults ? (
+            <div className={p2.listHeader}>
+              <span className={p2.label}>
+                {mode === 'content'
+                  ? plural('search.results.matches.one', 'search.results.matches.other', total)
+                  : mode === 'path'
+                    ? plural('search.results.paths.one', 'search.results.paths.other', total)
+                    : plural('search.results.commits.one', 'search.results.commits.other', total)}
+                {mode === 'content' && content?.path ? ` · ${content.path}` : ''}
+              </span>
+              {truncated ? (
+                <span className={`${p2.chip} ${p2.chipWarn}`}>{t('search.resultsCapped')}</span>
               ) : null}
-            </>
-          ) : null}
-
-          {!busy && !error && (
-            (mode === 'path' && paths?.items.length === 0) ||
-            (mode === 'content' && content?.items.length === 0) ||
-            (mode !== 'path' && mode !== 'content' && result?.commits.length === 0)
-          ) ? (
-            <div className={p2.empty} role="status">
-              <h2>Aucun résultat</h2>
-              <p>Essayez un autre terme ou élargissez les filtres de recherche.</p>
+              <span className={p2.spacer} />
+              {busy ? <span className={p2.count}>{t('search.running')}</span> : null}
             </div>
           ) : null}
 
-          {!paths && !content && !result && !busy ? (
+          {mode === 'path' && paths ? (
+            <div className={p2.rows}>
+              {paths.items.map((item) => (
+                <button
+                  key={item.path}
+                  type="button"
+                  className={p2.entry}
+                  onClick={() => onOpenFile(item.path)}
+                >
+                  <span className={p2.meta} aria-hidden="true">
+                    ⌖
+                  </span>
+                  <span className={p2.entryStack}>
+                    <span className={`${p2.entryTitle} ${p2.mono}`}>{item.path}</span>
+                    <span className={p2.entryMeta}>{t('search.openFileHistory')}</span>
+                  </span>
+                  <span className={p2.meta} aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {mode === 'content' && content ? (
+            <div className={p2.rows}>
+              {content.items.map((item) => (
+                <button
+                  key={`${item.path}:${item.line}:${item.text}`}
+                  type="button"
+                  className={p2.entry}
+                  onClick={() => onOpenFile(item.path)}
+                >
+                  <span className={`${p2.count} ${p2.tabnum}`}>
+                    {t('search.line')} {item.line}
+                  </span>
+                  <span className={p2.entryStack}>
+                    <span className={`${p2.entryTitle} ${p2.mono}`}>{item.path}</span>
+                    <span className={`${p2.entryMeta} ${p2.mono}`}>{item.text.trim()}</span>
+                  </span>
+                  <span className={p2.meta} aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {commitMode && result ? (
+            <div className={p2.rows}>
+              {result.commits.map((commit) => (
+                <button
+                  key={commit.sha}
+                  type="button"
+                  className={p2.entry}
+                  onClick={() => onShowInGraph(commit.sha)}
+                >
+                  <span className={`${p2.count} ${p2.mono}`}>
+                    {commit.sha.slice(0, 8)}
+                  </span>
+                  <span className={p2.entryStack}>
+                    <span className={p2.entryTitle}>{commit.subject}</span>
+                    <span className={p2.entryMeta}>
+                      <span>{commit.author.name}</span>
+                      <span>·</span>
+                      <span>{formatDateTime(dateFromSeconds(commit.author.timestamp))}</span>
+                    </span>
+                  </span>
+                  <span className={p2.meta} aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {commitMode && result?.next ? (
+            <div className={p2.footerBar}>
+              <span className={p2.count}>{t('search.nextPageAvailable')}</span>
+              <span className={p2.spacer} />
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={busy}
+                onClick={() => void run(result.next)}
+              >
+                {t('search.nextPage')}
+              </button>
+            </div>
+          ) : null}
+
+          {!busy && !error && hasResults && total === 0 ? (
+            <div className={p2.empty} role="status">
+              <h2>{t('common.noResults')}</h2>
+              <p>{t('search.emptyBody')}</p>
+            </div>
+          ) : null}
+
+          {!busy && !hasResults ? (
             <div className={p2.empty}>
-              <h2>Recherche approfondie</h2>
-              <p>
-                Choisissez le type de recherche, saisissez un terme puis lancez
-                la recherche. Vous pouvez annuler une recherche en cours.
-              </p>
+              <h2>{t('search.title')}</h2>
+              <p>{t('search.intro')}</p>
+            </div>
+          ) : null}
+
+          {busy && !hasResults ? (
+            <div className={p2.empty} role="status">
+              <h2>{t('search.runningTitle')}</h2>
+              <p>{t('search.runningBody')}</p>
             </div>
           ) : null}
         </div>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { buildFileTree, flattenFileTree } from '../lib/fileTree'
 import { shortRevision } from '../lib/graphRefs'
 import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
+import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
 import type { CommitSummary, DiffReport, FileDiff } from '../types/git'
 import styles from './ComparisonPanel.module.css'
 
@@ -35,16 +36,6 @@ type FileEntry = {
   path: string
 }
 
-function shortDate(timestamp: number) {
-  return new Date(timestamp * 1000).toLocaleString('fr-FR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 function PathLabel({ path }: { path: string }) {
   const { directory, name } = splitPath(path)
   return (
@@ -75,6 +66,7 @@ export function ComparisonPanel({
   onSwap,
   onFullScreen,
 }: Props) {
+  const { t, plural } = useI18n()
   const [fileView, setFileView] = useState<FileView>('tree')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const files = report?.files ?? NO_FILES
@@ -122,11 +114,11 @@ export function ComparisonPanel({
         className={current ? styles.fileActive : styles.file}
         style={{ paddingLeft: 10 + depth * 12 }}
         aria-current={current ? 'true' : undefined}
-        title={`${STATUS_LABELS[item.entry.kind]} · ${
+        title={`${t(STATUS_LABELS[item.entry.kind])} · ${
           item.entry.newPath === '/dev/null'
-            ? `${item.entry.oldPath} → supprimé`
+            ? t('diff.comparison.removed', { path: item.entry.oldPath })
             : item.entry.oldPath === '/dev/null'
-              ? `${item.path} → ajouté`
+              ? t('diff.comparison.added', { path: item.path })
               : `${item.entry.oldPath} → ${item.entry.newPath}`
         }`}
         onClick={() => onSelectPath(item.path)}
@@ -143,7 +135,7 @@ export function ComparisonPanel({
         </span>
         <span className={styles.stats}>
           {item.entry.binary ? (
-            'binaire'
+            t('diff.binary')
           ) : (
             <>
               <span className={styles.added}>+{item.entry.additions}</span>
@@ -156,21 +148,21 @@ export function ComparisonPanel({
   }
 
   return (
-    <aside className={styles.panel} aria-label="Comparaison">
+    <aside className={styles.panel} aria-label={t('diff.comparison.aria')}>
       <header className={styles.header}>
         <div className={styles.headerTop}>
           <span className={styles.title}>
             {commits.length > 1
-              ? `${commits.length} commits sélectionnés`
-              : 'Comparaison'}
+              ? t('diff.comparison.commitsSelected', { count: commits.length })
+              : t('diff.comparison.title')}
           </span>
           <div className={styles.tools}>
             <button
               type="button"
               className={styles.icon}
               onClick={onSwap}
-              title="Inverser A et B"
-              aria-label="Inverser le sens de la comparaison"
+              title={t('diff.comparison.swap')}
+              aria-label={t('diff.comparison.swapAria')}
             >
               ⇄
             </button>
@@ -178,8 +170,8 @@ export function ComparisonPanel({
               type="button"
               className={styles.icon}
               onClick={onFullScreen}
-              title="Ouvrir la comparaison dans la vue Diff"
-              aria-label="Ouvrir la comparaison dans la vue Diff"
+              title={t('diff.comparison.fullScreen')}
+              aria-label={t('diff.comparison.fullScreen')}
             >
               ⤢
             </button>
@@ -187,8 +179,8 @@ export function ComparisonPanel({
               type="button"
               className={styles.close}
               onClick={onClose}
-              title="Fermer la comparaison"
-              aria-label="Fermer la comparaison"
+              title={t('diff.comparison.close')}
+              aria-label={t('diff.comparison.close')}
             >
               ×
             </button>
@@ -203,8 +195,8 @@ export function ComparisonPanel({
           <span className={styles.end} title={target}>{targetLabel}</span>
         </div>
         {commits.length > 1 ? (
-          <section className={styles.commitBlock} aria-label="Commits comparés">
-            <span className={styles.caption}>Diff de {commits.length} commits</span>
+          <section className={styles.commitBlock} aria-label={t('diff.comparison.commitsAria')}>
+            <span className={styles.caption}>{t('diff.comparison.diffOf', { count: commits.length })}</span>
             <ol className={styles.commits}>
               {commits.map((commit) => (
                 <li key={commit.sha} className={styles.commit}>
@@ -216,7 +208,7 @@ export function ComparisonPanel({
                       {commit.subject}
                     </span>
                     <span className={styles.commitMeta}>
-                      {shortDate(commit.author.timestamp)} · {commit.author.name}
+                      {formatDateTime(dateFromSeconds(commit.author.timestamp))} · {commit.author.name}
                     </span>
                   </span>
                 </li>
@@ -231,17 +223,16 @@ export function ComparisonPanel({
       ) : null}
 
       {loading ? (
-        <p className={styles.loading} role="status">Calcul du diff…</p>
+        <p className={styles.loading} role="status">{t('diff.comparison.loading')}</p>
       ) : !error && report && files.length === 0 ? (
-        <p className={styles.empty}>Aucune différence entre ces deux versions.</p>
+        <p className={styles.empty}>{t('diff.comparison.noDifference')}</p>
       ) : null}
 
       {!loading && files.length > 0 ? (
         <>
           <div className={styles.filesBar}>
             <span>
-              {files.length} fichier{files.length > 1 ? 's' : ''} modifié
-              {files.length > 1 ? 's' : ''}
+              {plural('diff.files.modified.one', 'diff.files.modified.other', files.length)}
             </span>
             <span className={styles.totals}>
               <span className={styles.added}>+{totals.additions}</span>
@@ -250,27 +241,27 @@ export function ComparisonPanel({
             <div
               className={styles.viewToggle}
               role="group"
-              aria-label="Présentation des fichiers"
+              aria-label={t('diff.comparison.viewAria')}
             >
               <button
                 type="button"
                 aria-pressed={fileView === 'path'}
                 onClick={() => setFileView('path')}
-                title="Liste à plat, chemin complet"
+                title={t('diff.comparison.viewPathTitle')}
               >
-                Chemin
+                {t('diff.comparison.viewPath')}
               </button>
               <button
                 type="button"
                 aria-pressed={fileView === 'tree'}
                 onClick={() => setFileView('tree')}
-                title="Dossiers repliables"
+                title={t('diff.comparison.viewTreeTitle')}
               >
-                Arborescence
+                {t('diff.comparison.viewTree')}
               </button>
             </div>
           </div>
-          <div className={styles.files} role="group" aria-label="Fichiers comparés">
+          <div className={styles.files} role="group" aria-label={t('diff.comparison.filesAria')}>
             {fileView === 'path'
               ? entries.map((item) => fileRow(item, 0))
               : tree.map((row) =>

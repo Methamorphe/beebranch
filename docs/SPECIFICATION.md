@@ -35,7 +35,7 @@ aux clients Git commerciaux :
 | Concurrence / IPC | Mutations sérialisées par dépôt, streaming pour les opérations longues, pas de gros payloads IPC | [ADR-0005](adr/0005-per-repo-serialization-and-ipc.md) |
 | Frontend | **React 19.3** + TypeScript + Vite | [ADR-0006](adr/0006-react-frontend.md) |
 | Versions | React stable, Git ≥ 2.34 (plancher LTS distro), GitLab 3 dernières maintenues | [ADR-0007](adr/0007-version-baseline.md) |
-| Identité visuelle | Ergonomie inspirée de GitKraken, **palette Beecoming** (accent `#FED100`, décliné `#F5BB45` dans la maquette P2), assets propres | [10-design-direction](10-design-direction.md) |
+| Identité visuelle | Ergonomie inspirée de GitKraken, **palette ambre** (accent `#FED100`, décliné `#F5BB45` dans la maquette P2), assets propres | [10-design-direction](10-design-direction.md) |
 | Worktrees | Identité de dépôt et sessions **worktree-aware dès P0**, interface complète livrée en P2 | [01-product-scope](01-product-scope.md) |
 | GitLab dans le MVP | Intégration obligatoire en P0/P1, pas en P2 | [01-product-scope](01-product-scope.md) |
 

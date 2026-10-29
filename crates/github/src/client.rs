@@ -1519,7 +1519,7 @@ fn root_of(comments: &HashMap<u64, WireReviewComment>, start: u64) -> u64 {
     current
 }
 
-fn build_http_client(config: &GithubConfig) -> Result<Client, GithubError> {
+pub(crate) fn build_http_client(config: &GithubConfig) -> Result<Client, GithubError> {
     let mut builder = Client::builder()
         .timeout(config.timeout)
         .user_agent(USER_AGENT)
@@ -1578,7 +1578,7 @@ fn deterministic_jitter(key: &str, attempt: u32, base_ms: u64) -> u64 {
     value % (base_ms / 4 + 1)
 }
 
-fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+pub(crate) fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
     let mut parts = Vec::new();
     let mut current = Some(error);
     while let Some(error) = current {
@@ -1591,7 +1591,7 @@ fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
     parts.join(" : ")
 }
 
-fn looks_like_tls(detail: &str) -> bool {
+pub(crate) fn looks_like_tls(detail: &str) -> bool {
     let detail = detail.to_ascii_lowercase();
     [
         "certificate",

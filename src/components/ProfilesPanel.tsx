@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
+import { LOCALES, LOCALE_NAMES, useI18n } from '../i18n'
 import {
   commitIdentity,
   gitlabStatus,
@@ -15,6 +17,13 @@ import {
   updateStatus,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import {
+  DEFAULT_MEDIA_OPTIONS,
+  MEDIA_EXTENSIONS,
+  mediaLabel,
+  type MediaFit,
+  type MediaSettings,
+} from '../lib/mediaSettings'
 import type {
   GitIdentity,
   GitlabSession,
@@ -43,6 +52,12 @@ type Props = {
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void
   density: 'compact' | 'comfortable'
   onDensityChange: (density: 'compact' | 'comfortable') => void
+  background: MediaSettings | null
+  backgroundError: string | null
+  onBackgroundChange: (next: MediaSettings | null) => void
+  splash: MediaSettings | null
+  splashError: string | null
+  onSplashChange: (next: MediaSettings | null) => void
   onMutated: () => void
   onOpenGitlab: () => void
   shortcuts: ShortcutMap
@@ -57,6 +72,131 @@ const EMPTY = {
   gitlabInstanceId: '',
 }
 
+type ImageSettingProps = {
+  /** Suffix used in aria labels, e.g. `du fond d’écran`. */
+  label: string
+  title: string
+  description: string
+  hint?: string
+  emptyLabel: string
+  clearLabel: string
+  settings: MediaSettings | null
+  error: string | null
+  onPick: () => void
+  onChange: (next: MediaSettings | null) => void
+}
+
+/** Wallpaper and boot splash share the same controls, so they share the rows. */
+function ImageSetting({
+  label,
+  title,
+  description,
+  hint,
+  emptyLabel,
+  clearLabel,
+  settings,
+  error,
+  onPick,
+  onChange,
+}: ImageSettingProps) {
+  const { t } = useI18n()
+  return (
+    <>
+      <div className={p2.setting}>
+        <div>
+          <strong>{title}</strong>
+          <p>{description}</p>
+          {settings ? (
+            <p className={p2.small} title={settings.path}>
+              {mediaLabel(settings.path)}
+            </p>
+          ) : null}
+          {hint ? <p className={p2.small}>{hint}</p> : null}
+        </div>
+        <div className={p2.settingControls}>
+          <button type="button" className={p2.secondary} onClick={onPick}>
+            {settings ? t('settings.media.change') : emptyLabel}
+          </button>
+          {settings ? (
+            <button type="button" className={p2.ghost} onClick={() => onChange(null)}>
+              {clearLabel}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {settings ? (
+        <>
+          <div className={p2.setting}>
+            <div>
+              <strong>{t('settings.media.fit.title')}</strong>
+              <p>{t('settings.media.fit.description')}</p>
+            </div>
+            <div className={p2.settingControls}>
+              <select
+                value={settings.fit}
+                onChange={(event) =>
+                  onChange({ ...settings, fit: event.target.value as MediaFit })
+                }
+                aria-label={t('settings.media.fit.aria', { suffix: label })}
+              >
+                <option value="cover">{t('settings.media.fit.cover')}</option>
+                <option value="contain">{t('settings.media.fit.contain')}</option>
+                <option value="tile">{t('settings.media.fit.tile')}</option>
+              </select>
+            </div>
+          </div>
+          <div className={p2.setting}>
+            <div>
+              <strong>{t('settings.media.dim.title')}</strong>
+              <p>{t('settings.media.dim.description')}</p>
+            </div>
+            <div className={p2.settingControls}>
+              <input
+                type="range"
+                min={0}
+                max={90}
+                step={5}
+                value={settings.dim}
+                onChange={(event) =>
+                  onChange({ ...settings, dim: Number(event.target.value) })
+                }
+                aria-label={t('settings.media.dim.aria', { suffix: label })}
+              />
+              <span className={p2.mono}>{settings.dim} %</span>
+            </div>
+          </div>
+          <div className={p2.setting}>
+            <div>
+              <strong>{t('settings.media.blur.title')}</strong>
+              <p>{t('settings.media.blur.description')}</p>
+            </div>
+            <div className={p2.settingControls}>
+              <input
+                type="range"
+                min={0}
+                max={24}
+                step={2}
+                value={settings.blur}
+                onChange={(event) =>
+                  onChange({ ...settings, blur: Number(event.target.value) })
+                }
+                aria-label={t('settings.media.blur.aria', { suffix: label })}
+              />
+              <span className={p2.mono}>{settings.blur} px</span>
+            </div>
+          </div>
+        </>
+      ) : null}
+      {error ? (
+        <p className={p2.errorText} role="alert">
+          {t('settings.media.unavailable', { title, error })}
+        </p>
+      ) : null}
+    </>
+  )
+}
+
+
 export function ProfilesPanel({
   repoId,
   connected,
@@ -64,11 +204,18 @@ export function ProfilesPanel({
   onThemeChange,
   density,
   onDensityChange,
+  background,
+  backgroundError,
+  onBackgroundChange,
+  splash,
+  splashError,
+  onSplashChange,
   onMutated,
   onOpenGitlab,
   shortcuts,
   onShortcutsChange,
 }: Props) {
+  const { t, locale, changeLocale } = useI18n()
   const editorRef = useRef<HTMLFormElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const [view, setView] = useState<ProfilesView | null>(null)
@@ -142,7 +289,7 @@ export function ProfilesPanel({
       defaultPull: form.defaultPull,
       gitlabInstanceId: form.gitlabInstanceId.trim() || undefined,
     }
-    void run(editing ? 'Profil mis à jour.' : 'Profil créé.', async () => {
+    void run(editing ? t('settings.profiles.updated') : t('settings.profiles.created'), async () => {
       if (editing) {
         await profileUpdate(editing, input)
       } else {
@@ -153,14 +300,32 @@ export function ProfilesPanel({
     })
   }
 
+  // The backend reads the file, so the webview never touches the filesystem;
+  // only the path and the presentation options are persisted.
+  const pickImage = async (
+    current: MediaSettings | null,
+    apply: (next: MediaSettings) => void,
+  ) => {
+    const selected = await openNativeDialog({
+      title: t('settings.media.dialog.title'),
+      multiple: false,
+      directory: false,
+      filters: [{ name: t('settings.media.dialog.images'), extensions: MEDIA_EXTENSIONS }],
+    })
+    if (typeof selected !== 'string') {
+      return
+    }
+    apply({ ...(current ?? DEFAULT_MEDIA_OPTIONS), path: selected })
+  }
+
   return (
     <div className={p2.page}>
       <div className={p2.settingsGrid}>
-        <h2 className={p2.cardTitle}>Général</h2>
+        <h2 className={p2.cardTitle}>{t('settings.general.title')}</h2>
         <div className={p2.setting}>
           <div>
-            <strong>Apparence</strong>
-            <p>Thème du poste de travail</p>
+            <strong>{t('settings.appearance.title')}</strong>
+            <p>{t('settings.appearance.theme.description')}</p>
           </div>
           <div className={p2.settingControls}>
             <select
@@ -168,31 +333,78 @@ export function ProfilesPanel({
               onChange={(event) =>
                 onThemeChange(event.target.value as 'dark' | 'light' | 'system')
               }
-              aria-label="Thème"
+              aria-label={t('settings.appearance.theme.aria')}
             >
-              <option value="dark">Sombre</option>
-              <option value="light">Clair</option>
-              <option value="system">Système</option>
+              <option value="dark">{t('settings.appearance.theme.dark')}</option>
+              <option value="light">{t('settings.appearance.theme.light')}</option>
+              <option value="system">{t('settings.appearance.theme.system')}</option>
             </select>
             <select
               value={density}
               onChange={(event) =>
                 onDensityChange(event.target.value as 'compact' | 'comfortable')
               }
-              aria-label="Densité"
+              aria-label={t('settings.appearance.density.aria')}
             >
-              <option value="comfortable">Confortable</option>
-              <option value="compact">Compact</option>
+              <option value="comfortable">{t('settings.appearance.density.comfortable')}</option>
+              <option value="compact">{t('settings.appearance.density.compact')}</option>
             </select>
           </div>
         </div>
         <div className={p2.setting}>
           <div>
-            <strong>Mises à jour signées</strong>
+            <strong>{t('settings.language.title')}</strong>
+            <p>{t('settings.language.description')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={locale}
+              onChange={(event) => changeLocale(event.target.value as typeof locale)}
+              aria-label={t('settings.language.aria')}
+            >
+              {LOCALES.map((value) => (
+                <option key={value} value={value}>
+                  {LOCALE_NAMES[value]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <ImageSetting
+          label={t('settings.media.wallpaper.suffix')}
+          title={t('settings.media.wallpaper.title')}
+          description={t('settings.media.wallpaper.description')}
+          emptyLabel={t('settings.media.pick')}
+          clearLabel={t('settings.media.clear')}
+          settings={background}
+          error={backgroundError}
+          onPick={() => void pickImage(background, onBackgroundChange)}
+          onChange={onBackgroundChange}
+        />
+        <ImageSetting
+          label={t('settings.media.splash.suffix')}
+          title={t('settings.media.splash.title')}
+          description={t('settings.media.splash.description')}
+          hint={t('settings.media.splash.hint')}
+          emptyLabel={t('settings.media.pick')}
+          clearLabel={t('settings.media.resetLogo')}
+          settings={splash}
+          error={splashError}
+          onPick={() => void pickImage(splash, onSplashChange)}
+          onChange={onSplashChange}
+        />
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.updates.title')}</strong>
             <p>
-              Version {update?.currentVersion ?? '—'} · {update?.platform ?? ''}.
-              {update?.endpoint ? ' Manifeste signé vérifié avant installation.' : ' Aucun endpoint configuré.'}
-              {' '}Aucune télémétrie n'est envoyée.
+              {t('settings.updates.version', {
+                version: update?.currentVersion ?? '—',
+                platform: update?.platform ?? '',
+              })}{' '}
+              {update?.endpoint
+                ? t('settings.updates.signedManifest')
+                : t('settings.updates.noEndpoint')}{' '}
+              {t('settings.updates.localOnly')}
             </p>
           </div>
           <div className={p2.settingControls}>
@@ -208,15 +420,19 @@ export function ProfilesPanel({
                     setAvailable(next)
                     setNotice(
                       next
-                        ? `Mise à jour ${next.version} disponible.`
-                        : 'BeeBranch est à jour.',
+                        ? t('settings.updates.available', { version: next.version })
+                        : t('settings.updates.upToDate'),
                     )
                   })
                   .catch((cause) => setError(errorMessage(cause)))
                   .finally(() => setUpdateBusy(false))
               }}
             >
-              {restarting ? 'Redémarrage…' : updateBusy ? 'Vérification…' : 'Vérifier les mises à jour'}
+              {restarting
+                ? t('settings.updates.restarting')
+                : updateBusy
+                  ? t('settings.updates.checking')
+                  : t('settings.updates.check')}
             </button>
             {available ? (
               <>
@@ -227,7 +443,7 @@ export function ProfilesPanel({
                   disabled={updateBusy || restarting}
                   onClick={() => setPendingInstall(true)}
                 >
-                  Installer
+                  {t('common.install')}
                 </button>
               </>
             ) : null}
@@ -237,24 +453,24 @@ export function ProfilesPanel({
               disabled={updateBusy || restarting || !update?.rollbackEndpoint}
               onClick={() => setPendingRollback(true)}
             >
-              Revenir à la version précédente
+              {t('settings.updates.rollback')}
             </button>
           </div>
         </div>
         {available?.notes ? (
-          <section className={styles.notes} aria-label="Notes de version">
-            <strong>Notes de version</strong>
+          <section className={styles.notes} aria-label={t('settings.updates.notes')}>
+            <strong>{t('settings.updates.notes')}</strong>
             <Markdown source={available.notes} />
           </section>
         ) : null}
         <div className={p2.setting}>
           <div>
-            <strong>Identité Git du dépôt</strong>
-            <p>Utilisée par le prochain commit (configuration Git locale)</p>
+            <strong>{t('settings.identity.title')}</strong>
+            <p>{t('settings.identity.description')}</p>
           </div>
           <div className={p2.settingControls}>
             <span className={p2.mono}>
-              {identity?.name ?? 'non configurée'}
+              {identity?.name ?? t('settings.identity.unset')}
               {identity?.email ? ` <${identity.email}>` : ''}
             </span>
           </div>
@@ -264,29 +480,29 @@ export function ProfilesPanel({
             <strong>GitLab</strong>
             <p>
               {connected
-                ? `${session?.instance?.baseUrl ?? 'instance'} · @${session?.user?.username ?? 'connecté'}`
-                : 'Aucune instance active'}
+                ? t('settings.gitlab.connected', {
+                    instance: session?.instance?.baseUrl ?? t('settings.gitlab.instanceFallback'),
+                    user: session?.user?.username ?? t('settings.gitlab.userFallback'),
+                  })
+                : t('settings.gitlab.none')}
             </p>
           </div>
           <div className={p2.settingControls}>
             <button type="button" className={p2.secondary} onClick={onOpenGitlab}>
-              {connected ? 'Gérer la connexion' : 'Configurer GitLab'}
+              {connected ? t('settings.gitlab.manage') : t('settings.gitlab.configure')}
             </button>
           </div>
         </div>
 
-        <h2 className={p2.sectionTitle}>Raccourcis clavier</h2>
+        <h2 className={p2.sectionTitle}>{t('settings.shortcuts.title')}</h2>
         <p className={p2.notice}>
-          Format : Mod+Shift+F (Mod = ⌘ ou Ctrl). Escape ferme toujours les
-          dialogues. Les doublons sont refusés explicitement. ⌘/Ctrl + « + » ou
-          « - » ajuste le zoom de l’interface entre 50 % et 200 % par paliers de
-          10 %, ⌘/Ctrl + « 0 » le réinitialise.
+          {t('settings.shortcuts.notice')}
         </p>
         {(Object.keys(SHORTCUT_LABELS) as ShortcutAction[]).map((action) => (
           <div key={action} className={p2.setting}>
             <div>
-              <strong>{SHORTCUT_LABELS[action]}</strong>
-              <p>Raccourci global de l’application</p>
+              <strong>{t(SHORTCUT_LABELS[action])}</strong>
+              <p>{t('settings.shortcuts.global')}</p>
             </div>
             <div className={p2.settingControls}>
               <input
@@ -298,7 +514,7 @@ export function ProfilesPanel({
                   }))
                 }
                 spellCheck={false}
-                aria-label={`Raccourci ${SHORTCUT_LABELS[action]}`}
+                aria-label={t('settings.shortcuts.aria', { label: t(SHORTCUT_LABELS[action]) })}
               />
               <button
                 type="button"
@@ -311,7 +527,7 @@ export function ProfilesPanel({
                   setShortcutError(null)
                 }}
               >
-                Défaut
+                {t('settings.shortcuts.default')}
               </button>
             </div>
           </div>
@@ -326,7 +542,7 @@ export function ProfilesPanel({
                 const value = normalizeShortcut(shortcutDraft[action])
                 if (!value) {
                   setShortcutError(
-                    `Raccourci invalide pour « ${SHORTCUT_LABELS[action]} ».`,
+                    t('settings.shortcuts.invalid', { label: t(SHORTCUT_LABELS[action]) }),
                   )
                   return
                 }
@@ -335,63 +551,72 @@ export function ProfilesPanel({
               const conflicts = findConflicts(normalized)
               if (conflicts.length > 0) {
                 setShortcutError(
-                  `Conflit de raccourcis : ${conflicts
-                    .map((action) => SHORTCUT_LABELS[action])
-                    .join(', ')}.`,
+                  t('settings.shortcuts.conflict', {
+                    labels: conflicts
+                      .map((action) => t(SHORTCUT_LABELS[action]))
+                      .join(', '),
+                  }),
                 )
                 return
               }
               setShortcutError(null)
               onShortcutsChange(normalized)
               setShortcutDraft(normalized)
-              setNotice('Raccourcis enregistrés.')
+              setNotice(t('settings.shortcuts.saved'))
             }}
           >
-            Enregistrer les raccourcis
+            {t('settings.shortcuts.save')}
           </button>
           {shortcutError ? <span className={p2.errorText}>{shortcutError}</span> : null}
         </div>
 
         <section className={styles.profiles} aria-labelledby="profiles-title">
           <div className={styles.sectionHeader}>
-            <h2 id="profiles-title">Profils</h2>
-            <p>Enregistrez vos identités et vos préférences pour passer facilement d’un contexte à l’autre.</p>
+            <h2 id="profiles-title">{t('settings.profiles.title')}</h2>
+            <p>{t('settings.profiles.description')}</p>
           </div>
 
           <div className={styles.profileList}>
             {view?.profiles.map((profile) => {
               const activeProfile = profile.id === view.activeId
               return (
-                <article key={profile.id} className={styles.profile} data-active={activeProfile} aria-label={`Profil ${profile.name}`}>
+                <article key={profile.id} className={styles.profile} data-active={activeProfile} aria-label={t('settings.profiles.itemAria', { name: profile.name })}>
                   <div className={styles.profileHeading}>
                     <span className={styles.avatar} aria-hidden="true">{profile.name.slice(0, 1).toLocaleUpperCase()}</span>
                     <div className={styles.identity}>
                       <h3>{profile.name}</h3>
                       <p>{profile.userName} <span>· {profile.userEmail}</span></p>
                     </div>
-                    {activeProfile ? <span className={styles.activeBadge}>Actif</span> : null}
+                    {activeProfile ? <span className={styles.activeBadge}>{t('settings.profiles.active')}</span> : null}
                   </div>
                   <div className={styles.profileMeta}>
-                    <span>Pull : {profile.defaultPull === 'ffOnly' ? 'Avance rapide uniquement' : profile.defaultPull === 'merge' ? 'Fusion' : 'Rebase'}</span>
-                    <span>{profile.gitlabInstanceId ? 'Instance GitLab associée' : 'Sans instance GitLab'}</span>
+                    <span>{t('settings.profiles.pull', {
+                      mode:
+                        profile.defaultPull === 'ffOnly'
+                          ? t('settings.profiles.pull.ffOnly')
+                          : profile.defaultPull === 'merge'
+                            ? t('settings.profiles.pull.merge')
+                            : t('settings.profiles.pull.rebase'),
+                    })}</span>
+                    <span>{profile.gitlabInstanceId ? t('settings.profiles.gitlabLinked') : t('settings.profiles.gitlabNone')}</span>
                   </div>
                   <div className={styles.profileActions}>
                     <button type="button" className={p2.secondary} disabled={busy || activeProfile}
-                      onClick={() => void run(`Profil ${profile.name} activé.`, () => profileSetActive(profile.id))}>
-                      {activeProfile ? 'Profil actif' : 'Activer'}
+                      onClick={() => void run(t('settings.profiles.activated', { name: profile.name }), () => profileSetActive(profile.id))}>
+                      {activeProfile ? t('settings.profiles.current') : t('settings.profiles.activate')}
                     </button>
                     <button type="button" className={p2.secondary} disabled={busy || !repoId}
-                      title={repoId ? 'Utiliser cette identité Git pour le dépôt ouvert' : 'Ouvrez un dépôt pour appliquer cette identité'}
-                      onClick={() => void run('Identité appliquée au dépôt.', async () => {
+                      title={repoId ? t('settings.profiles.applyRepoTitle') : t('settings.profiles.applyRepoBlocked')}
+                      onClick={() => void run(t('settings.profiles.identityApplied'), async () => {
                         await profileApplyIdentity(profile.id, repoId ?? undefined)
                         onMutated()
                       })}>
-                      Appliquer au dépôt
+                      {t('settings.profiles.applyRepo')}
                     </button>
                     {profile.gitlabInstanceId ? (
                       <button type="button" className={p2.secondary} disabled={busy}
-                        onClick={() => void run('Instance GitLab du profil activée.', () => profileGitlabActivate(profile.id))}>
-                        Activer GitLab
+                        onClick={() => void run(t('settings.profiles.gitlabActivated'), () => profileGitlabActivate(profile.id))}>
+                        {t('settings.profiles.activateGitlab')}
                       </button>
                     ) : null}
                     <span className={styles.actionSpacer} />
@@ -405,11 +630,11 @@ export function ProfilesPanel({
                           nameRef.current?.focus({ preventScroll: true })
                         })
                       }}>
-                      Modifier
+                      {t('common.edit')}
                     </button>
                     <button type="button" className={p2.ghost} disabled={busy}
-                      aria-label={`Supprimer le profil ${profile.name}`} onClick={() => setPendingDelete(profile)}>
-                      Supprimer…
+                      aria-label={t('settings.profiles.deleteAria', { name: profile.name })} onClick={() => setPendingDelete(profile)}>
+                      {t('settings.profiles.delete')}
                     </button>
                   </div>
                 </article>
@@ -420,69 +645,71 @@ export function ProfilesPanel({
           <form ref={editorRef} className={styles.editor} aria-labelledby="profile-editor-title"
             onSubmit={(event) => { event.preventDefault(); if (!busy) submit() }}>
             <div className={styles.editorHeader}>
-              <h3 id="profile-editor-title">{editing ? 'Modifier le profil' : 'Créer un profil'}</h3>
-              <p>{editing ? 'Ces réglages seront enregistrés dans ce profil.' : 'Donnez un nom à votre profil, puis renseignez l’identité de vos commits.'}</p>
+              <h3 id="profile-editor-title">{editing ? t('settings.profiles.editTitle') : t('settings.profiles.createTitle')}</h3>
+              <p>{editing ? t('settings.profiles.editDescription') : t('settings.profiles.createDescription')}</p>
             </div>
             <fieldset disabled={busy} className={styles.fields}>
-              <legend className={styles.srOnly}>Informations du profil</legend>
+              <legend className={styles.srOnly}>{t('settings.profiles.legend')}</legend>
               <label className={styles.field}>
-                Nom du profil
+                {t('settings.profiles.nameLabel')}
                 <input ref={nameRef} name="profileName" required value={form.name}
-                  onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex. Travail, Personnel" />
+                  onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder={t('settings.profiles.namePlaceholder')} />
               </label>
               <div className={styles.fieldGroup}>
-                <h4>Identité Git</h4>
-                <p>Le nom et l’adresse e-mail qui signeront vos commits.</p>
+                <h4>{t('settings.profiles.identityTitle')}</h4>
+                <p>{t('settings.profiles.identityDescription')}</p>
                 <div className={styles.fieldGrid}>
                   <label className={styles.field}>
-                    Nom Git
+                    {t('settings.profiles.gitName')}
                     <input name="gitName" required value={form.userName}
-                      onChange={(event) => setForm({ ...form, userName: event.target.value })} placeholder="Prénom Nom" />
+                      onChange={(event) => setForm({ ...form, userName: event.target.value })} placeholder={t('settings.profiles.gitNamePlaceholder')} />
                   </label>
                   <label className={styles.field}>
-                    Adresse e-mail Git
+                    {t('settings.profiles.gitEmail')}
                     <input name="gitEmail" type="email" required value={form.userEmail}
-                      onChange={(event) => setForm({ ...form, userEmail: event.target.value })} placeholder="vous@exemple.fr" spellCheck={false} />
+                      onChange={(event) => setForm({ ...form, userEmail: event.target.value })} placeholder={t('settings.profiles.gitEmailPlaceholder')} spellCheck={false} />
                   </label>
                 </div>
               </div>
               <div className={styles.fieldGroup}>
-                <h4>Préférences</h4>
+                <h4>{t('settings.profiles.preferencesTitle')}</h4>
                 <div className={styles.fieldGrid}>
                   <label className={styles.field}>
-                    Comportement du pull
+                    {t('settings.profiles.pullBehaviour')}
                     <select name="defaultPull" value={form.defaultPull}
                       onChange={(event) => setForm({ ...form, defaultPull: event.target.value })}>
                       <option value="rebase">Rebase</option>
-                      <option value="merge">Fusion (merge)</option>
-                      <option value="ffOnly">Avance rapide uniquement</option>
+                      <option value="merge">{t('settings.profiles.pull.mergeOption')}</option>
+                      <option value="ffOnly">{t('settings.profiles.pull.ffOnly')}</option>
                     </select>
                   </label>
                   <label className={styles.field}>
-                    Instance GitLab <span className={styles.optional}>Optionnelle</span>
+                    {t('settings.profiles.gitlabInstance')} <span className={styles.optional}>{t('settings.profiles.gitlabOptional')}</span>
                     <input name="gitlabInstance" value={form.gitlabInstanceId}
                       onChange={(event) => setForm({ ...form, gitlabInstanceId: event.target.value })}
-                      placeholder="Aucune instance associée" spellCheck={false} aria-describedby="profile-gitlab-hint" />
+                      placeholder={t('settings.profiles.gitlabPlaceholder')} spellCheck={false} aria-describedby="profile-gitlab-hint" />
                   </label>
                 </div>
                 {session?.instance && form.gitlabInstanceId !== session.instance.id ? (
                   <button type="button" className={`${p2.secondary} ${styles.instanceButton}`}
                     onClick={() => setForm({ ...form, gitlabInstanceId: session.instance!.id })}>
-                    Utiliser l’instance connectée · {session.instance.displayName || session.instance.baseUrl}
+                    {t('settings.profiles.useConnectedInstance', {
+                      instance: session.instance.displayName || session.instance.baseUrl,
+                    })}
                   </button>
                 ) : null}
-                <p id="profile-gitlab-hint">Laissez l’instance vide pour utiliser ce profil sans GitLab. Les jetons restent dans le trousseau du système.</p>
+                <p id="profile-gitlab-hint">{t('settings.profiles.gitlabHint')}</p>
               </div>
             </fieldset>
             <div className={styles.editorFooter}>
-              <span>Le profil ne modifie pas automatiquement l’identité du dépôt.</span>
+              <span>{t('settings.profiles.repoNote')}</span>
               <div className={styles.footerActions}>
                 {editing ? <button type="button" className={p2.secondary} disabled={busy} onClick={() => {
                   setEditing(null); setForm(EMPTY)
-                }}>Annuler</button> : null}
+                }}>{t('common.cancel')}</button> : null}
                 <button type="submit" className={p2.primary}
                   disabled={busy || !form.name.trim() || !form.userName.trim() || !form.userEmail.trim()}>
-                  {busy ? 'Enregistrement…' : editing ? 'Enregistrer les modifications' : 'Créer le profil'}
+                  {busy ? t('settings.profiles.saving') : editing ? t('settings.profiles.saveChanges') : t('settings.profiles.create')}
                 </button>
               </div>
             </div>
@@ -491,8 +718,7 @@ export function ProfilesPanel({
 
         {active ? (
           <p className={p2.notice} style={{ marginTop: 12 }}>
-            Profil actif : {active.name}. L’identité affichée ci-dessus reste celle du
-            dépôt tant que « Appliquer au dépôt » n’a pas été utilisé.
+            {t('settings.profiles.activeNotice', { name: active.name })}
           </p>
         ) : null}
         {error ? <p className={p2.errorText} role="alert">{error}</p> : null}
@@ -501,9 +727,9 @@ export function ProfilesPanel({
 
       <ConfirmDialog
         open={pendingInstall}
-        title={`Installer BeeBranch ${available?.version ?? ''}`}
-        consequence="Le paquet est téléchargé puis sa signature minisign est vérifiée. Un binaire non signé ou altéré est refusé. L'application redémarre automatiquement sur la nouvelle version. Un rollback signé reste disponible."
-        confirmLabel="Télécharger et installer"
+        title={t('settings.updates.installTitle', { version: available?.version ?? '' })}
+        consequence={t('settings.updates.installConsequence')}
+        confirmLabel={t('settings.updates.downloadInstall')}
         busy={updateBusy}
         onCancel={() => setPendingInstall(false)}
         onConfirm={() => {
@@ -516,8 +742,8 @@ export function ProfilesPanel({
               setRestarting(result.restarting)
               setNotice(
                 result.restarting
-                  ? `Version ${result.installedVersion} installée. Redémarrage…`
-                  : `Version ${result.installedVersion} installée.`,
+                  ? t('settings.updates.installedRestarting', { version: result.installedVersion })
+                  : t('settings.updates.installed', { version: result.installedVersion }),
               )
             })
             .catch((cause) => setError(errorMessage(cause)))
@@ -526,9 +752,9 @@ export function ProfilesPanel({
       />
       <ConfirmDialog
         open={pendingRollback}
-        title="Revenir à la version précédente"
-        consequence="Le manifeste rollback.json est vérifié comme toute mise à jour. La version précédente doit être signée et encore publiée."
-        confirmLabel="Télécharger et revenir"
+        title={t('settings.updates.rollbackTitle')}
+        consequence={t('settings.updates.rollbackConsequence')}
+        confirmLabel={t('settings.updates.downloadRollback')}
         busy={updateBusy}
         onCancel={() => setPendingRollback(false)}
         onConfirm={() => {
@@ -540,8 +766,8 @@ export function ProfilesPanel({
               setRestarting(result.restarting)
               setNotice(
                 result.restarting
-                  ? `Version ${result.installedVersion} restaurée. Redémarrage…`
-                  : `Version ${result.installedVersion} restaurée.`,
+                  ? t('settings.updates.restoredRestarting', { version: result.installedVersion })
+                  : t('settings.updates.restored', { version: result.installedVersion }),
               )
             })
             .catch((cause) => setError(errorMessage(cause)))
@@ -550,16 +776,16 @@ export function ProfilesPanel({
       />
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Supprimer un profil"
-        consequence={`Le profil ${pendingDelete?.name ?? ''} et ses préférences seront supprimés. L’instance GitLab et son token ne sont pas supprimés.`}
-        confirmLabel="Supprimer"
+        title={t('settings.profiles.deleteTitle')}
+        consequence={t('settings.profiles.deleteConsequence', { name: pendingDelete?.name ?? '' })}
+        confirmLabel={t('common.delete')}
         busy={busy}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
           const target = pendingDelete
           setPendingDelete(null)
           if (target) {
-            void run('Profil supprimé.', async () => {
+            void run(t('settings.profiles.deleted'), async () => {
               await profileDelete(target.id)
               if (editing === target.id) {
                 setEditing(null)

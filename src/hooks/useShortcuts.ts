@@ -8,6 +8,7 @@ export type ShortcutHandlers = {
   search: () => void
   openRepo: () => void
   newTab: () => void
+  workspaces: () => void
   undo: () => void
   redo: () => void
   close: () => void

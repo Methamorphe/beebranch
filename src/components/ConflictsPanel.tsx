@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  formatNumber,
+  useI18n,
+  type MessageKey,
+  type TranslationParams,
+} from '../i18n'
+import {
   conflictGet,
   conflictSave,
   operationAbort,
@@ -18,12 +24,17 @@ type Props = {
   onMutated: () => void
 }
 
-function operationLabel(operation?: InProgressOperation): string {
+type Translate = (key: MessageKey, params?: TranslationParams) => string
+
+function operationLabel(
+  operation: InProgressOperation | undefined,
+  t: Translate,
+): string {
   if (!operation) {
-    return 'Aucune opération'
+    return t('ops.conflicts.noOperation')
   }
   if (operation.kind === 'rebase') {
-    return `rebase (${operation.variant})`
+    return t('ops.conflicts.rebaseOperation', { variant: operation.variant })
   }
   if (operation.kind === 'sequencer') {
     return operation.sequencer
@@ -42,6 +53,7 @@ function combine(view: ConflictView | null): string {
 }
 
 export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) {
+  const { t } = useI18n()
   const files = state.conflicts.files
   const [selected, setSelected] = useState<string | null>(files[0] ?? null)
   const [view, setView] = useState<ConflictView | null>(null)
@@ -99,11 +111,8 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
   if (files.length === 0) {
     return (
       <div className={p2.empty}>
-        <h2>Aucun conflit à résoudre</h2>
-        <p>
-          Un merge, un rebase ou un cherry-pick en conflit ouvrira le plan de
-          résolution ici.
-        </p>
+        <h2>{t('ops.conflicts.emptyTitle')}</h2>
+        <p>{t('ops.conflicts.emptyBody')}</p>
       </div>
     )
   }
@@ -149,7 +158,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
       setView(result.data)
       dirtyRef.current = false
       setDirty(false)
-      setNotice(`${selected} marqué comme résolu.`)
+      setNotice(t('ops.conflicts.notice.resolved', { path: selected }))
       onMutated()
     } catch (cause) {
       setError(errorMessage(cause))
@@ -163,7 +172,11 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
     setError(null)
     try {
       await (action === 'continue' ? operationContinue(repoId) : operationSkip(repoId))
-      setNotice(action === 'continue' ? 'Opération poursuivie.' : 'Commit sauté.')
+      setNotice(
+        action === 'continue'
+          ? t('ops.conflicts.notice.continued')
+          : t('ops.conflicts.notice.skipped'),
+      )
       onMutated()
     } catch (cause) {
       setError(errorMessage(cause))
@@ -177,8 +190,8 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
       <div className={p2.threeColumns}>
         <div className={p2.fileList}>
           <div className={`${p2.between} ${p2.small} ${p2.muted}`} style={{ padding: '4px 6px' }}>
-            <span>FICHIERS EN CONFLIT</span>
-            <span>{files.length}</span>
+            <span>{t('ops.conflicts.filesHeader')}</span>
+            <span>{formatNumber(files.length)}</span>
           </div>
           {files.map((path) => (
             <button
@@ -186,7 +199,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
               type="button"
               className={selected === path ? p2.listItemOn : p2.listItem}
               onClick={() => {
-                if (dirty && !window.confirm('Abandonner la résolution non enregistrée ?')) {
+                if (dirty && !window.confirm(t('ops.conflicts.discardConfirm'))) {
                   return
                 }
                 dirtyRef.current = false
@@ -201,9 +214,9 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
             </button>
           ))}
           <div className={`${p2.card} ${p2.small} ${p2.muted}`} style={{ marginTop: 10 }}>
-            <div>1. Comparez les deux versions</div>
-            <div>2. Choisissez un point de départ</div>
-            <div>3. Éditez puis marquez résolu</div>
+            <div>{t('ops.conflicts.step.compare')}</div>
+            <div>{t('ops.conflicts.step.choose')}</div>
+            <div>{t('ops.conflicts.step.resolve')}</div>
           </div>
         </div>
 
@@ -212,13 +225,13 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
             <span>{selected}</span>
             <span className={p2.spacer} />
             <button type="button" className={p2.ghost} onClick={() => move(-1)}>
-              ↑ Précédent
+              {t('ops.conflicts.previous')}
             </button>
             <span className={p2.muted}>
-              {index + 1} / {files.length}
+              {formatNumber(index + 1)} / {formatNumber(files.length)}
             </span>
             <button type="button" className={p2.ghost} onClick={() => move(1)}>
-              ↓ Suivant
+              {t('ops.conflicts.next')}
             </button>
           </div>
 
@@ -227,23 +240,14 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
 
           {view?.binary ? (
             <div className={p2.empty}>
-              <h2>Conflit binaire</h2>
-              <p>
-                Ce fichier n'est pas du texte UTF-8. Choisissez une version
-                ci-dessous, BeeBranch ne l'ouvrira pas dans l'éditeur.
-              </p>
-              <p className={p2.muted}>
-                Utilisez un outil de merge externe ou `git checkout --ours/--theirs`
-                puis « Marquer résolu ».
-              </p>
+              <h2>{t('ops.conflicts.binaryTitle')}</h2>
+              <p>{t('ops.conflicts.binaryBody')}</p>
+              <p className={p2.muted}>{t('ops.conflicts.binaryHint')}</p>
             </div>
           ) : view?.tooLarge ? (
             <div className={p2.empty}>
-              <h2>Fichier trop volumineux</h2>
-              <p>
-                Au-delà de 8 Mio, la résolution se fait dans un outil externe
-                puis via « Marquer résolu ».
-              </p>
+              <h2>{t('ops.conflicts.tooLargeTitle')}</h2>
+              <p>{t('ops.conflicts.tooLargeBody')}</p>
             </div>
           ) : (
             <div className={p2.conflictGrid}>
@@ -256,27 +260,29 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                 {view?.base ? (
                   <div className={p2.side}>
                     <div className={p2.sideHeader}>
-                      <span className={p2.muted}>● Base (ancêtre commun)</span>
+                      <span className={p2.muted}>{t('ops.conflicts.side.base')}</span>
                     </div>
                     <pre className={p2.sideCode}>{view.base.content}</pre>
                   </div>
                 ) : null}
                 <div className={p2.side}>
                   <div className={p2.sideHeader}>
-                    <span className={p2.good}>● Actuel (ours)</span>
+                    <span className={p2.good}>{t('ops.conflicts.side.ours')}</span>
                     <span className={p2.spacer} />
                     <button type="button" className={p2.ghost} onClick={() => accept('ours')}>
-                      Accepter
+                      {t('ops.conflicts.accept')}
                     </button>
                   </div>
                   <pre className={p2.sideCode}>{view?.ours?.content ?? '—'}</pre>
                 </div>
                 <div className={p2.side}>
                   <div className={p2.sideHeader}>
-                    <span style={{ color: 'var(--info)' }}>● Entrant (theirs)</span>
+                    <span style={{ color: 'var(--info)' }}>
+                      {t('ops.conflicts.side.theirs')}
+                    </span>
                     <span className={p2.spacer} />
                     <button type="button" className={p2.ghost} onClick={() => accept('theirs')}>
-                      Accepter
+                      {t('ops.conflicts.accept')}
                     </button>
                   </div>
                   <pre className={p2.sideCode}>{view?.theirs?.content ?? '—'}</pre>
@@ -284,11 +290,13 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
               </div>
               <div className={p2.resolve}>
                 <div className={p2.resolveHeader}>
-                  <strong style={{ color: 'var(--text)' }}>Résultat</strong>
-                  <span className={p2.pill}>éditable</span>
+                  <strong style={{ color: 'var(--text)' }}>
+                    {t('ops.conflicts.result')}
+                  </strong>
+                  <span className={p2.pill}>{t('ops.conflicts.editable')}</span>
                   <span className={p2.spacer} />
                   <button type="button" className={p2.ghost} onClick={() => accept('both')}>
-                    Combiner les deux
+                    {t('ops.conflicts.combine')}
                   </button>
                   <button
                     type="button"
@@ -299,7 +307,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                       setDirty(true)
                     }}
                   >
-                    Marqueurs bruts
+                    {t('ops.conflicts.rawMarkers')}
                   </button>
                 </div>
                 <textarea
@@ -310,8 +318,8 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                     setDirty(true)
                   }}
                   spellCheck={false}
-                  aria-label="Résolution du conflit"
-                  placeholder="Acceptez une version ou écrivez la résolution…"
+                  aria-label={t('ops.conflicts.resolveAria')}
+                  placeholder={t('ops.conflicts.resolvePlaceholder')}
                 />
                 <div className={p2.footer}>
                   <label className={p2.checkbox}>
@@ -320,16 +328,20 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                       checked={allowMarkers}
                       onChange={(event) => setAllowMarkers(event.target.checked)}
                     />
-                    Autoriser les marqueurs (édition brute)
+                    {t('ops.conflicts.allowMarkers')}
                   </label>
                   {view?.hasMarkers ? (
                     <span className={p2.warn}>
-                      {view.markerLines.length} marqueur(s) restants
+                      {t('ops.conflicts.markersRemaining', {
+                        count: formatNumber(view.markerLines.length),
+                      })}
                     </span>
                   ) : null}
                   <span className={p2.spacer} />
                   <span className={p2.muted}>
-                    Opération : {operationLabel(state.operation)}
+                    {t('ops.conflicts.operation', {
+                      operation: operationLabel(state.operation, t),
+                    })}
                   </span>
                   <button
                     type="button"
@@ -337,7 +349,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                     disabled={busy || dirty === false}
                     onClick={() => void save()}
                   >
-                    ✓ Marquer résolu
+                    {t('ops.conflicts.markResolved')}
                   </button>
                   {state.operation ? (
                     <>
@@ -347,7 +359,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                         disabled={busy}
                         onClick={() => void operation('skip')}
                       >
-                        Sauter
+                        {t('ops.conflicts.skip')}
                       </button>
                       <button
                         type="button"
@@ -355,7 +367,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                         disabled={busy}
                         onClick={() => void operation('continue')}
                       >
-                        Continuer
+                        {t('ops.conflicts.continue')}
                       </button>
                       <button
                         type="button"
@@ -363,7 +375,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
                         disabled={busy}
                         onClick={() => setAbortOpen(true)}
                       >
-                        Abandonner
+                        {t('ops.conflicts.abort')}
                       </button>
                     </>
                   ) : null}
@@ -374,13 +386,13 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
         </div>
       </div>
 
-      <ConfirmDialog
+<ConfirmDialog
         open={abortOpen}
-        title="Abandonner l'opération"
-        consequence="Les résolutions et les commits intermédiaires de l'opération sont perdus. Aucune sauvegarde applicative n'est créée."
+        title={t('ops.conflicts.abortTitle')}
+        consequence={t('ops.conflicts.abortConsequence')}
         typed="abort"
         irreversible
-        confirmLabel="Abandonner"
+        confirmLabel={t('ops.conflicts.abort')}
         busy={busy}
         onCancel={() => setAbortOpen(false)}
         onConfirm={(typed) => {
@@ -388,7 +400,7 @@ export function ConflictsPanel({ repoId, generation, state, onMutated }: Props) 
           setBusy(true)
           void operationAbort(repoId, { acknowledged: true, typed })
             .then(() => {
-              setNotice("Opération abandonnée.")
+              setNotice(t('ops.conflicts.notice.aborted'))
               onMutated()
             })
             .catch((cause) => setError(errorMessage(cause)))

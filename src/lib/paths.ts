@@ -1,3 +1,5 @@
+import { t, type MessageKey } from '../i18n'
+
 /** Split a repository path so the file name survives truncation. */
 export function splitPath(path: string) {
   const index = path.lastIndexOf('/')
@@ -16,12 +18,12 @@ export const STATUS_LETTERS: Record<FileStatus, string> = {
   copied: 'C',
 }
 
-export const STATUS_LABELS: Record<FileStatus, string> = {
-  modified: 'modifié',
-  added: 'ajouté',
-  deleted: 'supprimé',
-  renamed: 'renommé',
-  copied: 'copié',
+export const STATUS_LABELS: Record<FileStatus, MessageKey> = {
+  modified: 'common.fileStatus.modified',
+  added: 'common.fileStatus.added',
+  deleted: 'common.fileStatus.deleted',
+  renamed: 'common.fileStatus.renamed',
+  copied: 'common.fileStatus.copied',
 }
 
 const GIT_LETTERS: Record<string, string> = {
@@ -44,21 +46,21 @@ export function statusLabel(status: string) {
   const letter = letterFromStatus(status)
   switch (letter) {
     case 'M':
-      return 'modifié'
+      return t('common.fileStatus.modified')
     case 'A':
-      return 'ajouté'
+      return t('common.fileStatus.added')
     case 'D':
-      return 'supprimé'
+      return t('common.fileStatus.deleted')
     case 'R':
-      return 'renommé'
+      return t('common.fileStatus.renamed')
     case 'C':
-      return 'copié'
+      return t('common.fileStatus.copied')
     case 'U':
-      return 'non fusionné'
+      return t('common.fileStatus.unmerged')
     case 'T':
-      return 'type changé'
+      return t('common.fileStatus.typeChanged')
     case '?':
-      return 'non suivi'
+      return t('common.fileStatus.untracked')
     default:
       return status
   }

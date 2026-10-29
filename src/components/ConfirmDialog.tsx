@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useI18n } from '../i18n'
 import styles from './p1.module.css'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
@@ -12,6 +13,8 @@ type Props = {
   typed?: string
   confirmLabel?: string
   busy?: boolean
+  /** Extra controls (choices) rendered between the consequence and the actions. */
+  children?: ReactNode
   onCancel: () => void
   onConfirm: (typed: string) => void
 }
@@ -22,11 +25,13 @@ export function ConfirmDialog({
   consequence,
   irreversible = false,
   typed,
-  confirmLabel = 'Confirmer',
+  confirmLabel,
   busy = false,
+  children,
   onCancel,
   onConfirm,
 }: Props) {
+  const { t } = useI18n()
   const [value, setValue] = useState('')
 
   useEffect(() => {
@@ -51,26 +56,27 @@ export function ConfirmDialog({
     >
         <h2 id="confirm-title">{title}</h2>
         <p>{consequence}</p>
+        {children}
         {irreversible ? (
           <p className={styles.danger}>
-            Action irréversible : aucune sauvegarde applicative n'est créée.
+            {t('shell.confirm.irreversible')}
           </p>
         ) : null}
         {typed ? (
           <label className={styles.field}>
-            Saisissez <code>{typed}</code> pour confirmer
+            {t('shell.confirm.typeBefore')} <code>{typed}</code> {t('shell.confirm.typeAfter')}
             <input
               value={value}
             data-autofocus
               onChange={(event) => setValue(event.target.value)}
                   spellCheck={false}
-              aria-label={`Saisir ${typed}`}
+              aria-label={t('shell.confirm.typeAria', { value: typed })}
             />
           </label>
         ) : null}
         <div className={styles.dialogActions}>
           <Button type="button" onClick={onCancel} disabled={busy}>
-            Annuler
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -78,7 +84,7 @@ export function ConfirmDialog({
             onClick={() => ready && onConfirm(value)}
             disabled={!ready || busy}
           >
-            {busy ? 'Exécution…' : confirmLabel}
+            {busy ? t('shell.confirm.busy') : (confirmLabel ?? t('shell.confirm.defaultLabel'))}
           </Button>
         </div>
     </Dialog>

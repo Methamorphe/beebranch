@@ -138,6 +138,13 @@ jobs:
           # Single source of the update endpoint: the `latest.json` asset of
           # the newest non-draft, non-prerelease release of this repository.
           BEEBRANCH_UPDATE_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+          # Optional override of the embedded public client id of the
+          # github.com OAuth App (Device Flow enabled). Not a secret: device
+          # flow needs no client secret. Leave unset to use the embedded id.
+          BEEBRANCH_GITHUB_CLIENT_ID: ${{ vars.BEEBRANCH_GITHUB_CLIENT_ID }}
+          # Public Application ID of the gitlab.com OAuth application. Leave
+          # unset to ship builds without GitLab.com OAuth onboarding.
+          BEEBRANCH_GITLAB_CLIENT_ID: ${{ vars.BEEBRANCH_GITLAB_CLIENT_ID }}
         run: npm run tauri build
 
       # Tauri notarizes and staples the .app; the DMG itself is only signed.

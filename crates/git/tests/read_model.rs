@@ -9,7 +9,7 @@ use beebranch_git::log::{read_log, validate_revision};
 use beebranch_git::refs::{read_refs, RefKind};
 use beebranch_git::session::{RepoSession, SessionOptions};
 use beebranch_git::status::{read_status, EntryKind};
-use beebranch_git::GitSubcommand;
+use beebranch_git::{CommandSpec, GitSubcommand, StdinMode};
 
 use common::{dirty_fixture, Fixture};
 
@@ -508,4 +508,86 @@ fn graph_draws_one_stash_node_above_the_history() {
         .expect("base row");
     assert_eq!(rows[base_row].node_lane, 0);
     assert_eq!(rows[base_row].arrivals, vec![1]);
+}
+
+/// Commit with an explicit committer date, so ordering assertions do not
+/// depend on the wall clock (two commits in the same second are ambiguous).
+fn commit_at(fixture: &Fixture, path: &str, content: &str, message: &str, date: &str) {
+    fixture.write(path, content);
+    fixture.run(GitSubcommand::Add, &["-A"], &[]);
+    let spec = CommandSpec::new(GitSubcommand::Commit, fixture.path())
+        .args(["-F", "-"])
+        .env("GIT_AUTHOR_DATE", format!("{date} +0000"))
+        .env("GIT_COMMITTER_DATE", format!("{date} +0000"))
+        .stdin(StdinMode::Bytes(format!("{message}\n").into_bytes()));
+    let outcome = fixture.runner().run(&spec).expect("commit");
+    assert!(outcome.success(), "{}", outcome.stderr.text_lossy());
+}
+
+#[test]
+fn graph_places_a_stash_at_its_date_instead_of_the_top() {
+    let fixture = Fixture::new();
+    commit_at(&fixture, "a.txt", "base\n", "base", "1780000000");
+    fixture.write("a.txt", "stashed\n");
+    let spec = CommandSpec::new(GitSubcommand::Stash, fixture.path())
+        .args(["push", "-m", "older stash"])
+        .env("GIT_AUTHOR_DATE", "1780100000 +0000")
+        .env("GIT_COMMITTER_DATE", "1780100000 +0000");
+    let outcome = fixture.runner().run(&spec).expect("stash");
+    assert!(outcome.success(), "{}", outcome.stderr.text_lossy());
+    commit_at(&fixture, "a.txt", "newer\n", "newer work", "1790000000");
+
+    let session = RepoSession::open(fixture.runner(), fixture.path(), SessionOptions::default())
+        .expect("session");
+    let (page, rows) = session
+        .graph_page_scoped(&PageRequest::first(50), None, true)
+        .expect("graph page");
+
+    // The stash is older than the newest commit: it stays third in line, not
+    // above the whole history.
+    assert_eq!(page.items[0].subject.trim_end(), "newer work");
+    assert_eq!(rows[0].stash, None);
+    assert_eq!(page.items[1].subject.trim_end(), "older stash");
+    assert_eq!(rows[1].stash.as_deref(), Some("stash@{0}"));
+    assert_eq!(page.items[2].subject.trim_end(), "base");
+}
+
+#[test]
+fn stash_detail_lists_untracked_files_with_their_snapshot() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "one\n", "first");
+    fixture.write("a.txt", "two\n");
+    fixture.write("new.txt", "brand new\n");
+    fixture.run(
+        GitSubcommand::Stash,
+        &["push", "--include-untracked", "-m", "wip"],
+        &[],
+    );
+    let stash = fixture.rev_parse(&["stash@{0}"]);
+    let base = fixture.rev_parse(&["stash@{0}^"]);
+    let untracked = fixture.rev_parse(&["stash@{0}^3"]);
+
+    let session = RepoSession::open(fixture.runner(), fixture.path(), SessionOptions::default())
+        .expect("session");
+    let detail = session.commit(&stash).expect("stash detail");
+
+    assert_eq!(
+        detail.stash.as_ref().map(|stash| stash.selector.as_str()),
+        Some("stash@{0}")
+    );
+    assert_eq!(detail.summary.subject, "wip");
+    assert_eq!(detail.summary.parents, vec![base]);
+    let tracked = detail
+        .files
+        .iter()
+        .find(|file| file.path == "a.txt")
+        .expect("tracked change");
+    assert_eq!(tracked.revision, None);
+    let added = detail
+        .files
+        .iter()
+        .find(|file| file.path == "new.txt")
+        .expect("untracked file");
+    assert_eq!(added.status, "A");
+    assert_eq!(added.revision.as_deref(), Some(untracked.as_str()));
 }

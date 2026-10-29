@@ -1,4 +1,5 @@
 pub mod app_info;
+pub mod background;
 pub mod branches;
 pub mod commit;
 pub mod github;

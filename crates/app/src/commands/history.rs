@@ -1,7 +1,7 @@
 //! Merge, rebase, conflict resolution and abort/continue commands.
 
 use beebranch_core::{AppError, Confirmation, DestructiveAction};
-use beebranch_git::history::{self, HistoryOutcome};
+use beebranch_git::history::{self, HistoryOutcome, MergeFastForward};
 use beebranch_git::session::InvalidationArea;
 use beebranch_git::undo::{self, Fingerprint, RestoreMode, ReversibleAction};
 use serde::Deserialize;
@@ -18,8 +18,10 @@ use crate::state::AppState;
 pub struct MergeRequest {
     pub repo_id: String,
     pub target: String,
+    /// Merge behaviour: `auto` (`--ff`), `only` (`--ff-only`) or `never`
+    /// (`--no-ff`).
     #[serde(default)]
-    pub no_ff: bool,
+    pub fast_forward: MergeFastForward,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -113,7 +115,7 @@ pub async fn history_merge(
         history_meta("merge", format!("merge de {target}")),
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
-            let outcome = history::merge(runner, worktree, &target, request.no_ff)?;
+            let outcome = history::merge(runner, worktree, &target, request.fast_forward)?;
             let builder = history_builder(
                 "merge",
                 format!("merge de {target}"),

@@ -1,6 +1,126 @@
 # Changelog
 
+## [Non publié]
+
+### Ajouté
+
+- **Interface internationalisée (français / anglais)** : tous les textes de
+  l'interface passent par un catalogue typé (`src/i18n/`) — aucune chaîne
+  visible codée en dur dans les composants. La langue suit le système au
+  premier lancement (anglais hors systèmes francophones), se règle dans
+  Réglages → Général et se persiste sous `ui.language` sans redémarrage.
+  Les dates et les nombres utilisent le format de la langue active. Les
+  messages d'erreur du backend sont traduits par leur code stable, et les
+  libellés d'annulation/rétablissement enregistrés en base sont traduits via
+  leurs gabarits. Le splash et l'attribut `lang` suivent la même langue.
+- **Sélecteur de workspace** : le workspace actif reste visible dans la barre
+  d'onglets et un sélecteur (liste déroulante ou `⌘⇧W`, également présent dans
+  la palette de commandes) ouvre d'un coup les dépôts du workspace choisi,
+  dans l'ordre enregistré. Un dépôt déjà ouvert est réutilisé au lieu d'être
+  dupliqué ; les onglets propres des autres workspaces sont fermés, tandis
+  qu'un onglet avec une opération Git en cours ou des conflits reste ouvert.
+  Le dernier dépôt actif du workspace reprend le focus au retour, sinon le
+  premier. Le workspace actif et le dernier dépôt sont persistés
+  (`ui.activeWorkspace`, `ui.workspaceLastRepo`).
+- **Dépôt public sous AGPL-3.0** : `LICENSE`, métadonnées de licence dans
+  `Cargo.toml` et `package.json`, `README` public, `CONTRIBUTING.md`,
+  `SECURITY.md`, `CODE_OF_CONDUCT.md`, modèles d'issues et de PR, Dependabot et
+  revue des dépendances.
+- **Releases dans le dépôt principal** : le job `publish` crée la release dans
+  `github.repository` avec le `GITHUB_TOKEN` d'Actions ; plus de dépôt miroir,
+  plus de `RELEASE_REPO_TOKEN`. L'endpoint compilé et le repli des builds
+  locales pointent la même URL `releases/latest/download/latest.json`.
+- **Onboarding GitLab / GitHub sans nouveau token** : la connexion interroge
+  `git credential fill` pour l'hôte de l'instance et réutilise le trousseau
+  macOS, le Gestionnaire d'identifiants Windows ou `gh auth git-credential`.
+  Un bouton « Utiliser mes identifiants Git » connecte une instance sans
+  Personal Access Token ; le secret reste géré par Git (jamais copié dans le
+  keychain de l'application, SQLite ou les logs). La requête est bornée à 5 s,
+  sans invite terminale ni fenêtre GCM. Le formulaire propose aussi la page de
+  création de token avec les scopes requis préremplis.
+- **Connexion GitHub par device flow OAuth** : « Se connecter avec GitHub »
+  affiche un code à saisir dans le navigateur (scopes `repo read:user`) et
+  n'échange le `device_code` que côté backend. Le token `gho_` est validé puis
+  stocké dans le keychain. Le client ID public de l'OAuth App BeeBranch (Device
+  Flow activé) est embarqué ; `BEEBRANCH_GITHUB_CLIENT_ID` permet de pointer une
+  autre app (fork, test local). Limité à `github.com` : GHES exige sa propre
+  OAuth App.
+- **Connexion GitLab.com par device flow OAuth** : « Se connecter avec
+  GitLab.com » affiche un code à saisir dans le navigateur (scopes `api`,
+  `read_user`, `read_repository`) et ne renvoie jamais le `device_code` au
+  frontend. Les jetons sont stockés ensemble dans le keychain et l'access token
+  (2 h) est renouvelé en arrière-plan via le refresh token, avec rotation ;
+  une session définitivement expirée émet `gitlab://auth-expired` et ramène
+  l'écran de connexion. Activation via `BEEBRANCH_GITLAB_CLIENT_ID`
+  (Application ID public). Limité à gitlab.com : une instance auto-hébergée
+  exige sa propre application OAuth.
+
+### Modifié
+
+- **Assainissement avant publication** : suppression de l'archive de clés
+  privées `src-tauri/keys.zip`, anonymisation de l'instance GitLab self-hosted
+  et des chemins locaux dans les preuves de revue.
+- **Écrans secondaires alignés sur l’historique** : Merge requests, Pull
+  requests, Rechercher, Rebase interactif, Historique de fichier, Worktrees,
+  Tags, Remotes, Sous-modules, Patches et Synchronisation passent au même
+  langage visuel que le graphe. Chaque écran devient une surface pleine largeur
+  avec une barre d’outils, des lignes denses séparées par un filet et une
+  sélection teintée avec barre d’accent ; les cartes flottantes et les titres
+  dupliqués disparaissent au profit de la barre de vue. Les piles d’actions
+  deviennent des rangées intention/contrôle, les statuts associent toujours un
+  libellé à leur pastille, et les erreurs restent affichées au lieu de défiler.
+- **Dialogue de création des revues** : la création d’une merge request ou
+  d’une pull request quitte le fil pour un dialogue dédié (source, cible, titre,
+  description, brouillon, options de fusion), ce qui libère la place du détail.
+- **Actions destructives confirmées** : rebase interactif, prune des worktrees
+  et verrouillage d’un worktree demandent une confirmation explicite ; la raison
+  de verrouillage est saisie dans le dialogue au lieu d’un champ global.
+- **Recherche** : filtres regroupés dans une barre dédiée, périmètre affiché,
+  résultats denses (SHA, chemins, lignes) et pagination persistante.
+- **Synchronisation** : la progression devient un panneau latéral plein hauteur
+  avec console défilante et annulation au même endroit.
+
+### Corrigé
+
+- **Stashs dans le graphe** : chaque stash est désormais inséré à sa date dans
+  l'historique au lieu d'être empilé en tête ; un stash du mois dernier ne passe
+  plus au-dessus des commits de la semaine. Le menu contextuel d'une ligne de
+  stash propose Appliquer, Appliquer et retirer et Supprimer (confirmation
+  irréversible), et le détail du stash liste aussi les fichiers non suivis,
+  stockés dans l'instantané `untracked` de Git.
+- **Avance rapide explicite à la fusion** : fusionner une branche dont la cible
+  est un ancêtre de la source avance désormais la cible sur le dernier commit de
+  la source, sans commit de fusion. Le dialogue propose « Avance rapide » ou
+  « Commit de fusion (`--no-ff`) », avec l'avance rapide sélectionnée quand elle
+  est possible ; sinon la raison est affichée (la cible possède N commit(s)
+  absent(s) de la source) et le commit de fusion reste disponible. Le moteur
+  passe `--ff`, `--ff-only` ou `--no-ff` explicitement : `merge.ff=false` dans
+  la configuration Git ne transforme plus une avance rapide demandée en commit
+  de fusion, et `--ff-only` refuse avant toute extraction quand la cible a
+  divergé (`git.merge_not_fast_forward`, alternatives annoncées).
+- **Clic du milieu sur l’onglet « Ouvrir un dépôt »** : l’onglet se ferme
+  désormais au clic du milieu, comme les onglets de dépôt. Le lanceur était
+  rendu à part et n’écoutait pas `auxclick` ; il partage maintenant le même
+  geste et bloquera aussi le défilement automatique du bouton du milieu.
+
 ## [0.7.2] — 2026-10-29
+
+### Ajouté
+
+- **Fond d'écran personnalisé** : Préférences → Général accepte une image ou
+  un GIF animé (png, jpg, gif, webp, avif, bmp, 32 Mo maximum) via le sélecteur
+  natif. Le fichier n'est jamais exposé au webview : le backend le lit et
+  l'inline en URL `data:`, seul le chemin est persisté. Réglages d'ajustement
+  (remplir, ajuster, mosaïque), d'atténuation et de flou ; les panneaux passent
+  en semi-transparent le temps que l'image reste lisible. Le GIF est animé par
+  le webview, sans code de décodage.
+- **Écran de démarrage personnalisé** : Préférences → Général propose un fond
+  pour la fenêtre de lancement, avec les mêmes formats, limite et réglages
+  (ajustement, atténuation, flou) que le fond d'écran. La fenêtre splash lit la
+  préférence `ui.splash` par IPC et reçoit l'image en URL `data:` ; elle reste
+  masquée tant que le mode n'est pas résolu, donc le logo par défaut ne clignote
+  jamais avant une image personnalisée. Un fichier illisible au lancement
+  retombe silencieusement sur le logo, et la sélection est validée à l'enregistrement.
 
 ### Corrigé
 
@@ -325,8 +445,8 @@
 
 ### Distribution
 
-- **Build macOS signé et notarié** : signature `Developer ID Application:
-  beecoming (JFSQ98955P)` avec hardened runtime, notarisation Apple et
+- **Build macOS signé et notarié** : signature `Developer ID Application`
+  avec hardened runtime, notarisation Apple et
   agrafage de l'app et du DMG. Gatekeeper n'exige plus de contournement au
   premier lancement.
 - La notarisation CI utilise une clé API App Store Connect

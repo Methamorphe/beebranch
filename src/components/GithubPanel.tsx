@@ -1,15 +1,22 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   branchCheckout,
   githubConfigure,
+  githubConnectFromGit,
+  githubDeviceFlowCancel,
+  githubDeviceFlowPoll,
+  githubDeviceFlowStart,
   githubDisconnect,
   githubProjectsPage,
   githubRepoLinkManual,
   githubStatus,
+  openExternalUrl,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
-import { githubForge } from '../lib/forge'
+import { formatDate, useI18n } from '../i18n'
+import { githubForge, tokenCreateUrl, type ForgeNotice } from '../lib/forge'
 import type { GitlabProject, GitlabSession } from '../types/git'
+import { RichMessage } from './GitlabPanel'
 import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import styles from './GitlabPanel.module.css'
 
@@ -20,6 +27,7 @@ type Props = {
 }
 
 export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) {
+  const { t } = useI18n()
   const [session, setSession] = useState<GitlabSession | null>(null)
   const [projects, setProjects] = useState<GitlabProject[]>([])
   const [nextPage, setNextPage] = useState<number | undefined>()
@@ -30,8 +38,20 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<ForgeNotice>(null)
   const [editing, setEditing] = useState(false)
+  const [device, setDevice] = useState<{
+    userCode: string
+    verificationUri: string
+  } | null>(null)
+  const pollTimer = useRef<number | null>(null)
+
+  const clearPoll = () => {
+    if (pollTimer.current !== null) {
+      window.clearTimeout(pollTimer.current)
+      pollTimer.current = null
+    }
+  }
 
   const loadProjects = useCallback(
     async (page = 1, searchValue = '', append = false) => {
@@ -46,9 +66,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
         )
         setNextPage(result.nextPage)
         setNotice(
-          result.fromCache
-            ? 'Données servies depuis le cache local (ETag).'
-            : null,
+          result.fromCache ? { key: 'forge.connect.notice.cached' } : null,
         )
       } catch (cause) {
         setError(errorMessage(cause))
@@ -56,6 +74,15 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
     },
     [],
   )
+
+  useEffect(() => {
+    return () => {
+      if (pollTimer.current !== null) {
+        window.clearTimeout(pollTimer.current)
+      }
+      void githubDeviceFlowCancel().catch(() => undefined)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -99,13 +126,97 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
       setSession(connected)
       setToken('')
       setEditing(false)
-      setNotice('Connexion validée. Le token est stocké dans le keychain OS.')
+      setNotice({ key: 'forge.connect.notice.validated' })
       await loadProjects()
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
     }
+  }
+
+  const connectFromGit = async () => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const connected = await githubConnectFromGit({
+        baseUrl,
+        displayName: displayName || undefined,
+      })
+      setSession(connected)
+      setEditing(false)
+      setNotice(
+        connected.credentialSource
+          ? {
+              key: 'forge.connect.notice.fromGit',
+              params: { source: connected.credentialSource },
+            }
+          : { key: 'forge.connect.notice.fromGitFallback' },
+      )
+      await loadProjects()
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function pollDeviceFlow(interval: number) {
+    try {
+      const result = await githubDeviceFlowPoll()
+      if (result.status === 'connected' && result.session) {
+        clearPoll()
+        setDevice(null)
+        setSession(result.session)
+        setEditing(false)
+        setNotice({ key: 'forge.connect.notice.oauth' })
+        await loadProjects()
+        return
+      }
+      scheduleDevicePoll(result.interval ?? interval)
+    } catch (cause) {
+      clearPoll()
+      setDevice(null)
+      setError(errorMessage(cause))
+    }
+  }
+
+  function scheduleDevicePoll(seconds: number) {
+    clearPoll()
+    pollTimer.current = window.setTimeout(
+      () => void pollDeviceFlow(seconds),
+      Math.max(1, seconds) * 1000,
+    )
+  }
+
+  const startDeviceFlow = async () => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const started = await githubDeviceFlowStart({
+        baseUrl: baseUrl.trim() || undefined,
+      })
+      setDevice({
+        userCode: started.userCode,
+        verificationUri: started.verificationUri,
+      })
+      void openExternalUrl(started.verificationUri)
+      scheduleDevicePoll(started.interval)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cancelDeviceFlow = async () => {
+    clearPoll()
+    setDevice(null)
+    await githubDeviceFlowCancel().catch((cause: unknown) =>
+      setError(errorMessage(cause)),
+    )
   }
 
   const disconnect = async () => {
@@ -117,7 +228,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
       setEditing(false)
       setProjects([])
       setNextPage(undefined)
-      setNotice('Instance déconnectée ; le token a été supprimé du keychain.')
+      setNotice({ key: 'forge.connect.notice.disconnected' })
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
@@ -132,53 +243,87 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
           <header className={styles.header}>
             <h2>GitHub</h2>
             <p>
-              REST v3, Personal Access Token (scopes <code>repo</code>,{' '}
-              <code>read:user</code> et <code>checks:read</code> pour le statut
-              de la CI). GitHub Enterprise Server est pris en charge. Le token
-              est stocké dans le keychain et n'est jamais renvoyé au frontend.
-              Un token déjà présent dans la configuration Git
-              (<code>url.*.insteadOf</code> ou <code>~/.git-credentials</code>)
-              est détecté automatiquement et réutilisé.
+              <RichMessage
+                template={t('forge.connect.github.description')}
+                parts={{
+                  repo: <code>repo</code>,
+                  readUser: <code>read:user</code>,
+                  checksRead: <code>checks:read</code>,
+                  ghCredential: <code>gh auth git-credential</code>,
+                  gitCredentialFill: <code>git credential fill</code>,
+                  gitCredentials: <code>~/.git-credentials</code>,
+                }}
+              />
             </p>
           </header>
 
           {session && !session.connected && session.instance ? (
             <p className={styles.missingToken}>
-              Instance connue ({session.instance.baseUrl}) mais aucun token local.
-              Saisissez un Personal Access Token pour la reconnecter.
+              {t('forge.connect.missingToken', { url: session.instance.baseUrl })}
             </p>
           ) : null}
 
           {session?.connected && !editing ? (
             <div className={styles.identity}>
-              <span className={styles.badge}>connecté</span>
+              <span className={styles.badge}>{t('forge.connect.badge.connected')}</span>
               {session.credentialSource && session.credentialSource !== 'keychain' ? (
-                <span className={styles.badge}>via Git</span>
+                <span className={styles.badge}>{t('forge.connect.badge.viaGit')}</span>
               ) : null}
-              <strong>{session.user?.name ?? 'Instance GitHub connectée'}</strong>
+              <strong>
+                {session.user?.name ?? t('forge.connect.github.connectedName')}
+              </strong>
               {session.user ? <code>@{session.user.username}</code> : null}
-              <span>{session.instance?.baseUrl ?? 'instance active'}</span>
+              <span>{session.instance?.baseUrl ?? t('forge.connect.instanceActive')}</span>
               <span className={styles.identityActions}>
                 <button type="button" onClick={() => setEditing(true)} disabled={busy}>
-                  Changer d'instance
+                  {t('forge.connect.changeInstance')}
                 </button>
                 {session.credentialSource && session.credentialSource !== 'keychain' ? null : (
                   <button type="button" onClick={() => void disconnect()} disabled={busy}>
-                    Déconnecter
+                    {t('forge.connect.disconnect')}
                   </button>
                 )}
               </span>
+            </div>
+          ) : device ? (
+            <div className={styles.deviceFlow}>
+              <p>
+                <RichMessage
+                  template={t('forge.connect.github.devicePrompt')}
+                  parts={{
+                    url: (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => void openExternalUrl(device.verificationUri)}
+                      >
+                        {device.verificationUri.replace(/^https?:\/\//, '')}
+                      </button>
+                    ),
+                  }}
+                />
+              </p>
+              <code className={styles.userCode}>{device.userCode}</code>
+              <p className={styles.deviceWait}>
+                {t('forge.connect.github.deviceWaiting')}
+              </p>
+              <button
+                type="button"
+                className={styles.secondary}
+                onClick={() => void cancelDeviceFlow()}
+              >
+                {t('common.cancel')}
+              </button>
             </div>
           ) : (
             <form className={styles.form} onSubmit={submit}>
               {session?.connected ? (
                 <p className={styles.notice}>
-                  Une instance est déjà connectée. Se connecter à une autre instance
-                  remplace la session active pour l'application.
+                  {t('forge.connect.alreadyConnected')}
                 </p>
               ) : null}
               <label>
-                URL de l'instance
+                {t('forge.connect.urlLabel')}
                 <input
                   value={baseUrl}
                   onChange={(event) => setBaseUrl(event.target.value)}
@@ -187,7 +332,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                 />
               </label>
               <label>
-                Personal Access Token
+                {t('forge.connect.tokenLabel')}
                 <input
                   type="password"
                   value={token}
@@ -197,16 +342,27 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                   required
                 />
               </label>
+              <p className={styles.tokenHelp}>
+                <button
+                  type="button"
+                  className={styles.linkButton}
+                  onClick={() =>
+                    void openExternalUrl(tokenCreateUrl('github', baseUrl))
+                  }
+                >
+                  {t('forge.connect.createToken')}
+                </button>
+              </p>
               <label>
-                Nom d'affichage (optionnel)
+                {t('forge.connect.displayNameLabel')}
                 <input
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="GitHub Enterprise"
+                  placeholder={t('forge.connect.displayNamePlaceholderGithub')}
                 />
               </label>
               <label className={styles.ca}>
-                CA interne PEM (optionnel)
+                {t('forge.connect.caLabel')}
                 <textarea
                   value={caPem}
                   onChange={(event) => setCaPem(event.target.value)}
@@ -217,11 +373,30 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
               </label>
               <span className={styles.formActions}>
                 <button type="submit" className={styles.primary} disabled={busy}>
-                  {busy ? 'Validation…' : 'Connecter'}
+                  {busy ? t('forge.connect.validating') : t('forge.connect.submit')}
                 </button>
+                <button
+                  type="button"
+                  className={styles.secondary}
+                  onClick={() => void connectFromGit()}
+                  disabled={busy || baseUrl.trim() === ''}
+                >
+                  {t('forge.connect.useGitCredentials')}
+                </button>
+                {baseUrl.trim() === '' ||
+                /^https:\/\/(www\.)?github\.com(\/|$)/i.test(baseUrl.trim()) ? (
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    onClick={() => void startDeviceFlow()}
+                    disabled={busy}
+                  >
+                    {t('forge.connect.github.deviceButton')}
+                  </button>
+                ) : null}
                 {session?.connected ? (
                   <button type="button" onClick={() => setEditing(false)} disabled={busy}>
-                    Annuler
+                    {t('common.cancel')}
                   </button>
                 ) : null}
               </span>
@@ -233,8 +408,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
           session.credentialSource &&
           session.credentialSource !== 'keychain' ? (
             <p className={styles.notice}>
-              Token lu depuis {session.credentialSource} ; il reste géré par Git.
-              « Changer d'instance » enregistre un token dans le keychain.
+              {t('forge.connect.tokenFromGit', { source: session.credentialSource })}
             </p>
           ) : null}
 
@@ -243,13 +417,15 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
               {error}
             </p>
           ) : null}
-          {notice ? <p className={styles.notice}>{notice}</p> : null}
+          {notice ? (
+            <p className={styles.notice}>{t(notice.key, notice.params)}</p>
+          ) : null}
         </section>
 
         {session?.connected ? (
           <section className={styles.projects}>
             <header className={styles.projectsHeader}>
-              <h3>Dépôts accessibles</h3>
+              <h3>{t('forge.projects.github.title')}</h3>
               <form
                 className={styles.search}
                 onSubmit={(event) => {
@@ -261,16 +437,16 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Rechercher un dépôt"
-                  aria-label="Rechercher un dépôt GitHub"
+                  placeholder={t('forge.projects.searchPlaceholderGithub')}
+                  aria-label={t('forge.projects.searchAriaGithub')}
                 />
-                <button type="submit">Chercher</button>
+                <button type="submit">{t('forge.projects.searchSubmit')}</button>
               </form>
             </header>
 
             <div className={styles.list}>
               {projects.length === 0 ? (
-                <p className={styles.empty}>Aucun dépôt chargé.</p>
+                <p className={styles.empty}>{t('forge.projects.emptyGithub')}</p>
               ) : null}
               {projects.map((project) => (
                 <article key={project.id} className={styles.project}>
@@ -279,11 +455,11 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                     <code>{project.pathWithNamespace}</code>
                   </div>
                   <div className={styles.projectMeta}>
-                    <span>{project.defaultBranch ?? 'branche par défaut inconnue'}</span>
+                    <span>
+                      {project.defaultBranch ?? t('forge.projects.defaultBranchUnknown')}
+                    </span>
                     {project.lastActivityAt ? (
-                      <span>
-                        {new Date(project.lastActivityAt).toLocaleDateString('fr-FR')}
-                      </span>
+                      <span>{formatDate(new Date(project.lastActivityAt))}</span>
                     ) : null}
                     <span className={styles.url}>{project.webUrl}</span>
                   </div>
@@ -296,15 +472,19 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                         setNotice(null)
                         void githubRepoLinkManual(repoId, project.id)
                           .then((link) => {
-                            setNotice(
-                              `Dépôt associé à ${link.pathWithNamespace} (#${link.projectId}).`,
-                            )
+                            setNotice({
+                              key: 'forge.projects.linked',
+                              params: {
+                                path: link.pathWithNamespace,
+                                id: link.projectId,
+                              },
+                            })
                             onLinked?.()
                           })
                           .catch((cause: unknown) => setError(errorMessage(cause)))
                       }}
                     >
-                      Associer ce dépôt
+                      {t('forge.projects.link')}
                     </button>
                   ) : null}
                 </article>
@@ -317,7 +497,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                 className={styles.more}
                 onClick={() => void loadProjects(nextPage, search, true)}
               >
-                Charger la page suivante ({nextPage})
+                {t('forge.projects.nextPage', { page: nextPage })}
               </button>
             ) : null}
           </section>

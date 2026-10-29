@@ -37,6 +37,15 @@ pub fn gitlab_error(error: beebranch_gitlab::GitlabError) -> AppError {
         "network.unreachable" => mapped
             .with_remediation("Vérifiez l'adresse de l'instance, le proxy et la connexion réseau."),
         "gitlab.rate_limited" => mapped.with_remediation("Patientez avant de relancer la requête."),
+        "gitlab.device_flow_disabled" => mapped.with_remediation(
+            "Sur gitlab.com : Edit profile → Access → Applications → votre application → cochez « Device authorization grant », puis enregistrez.",
+        ),
+        "gitlab.oauth_scope" => mapped.with_remediation(
+            "Cochez les scopes api, read_user et read_repository sur l'application OAuth GitLab.",
+        ),
+        "gitlab.oauth_configuration" => {
+            mapped.with_remediation("Vérifiez l'Application ID de l'application OAuth GitLab.")
+        }
         _ => mapped,
     }
 }

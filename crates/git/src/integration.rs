@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::branches::{self, BranchComparison};
 use crate::discover::discover;
-use crate::history::{self, HistoryOutcome};
+use crate::history::{self, HistoryOutcome, MergeFastForward};
 use crate::process::GitRunner;
 use crate::refs::{read_refs, RefKind};
 use crate::stash::{self, StashEntry};
@@ -202,15 +202,17 @@ pub fn preview(
 /// completes. The stash is left in place when the merge pauses on conflicts or
 /// when the pop itself conflicts, and the outcome says so.
 ///
-/// `no_ff` only applies to a merge: it turns a fast-forwardable merge into a
-/// real merge commit, which is what the graph needs to show the branch join.
+/// `fast_forward` only applies to a merge: it selects `--ff-only`, `--ff` or
+/// `--no-ff`. `Only` refuses before touching the repository when the target
+/// cannot fast-forward, so the caller gets a typed reason instead of an
+/// unexpected merge commit.
 pub fn start(
     runner: &GitRunner,
     worktree: &Path,
     source: &str,
     target: &str,
     mode: IntegrationMode,
-    no_ff: bool,
+    fast_forward: MergeFastForward,
 ) -> Result<BranchIntegrationOutcome, AppError> {
     let preview = preview(runner, worktree, source, target, mode)?;
     if let Some(reason) = preview.blocked_reason.clone() {
@@ -221,6 +223,12 @@ pub fn start(
         )
         .with_detail(reason)
         .with_remediation("Résolvez la condition signalée puis relancez l'aperçu."));
+    }
+    if mode == IntegrationMode::Merge
+        && fast_forward == MergeFastForward::Only
+        && preview.behind > 0
+    {
+        return Err(merge_not_fast_forward(&preview));
     }
     let original_branch = preview.current_branch.clone();
     let stashed = if preview.stash_required {
@@ -238,7 +246,7 @@ pub fn start(
         checked_out = true;
     }
     let result = match mode {
-        IntegrationMode::Merge => history::merge(runner, worktree, source, no_ff),
+        IntegrationMode::Merge => history::merge(runner, worktree, source, fast_forward),
         IntegrationMode::Rebase => history::rebase(runner, worktree, source),
     };
     match result {
@@ -267,6 +275,17 @@ pub fn start(
             })
         }
         Err(error) => {
+            // The target may have moved between the preview and the merge
+            // (concurrent fetch or commit). Git then refuses with the generic
+            // pull wording; report the merge-specific reason instead.
+            let error = if mode == IntegrationMode::Merge
+                && fast_forward == MergeFastForward::Only
+                && error.code == "git.pull_not_fast_forward"
+            {
+                merge_not_fast_forward(&preview)
+            } else {
+                error
+            };
             let error = restore_stash_on_failure(runner, worktree, error, &stashed);
             if checked_out {
                 let detail = error.detail.clone().unwrap_or_default();
@@ -278,6 +297,20 @@ pub fn start(
             }
         }
     }
+}
+
+/// Typed refusal for a requested fast-forward that the target cannot honour.
+fn merge_not_fast_forward(preview: &BranchIntegrationPreview) -> AppError {
+    AppError::new(
+        "git.merge_not_fast_forward",
+        ErrorCategory::GitState,
+        format!(
+            "L'avance rapide de {} vers {} est impossible : {} possède {} commit(s) absents de {}.",
+            preview.target, preview.source, preview.target, preview.behind, preview.source
+        ),
+    )
+    .with_detail(format!("ahead={} behind={}", preview.ahead, preview.behind))
+    .with_remediation("Choisissez un commit de fusion, ou rebasez la branche source sur la cible.")
 }
 
 fn auto_stash_message(mode: IntegrationMode, source: &str, target: &str) -> String {

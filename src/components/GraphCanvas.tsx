@@ -20,6 +20,7 @@ import {
 } from '../lib/layout'
 import { Resizer } from './Resizer'
 import { GraphRefPopover, type RefAnchor } from './GraphRefPopover'
+import { formatDate, formatDateTime, useI18n } from '../i18n'
 import {
   foldUpstreamRefs,
   graphCommitRefs,
@@ -59,7 +60,7 @@ type Props = {
   checkoutDisabled?: boolean
   onCheckoutRef?: (raw: string) => void
   onSelect: (sha: string, modifiers: SelectModifiers) => void
-  onContextMenu?: (commit: CommitSummary, x: number, y: number) => void
+  onContextMenu?: (commit: CommitSummary, stash: string | undefined, x: number, y: number) => void
   onRefContextMenu?: (entry: RefEntry, x: number, y: number) => void
   onRefDrop?: (source: RefEntry, target: RefEntry, x: number, y: number) => void
   branchTarget?: string | null
@@ -82,14 +83,11 @@ type Props = {
 
 const ROW_HEIGHT = 30
 const OVERSCAN = 8
-/** Reused across rows and frames: Intl formatters are expensive to build. */
-const DATE_FORMAT = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
-const TIME_FORMAT = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
 /** Commit date and local time shown in the history date column. */
 function commitDateLabel(timestamp: number) {
   const date = new Date(timestamp * 1000)
-  return `${DATE_FORMAT.format(date)} ${TIME_FORMAT.format(date)}`
+  return `${formatDate(date, { day: '2-digit', month: 'short', year: 'numeric' })} ${formatDateTime(date, { hour: '2-digit', minute: '2-digit' })}`
 }
 /** Constant distance between two lanes: the graph column grows with the lane
  * count instead of squeezing every lane into a fixed width, which used to turn
@@ -351,6 +349,7 @@ export function GraphCanvas({
   pin = null,
 }: Props) {
   const [viewportWidth, setViewportWidth] = useState(1000)
+  const { locale, t } = useI18n()
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
   // Every visible ref of a commit, in draw order. A remote-tracking mirror of
   // a local branch is folded out: `main` and `origin/main` on the same commit
@@ -812,7 +811,7 @@ export function GraphCanvas({
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
 
-  }, [commits, rows, selected, mrBadges, picked, maxLanes, layout, decorations, pin])
+  }, [commits, rows, selected, mrBadges, picked, maxLanes, layout, decorations, pin, locale])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -1001,7 +1000,7 @@ export function GraphCanvas({
         if (refHover) closeRefSoon()
         const ref = refs?.[0]
         event.currentTarget.title = ref
-          ? `${ref.label} · ${ref.kind === 'remote' ? 'distante' : ref.kind === 'tag' ? 'tag' : 'locale'}`
+          ? `${ref.label} · ${t(ref.kind === 'remote' ? 'graph.ref.kind.remote' : ref.kind === 'tag' ? 'graph.ref.kind.tag' : 'graph.ref.kind.local')}`
           : ''
       } else {
         cancelRefClose()
@@ -1075,7 +1074,7 @@ export function GraphCanvas({
     const commit = commits[index]
     if (commit) {
       onSelect(commit.sha, { shift: false, meta: false })
-      onContextMenu(commit, event.clientX, event.clientY)
+      onContextMenu(commit, rows[index]?.stash, event.clientX, event.clientY)
     }
   }
 
@@ -1088,7 +1087,7 @@ export function GraphCanvas({
     if ((event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) && onContextMenu) {
       event.preventDefault()
       const bounds = event.currentTarget.getBoundingClientRect()
-      onContextMenu(commits[index]!, bounds.left + 120, Math.max(bounds.top, bounds.top + index * ROW_HEIGHT - scrollTopRef.current))
+      onContextMenu(commits[index]!, rows[index]?.stash, bounds.left + 120, Math.max(bounds.top, bounds.top + index * ROW_HEIGHT - scrollTopRef.current))
     }
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
@@ -1116,19 +1115,19 @@ export function GraphCanvas({
     <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
       <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
         <div className={styles.refsHeader}>
-          <span>{layout.refs ? 'Branches / tags' : ''}</span>
+          <span>{layout.refs ? t('graph.column.refs') : ''}</span>
           {layout.refs && onBranchRequest ? (
-            <button type="button" className={styles.addRef} title="Créer une branche sur le commit sélectionné" aria-label="Créer une branche" onClick={() => onBranchRequest(selected ?? null)}>+</button>
+            <button type="button" className={styles.addRef} title={t('graph.branch.createTitle')} aria-label={t('graph.branch.create')} onClick={() => onBranchRequest(selected ?? null)}>+</button>
           ) : null}
         </div>
-        <span>Graphe</span><div className={styles.messageHeader}><span>Message de commit</span>{headerTools}</div><span>{layout.author ? 'Auteur' : ''}</span><span>{layout.date ? 'Date' : ''}</span>
+        <span>{t('graph.column.graph')}</span><div className={styles.messageHeader}><span>{t('graph.column.message')}</span>{headerTools}</div><span>{layout.author ? t('graph.column.author') : ''}</span><span>{layout.date ? t('graph.column.date') : ''}</span>
       </div>
       {([
-        ['refs', 'Largeur de la colonne Références', 'right'],
-        ['graph', 'Largeur du graphe', 'right'],
-        ['author', 'Largeur de la colonne Auteur', 'left'],
-        ['date', 'Largeur de la colonne Date', 'left'],
-      ] as const).map(([key, label, side]) => {
+        ['refs', 'graph.resizer.refs', 'right'],
+        ['graph', 'graph.resizer.graph', 'right'],
+        ['author', 'graph.resizer.author', 'left'],
+        ['date', 'graph.resizer.date', 'left'],
+      ] as const).map(([key, labelKey, side]) => {
         if (key === 'author' && layout.author === 0) return null
         const boundary =
           key === 'refs'
@@ -1143,7 +1142,7 @@ export function GraphCanvas({
             key={key}
             className={styles.columnResizer}
             style={{ left: Math.max(4, boundary) }}
-            label={label}
+            label={t(labelKey)}
             side={side}
             value={layout[key]}
             min={COLUMN_FLOORS[key]}
@@ -1175,11 +1174,11 @@ export function GraphCanvas({
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') { event.preventDefault(); onBranchCancel?.() }
                 }}
-                placeholder="nom de la branche"
-                aria-label="Nom de la nouvelle branche"
+                placeholder={t('graph.branch.namePlaceholder')}
+                aria-label={t('graph.branch.nameLabel')}
                 spellCheck={false}
               />
-              <button type="submit" className={styles.createSubmit} disabled={branchName.trim().length === 0} aria-label="Créer la branche" title="Créer la branche">↵</button>
+              <button type="submit" className={styles.createSubmit} disabled={branchName.trim().length === 0} aria-label={t('graph.branch.createSubmit')} title={t('graph.branch.createSubmit')}>↵</button>
             </form>
           )
         })() : null}
@@ -1189,7 +1188,7 @@ export function GraphCanvas({
           data-dragging={drag ? 'true' : undefined}
           role="img"
           tabIndex={0}
-          aria-label={`Graphe d'historique, ${commits.length} commits chargés`}
+          aria-label={t('graph.canvas.aria', { count: commits.length })}
           onPointerMove={onCanvasPointerMove}
           onPointerLeave={(event) => {
             if (drag) return
@@ -1215,7 +1214,7 @@ export function GraphCanvas({
           role="status"
         >
           <strong>{drag.entry.name}</strong>
-          <span>{drag.target ? `→ ${drag.target.name}` : 'Déposer sur une branche'}</span>
+          <span>{drag.target ? `→ ${drag.target.name}` : t('graph.drop.hint')}</span>
         </div>
       ) : null}
       {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}

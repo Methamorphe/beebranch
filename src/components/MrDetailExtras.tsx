@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { openExternalUrl } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { formatDateTime, formatNumber, useI18n } from '../i18n'
 import type { ForgeApi } from '../lib/forge'
 import type {
   ApprovalsDto,
@@ -8,6 +9,7 @@ import type {
   GitlabDiscussion,
   GitlabJob,
   GitlabMergeRequest,
+  GitlabPipeline,
   JobLog,
 } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -17,13 +19,42 @@ type Props = {
   api: ForgeApi
   projectId: number
   mr: GitlabMergeRequest
+  pipelines: GitlabPipeline[]
   onRefresh: () => void
-  onCheckout: (branch: string) => void
 }
 
 type Tab = 'overview' | 'discussions' | 'jobs'
 
-export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Props) {
+function statusTone(status: string | undefined): string {
+  switch ((status ?? '').toLowerCase()) {
+    case 'success':
+      return p2.chipGood
+    case 'failed':
+    case 'canceled':
+    case 'cancelled':
+      return p2.chipBad
+    case 'running':
+    case 'pending':
+    case 'manual':
+      return p2.chipWarn
+    default:
+      return ''
+  }
+}
+
+function formatTimestamp(value: string | undefined): string {
+  if (!value) {
+    return ''
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 16).replace('T', ' ')
+  }
+  return formatDateTime(parsed)
+}
+
+export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Props) {
+  const { t } = useI18n()
   const [tab, setTab] = useState<Tab>('overview')
   const [discussions, setDiscussions] = useState<GitlabDiscussion[]>([])
   const [approvals, setApprovals] = useState<ApprovalsDto | null>(null)
@@ -80,6 +111,7 @@ export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Pr
     setLog(null)
     setInline(false)
     setRefs(null)
+    setReplyTo(null)
   }, [mr.iid])
 
   useEffect(() => {
@@ -176,91 +208,110 @@ export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Pr
   }
 
   const approval = approvals?.state
+  const ordered = [...discussions].sort((a, b) => {
+    const left = a.notes.find((note) => note.position)?.position
+    const right = b.notes.find((note) => note.position)?.position
+    const leftKey = `${left?.newPath ?? left?.oldPath ?? ''}:${left?.newLine ?? left?.oldLine ?? 0}`
+    const rightKey = `${right?.newPath ?? right?.oldPath ?? ''}:${right?.newLine ?? right?.oldLine ?? 0}`
+    return leftKey.localeCompare(rightKey, undefined, { numeric: true })
+  })
 
   return (
-    <div className={p2.stack}>
-      <div className={p2.tabs} style={{ padding: '4px 0', borderBottom: 0 }}>
-        {(['overview', 'discussions', 'jobs'] as Tab[]).map((value) => (
+    <div className={p2.detailSections}>
+      <div className={p2.listHeader}>
+        <div className={p2.segmented} role="group" aria-label={t('forge.detail.tabsAria')}>
           <button
-            key={value}
             type="button"
-            className={tab === value ? p2.tabOn : p2.tab}
-            onClick={() => setTab(value)}
+            className={tab === 'overview' ? p2.segmentOn : p2.segment}
+            aria-pressed={tab === 'overview'}
+            onClick={() => setTab('overview')}
           >
-            {value === 'overview'
-              ? 'Overview'
-              : value === 'discussions'
-                ? `Discussions (${discussions.length})`
-                : 'Jobs'}
+            Vue d’ensemble
           </button>
-        ))}
+          <button
+            type="button"
+            className={tab === 'discussions' ? p2.segmentOn : p2.segment}
+            aria-pressed={tab === 'discussions'}
+            onClick={() => setTab('discussions')}
+          >
+            Discussions ({discussions.length})
+          </button>
+          <button
+            type="button"
+            className={tab === 'jobs' ? p2.segmentOn : p2.segment}
+            aria-pressed={tab === 'jobs'}
+            onClick={() => setTab('jobs')}
+          >
+            Jobs
+          </button>
+        </div>
+        <span className={p2.spacer} />
+        {tab === 'jobs' ? (
+          <button type="button" className={p2.ghost} onClick={() => void loadJobs()}>
+            {t('common.refresh')}
+          </button>
+        ) : null}
       </div>
 
-      {error ? <p className={p2.errorText}>{error}</p> : null}
-      {notice ? <p className={p2.notice}>{notice}</p> : null}
+      {error ? (
+        <p className={p2.alert} role="alert">
+          {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <div className={p2.listHeader} role="status">
+          <span className={p2.meta}>{notice}</span>
+        </div>
+      ) : null}
 
       {tab === 'overview' ? (
-        <div className={p2.stack}>
-          <div className={p2.card}>
-            <div className={p2.row}>
-              <span className={p2.mono}>
-                {mr.sourceBranch} → {mr.targetBranch}
-              </span>
-              <span className={p2.pill}>{mr.state}</span>
-              {mr.hasConflicts ? <span className={p2.warn}>conflits</span> : null}
-            </div>
-            <div className={p2.row} style={{ marginTop: 8 }}>
-              <span className={p2.small}>
-                CI : {mr.headPipeline?.status ?? 'inconnu'} ·{' '}
-                {mr.detailedMergeStatus ?? mr.mergeStatus ?? 'statut inconnu'}
-              </span>
-              <span className={p2.spacer} />
-              <button type="button" className={p2.ghost} onClick={() => void openExternalUrl(mr.webUrl)}>
-                Ouvrir dans {api.label}
-              </button>
-              <button type="button" className={p2.secondary} onClick={() => onCheckout(mr.sourceBranch)}>
-                Checkout la branche
-              </button>
-            </div>
-          </div>
-
-          <div className={p2.card}>
-            <h3 className={p2.cardTitle}>Approbations</h3>
+        <>
+          <section className={p2.paneSection}>
+            <h3 className={p2.paneTitle}>
+              {t('forge.detail.approvals')}
+              {approval ? (
+                <span className={p2.count}>
+                  {approval.approvedBy.length}
+                  {api.capabilities.approvalQuota
+                    ? t('forge.detail.approvalsLeft', { left: approval.approvalsLeft, required: approval.approvalsRequired })
+                    : ''}
+                </span>
+              ) : null}
+            </h3>
             {approvals === null ? (
-              <p className={p2.notice}>Chargement…</p>
+              <p className={p2.asideHint}>{t('common.loading')}</p>
             ) : approvals.available && approval ? (
               <>
-                <p className={p2.small}>
-                  {approval.approvedBy.length} approbation(s)
-                  {api.capabilities.approvalQuota
-                    ? ` · ${approval.approvalsLeft} restante(s) · ${approval.approvalsRequired} requise(s)`
-                    : ''}
-                </p>
                 <div className={p2.row}>
-                  {approval.approvedBy.map((entry) => (
-                    <span key={entry.user.id} className={p2.pill}>
-                      @{entry.user.username}
-                    </span>
-                  ))}
-                  <span className={p2.spacer} />
+                  {approval.approvedBy.length === 0 ? (
+                    <span className={p2.asideHint}>{t('forge.detail.approvalsNone')}</span>
+                  ) : (
+                    approval.approvedBy.map((entry) => (
+                      <span key={entry.user.id} className={`${p2.chip} ${p2.chipGood}`}>
+                        @{entry.user.username}
+                      </span>
+                    ))
+                  )}
+                </div>
+                <div className={p2.row}>
                   <button
                     type="button"
                     className={p2.secondary}
                     disabled={busy}
                     onClick={() =>
-                      void run('Approbation enregistrée.', async () => {
+                      void run(t('forge.detail.approveDone'), async () => {
                         setApprovals(await api.approve({ projectId, iid: mr.iid }))
                       })
                     }
                   >
-                    Approuver
+                    {t('forge.detail.approve')}
                   </button>
                   <button
                     type="button"
                     className={p2.ghost}
                     disabled={busy}
                     onClick={() =>
-                      void run('Approbation retirée.', async () => {
+                      void run(t('forge.detail.unapproveDone'), async () => {
                         setApprovals(await api.unapprove({ projectId, iid: mr.iid }))
                       })
                     }
@@ -270,30 +321,99 @@ export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Pr
                 </div>
               </>
             ) : (
-              <p className={p2.notice}>{approvals.reason ?? 'Approbations indisponibles.'}</p>
+              <p className={p2.asideHint}>
+                {approvals.reason ?? 'Approbations indisponibles.'}
+              </p>
             )}
-          </div>
+          </section>
 
-          <div className={p2.card}>
-            <h3 className={p2.cardTitle}>Fusion</h3>
+          <section className={p2.paneSection}>
+            <h3 className={p2.paneTitle}>
+              {t('forge.detail.pipelines')}
+              <span className={p2.count}>{pipelines.length}</span>
+            </h3>
+            {pipelines.length === 0 ? (
+              <p className={p2.asideHint}>{t('forge.detail.noPipeline')}</p>
+            ) : (
+              <div className={p2.rows}>
+                {pipelines.map((pipeline) => (
+                  <div key={pipeline.id} className={p2.entry}>
+                    <span
+                      className={p2.dot}
+                      data-tone={
+                        pipeline.status === 'success'
+                          ? 'good'
+                          : pipeline.status === 'failed'
+                            ? 'bad'
+                            : 'warn'
+                      }
+                    />
+                    <span className={p2.entryStack}>
+                      <span className={p2.entryTitle}>
+                        <span className={`${p2.chip} ${statusTone(pipeline.status)}`}>
+                          {pipeline.status}
+                        </span>
+                      </span>
+                      <span className={p2.entryMeta}>
+                        <span className={p2.mono}>#{pipeline.id}</span>
+                        {pipeline.sha ? (
+                          <>
+                            <span>·</span>
+                            <span className={p2.mono}>{pipeline.sha.slice(0, 10)}</span>
+                          </>
+                        ) : null}
+                        {pipeline.refName ? (
+                          <>
+                            <span>·</span>
+                            <span className={p2.mono}>{pipeline.refName}</span>
+                          </>
+                        ) : null}
+                      </span>
+                    </span>
+                    <span className={p2.entryActions}>
+                      {pipeline.webUrl ? (
+                        <button
+                          type="button"
+                          className={p2.ghost}
+                          onClick={() => void openExternalUrl(pipeline.webUrl!)}
+                        >
+                          {t('common.open')}
+                        </button>
+                      ) : null}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className={p2.paneSection}>
+            <h3 className={p2.paneTitle}>{t('forge.detail.mergeSection')}</h3>
             <div className={p2.row}>
               <label className={p2.field}>
-                Stratégie
-                <select value={strategy} onChange={(event) => setStrategy(event.target.value)}>
-                  <option value="merge">Merge commit</option>
+                {t('forge.detail.strategy')}
+                <select
+                  value={strategy}
+                  onChange={(event) => setStrategy(event.target.value)}
+                >
+                  <option value="merge">{t('forge.detail.strategyMergeCommit')}</option>
                   {api.id === 'github' ? (
                     <>
-                      <option value="squash">Squash</option>
-                      <option value="rebase">Rebase</option>
+                      <option value="squash">{t('forge.detail.strategySquash')}</option>
+                      <option value="rebase">{t('forge.detail.strategyRebase')}</option>
                     </>
                   ) : (
-                    <option value="rebase_merge">Rebase merge</option>
+                    <option value="rebase_merge">{t('forge.detail.strategyRebaseMerge')}</option>
                   )}
                 </select>
               </label>
               <label className={p2.checkbox}>
-                <input type="checkbox" checked={squash} onChange={(event) => setSquash(event.target.checked)} />
-                squash
+                <input
+                  type="checkbox"
+                  checked={squash}
+                  onChange={(event) => setSquash(event.target.checked)}
+                />
+                {t('forge.detail.squash')}
               </label>
               {api.capabilities.removeSourceBranchOnMerge ? (
                 <label className={p2.checkbox}>
@@ -302,7 +422,7 @@ export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Pr
                     checked={removeSource}
                     onChange={(event) => setRemoveSource(event.target.checked)}
                   />
-                  supprimer la branche source
+                  {t('forge.detail.removeSource')}
                 </label>
               ) : null}
               {api.capabilities.autoMerge ? (
@@ -312,159 +432,182 @@ export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Pr
                     checked={autoMerge}
                     onChange={(event) => setAutoMerge(event.target.checked)}
                   />
-                  auto-merge si la pipeline réussit
+                  {t('forge.detail.autoMerge')}
                 </label>
               ) : null}
               <span className={p2.spacer} />
-              <button type="button" className={p2.primary} disabled={busy} onClick={() => setMergeOpen(true)}>
-                Merge into {mr.targetBranch}
+              <button
+                type="button"
+                className={p2.primary}
+                disabled={busy}
+                onClick={() => setMergeOpen(true)}
+              >
+                {t('forge.detail.mergeInto', { target: mr.targetBranch })}
               </button>
             </div>
-            <p className={p2.notice}>
-              Le merge utilise le SHA courant {mr.sha ? mr.sha.slice(0, 10) : '(inconnu)'} ;
-              si la {api.short} a changé, {api.label} refuse la fusion et rien n’est modifié.
+            <p className={p2.asideHint}>
+              {t('forge.detail.mergeHint', {
+                sha: mr.sha ? mr.sha.slice(0, 10) : t('forge.detail.mergeShaUnknown'),
+                short: api.short,
+                label: api.label,
+              })}
             </p>
-          </div>
-        </div>
+          </section>
+        </>
       ) : null}
 
       {tab === 'discussions' ? (
-        <div className={p2.stack}>
-          {[...discussions]
-            .sort((a, b) => {
-              const left = a.notes.find((note) => note.position)?.position
-              const right = b.notes.find((note) => note.position)?.position
-              const leftKey = `${left?.newPath ?? left?.oldPath ?? ''}:${left?.newLine ?? left?.oldLine ?? 0}`
-              const rightKey = `${right?.newPath ?? right?.oldPath ?? ''}:${right?.newLine ?? right?.oldLine ?? 0}`
-              return leftKey.localeCompare(rightKey, undefined, { numeric: true })
-            })
-            .map((discussion, discussionIndex, ordered) => {
-            const position = discussion.notes.find((note) => note.position)?.position
-            const previous = ordered[discussionIndex - 1]
-              ?.notes.find((note) => note.position)?.position
-            const currentPath = position?.newPath ?? position?.oldPath
-            const previousPath = previous?.newPath ?? previous?.oldPath
-            const showPathHeader = Boolean(currentPath) && currentPath !== previousPath
-            const resolvable = discussion.notes.some((note) => note.resolvable)
-            const resolved = discussion.notes.every((note) => !note.resolvable || note.resolved)
-            return (
-              <div key={discussion.id} className={p2.discussion}>
-                {showPathHeader ? (
-                  <strong className={p2.mono}>{currentPath}</strong>
-                ) : null}
-                {position ? (
-                  <span className={p2.listSub}>
-                    {position.newPath ?? position.oldPath}
-                    {position.newLine ? `:${position.newLine}` : position.oldLine ? `:${position.oldLine}` : ''}
-                  </span>
-                ) : null}
-                {discussion.notes.map((note) => (
-                  <div key={note.id}>
-                    <div className={p2.discussionHeader}>
-                      <span className={p2.avatar}>{note.author.name.slice(0, 1)}</span>
-                      <span>@{note.author.username}</span>
-                      <span>{note.createdAt?.slice(0, 16).replace('T', ' ')}</span>
-                      {note.system ? <span className={p2.badge}>system</span> : null}
+        <>
+          {ordered.length === 0 ? (
+            <div className={p2.empty} role="status">
+              <h2>{t('forge.detail.discussionsEmpty')}</h2>
+              <p>{t('forge.detail.discussionsEmptyHint')}</p>
+            </div>
+          ) : (
+            ordered.map((discussion, index, all) => {
+              const position = discussion.notes.find((note) => note.position)?.position
+              const previous = all[index - 1]?.notes.find((note) => note.position)?.position
+              const currentPath = position?.newPath ?? position?.oldPath
+              const previousPath = previous?.newPath ?? previous?.oldPath
+              const showPathHeader = Boolean(currentPath) && currentPath !== previousPath
+              const resolvable = discussion.notes.some((note) => note.resolvable)
+              const resolved = discussion.notes.every(
+                (note) => !note.resolvable || note.resolved,
+              )
+              return (
+                <article key={discussion.id} className={p2.discussion}>
+                  {showPathHeader ? (
+                    <div className={p2.row}>
+                      <span className={`${p2.chip} ${p2.chipInfo} ${p2.mono}`}>
+                        {currentPath}
+                      </span>
+                      {position?.newLine || position?.oldLine ? (
+                        <span className={p2.count}>
+                          {t('forge.detail.line', { line: position.newLine ?? position.oldLine ?? 0 })}
+                        </span>
+                      ) : null}
                     </div>
-                    <div className={p2.comment}>{note.body}</div>
-                  </div>
-                ))}
-                <div className={p2.row}>
-                  <button
-                    type="button"
-                    className={p2.ghost}
-                    onClick={() => {
-                      setReplyTo(discussion.id)
-                      setInline(false)
-                    }}
-                  >
-                    Répondre
-                  </button>
-                  {resolvable && api.capabilities.resolveThreads ? (
+                  ) : null}
+
+                  {discussion.notes.map((note) => (
+                    <div key={note.id} className={p2.commentBlock}>
+                      <div className={p2.discussionHeader}>
+                        <span className={p2.avatar}>{note.author.name.slice(0, 1)}</span>
+                        <span>@{note.author.username}</span>
+                        <span>{formatTimestamp(note.createdAt)}</span>
+                        {note.system ? <span className={p2.chip}>{t('forge.detail.system')}</span> : null}
+                        {note.resolved ? (
+                          <span className={`${p2.chip} ${p2.chipGood}`}>{t('forge.detail.resolved')}</span>
+                        ) : null}
+                      </div>
+                      <div className={p2.comment}>{note.body}</div>
+                    </div>
+                  ))}
+
+                  <div className={p2.row}>
                     <button
                       type="button"
                       className={p2.ghost}
-                      disabled={busy}
-                      onClick={() =>
-                        void run(resolved ? 'Thread rouvert.' : 'Thread résolu.', async () => {
-                          await api.discussionResolve({
-                            projectId,
-                            iid: mr.iid,
-                            discussionId: discussion.id,
-                            resolved: !resolved,
-                          })
-                          await loadDiscussions()
-                        })
-                      }
+                      onClick={() => {
+                        setReplyTo(discussion.id)
+                        setInline(false)
+                      }}
                     >
-                      {resolved ? 'Rouvrir' : 'Résoudre'}
+                      {t('forge.detail.reply')}
                     </button>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
-          {discussions.length === 0 ? <p className={p2.notice}>Aucune discussion.</p> : null}
+                    {resolvable && api.capabilities.resolveThreads ? (
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        disabled={busy}
+                        onClick={() =>
+                          void run(resolved ? t('forge.detail.threadReopened') : t('forge.detail.threadResolved'), async () => {
+                            await api.discussionResolve({
+                              projectId,
+                              iid: mr.iid,
+                              discussionId: discussion.id,
+                              resolved: !resolved,
+                            })
+                            await loadDiscussions()
+                          })
+                        }
+                      >
+                        {resolved ? t('forge.detail.reopen') : t('forge.detail.resolve')}
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              )
+            })
+          )}
 
-          <div className={p2.card}>
-            <div className={p2.between}>
-              <strong>
-                {replyTo ? 'Répondre au thread' : inline ? 'Commentaire inline' : 'Nouvelle discussion'}
-              </strong>
-              <label className={p2.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={inline}
-                  onChange={(event) => {
-                    setInline(event.target.checked)
-                    setReplyTo(null)
-                  }}
-                />
-                positionné sur le diff
-              </label>
-            </div>
+          <section className={p2.paneSection}>
+            <h3 className={p2.paneTitle}>
+              {replyTo
+                ? t('forge.detail.replyToThread')
+                : inline
+                  ? t('forge.detail.commentOnDiff')
+                  : t('forge.detail.newDiscussion')}
+            </h3>
+            <label className={p2.checkbox}>
+              <input
+                type="checkbox"
+                checked={inline}
+                onChange={(event) => {
+                  setInline(event.target.checked)
+                  setReplyTo(null)
+                }}
+              />
+              {t('forge.detail.inlinePosition')}
+            </label>
+
             {inline ? (
-              <div className={p2.row} style={{ marginTop: 8 }}>
+              <>
+                <div className={p2.formRow}>
+                  <label className={p2.field}>
+                    {t('forge.detail.path')}
+                    <input
+                      value={positionPath}
+                      onChange={(event) => setPositionPath(event.target.value)}
+                      placeholder="src/file.ts"
+                      spellCheck={false}
+                    />
+                  </label>
+                  <label className={p2.field}>
+                    {t('forge.detail.lineLabel')}
+                    <input
+                      value={positionLine}
+                      onChange={(event) => setPositionLine(event.target.value)}
+                      inputMode="numeric"
+                    />
+                  </label>
+                </div>
                 <label className={p2.field}>
-                  Chemin
-                  <input
-                    value={positionPath}
-                    onChange={(event) => setPositionPath(event.target.value)}
-                    placeholder="src/file.ts"
-                    spellCheck={false}
-                  />
-                </label>
-                <label className={p2.field}>
-                  Ligne
-                  <input
-                    value={positionLine}
-                    onChange={(event) => setPositionLine(event.target.value)}
-                    inputMode="numeric"
-                  />
-                </label>
-                <label className={p2.field}>
-                  Côté
+                  {t('forge.detail.side')}
                   <select
                     value={positionSide}
-                    onChange={(event) => setPositionSide(event.target.value as 'new' | 'old')}
+                    onChange={(event) => {
+                      setPositionSide(event.target.value as 'new' | 'old')
+                    }}
                   >
-                    <option value="new">nouveau</option>
-                    <option value="old">ancien</option>
+                    <option value="new">{t('forge.detail.sideNew')}</option>
+                    <option value="old">{t('forge.detail.sideOld')}</option>
                   </select>
                 </label>
-                <span className={p2.listSub}>
+                <span className={p2.asideHint}>
                   {refs
-                    ? `diff_refs ${refs.headSha.slice(0, 8)}`
-                    : 'chargement des diff_refs…'}
+                    ? t('forge.detail.diffRefs', { sha: refs.headSha.slice(0, 8) })
+                    : t('forge.detail.diffRefsLoading')}
                 </span>
-              </div>
+              </>
             ) : null}
+
             <textarea
               className={p2.editor}
-              style={{ minHeight: 80, marginTop: 8 }}
               value={body}
               onChange={(event) => setBody(event.target.value)}
-              placeholder="Écrire un commentaire (texte brut, aucun HTML rendu)…"
+              placeholder={t('forge.detail.commentPlaceholder')}
+              aria-label={t('forge.detail.commentAria')}
             />
             <div className={p2.row}>
               <button
@@ -473,7 +616,7 @@ export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Pr
                 disabled={busy || !body.trim() || (inline && !refs)}
                 onClick={() => void send()}
               >
-                Envoyer
+                {t('forge.detail.send')}
               </button>
               {replyTo || inline ? (
                 <button
@@ -484,111 +627,147 @@ export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Pr
                     setInline(false)
                   }}
                 >
-                  Annuler
+                  {t('common.cancel')}
                 </button>
               ) : null}
             </div>
-          </div>
-        </div>
+          </section>
+        </>
       ) : null}
 
       {tab === 'jobs' ? (
-        <div className={p2.stack}>
-          <div className={p2.between}>
-            <span className={p2.small}>
-              Pipeline {pipelineId ?? '—'} · {jobs.length} job(s)
+        <>
+          <div className={p2.listHeader}>
+            <span className={p2.label}>
+              {t('forge.detail.pipelineSummary', { id: pipelineId ?? '—', count: jobs.length })}
             </span>
-            <button type="button" className={p2.ghost} onClick={() => void loadJobs()}>
-              Rafraîchir
-            </button>
           </div>
-          {jobs.map((job) => (
-            <div key={job.id} className={p2.jobRow}>
-              <span>
-                {job.stage} / {job.name}
-              </span>
-              <span className={p2.mono}>#{job.id}</span>
-              <span
-                className={
-                  job.status === 'success'
-                    ? p2.good
-                    : job.status === 'failed'
-                      ? p2.bad
-                      : p2.warn
-                }
-              >
-                {job.status}
-              </span>
-              <span className={p2.row}>
-                <button type="button" className={p2.ghost} disabled={busy} onClick={() => void showLog(job)}>
-                  Logs
-                </button>
-                {job.webUrl ? (
-                  <button type="button" className={p2.ghost} onClick={() => void openExternalUrl(job.webUrl!)}>
-                    Ouvrir
-                  </button>
-                ) : null}
-              </span>
+          {jobs.length === 0 ? (
+            <div className={p2.empty} role="status">
+              <h2>{t('forge.detail.noJob')}</h2>
+              <p>{t('forge.detail.noJobHint')}</p>
             </div>
-          ))}
-          {jobs.length === 0 ? <p className={p2.notice}>Aucun job pour ce pipeline.</p> : null}
-          {log ? (
-            <div className={p2.stack}>
-              <div className={p2.between}>
-                <span className={p2.small}>
-                  {log.job.name} · {log.value.bytes} octets
-                  {log.value.truncated ? ' · tronqué' : ''}
-                </span>
-                <span className={p2.row}>
-                  {log.value.nextOffset ? (
+          ) : (
+            <div className={p2.rows}>
+              {jobs.map((job) => (
+                <div key={job.id} className={p2.entry}>
+                  <span
+                    className={p2.dot}
+                    data-tone={
+                      job.status === 'success'
+                        ? 'good'
+                        : job.status === 'failed'
+                          ? 'bad'
+                          : 'warn'
+                    }
+                  />
+                  <span className={p2.entryStack}>
+                    <span className={p2.entryTitle}>
+                      {job.stage} / {job.name}
+                    </span>
+                    <span className={p2.entryMeta}>
+                      <span className={`${p2.chip} ${statusTone(job.status)}`}>
+                        {job.status}
+                      </span>
+                      <span className={p2.mono}>#{job.id}</span>
+                      {job.duration !== undefined ? (
+                        <span>{Math.round(job.duration)} s</span>
+                      ) : null}
+                    </span>
+                  </span>
+                  <span className={p2.entryActions}>
                     <button
                       type="button"
-                      className={p2.ghost}
+                      className={p2.secondary}
                       disabled={busy}
-                      onClick={() => {
-                        setBusy(true)
-                        void api.jobLog({
-                          projectId,
-                          jobId: log.job.id,
-                          offset: log.value.nextOffset,
-                        })
-                          .then((next) =>
-                            setLog({
-                              job: log.job,
-                              value: {
-                                ...next,
-                                text: `${log.value.text}\n${next.text}`,
-                              },
-                            }),
-                          )
-                          .catch((cause) => setError(errorMessage(cause)))
-                          .finally(() => setBusy(false))
-                      }}
+                      onClick={() => void showLog(job)}
                     >
-                      Charger la suite
+                      {t('forge.detail.logs')}
                     </button>
-                  ) : null}
-                  <button type="button" className={p2.ghost} onClick={() => setLog(null)}>
-                    Fermer
-                  </button>
+                    {job.webUrl ? (
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        onClick={() => void openExternalUrl(job.webUrl!)}
+                      >
+                        {t('common.open')}
+                      </button>
+                    ) : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {log ? (
+            <section className={p2.paneSection}>
+              <div className={p2.row}>
+                <span className={p2.label}>
+                  {t('forge.detail.logSummary', {
+                    name: log.job.name,
+                    size: t('common.bytes', { count: formatNumber(log.value.bytes) }),
+                  })}
+                  {log.value.truncated ? t('forge.detail.logTruncated') : ''}
                 </span>
+                <span className={p2.spacer} />
+                {log.value.nextOffset ? (
+                  <button
+                    type="button"
+                    className={p2.ghost}
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true)
+                      void api.jobLog({
+                        projectId,
+                        jobId: log.job.id,
+                        offset: log.value.nextOffset,
+                      })
+                        .then((next) =>
+                          setLog({
+                            job: log.job,
+                            value: {
+                              ...next,
+                              text: `${log.value.text}\n${next.text}`,
+                            },
+                          }),
+                        )
+                        .catch((cause) => setError(errorMessage(cause)))
+                        .finally(() => setBusy(false))
+                    }}
+                  >
+                    {t('forge.detail.logMore')}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  onClick={() => setLog(null)}
+                >
+                  {t('common.close')}
+                </button>
               </div>
               <pre className={p2.log}>{log.value.text}</pre>
-            </div>
+            </section>
           ) : null}
-        </div>
+        </>
       ) : null}
 
       <ConfirmDialog
         open={mergeOpen}
-        title={`Fusionner ${api.short} ${mr.iid}`}
-        consequence={`La merge request sera fusionnée dans ${mr.targetBranch} avec la stratégie ${strategy}${squash ? ', squashée' : ''}${autoMerge ? ', automatiquement dès que la pipeline réussit' : ''}. Le SHA courant est vérifié.`}
-        confirmLabel="Fusionner"
+        title={t('forge.detail.mergeTitle', { short: api.short, iid: mr.iid })}
+        consequence={t('forge.detail.mergeConsequence', {
+          noun: t(api.nounKey),
+          target: mr.targetBranch,
+          strategy,
+          squash: squash ? t('forge.detail.mergeSquash') : '',
+          autoMerge: autoMerge ? t('forge.detail.mergeAutoMerge') : '',
+        })}
+        confirmLabel={t('forge.detail.mergeConfirm')}
         busy={busy}
         onCancel={() => setMergeOpen(false)}
         onConfirm={() => {
           setMergeOpen(false)
-          void run(`${api.noun} fusionnée.`, () =>
+          void run(t('forge.detail.merged', { noun: t(api.nounKey) }), () =>
             api.merge({
               projectId,
               iid: mr.iid,

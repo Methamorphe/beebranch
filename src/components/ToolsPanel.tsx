@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { toolConfigure, toolOpen, toolsDetect } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { useI18n, type MessageKey } from '../i18n'
 import type { ToolDescriptor, ToolKind, ToolsReport } from '../types/git'
 import shared from './p1.module.css'
 
@@ -8,14 +9,15 @@ type Props = {
   repoId: string
 }
 
-const KINDS: Array<{ kind: ToolKind; label: string }> = [
-  { kind: 'editor', label: 'Éditeur' },
-  { kind: 'terminal', label: 'Terminal' },
-  { kind: 'diff', label: 'Diff' },
-  { kind: 'merge', label: 'Merge' },
+const KINDS: Array<{ kind: ToolKind; labelKey: MessageKey }> = [
+  { kind: 'editor', labelKey: 'settings.tools.kind.editor' },
+  { kind: 'terminal', labelKey: 'settings.tools.kind.terminal' },
+  { kind: 'diff', labelKey: 'settings.tools.kind.diff' },
+  { kind: 'merge', labelKey: 'settings.tools.kind.merge' },
 ]
 
 export function ToolsPanel({ repoId }: Props) {
+  const { t } = useI18n()
   const [report, setReport] = useState<ToolsReport | null>(null)
   const [kind, setKind] = useState<ToolKind>('editor')
   const [program, setProgram] = useState('')
@@ -41,7 +43,7 @@ export function ToolsPanel({ repoId }: Props) {
         program: program.trim(),
         args: args.split(/\s+/).filter(Boolean),
       })
-      setNotice(`${result.label} configuré sur ${result.program}.`)
+      setNotice(t('settings.tools.configuredNotice', { label: result.label, program: result.program }))
       setProgram('')
       load()
     } catch (cause) {
@@ -58,18 +60,18 @@ export function ToolsPanel({ repoId }: Props) {
         kind,
         path: path.trim() || undefined,
       })
-      setNotice(`${kind} lancé.`)
+      setNotice(t('settings.tools.launched', { kind: t(KINDS.find((entry) => entry.kind === kind)!.labelKey) }))
     } catch (cause) {
       setError(errorMessage(cause))
     }
   }
 
-  const lists: Array<[string, ToolDescriptor[]]> = report
+  const lists: Array<[MessageKey, ToolDescriptor[]]> = report
     ? [
-        ['Éditeurs détectés', report.editors],
-        ['Terminaux détectés', report.terminals],
-        ['Outils de diff détectés', report.diffTools],
-        ['Outils de merge détectés', report.mergeTools],
+        ['settings.tools.detected.editors', report.editors],
+        ['settings.tools.detected.terminals', report.terminals],
+        ['settings.tools.detected.diffTools', report.diffTools],
+        ['settings.tools.detected.mergeTools', report.mergeTools],
       ]
     : []
 
@@ -77,39 +79,37 @@ export function ToolsPanel({ repoId }: Props) {
     <div className={shared.root}>
       <div className={shared.columns}>
         <section className={shared.card}>
-          <h2>Ouvrir un outil</h2>
+          <h2>{t('settings.tools.openTitle')}</h2>
           <div className={shared.row}>
             <label className={shared.field}>
-              Type d’outil
+              {t('settings.tools.kindLabel')}
               <select
                 value={kind}
                 onChange={(event) => setKind(event.target.value as ToolKind)}
-                aria-label="Type d'outil"
+                aria-label={t('settings.tools.kindAria')}
               >
                 {KINDS.map((entry) => (
                   <option key={entry.kind} value={entry.kind}>
-                    {entry.label}
+                    {t(entry.labelKey)}
                   </option>
                 ))}
               </select>
             </label>
             <label className={shared.field}>
-              Chemin (optionnel)
+              {t('settings.tools.pathLabel')}
               <input
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
-                placeholder="chemin dans le dépôt (éditeur/diff/merge)"
-                aria-label="Chemin"
+                placeholder={t('settings.tools.pathPlaceholder')}
+                aria-label={t('settings.tools.pathAria')}
               />
             </label>
             <button type="button" className={shared.primary} onClick={() => void open()}>
-              Ouvrir
+              {t('common.open')}
             </button>
           </div>
           <p className={shared.notice}>
-            Le terminal s'ouvre dans le worktree. L'éditeur s'ouvre sur le fichier
-            ou le dépôt. Un outil absent produit une erreur explicite ; aucune
-            commande shell arbitraire n'est exécutée.
+            {t('settings.tools.openNotice')}
           </p>
           {notice ? <p className={shared.notice}>{notice}</p> : null}
           {error ? (
@@ -120,40 +120,40 @@ export function ToolsPanel({ repoId }: Props) {
         </section>
 
         <section className={shared.card}>
-          <h2>Configurer un outil</h2>
+          <h2>{t('settings.tools.configureTitle')}</h2>
           <div className={shared.row}>
             <label className={shared.field}>
-              Type d’outil
+              {t('settings.tools.kindLabel')}
               <select
                 value={kind}
                 onChange={(event) => setKind(event.target.value as ToolKind)}
-                aria-label="Type à configurer"
+                aria-label={t('settings.tools.configureKindAria')}
               >
                 {KINDS.map((entry) => (
                   <option key={entry.kind} value={entry.kind}>
-                    {entry.label}
+                    {t(entry.labelKey)}
                   </option>
                 ))}
               </select>
             </label>
             <label className={shared.field}>
-              Programme
+              {t('settings.tools.programLabel')}
               <input
                 value={program}
                 onChange={(event) => setProgram(event.target.value)}
-                placeholder="programme (ex. meld)"
-                aria-label="Programme"
+                placeholder={t('settings.tools.programPlaceholder')}
+                aria-label={t('settings.tools.programAria')}
               />
             </label>
           </div>
           <div className={shared.row}>
             <label className={shared.field} style={{ flex: 1 }}>
-              Arguments
+              {t('settings.tools.argsLabel')}
               <input
                 value={args}
                 onChange={(event) => setArgs(event.target.value)}
-                placeholder="{path} ou {left} {right} ou {ours} {base} {theirs} --output={output}"
-                aria-label="Arguments"
+                placeholder={t('settings.tools.argsPlaceholder')}
+                aria-label={t('settings.tools.argsAria')}
               />
             </label>
             <button
@@ -162,11 +162,11 @@ export function ToolsPanel({ repoId }: Props) {
               disabled={!program.trim()}
               onClick={() => void configure()}
             >
-              Enregistrer
+              {t('common.save')}
             </button>
           </div>
           <p className={shared.notice}>
-            Placeholders : <code>{'{path}'}</code>, <code>{'{left}'}</code>,{' '}
+            {t('settings.tools.placeholders')} <code>{'{path}'}</code>, <code>{'{left}'}</code>,{' '}
             <code>{'{right}'}</code>, <code>{'{base}'}</code>, <code>{'{ours}'}</code>,{' '}
             <code>{'{theirs}'}</code>, <code>{'{output}'}</code>.
           </p>
@@ -174,14 +174,14 @@ export function ToolsPanel({ repoId }: Props) {
       </div>
 
       <section className={shared.card}>
-        <h2>Détection</h2>
+        <h2>{t('settings.tools.detectionTitle')}</h2>
         {report ? (
           <div className={shared.split}>
             {lists.map(([label, list]) => (
               <div key={label}>
-                <h3>{label}</h3>
+                <h3>{t(label)}</h3>
                 {list.length === 0 ? (
-                  <p className={shared.notice}>Aucun.</p>
+                  <p className={shared.notice}>{t('settings.tools.none')}</p>
                 ) : (
                   <div className={shared.stack}>
                     {list.map((tool) => (
@@ -194,9 +194,9 @@ export function ToolsPanel({ repoId }: Props) {
               </div>
             ))}
             <div>
-              <h3>Configurés</h3>
+              <h3>{t('settings.tools.configured')}</h3>
               {report.configured.length === 0 ? (
-                <p className={shared.notice}>Aucun.</p>
+                <p className={shared.notice}>{t('settings.tools.none')}</p>
               ) : (
                 <div className={shared.stack}>
                   {report.configured.map((tool) => (
@@ -209,7 +209,7 @@ export function ToolsPanel({ repoId }: Props) {
             </div>
           </div>
         ) : (
-          <p className={shared.notice}>Détection…</p>
+          <p className={shared.notice}>{t('settings.tools.detecting')}</p>
         )}
       </section>
     </div>

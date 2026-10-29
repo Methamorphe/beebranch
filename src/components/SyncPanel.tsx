@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import {
   operationCancel,
@@ -9,6 +9,7 @@ import {
   syncPush,
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
+import { useI18n, type MessageKey } from '../i18n'
 import type {
   OperationProgress,
   OperationStarted,
@@ -18,7 +19,7 @@ import type {
   SyncOutcome,
 } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
-import shared from './p1.module.css'
+import p2 from './p2.module.css'
 
 type Props = {
   repoId: string
@@ -26,7 +27,15 @@ type Props = {
   onMutated: () => void
 }
 
+const STRATEGIES: { value: PullStrategy; labelKey: MessageKey }[] = [
+  { value: 'auto', labelKey: 'ops.sync.strategy.auto' },
+  { value: 'ffOnly', labelKey: 'ops.sync.strategy.ffOnly' },
+  { value: 'rebase', labelKey: 'ops.sync.strategy.rebase' },
+  { value: 'merge', labelKey: 'ops.sync.strategy.merge' },
+]
+
 export function SyncPanel({ repoId, generation, onMutated }: Props) {
+  const { t } = useI18n()
   const [status, setStatus] = useState<StatusReport | null>(null)
   const [refs, setRefs] = useState<RefsSnapshot | null>(null)
   const [remote, setRemote] = useState('origin')
@@ -43,6 +52,7 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
   const [outcome, setOutcome] = useState<SyncOutcome | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [errorOutput, setErrorOutput] = useState<string | null>(null)
+  const consoleRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -77,13 +87,13 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
     const stops: Array<() => void> = []
 
     void listen<OperationStarted>('op://started', (event) => {
-      if (!disposed) {
+      if (!disposed && event.payload.repoId === repoId) {
         setOperationId(event.payload.operationId)
       }
     }).then((stop) => (disposed ? stop() : stops.push(stop)))
 
     void listen<OperationProgress>('op://progress', (event) => {
-      if (disposed) {
+      if (disposed || event.payload.repoId !== repoId) {
         return
       }
       const line = `[${event.payload.stream}] ${event.payload.line}`
@@ -94,7 +104,14 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
       disposed = true
       stops.forEach((stop) => stop())
     }
-  }, [])
+  }, [repoId])
+
+  useEffect(() => {
+    const node = consoleRef.current
+    if (node) {
+      node.scrollTop = node.scrollHeight
+    }
+  }, [log])
 
   const run = async (kind: 'fetch' | 'pull' | 'push') => {
     setBusy(true)
@@ -134,127 +151,179 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
     }
   }
 
+  const ahead = status?.branch.ahead ?? 0
+  const behind = status?.branch.behind ?? 0
+
   return (
-    <div className={shared.root}>
-      <div className={shared.columns}>
-        <section className={shared.card}>
-          <h2>Remote et branche</h2>
-          <div className={shared.row}>
-            <label className={shared.field}>
-              Remote
-              <select
-                value={remote}
-                onChange={(event) => {
-                  setRemote(event.target.value)
-                  setRemoteDirty(true)
-                }}
-                aria-label="Remote"
+    <div className={p2.screen}>
+      <div className={p2.toolbar}>
+        <span className={p2.toolbarLabel}>{t('ops.sync.remoteAndBranch')}</span>
+        <select
+          value={remote}
+          onChange={(event) => {
+            setRemote(event.target.value)
+            setRemoteDirty(true)
+          }}
+          aria-label="Remote"
+        >
+          {(refs?.remotes.length ? refs.remotes : ['origin']).map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <input
+          value={branch}
+          onChange={(event) => {
+            setBranch(event.target.value)
+            setBranchDirty(true)
+          }}
+          placeholder={t('ops.sync.branchPlaceholder')}
+          aria-label={t('ops.sync.branchAria')}
+          spellCheck={false}
+        />
+        <span className={p2.spacer} />
+        <span className={`${p2.chip} ${status?.branch.upstream ? '' : p2.chipWarn}`}>
+          {status?.branch.upstream ?? 'sans upstream'}
+        </span>
+        <span className={`${p2.chip} ${ahead > 0 ? p2.chipInfo : ''}`}>↑{ahead}</span>
+        <span className={`${p2.chip} ${behind > 0 ? p2.chipInfo : ''}`}>↓{behind}</span>
+      </div>
+
+      {error ? (
+        <>
+          <p className={p2.alert} role="alert">
+            {error}
+          </p>
+          {errorOutput ? <pre className={p2.code}>{errorOutput}</pre> : null}
+        </>
+      ) : null}
+      {outcome ? (
+        <div className={p2.listHeader} role="status">
+          <span className={`${p2.chip} ${p2.chipGood}`}>{t('ops.sync.outcomeDone', { kind: outcome.kind })}</span>
+          {outcome.remoteSha ? (
+            <span className={`${p2.mono} ${p2.count}`}>
+              {t('ops.sync.remoteSha', { sha: outcome.remoteSha.slice(0, 10) })}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className={p2.screenBody}>
+        <div className={p2.screenMain}>
+          <div className={p2.listHeader}>
+            <span className={p2.label}>{t('ops.sync.title')}</span>
+            <span className={p2.spacer} />
+            <span className={p2.count}>{t('ops.sync.noImplicitForce')}</span>
+          </div>
+
+          <div className={p2.actionRow}>
+            <div>
+              <h3 className={p2.actionRowTitle}>Fetch</h3>
+              <p className={p2.actionRowHint}>
+                {t('ops.sync.fetchHint')}
+              </p>
+            </div>
+            <div className={p2.actionRowControls}>
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={busy || !remote}
+                onClick={() => void run('fetch')}
               >
-                {(refs?.remotes.length ? refs.remotes : ['origin']).map((value) => (
-                  <option key={value} value={value}>
-                    {value}
+                Fetch
+              </button>
+            </div>
+          </div>
+
+          <div className={p2.actionRow}>
+            <div>
+              <h3 className={p2.actionRowTitle}>Pull</h3>
+              <p className={p2.actionRowHint}>
+                {t('ops.sync.pullHint', { remote, branch: branch || '…' })}
+              </p>
+            </div>
+            <div className={p2.actionRowControls}>
+              <select
+                value={strategy}
+                onChange={(event) => setStrategy(event.target.value as PullStrategy)}
+                aria-label={t('ops.sync.strategyAria')}
+              >
+                {STRATEGIES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.labelKey)}
                   </option>
                 ))}
               </select>
-            </label>
-            <label className={shared.field}>
-              Branche distante
-              <input
-                value={branch}
-                onChange={(event) => {
-                  setBranch(event.target.value)
-                  setBranchDirty(true)
-                }}
-                placeholder="branche"
-                aria-label="Branche"
-              />
-            </label>
-          </div>
-          <div className={shared.row}>
-            <span className={shared.badge}>
-              {status?.branch.upstream ?? 'sans upstream'}
-            </span>
-            <span className={shared.badge}>↑{status?.branch.ahead ?? 0}</span>
-            <span className={shared.badge}>↓{status?.branch.behind ?? 0}</span>
-          </div>
-
-          <div className={shared.row}>
-            <button
-              type="button"
-              className={shared.primary}
-              disabled={busy || !remote}
-              onClick={() => void run('fetch')}
-            >
-              Fetch
-            </button>
-            <select
-              value={strategy}
-              onChange={(event) => setStrategy(event.target.value as PullStrategy)}
-              aria-label="Stratégie de pull"
-            >
-              <option value="auto">pull.rebase (auto)</option>
-              <option value="ffOnly">ff-only</option>
-              <option value="rebase">rebase</option>
-              <option value="merge">merge</option>
-            </select>
-            <button
-              type="button"
-              className={shared.primary}
-              disabled={busy || !branch}
-              onClick={() => void run('pull')}
-            >
-              Pull
-            </button>
-          </div>
-          <div className={shared.row}>
-            <label className={shared.checkbox}>
-              <input
-                type="checkbox"
-                checked={setUpstream}
-                onChange={(event) => setSetUpstream(event.target.checked)}
-              />
-              Définir l'upstream
-            </label>
-            <label className={shared.checkbox}>
-              <input
-                type="checkbox"
-                checked={force}
-                onChange={(event) => setForce(event.target.checked)}
-              />
-              Force-with-lease explicite
-            </label>
-            <button
-              type="button"
-              className={shared.primary}
-              disabled={busy || !branch}
-              onClick={() => (force ? setPendingForce(true) : void run('push'))}
-            >
-              Push
-            </button>
-          </div>
-          <p className={shared.notice}>
-            Annulation : arrêt gracieux puis forcé. Un push annulé peut avoir abouti ;
-            l'état distant est revérifié et affiché. Aucun force push implicite.
-          </p>
-          {error ? (
-            <div className={shared.danger} role="alert">
-              <p>{error}</p>
-              {errorOutput ? <pre className={shared.output}>{errorOutput}</pre> : null}
+              <button
+                type="button"
+                className={p2.primary}
+                disabled={busy || !branch}
+                onClick={() => void run('pull')}
+              >
+                Pull
+              </button>
             </div>
-          ) : null}
-          {outcome ? (
-            <p className={shared.success}>
-              {outcome.kind} terminé{outcome.remoteSha ? ` · remote ${outcome.remoteSha.slice(0, 10)}` : ''}.
-            </p>
-          ) : null}
-        </section>
+          </div>
 
-        <section className={shared.card}>
-          <h2>Progression</h2>
-          <div className={shared.row}>
+          <div className={p2.actionRow}>
+            <div>
+              <h3 className={p2.actionRowTitle}>Push</h3>
+              <p className={p2.actionRowHint}>
+                {t('ops.sync.pushHint', { branch: branch || t('ops.sync.currentBranch'), remote })}
+              </p>
+            </div>
+            <div className={p2.actionRowControls}>
+              <label className={p2.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={setUpstream}
+                  onChange={(event) => setSetUpstream(event.target.checked)}
+                />
+                {t('ops.sync.setUpstream')}
+              </label>
+              <label className={p2.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={force}
+                  onChange={(event) => setForce(event.target.checked)}
+                />
+                force-with-lease
+              </label>
+              <button
+                type="button"
+                className={p2.primary}
+                disabled={busy || !branch}
+                onClick={() => (force ? setPendingForce(true) : void run('push'))}
+              >
+                Push
+              </button>
+            </div>
+          </div>
+
+          <p className={p2.noteBlock}>
+            Annulation : arrêt gracieux puis forcé. Un push annulé peut avoir
+            abouti ; l’état distant est revérifié et affiché.
+          </p>
+        </div>
+
+        <aside className={`${p2.screenAside} ${p2.screenAsideFlush}`} aria-label="Progression">
+          <div className={p2.consoleHeader}>
+            <span className={p2.label}>Progression</span>
+            <span className={p2.dot} data-tone={busy ? 'info' : 'good'} />
+            <span className={p2.meta}>{busy ? t('ops.sync.running') : t('ops.sync.idle')}</span>
+            <span className={p2.spacer} />
+            {operationId ? <span className={`${p2.count} ${p2.mono}`}>{operationId}</span> : null}
+          </div>
+
+          <pre className={p2.console} ref={consoleRef} aria-live="polite">
+            {log.join('\n') || t('ops.sync.noOutput')}
+          </pre>
+
+          <div className={p2.footerBar}>
             <button
               type="button"
-              className={shared.dangerButton}
+              className={p2.ghostDanger}
               disabled={!busy || !operationId}
               onClick={() => {
                 if (!operationId) {
@@ -264,24 +333,22 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
                   .then((sent) =>
                     setLog((current) => [
                       ...current,
-                      sent ? 'Annulation demandée.' : 'Opération déjà terminée.',
+                      sent ? t('ops.sync.cancelRequested') : t('ops.sync.alreadyFinished'),
                     ]),
                   )
                   .catch((cause: unknown) => setError(errorMessage(cause)))
               }}
             >
-              Annuler l'opération
+              {t('ops.sync.cancelOperation')}
             </button>
-            {operationId ? <span className={shared.mono}>{operationId}</span> : null}
           </div>
-          <pre className={shared.output}>{log.join('\n') || 'Aucune sortie.'}</pre>
-        </section>
+        </aside>
       </div>
 
       <ConfirmDialog
         open={pendingForce}
         title="Force push"
-        consequence={`L'historique de ${remote}/${branch} sera réécrit. Les commits distants absents localement ne seront plus accessibles facilement. L'ancien SHA est enregistré dans le journal.`}
+        consequence={t('ops.sync.forcePushConsequence', { remote, branch })}
         irreversible
         typed={branch}
         confirmLabel="Force push"

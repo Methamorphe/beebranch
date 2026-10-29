@@ -174,4 +174,38 @@
     --shadow-modal: 0 25px 90px #0003;
     --shadow-pop: 0 10px 30px #0002;
   }
+
+  :root:not([data-theme='dark'])[data-background='image'] {
+    --bg: rgb(245 246 248 / 0.60);
+    --surface: rgb(236 238 242 / 0.82);
+    --surface-raised: rgb(226 229 235 / 0.92);
+    --border: rgb(31 39 51 / 0.14);
+    --border-strong: rgb(31 39 51 / 0.26);
+    --selection-bg: rgb(215 231 251 / 0.88);
+    --bg-scrim: 245 246 248;
+  }
+}
+
+/* Custom wallpaper. The shell and its panes go translucent so the image shows
+   through, with values opaque enough that text keeps its contrast over an
+   arbitrary photo. Mirrored for the OS preference above and the explicit light
+   theme below; the dark palette is the default. */
+:root[data-background='image'] {
+  --bg: rgb(24 27 34 / 0.58);
+  --surface: rgb(32 36 45 / 0.78);
+  --surface-raised: rgb(42 48 60 / 0.88);
+  --border: rgb(120 132 152 / 0.22);
+  --border-strong: rgb(150 164 186 / 0.34);
+  --selection-bg: rgb(48 70 99 / 0.75);
+  --bg-scrim: 24 27 34;
+}
+
+:root[data-theme='light'][data-background='image'] {
+  --bg: rgb(245 246 248 / 0.60);
+  --surface: rgb(236 238 242 / 0.82);
+  --surface-raised: rgb(226 229 235 / 0.92);
+  --border: rgb(31 39 51 / 0.14);
+  --border-strong: rgb(31 39 51 / 0.26);
+  --selection-bg: rgb(215 231 251 / 0.88);
+  --bg-scrim: 245 246 248;
 }

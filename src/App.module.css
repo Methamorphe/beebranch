@@ -6,6 +6,38 @@
   background: var(--bg);
 }
 
+/* The wallpaper sits at z-index -1: behind every pane and its text, above the
+   window canvas, without stealing pointer events. The shell drops its own
+   background so translucent panes reveal the image. */
+.app[data-background='image'] {
+  background: transparent;
+}
+
+.background {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Overscan by the blur radius so the filtered edges never show. */
+.backgroundImage {
+  position: absolute;
+  inset: calc(var(--app-bg-blur, 0px) * -2);
+  background-image: var(--app-bg-image);
+  background-position: center;
+  background-repeat: var(--app-bg-repeat, no-repeat);
+  background-size: var(--app-bg-size, cover);
+  filter: blur(var(--app-bg-blur, 0px));
+}
+
+.backgroundDim {
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--bg-scrim) / var(--app-bg-dim, 0.45));
+}
+
 .body {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

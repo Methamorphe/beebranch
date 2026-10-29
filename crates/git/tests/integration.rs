@@ -1,7 +1,8 @@
 mod common;
 
+use beebranch_git::history::{self, MergeFastForward};
 use beebranch_git::integration::{self, IntegrationMode};
-use beebranch_git::{history, worktree, CommandSpec, GitSubcommand};
+use beebranch_git::{worktree, CommandSpec, GitSubcommand};
 use common::Fixture;
 
 fn current_branch(fixture: &Fixture) -> String {
@@ -45,7 +46,7 @@ fn merge_preview_and_start_are_consistent() {
         "feature",
         &main,
         IntegrationMode::Merge,
-        false,
+        MergeFastForward::Auto,
     )
     .expect("merge");
     assert!(!result.outcome.conflicted);
@@ -54,12 +55,12 @@ fn merge_preview_and_start_are_consistent() {
     assert_eq!(
         fixture.rev_parse(&["--verify", "HEAD"]),
         fixture.rev_parse(&["--verify", "feature"]),
-        "without no_ff the target fast-forwards and no merge commit exists"
+        "without --no-ff the target fast-forwards and no merge commit exists"
     );
 }
 
 #[test]
-fn no_ff_merge_creates_a_merge_commit_even_when_fast_forward_is_possible() {
+fn never_merge_creates_a_merge_commit_even_when_fast_forward_is_possible() {
     let fixture = Fixture::new();
     fixture.commit("a.txt", "base\n", "base");
     let main = current_branch(&fixture);
@@ -83,7 +84,7 @@ fn no_ff_merge_creates_a_merge_commit_even_when_fast_forward_is_possible() {
         "feature",
         &main,
         IntegrationMode::Merge,
-        true,
+        MergeFastForward::Never,
     )
     .expect("merge");
     assert!(!result.outcome.conflicted);
@@ -92,6 +93,105 @@ fn no_ff_merge_creates_a_merge_commit_even_when_fast_forward_is_possible() {
         fixture.rev_parse(&["--verify", "HEAD^2"]),
         feature,
         "HEAD is a merge commit whose second parent is the source branch"
+    );
+}
+
+#[test]
+fn fast_forward_is_explicit_and_ignores_a_merge_ff_false_configuration() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    fixture.config(&["merge.ff", "false"]);
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    let feature = fixture.commit("b.txt", "feature\n", "feature");
+    fixture.switch(&main);
+
+    integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
+    assert_eq!(
+        fixture.rev_parse(&["--verify", "HEAD"]),
+        feature,
+        "an explicit --ff fast-forwards even when merge.ff=false is configured"
+    );
+}
+
+#[test]
+fn ff_only_fast_forwards_when_possible() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    let feature = fixture.commit("b.txt", "feature\n", "feature");
+    fixture.switch(&main);
+
+    let result = integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+        MergeFastForward::Only,
+    )
+    .expect("fast-forward");
+    assert!(!result.outcome.conflicted);
+    assert_eq!(fixture.rev_parse(&["--verify", "HEAD"]), feature);
+    fixture.run_failure(GitSubcommand::RevParse, &["--verify", "HEAD^2"]);
+}
+
+#[test]
+fn ff_only_refuses_a_diverged_target_without_mutating_the_repository() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    fixture.commit("b.txt", "feature\n", "feature");
+    fixture.switch(&main);
+    fixture.commit("c.txt", "main\n", "main");
+    let diverged = fixture.rev_parse(&["--verify", "HEAD"]);
+
+    let preview = integration::preview(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+    )
+    .expect("preview");
+    assert_eq!(preview.behind, 1);
+    assert!(
+        !preview.fast_forward,
+        "the target has a commit the source lacks"
+    );
+
+    let error = integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        &main,
+        IntegrationMode::Merge,
+        MergeFastForward::Only,
+    )
+    .expect_err("fast-forward must be refused");
+    assert_eq!(error.code, "git.merge_not_fast_forward", "{error:?}");
+    assert!(
+        error
+            .remediation
+            .as_deref()
+            .is_some_and(|text| text.contains("commit de fusion")),
+        "{error:?}"
+    );
+    assert_eq!(current_branch(&fixture), main);
+    assert_eq!(fixture.rev_parse(&["--verify", "HEAD"]), diverged);
+    assert!(
+        !fixture.path().join("b.txt").exists(),
+        "the refused merge left the worktree untouched"
     );
 }
 
@@ -111,7 +211,7 @@ fn merge_conflict_keeps_a_typed_abort_path() {
         "feature",
         &main,
         IntegrationMode::Merge,
-        false,
+        MergeFastForward::Auto,
     )
     .expect("conflicted merge is an outcome");
     assert!(result.outcome.conflicted);
@@ -153,7 +253,7 @@ fn rebase_drop_moves_the_target_onto_the_source() {
         "feature",
         &main,
         IntegrationMode::Rebase,
-        false,
+        MergeFastForward::Auto,
     )
     .expect("rebase");
     assert!(!result.outcome.conflicted);
@@ -249,7 +349,7 @@ fn merge_with_dirty_worktree_stashes_then_restores_tracked_changes() {
         "feature",
         &main,
         IntegrationMode::Merge,
-        false,
+        MergeFastForward::Auto,
     )
     .expect("merge");
     assert!(!result.outcome.conflicted);
@@ -295,7 +395,7 @@ fn merge_requiring_checkout_restores_the_stash_on_the_target() {
         "other",
         &main,
         IntegrationMode::Merge,
-        false,
+        MergeFastForward::Auto,
     )
     .expect("merge");
     assert!(result.checked_out_target);
@@ -327,7 +427,7 @@ fn conflicting_merge_keeps_the_auto_stash_until_abort() {
         "feature",
         &main,
         IntegrationMode::Merge,
-        false,
+        MergeFastForward::Auto,
     )
     .expect("conflicted merge is an outcome");
     assert!(result.outcome.conflicted);

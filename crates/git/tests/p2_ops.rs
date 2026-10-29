@@ -4,7 +4,7 @@ use std::path::Path;
 
 use beebranch_git::blame;
 use beebranch_git::conflict;
-use beebranch_git::history::{self, RebaseAction, RebaseStep};
+use beebranch_git::history::{self, MergeFastForward, RebaseAction, RebaseStep};
 use beebranch_git::patch::{self, PatchSource};
 use beebranch_git::refs_admin;
 use beebranch_git::search::{self};
@@ -296,7 +296,13 @@ fn conflict_workspace_reads_stages_and_saves_atomically() {
     fixture.run(GitSubcommand::Switch, &["-c", "theirs"], &[]);
     fixture.commit("shared.txt", "theirs\n", "theirs");
     fixture.switch("ours");
-    let outcome = history::merge(fixture.runner(), fixture.path(), "theirs", false).expect("merge");
+    let outcome = history::merge(
+        fixture.runner(),
+        fixture.path(),
+        "theirs",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
     assert!(outcome.conflicted);
 
     let view = conflict::read(fixture.runner(), fixture.path(), "shared.txt").expect("read");
@@ -593,7 +599,13 @@ fn conflict_save_preserves_crlf() {
     fixture.run(GitSubcommand::Switch, &["-c", "theirs"], &[]);
     fixture.commit("shared.txt", "theirs\r\n", "theirs");
     fixture.switch("ours");
-    history::merge(fixture.runner(), fixture.path(), "theirs", false).expect("merge");
+    history::merge(
+        fixture.runner(),
+        fixture.path(),
+        "theirs",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
     // Git may normalise markers to LF; write CRLF markers to exercise the
     // line-ending preserving save path explicitly.
     std::fs::write(

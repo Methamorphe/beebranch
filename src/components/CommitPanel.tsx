@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import { commitConfig, commitCreate, statusGet } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
-import type { CommitConfigView, CommitOutcome, StatusReport } from '../types/git'
+import { useI18n } from '../i18n'
+import type { CommitConfigView, CommitOutcome, OperationProgress, StatusReport } from '../types/git'
 import shared from './p1.module.css'
 import styles from './CommitPanel.module.css'
 
@@ -15,9 +17,8 @@ type Props = {
 
 const drafts = new Map<string, string>()
 
-const TEMPLATE = 'Résumé court\n\nCorps du message (optionnel).\n'
-
 export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = false }: Props) {
+  const { t, plural } = useI18n()
   const [message, setDraftMessage] = useState(() => drafts.get(repoId) ?? '')
   const setMessage = (next: string) => { drafts.set(repoId, next); setDraftMessage(next) }
   const [amend, setAmend] = useState(false)
@@ -31,6 +32,33 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [undoing, setUndoing] = useState(false)
+  const [hookLog, setHookLog] = useState<string[]>([])
+  const hooking = useRef(false)
+
+  // Git executes the hooks itself: the backend announces them and streams their
+  // output while the commit runs. The listener stays mounted so the first lines
+  // emitted right after `commit_create` are not missed.
+  useEffect(() => {
+    let disposed = false
+    let stop: (() => void) | null = null
+    void listen<OperationProgress>('op://progress', (event) => {
+      if (disposed || !hooking.current || event.payload.repoId !== repoId) {
+        return
+      }
+      const line = `[${event.payload.stream}] ${event.payload.line}`
+      setHookLog((current) => [...current.slice(-199), line])
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten()
+      } else {
+        stop = unlisten
+      }
+    })
+    return () => {
+      disposed = true
+      stop?.()
+    }
+  }, [repoId])
 
   useEffect(() => {
     let cancelled = false
@@ -67,6 +95,8 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
     setErrorOutput(null)
     setOutcome(null)
     setCopied(false)
+    setHookLog([])
+    hooking.current = true
     try {
       const result = await commitCreate({
         repoId,
@@ -85,6 +115,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
       setError(errorMessage(cause))
       setErrorOutput(errorDetail(cause))
     } finally {
+      hooking.current = false
       setBusy(false)
     }
   }
@@ -120,7 +151,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
     <div className={compact ? styles.compact : shared.root}>
       <div className={compact ? styles.stack : shared.columns}>
         <section className={shared.card}>
-          <h2>Nouveau commit</h2>
+          <h2>{t('commit.panel.title')}</h2>
           <textarea
             className={shared.textarea}
             value={message}
@@ -131,20 +162,18 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
                 void submit()
               }
             }}
-            placeholder="Résumé du commit
-
-Description (facultative)"
-            aria-label="Message de commit"
+            placeholder={t('commit.panel.placeholder')}
+            aria-label={t('commit.panel.messageAria')}
             spellCheck
           />
-          <details className={styles.options}><summary>Options du commit{amend ? ' · amend actif' : ''}{allowEmpty ? ' · commit vide autorisé' : ''}</summary><div className={shared.row}>
+          <details className={styles.options}><summary>{t('commit.panel.options')}{amend ? ` · ${t('commit.panel.optionsAmend')}` : ''}{allowEmpty ? ` · ${t('commit.panel.optionsEmpty')}` : ''}</summary><div className={shared.row}>
             <label className={shared.checkbox}>
               <input
                 type="checkbox"
                 checked={amend}
                 onChange={(event) => setAmend(event.target.checked)}
               />
-              Amend
+              {t('commit.panel.amend')}
             </label>
             <label className={shared.checkbox}>
               <input
@@ -153,7 +182,7 @@ Description (facultative)"
                 disabled={!amend}
                 onChange={(event) => setKeepMessage(event.target.checked)}
               />
-              Conserver le message
+              {t('commit.panel.keepMessage')}
             </label>
             <label className={shared.checkbox}>
               <input
@@ -161,56 +190,76 @@ Description (facultative)"
                 checked={allowEmpty}
                 onChange={(event) => setAllowEmpty(event.target.checked)}
               />
-              Autoriser un commit vide
+              {t('commit.panel.allowEmpty')}
             </label>
           </div>
-          <details className={styles.identity}><summary>Identité et signature</summary>
+          <details className={styles.identity}><summary>{t('commit.panel.identity')}</summary>
           {config ? (
             <div className={shared.stack}>
               <span>
                 <strong>{config.name}</strong> · {config.email}
               </span>
               <span>
-                Signature : {config.signing ? 'activée par Git' : 'non configurée'}
-                {config.signingKey ? ` · clé ${config.signingKey}` : ''}
-                {config.signingFormat ? ` · format ${config.signingFormat}` : ''}
+                {t('commit.panel.signature', {
+                  state: config.signing
+                    ? t('commit.panel.signatureEnabled')
+                    : t('commit.panel.signatureDisabled'),
+                })}
+                {config.signingKey ? ` · ${t('commit.panel.signatureKey', { key: config.signingKey })}` : ''}
+                {config.signingFormat ? ` · ${t('commit.panel.signatureFormat', { format: config.signingFormat })}` : ''}
               </span>
             </div>
           ) : (
-            <p className={shared.notice}>Lecture de la configuration…</p>
+            <p className={shared.notice}>{t('commit.panel.loadingConfig')}</p>
           )}
 
-          <p className={shared.notice}>Les hooks et la signature configurés dans Git sont respectés.</p>          </details>
-          <button type="button" className={shared.secondary} disabled={busy} onClick={() => setMessage(TEMPLATE)}>Utiliser un modèle</button>
+          <p className={shared.notice}>{t('commit.panel.hooksNotice')}</p>          </details>
+          <button type="button" className={shared.secondary} disabled={busy} onClick={() => setMessage(t('commit.panel.template'))}>{t('commit.panel.useTemplate')}</button>
           </details>
           <button type="button" className={`${shared.primary} ${styles.submit}`}
             disabled={!canSubmit}
             aria-keyshortcuts="Meta+Enter Control+Enter"
-            title="Créer le commit · ⌘/Ctrl + Entrée"
+            title={t('commit.panel.submitTitle')}
             onClick={() => void submit()}>
-            {busy ? 'Création…' : amend ? 'Amender le commit' : allowEmpty && !status?.counts.staged ? 'Créer un commit vide' : status?.counts.staged ? `Créer le commit · ${status.counts.staged} fichier(s)` : 'Préparez des fichiers pour committer'}
+            {busy
+              ? t('commit.panel.creating')
+              : amend
+                ? t('commit.panel.amendCommit')
+                : allowEmpty && !status?.counts.staged
+                  ? t('commit.panel.createEmpty')
+                  : status?.counts.staged
+                    ? plural('commit.panel.createWithFiles.one', 'commit.panel.createWithFiles.other', status.counts.staged)
+                    : t('commit.panel.needFiles')}
           </button>
-          <p className={styles.shortcutHint}><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Entrée</kbd> pour committer</p>
-          {status?.counts.conflicted ? <p className={shared.danger}>Résolvez les conflits avant de committer.</p> : null}
+          <p className={styles.shortcutHint}><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>{t('commit.panel.enterKey')}</kbd> {t('commit.panel.toCommit')}</p>
+          {hookLog.length > 0 ? (
+            <div className={styles.hookLog} role="status" aria-live="polite">
+              <p className={styles.hookLogTitle}>
+                {busy ? t('commit.panel.hooksRunning') : t('commit.panel.hooksOutput')}
+              </p>
+              <pre className={shared.output}>{hookLog.join('\n')}</pre>
+            </div>
+          ) : null}
+          {status?.counts.conflicted ? <p className={shared.danger}>{t('commit.panel.conflictsHint')}</p> : null}
           {error ? (
             <div className={shared.danger} role="alert" style={{ marginTop: 10 }}>
               <p>{error}</p>
-              {errorOutput ? <pre className={shared.output}>{errorOutput}</pre> : null}
+              {errorOutput && hookLog.length === 0 ? <pre className={shared.output}>{errorOutput}</pre> : null}
             </div>
           ) : null}
           {outcome ? (
             <div className={styles.successFeedback} style={{ marginTop: 10 }}>
               <p className={shared.success} role="status">
-                Commit <code>{outcome.sha.slice(0, 12)}</code> créé
-                {outcome.signed ? ' (signé)' : ''}.
+                {t('common.commit')} <code>{outcome.sha.slice(0, 12)}</code> {t('commit.panel.created')}
+                {outcome.signed ? ` ${t('commit.panel.signed')}` : ''}.
               </p>
               <div className={styles.successActions}>
                 <button type="button" className={shared.secondary} onClick={() => void copySha()}>
-                  {copied ? 'SHA copié' : 'Copier le SHA'}
+                  {copied ? t('commit.panel.shaCopied') : t('commit.panel.copySha')}
                 </button>
                 {onUndo ? (
                   <button type="button" className={shared.secondary} disabled={undoing} onClick={() => void undoCommit()}>
-                    {undoing ? 'Annulation…' : 'Annuler le commit'}
+                    {undoing ? t('commit.panel.undoing') : t('commit.panel.undoCommit')}
                   </button>
                 ) : null}
               </div>

@@ -8,8 +8,10 @@ import {
   worktreeUnlock,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { t, useI18n } from '../i18n'
 import type { WorktreeEntry, WorktreeReport } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -19,17 +21,41 @@ type Props = {
   onOpenRepo: (path: string) => void
 }
 
+function folderName(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? path
+}
+
+function lockState(entry: WorktreeEntry): {
+  tone: string
+  label: string
+} {
+  if (entry.locked !== undefined) {
+    return { tone: 'warn', label: t('ops.worktree.locked') }
+  }
+  if (entry.dirty === undefined) {
+    return { tone: '', label: t('ops.worktree.unknownStatus') }
+  }
+  if (entry.dirty) {
+    return { tone: 'warn', label: t('ops.worktree.changedFiles', { count: entry.changedFiles ?? 0 }) }
+  }
+  return { tone: 'good', label: t('ops.worktree.clean') }
+}
+
 export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Props) {
+  const { t } = useI18n()
   const [report, setReport] = useState<WorktreeReport | null>(null)
   const [path, setPath] = useState('')
   const [reference, setReference] = useState('HEAD')
   const [newBranch, setNewBranch] = useState('')
   const [detach, setDetach] = useState(false)
-  const [lockReason, setLockReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = useState<WorktreeEntry | null>(null)
+  const [lockTarget, setLockTarget] = useState<WorktreeEntry | null>(null)
+  const [lockReason, setLockReason] = useState('')
+  const [pruneOpen, setPruneOpen] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -59,198 +85,261 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
     }
   }
 
-  return (
-    <div className={p2.page}>
-      <div className={p2.stack} style={{ flex: 1, maxWidth: 1050 }}>
-        <div className={p2.between}>
-          <h2 className={p2.cardTitle}>Worktrees</h2>
-          <div className={p2.row}>
-            <button
-              type="button"
-              className={p2.secondary}
-              disabled={busy}
-              onClick={() => void run('Prune (simulation) terminé.', () => worktreePrune(repoId, true))}
-            >
-              Prune (simulation)
-            </button>
-            <button
-              type="button"
-              className={p2.secondary}
-              disabled={busy}
-              onClick={() => void run('Prune terminé.', () => worktreePrune(repoId, false))}
-            >
-              Prune
-            </button>
-          </div>
-        </div>
-        <p className={p2.notice}>
-          Chaque worktree possède sa session et son statut. Ouvrez-le dans un
-          onglet pour travailler dessus sans changer de répertoire.
-        </p>
-        {error ? <p className={p2.errorText} role="alert">{error}</p> : null}
-        {notice ? <p className={p2.notice}>{notice}</p> : null}
+  const entries = report?.entries ?? []
 
-        <div className={p2.table}>
-          <div className={p2.tableHead}>
-            <span>Chemin</span>
-            <span>Branche</span>
-            <span>État</span>
-            <span />
-          </div>
-          {report?.entries.length ? null : (
-            <div className={p2.empty} style={{ padding: 20 }}>
-              Chargement…
-            </div>
-          )}
-          {report?.entries.map((entry) => (
-            <div key={entry.path} className={p2.tableRow}>
-              <div style={{ minWidth: 0 }}>
-                <div className={p2.listSub} style={{ color: 'var(--text)' }}>
-                  {entry.path.split('/').pop() ?? entry.path}
-                  {entry.main ? ' · principal' : ''}
-                </div>
-                <div className={p2.listSub}>{entry.path}</div>
-              </div>
-              <span className={p2.mono}>
-                {entry.branch ?? (entry.detached ? 'detached' : '—')}
-              </span>
-              <span>
-                {entry.locked !== undefined ? (
-                  <span className={p2.warn}>verrouillé</span>
-                ) : entry.dirty === undefined ? (
-                  <span className={p2.muted}>statut inconnu</span>
-                ) : entry.dirty ? (
-                  <span className={p2.warn}>{entry.changedFiles} fichier(s)</span>
-                ) : (
-                  <span className={p2.good}>propre</span>
-                )}
-              </span>
-              <span className={p2.row}>
-                <button
-                  type="button"
-                  className={p2.secondary}
-                  disabled={busy}
-                  onClick={() => onOpenRepo(entry.path)}
-                >
-                  Ouvrir
-                </button>
-                {entry.main ? null : (
-                  <>
-                    {entry.locked !== undefined ? (
-                      <button
-                        type="button"
-                        className={p2.ghost}
-                        disabled={busy}
-                        onClick={() =>
-                          void run('Déverrouillé.', () => worktreeUnlock({ repoId, path: entry.path }))
-                        }
-                      >
-                        Déverrouiller
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className={p2.ghost}
-                        disabled={busy}
-                        onClick={() =>
-                          void run('Verrouillé.', () =>
-                            worktreeLock({
-                              repoId,
-                              path: entry.path,
-                              reason: lockReason.trim() || undefined,
-                            }),
-                          )
-                        }
-                      >
-                        Verrouiller
-                      </button>
-                    )}
+  return (
+    <div className={p2.screen}>
+      <div className={p2.toolbar}>
+        <span className={`${p2.count} ${p2.tabnum}`}>
+          {t('ops.worktree.count', { count: entries.length })}
+        </span>
+        <span className={p2.spacer} />
+        <button
+          type="button"
+          className={p2.ghost}
+          disabled={busy}
+          onClick={() =>
+            void run(t('ops.worktree.notice.pruneDryRunDone'), () => worktreePrune(repoId, true))
+          }
+        >
+          {t('ops.worktree.pruneDryRun')}
+        </button>
+        <button
+          type="button"
+          className={p2.secondary}
+          disabled={busy}
+          onClick={() => setPruneOpen(true)}
+        >
+          {t('ops.worktree.prune')}
+        </button>
+      </div>
+
+      <p className={p2.hintBar}>{t('ops.worktree.hint')}</p>
+
+      {error ? (
+        <p className={p2.alert} role="alert">
+          {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <div className={p2.listHeader} role="status">
+          <span className={p2.meta}>{notice}</span>
+        </div>
+      ) : null}
+
+      <div className={p2.screenBody}>
+        <div className={p2.screenMain}>
+          <div className={p2.rows}>
+            {entries.map((entry) => {
+              const state = lockState(entry)
+              return (
+                <div key={entry.path} className={p2.entry}>
+                  <span className={p2.dot} data-tone={state.tone || undefined} />
+                  <div className={p2.entryStack}>
                     <button
                       type="button"
-                      className={p2.danger}
-                      disabled={busy}
-                      onClick={() => setPendingRemove(entry)}
+                      className={p2.linkButton}
+                      onClick={() => onOpenRepo(entry.path)}
+                      title={t('ops.worktree.openTitle', { path: entry.path })}
                     >
-                      Retirer
+                      {folderName(entry.path)}
                     </button>
-                  </>
-                )}
-              </span>
+                    <span className={p2.entryMeta}>
+                      <span className={p2.mono}>{entry.path}</span>
+                    </span>
+                    <span className={p2.entryMeta}>
+                      <span className={`${p2.chip} ${entry.branch ? '' : p2.chipWarn}`}>
+                        {entry.branch ?? (entry.detached ? 'detached' : '—')}
+                      </span>
+                      {entry.main ? <span className={`${p2.chip} ${p2.chipAccent}`}>{t('ops.worktree.main')}</span> : null}
+                      <span className={p2.meta}>{state.label}</span>
+                    </span>
+                  </div>
+                  <span className={p2.entryActions}>
+                    <button
+                      type="button"
+                      className={p2.secondary}
+                      disabled={busy}
+                      onClick={() => onOpenRepo(entry.path)}
+                    >
+                      {t('ops.worktree.open')}
+                    </button>
+                    {entry.main ? null : (
+                      <>
+                        {entry.locked !== undefined ? (
+                          <button
+                            type="button"
+                            className={p2.ghost}
+                            disabled={busy}
+                            onClick={() =>
+                              void run(t('ops.worktree.notice.unlocked'), () =>
+                                worktreeUnlock({ repoId, path: entry.path }),
+                              )
+                            }
+                          >
+                            {t('ops.worktree.unlock')}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className={p2.ghost}
+                            disabled={busy}
+                            onClick={() => {
+                              setLockReason('')
+                              setLockTarget(entry)
+                            }}
+                          >
+                            {t('ops.worktree.lock')}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={p2.ghostDanger}
+                          disabled={busy}
+                          onClick={() => setPendingRemove(entry)}
+                        >
+                          {t('ops.worktree.remove')}
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {!report ? (
+            <div className={p2.empty} role="status">
+              <h2>{t('common.loading')}</h2>
+              <p>{t('ops.worktree.loadingBody')}</p>
             </div>
-          ))}
+          ) : null}
+          {report && entries.length === 0 ? (
+            <div className={p2.empty} role="status">
+              <h2>{t('ops.worktree.emptyTitle')}</h2>
+              <p>{t('ops.worktree.emptyBody')}</p>
+            </div>
+          ) : null}
         </div>
 
-        <h3 className={p2.sectionTitle}>Créer un worktree</h3>
-        <div className={p2.row}>
-          <label className={p2.field} style={{ flex: 2 }}>
-            Chemin absolu
-            <input
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-              placeholder="/Users/you/src/project-feature"
-              spellCheck={false}
-            />
-          </label>
-          <label className={p2.field}>
-            Référence
-            <input
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-              placeholder="HEAD ou feature/x"
-              spellCheck={false}
-            />
-          </label>
-          <label className={p2.field}>
-            Nouvelle branche (optionnel)
-            <input
-              value={newBranch}
-              onChange={(event) => setNewBranch(event.target.value)}
-              placeholder="feature/nouvelle"
-              spellCheck={false}
-            />
-          </label>
-          <label className={p2.checkbox}>
-            <input type="checkbox" checked={detach} onChange={(event) => setDetach(event.target.checked)} />
-            detached
-          </label>
-          <button
-            type="button"
-            className={p2.primary}
-            disabled={busy || !path.trim() || !reference.trim()}
-            onClick={() =>
-              void run('Worktree créé.', async () => {
-                await worktreeAdd({
-                  repoId,
-                  path: path.trim(),
-                  reference: reference.trim(),
-                  newBranch: newBranch.trim() || undefined,
-                  detach,
+        <aside className={p2.screenAside} aria-label={t('ops.worktree.createAria')}>
+          <section className={p2.asideSection}>
+            <h2 className={p2.asideTitle}>{t('ops.worktree.createTitle')}</h2>
+            <label className={p2.field}>
+              {t('ops.worktree.pathLabel')}
+              <input
+                value={path}
+                onChange={(event) => setPath(event.target.value)}
+                placeholder="/Users/you/src/project-feature"
+                spellCheck={false}
+              />
+            </label>
+            <label className={p2.field}>
+              {t('ops.worktree.referenceLabel')}
+              <input
+                value={reference}
+                onChange={(event) => setReference(event.target.value)}
+                placeholder={t('ops.worktree.referencePlaceholder')}
+                spellCheck={false}
+              />
+            </label>
+            <label className={p2.field}>
+              {t('ops.worktree.newBranchLabel')}
+              <input
+                value={newBranch}
+                onChange={(event) => setNewBranch(event.target.value)}
+                placeholder={t('ops.worktree.newBranchPlaceholder')}
+                spellCheck={false}
+              />
+            </label>
+            <label className={p2.checkbox}>
+              <input
+                type="checkbox"
+                checked={detach}
+                onChange={(event) => setDetach(event.target.checked)}
+              />
+              {t('ops.worktree.detachedHead')}
+            </label>
+            <button
+              type="button"
+              className={p2.primary}
+              disabled={busy || !path.trim() || !reference.trim()}
+              onClick={() =>
+                void run(t('ops.worktree.notice.created'), async () => {
+                  await worktreeAdd({
+                    repoId,
+                    path: path.trim(),
+                    reference: reference.trim(),
+                    newBranch: newBranch.trim() || undefined,
+                    detach,
+                  })
+                  setPath('')
+                  setNewBranch('')
                 })
-                setPath('')
-                setNewBranch('')
-              })
-            }
-          >
-            Créer
-          </button>
-        </div>
-        <label className={p2.field} style={{ maxWidth: 420 }}>
-          Raison de verrouillage (optionnel)
+              }
+            >
+              {t('common.create')}
+            </button>
+            <p className={p2.asideHint}>
+              {t('ops.worktree.createHint')}
+            </p>
+          </section>
+        </aside>
+      </div>
+
+      <Dialog
+        open={lockTarget !== null}
+        onClose={() => setLockTarget(null)}
+        busy={busy}
+        titleId="worktree-lock-title"
+      >
+        <h2 id="worktree-lock-title">{t('ops.worktree.lockTitle')}</h2>
+        <p className={p2.mono}>{lockTarget?.path}</p>
+        <label className={p2.field}>
+          {t('ops.worktree.lockReasonLabel')}
           <input
             value={lockReason}
             onChange={(event) => setLockReason(event.target.value)}
-            placeholder="maintenance, disque externe…"
+            placeholder={t('ops.worktree.lockReasonPlaceholder')}
+            autoFocus
           />
         </label>
-      </div>
+        <div className={p2.dialogActions}>
+          <span className={p2.spacer} />
+          <button type="button" className={p2.ghost} onClick={() => setLockTarget(null)}>
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className={p2.primary}
+            disabled={busy || !lockTarget}
+            onClick={() => {
+              const target = lockTarget
+              setLockTarget(null)
+              if (!target) {
+                return
+              }
+              void run(t('ops.worktree.notice.locked'), () =>
+                worktreeLock({
+                  repoId,
+                  path: target.path,
+                  reason: lockReason.trim() || undefined,
+                }),
+              )
+            }}
+          >
+            {t('ops.worktree.lock')}
+          </button>
+        </div>
+      </Dialog>
 
       <ConfirmDialog
         open={pendingRemove !== null}
-        title="Retirer un worktree"
-        consequence={`Le worktree ${pendingRemove?.path ?? ''} sera retiré. Git refuse si des modifications non commitées existent, sauf suppression forcée.`}
+        title={t('ops.worktree.removeTitle')}
+        consequence={t('ops.worktree.removeConsequence', { path: pendingRemove?.path ?? '' })}
         irreversible
         typed={pendingRemove?.dirty ? pendingRemove.path : undefined}
-        confirmLabel="Retirer"
+        confirmLabel={t('ops.worktree.remove')}
         busy={busy}
         onCancel={() => setPendingRemove(null)}
         onConfirm={(typed) => {
@@ -259,7 +348,7 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
           if (!target) {
             return
           }
-          void run('Worktree retiré.', () =>
+          void run(t('ops.worktree.notice.removed'), () =>
             worktreeRemove({
               repoId,
               path: target.path,
@@ -270,6 +359,19 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
               },
             }),
           )
+        }}
+      />
+
+      <ConfirmDialog
+        open={pruneOpen}
+        title={t('ops.worktree.pruneTitle')}
+        consequence={t('ops.worktree.pruneConsequence')}
+        confirmLabel={t('ops.worktree.pruneConfirm')}
+        busy={busy}
+        onCancel={() => setPruneOpen(false)}
+        onConfirm={() => {
+          setPruneOpen(false)
+          void run(t('ops.worktree.notice.pruneDone'), () => worktreePrune(repoId, false))
         }}
       />
     </div>

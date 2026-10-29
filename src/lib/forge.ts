@@ -49,6 +49,7 @@ import {
   githubStatus,
   githubUnapprove,
 } from '../ipc/commands'
+import type { MessageKey, TranslationParams } from '../i18n'
 import type {
   ApprovalsDto,
   GitlabDiscussion,
@@ -65,6 +66,28 @@ import type {
 } from '../types/git'
 
 export type ForgeId = 'gitlab' | 'github'
+
+/**
+ * A notice kept as a catalogue key instead of a rendered string, so it
+ * follows the interface language when the user switches it.
+ */
+export type ForgeNotice = {
+  key: MessageKey
+  params?: TranslationParams
+} | null
+
+/**
+ * Token creation page for the entered instance, with the scopes the connector
+ * requires prefilled where the forge supports it. Falls back to the forge's
+ * token list when the query is ignored (older selves of GitLab).
+ */
+export function tokenCreateUrl(forge: ForgeId, baseUrl: string): string {
+  const fallback = forge === 'github' ? 'https://github.com' : 'https://gitlab.com'
+  const base = (baseUrl.trim() || fallback).replace(/\/+$/, '')
+  return forge === 'github'
+    ? `${base}/settings/tokens/new?scopes=repo,read:user,checks:read&description=beebranch`
+    : `${base}/-/user_settings/personal_access_tokens?name=beebranch&scopes=api,read_user,read_repository`
+}
 export type ForgeScope = 'createdByMe' | 'reviewsForMe' | 'assignedToMe' | 'project'
 export type ForgeMergeRequest = GitlabMergeRequest & { repositoryName?: string }
 
@@ -85,13 +108,15 @@ export type ForgeCapabilities = {
 
 export type ForgeApi = {
   id: ForgeId
+  /** Brand name, kept verbatim in every language, e.g. `GitLab`. */
   label: string
-  /** Full noun, e.g. `merge request` / `pull request`. */
-  noun: string
+  /** Catalogue key of the full noun, e.g. `merge request` / `pull request`. */
+  nounKey: MessageKey
   /** Short badge, e.g. `MR` / `PR`. */
   short: string
-  title: string
-  scopes: Array<{ value: ForgeScope; label: string }>
+  /** Catalogue key of the list title, e.g. `Merge requests`. */
+  titleKey: MessageKey
+  scopes: Array<{ value: ForgeScope; labelKey: MessageKey }>
   capabilities: ForgeCapabilities
   status: () => Promise<GitlabSession>
   projectsPage: (input: {
@@ -191,14 +216,14 @@ function gitlabScope(scope: ForgeScope): 'createdByMe' | 'assignedToMe' | 'revie
 export const gitlabForge: ForgeApi = {
   id: 'gitlab',
   label: 'GitLab',
-  noun: 'merge request',
+  nounKey: 'forge.gitlab.noun',
   short: 'MR',
-  title: 'Merge requests',
+  titleKey: 'forge.gitlab.title',
   scopes: [
-    { value: 'createdByMe', label: 'Mes MR' },
-    { value: 'reviewsForMe', label: 'À relire' },
-    { value: 'assignedToMe', label: 'Assignées' },
-    { value: 'project', label: 'Projet' },
+    { value: 'createdByMe', labelKey: 'forge.scope.createdByMe' },
+    { value: 'reviewsForMe', labelKey: 'forge.scope.reviewsForMe' },
+    { value: 'assignedToMe', labelKey: 'forge.scope.assignedToMe' },
+    { value: 'project', labelKey: 'forge.scope.project' },
   ],
   capabilities: {
     resolveThreads: true,
@@ -240,14 +265,14 @@ export const gitlabForge: ForgeApi = {
 export const githubForge: ForgeApi = {
   id: 'github',
   label: 'GitHub',
-  noun: 'pull request',
+  nounKey: 'forge.github.noun',
   short: 'PR',
-  title: 'Pull requests',
+  titleKey: 'forge.github.title',
   scopes: [
-    { value: 'createdByMe', label: 'Mes PR' },
-    { value: 'reviewsForMe', label: 'À relire' },
-    { value: 'assignedToMe', label: 'Assignées' },
-    { value: 'project', label: 'Projet' },
+    { value: 'createdByMe', labelKey: 'forge.scope.createdByMe' },
+    { value: 'reviewsForMe', labelKey: 'forge.scope.reviewsForMe' },
+    { value: 'assignedToMe', labelKey: 'forge.scope.assignedToMe' },
+    { value: 'project', labelKey: 'forge.scope.project' },
   ],
   capabilities: {
     resolveThreads: false,

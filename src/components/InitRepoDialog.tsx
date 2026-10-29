@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import type { InitInput } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import { useI18n } from '../i18n'
 import { useModal } from '../hooks/useModal'
 import styles from './InitRepoDialog.module.css'
 
@@ -35,6 +36,7 @@ export function InitRepoDialog({
   onCreate,
   onPickParent,
 }: Props) {
+  const { t } = useI18n()
   const ref = useModal(true, onClose, busy)
   const [parent, setParent] = useState(defaultParent)
   const [name, setName] = useState('')
@@ -97,10 +99,10 @@ export function InitRepoDialog({
         aria-labelledby="init-repo-title"
       >
         <header>
-          <h2 id="init-repo-title">Créer un dépôt local</h2>
+          <h2 id="init-repo-title">{t('shell.init.title')}</h2>
           <button
             type="button"
-            aria-label="Fermer la création du dépôt"
+            aria-label={t('shell.init.close')}
             disabled={disabled}
             onClick={onClose}
           >
@@ -109,14 +111,14 @@ export function InitRepoDialog({
         </header>
         <form onSubmit={(event) => void submit(event)}>
           <label className={styles.field}>
-            Dossier parent
+            {t('shell.init.parentFolder')}
             <div className={styles.pathRow}>
               <input
                 value={parent}
                 onChange={(event) => setParent(event.target.value)}
-                placeholder="/Users/vous/src"
+                placeholder={t('shell.init.parentPlaceholder')}
                 spellCheck={false}
-                aria-label="Dossier parent"
+                aria-label={t('shell.init.parentFolder')}
               />
               <button
                 type="button"
@@ -124,45 +126,43 @@ export function InitRepoDialog({
                 onClick={() => void browse()}
                 disabled={disabled}
               >
-                Parcourir…
+                {t('shell.init.browse')}
               </button>
             </div>
           </label>
           <label className={styles.field}>
-            Nom du dépôt
+            {t('shell.init.repoName')}
             <input
               data-autofocus
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="mon-projet"
+              placeholder={t('shell.init.namePlaceholder')}
               spellCheck={false}
               required
-              aria-label="Nom du dépôt"
+              aria-label={t('shell.init.repoName')}
               aria-invalid={showNameError || undefined}
             />
           </label>
           {showNameError ? (
             <p className={styles.error} role="alert">
-              Le nom ne peut pas contenir « / » ou « \ ».
+              {t('shell.init.invalidName')}
             </p>
           ) : null}
           <label className={styles.field}>
-            Branche initiale (optionnel)
+            {t('shell.init.initialBranch')}
             <input
               value={branch}
               onChange={(event) => setBranch(event.target.value)}
-              placeholder="suit init.defaultBranch"
+              placeholder={t('shell.init.branchPlaceholder')}
               spellCheck={false}
-              aria-label="Branche initiale"
+              aria-label={t('shell.init.initialBranchLabel')}
             />
           </label>
           <p className={styles.preview}>
-            {destination || 'Choisissez un dossier parent et un nom.'}
+            {destination || t('shell.init.previewEmpty')}
           </p>
           <p className={styles.hint}>
-            Le dossier est créé s’il n’existe pas. Un dossier existant est
-            conservé : ses fichiers restent non suivis tant qu’ils ne sont pas
-            ajoutés.
+            {t('shell.init.hint')}
           </p>
           {error ? (
             <p className={styles.error} role="alert">
@@ -176,14 +176,14 @@ export function InitRepoDialog({
               onClick={onClose}
               disabled={disabled}
             >
-              Annuler
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               className={styles.primary}
               disabled={disabled || !destination}
             >
-              {submitting ? 'Création…' : 'Créer le dépôt'}
+              {submitting ? t('shell.init.creating') : t('shell.init.create')}
             </button>
           </footer>
         </form>

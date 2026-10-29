@@ -25,6 +25,36 @@ pub struct HistoryOutcome {
     pub conflicted: bool,
 }
 
+/// How a merge may move the target branch.
+///
+/// The flag is always passed explicitly so the result never depends on the
+/// repository's `merge.ff` configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MergeFastForward {
+    /// Fast-forward when the target is an ancestor of the source, merge commit
+    /// otherwise (`--ff`).
+    #[default]
+    Auto,
+    /// Require a fast-forward (`--ff-only`): Git refuses to create a merge
+    /// commit when the target has commits the source lacks.
+    Only,
+    /// Always create a merge commit, even when a fast-forward is possible
+    /// (`--no-ff`).
+    Never,
+}
+
+impl MergeFastForward {
+    /// Explicit Git flag: the repository configuration cannot override it.
+    pub const fn flag(self) -> &'static str {
+        match self {
+            Self::Auto => "--ff",
+            Self::Only => "--ff-only",
+            Self::Never => "--no-ff",
+        }
+    }
+}
+
 /// Refuse to start a new history operation while another is in progress.
 pub fn ensure_idle(runner: &GitRunner, worktree: &Path) -> Result<RepoState, AppError> {
     let detected = detect_state(runner, worktree)?;
@@ -40,21 +70,22 @@ pub fn ensure_idle(runner: &GitRunner, worktree: &Path) -> Result<RepoState, App
 }
 
 /// Start a merge. A conflicting merge is returned as an outcome, not an error.
+///
+/// The fast-forward behaviour is explicit (`--ff`, `--ff-only` or `--no-ff`),
+/// so a local `merge.ff` setting can never change what the caller asked for.
 pub fn merge(
     runner: &GitRunner,
     worktree: &Path,
     target: &str,
-    no_ff: bool,
+    fast_forward: MergeFastForward,
 ) -> Result<HistoryOutcome, AppError> {
     crate::log::validate_revision(target)?;
     ensure_idle(runner, worktree)?;
-    let mut spec = CommandSpec::new(GitSubcommand::Merge, worktree)
+    let spec = CommandSpec::new(GitSubcommand::Merge, worktree)
         .arg("--no-edit")
-        .capture_limits(output_limits());
-    if no_ff {
-        spec = spec.arg("--no-ff");
-    }
-    spec = spec.arg(target);
+        .arg(fast_forward.flag())
+        .capture_limits(output_limits())
+        .arg(target);
     run_stateful(runner, worktree, spec)
 }
 

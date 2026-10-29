@@ -8,8 +8,8 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::commands::util::{
-    begin_operation, finish_operation, new_operation_id, run_undoable_mutation, MutationResult,
-    UndoDraft, UndoMeta,
+    announce_hooks, begin_operation, finish_operation, new_operation_id, operation_progress,
+    run_undoable_mutation, MutationResult, UndoDraft, UndoMeta,
 };
 use crate::state::AppState;
 
@@ -41,6 +41,7 @@ pub async fn commit_config(
 
 #[tauri::command]
 pub async fn commit_create(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     request: CommitRequest,
 ) -> Result<MutationResult<CommitOutcome>, AppError> {
@@ -61,6 +62,8 @@ pub async fn commit_create(
     };
     let amend = options.amend;
     let store = state.store.clone();
+    let progress_operation = operation_id.clone();
+    let progress_repo = request.repo_id.clone();
     let result = run_undoable_mutation(
         session,
         store,
@@ -76,7 +79,21 @@ pub async fn commit_create(
         },
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
-            let outcome = commit::create(runner, worktree, &options)?;
+            // Informational only: failing to list hooks must not block the
+            // commit, Git runs them anyway.
+            let hooks = beebranch_git::hooks::active(
+                runner,
+                worktree,
+                beebranch_git::hooks::HookPoint::Commit,
+            )
+            .unwrap_or_default();
+            announce_hooks(&app, &progress_operation, &progress_repo, &hooks);
+            let outcome = commit::create_streaming(
+                runner,
+                worktree,
+                &options,
+                operation_progress(&app, &progress_operation, &progress_repo),
+            )?;
             let short = outcome.sha.chars().take(10).collect::<String>();
             let label = if amend {
                 format!("amend du commit {short}")

@@ -2,6 +2,7 @@ import { useLayoutEffect, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { CommitSummary, RefEntry } from '../types/git'
 import { graphCommitRefs, graphRefKind, graphRefLabel, isCheckoutableRef } from '../lib/graphRefs'
+import { useI18n } from '../i18n'
 import { ViewIcon } from './ViewIcon'
 import styles from './GraphRefPopover.module.css'
 
@@ -17,6 +18,7 @@ export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose
   onLeave: () => void
   elementRef: RefObject<HTMLDivElement | null>
 }) {
+  const { t } = useI18n()
   useLayoutEffect(() => {
     const popup = elementRef.current
     if (!popup) return
@@ -29,15 +31,15 @@ export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose
     observer.observe(popup)
     return () => observer.disconnect()
   }, [anchor, elementRef])
-  return createPortal(<div ref={elementRef} className={styles.popup} role="group" aria-label="Branches et tags de ce commit" onPointerEnter={onEnter} onPointerLeave={onLeave} onBlur={(event) => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) onLeave() }}
+  return createPortal(<div ref={elementRef} className={styles.popup} role="group" aria-label={t('graph.popover.aria')} onPointerEnter={onEnter} onPointerLeave={onLeave} onBlur={(event) => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) onLeave() }}
     onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
     {graphCommitRefs(anchor.commit, entries).map(({ raw, entry, key }) => {
       const checkoutable = isCheckoutableRef(entry)
       const kind = graphRefKind(raw, entry)
       const label = graphRefLabel(raw)
-      const kindLabel = entry?.isHead ? 'active' : kind === 'tag' ? 'tag' : kind === 'remote' ? 'distante' : 'locale'
+      const kindLabel = entry?.isHead ? t('graph.ref.kind.active') : kind === 'tag' ? t('graph.ref.kind.tag') : kind === 'remote' ? t('graph.ref.kind.remote') : t('graph.ref.kind.local')
       return <button key={key} type="button" className={styles.reference} data-ref={raw} data-kind={kind} disabled={disabled || !checkoutable || entry.isHead}
-        title={kind === 'tag' ? 'Tag' : entry?.isHead ? 'Branche active' : checkoutable ? 'Double-clic pour checkout · Entrée au clavier' : 'Référence symbolique'}
+        title={kind === 'tag' ? t('graph.popover.tag') : entry?.isHead ? t('graph.popover.head') : checkoutable ? t('graph.popover.checkout') : t('graph.popover.symbolic')}
         aria-label={`${label} · ${kindLabel}`}
         onDoubleClick={() => { if (checkoutable) onCheckout(entry!.fullName) }}
         onKeyDown={(event) => { if (checkoutable && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onCheckout(entry!.fullName) } }}>

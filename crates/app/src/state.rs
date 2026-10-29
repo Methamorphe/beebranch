@@ -14,6 +14,54 @@ pub type OperationHandle = (String, Arc<AtomicBool>);
 /// Registry shared by commands and long-running operation workers.
 pub type OperationRegistry = Arc<Mutex<HashMap<String, OperationHandle>>>;
 
+/// GitHub OAuth device flow waiting for the user to authorize the application.
+///
+/// The device code is a temporary credential: it stays in the backend, is never
+/// sent to the frontend and is never logged.
+#[derive(Clone)]
+pub struct GithubDeviceFlowPending {
+    pub device_code: String,
+    pub client_id: String,
+    pub interval: u64,
+    pub expires_at: i64,
+}
+
+impl std::fmt::Debug for GithubDeviceFlowPending {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GithubDeviceFlowPending")
+            .field("device_code", &"[REDACTED]")
+            .field("client_id", &self.client_id)
+            .field("interval", &self.interval)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+/// GitLab OAuth device flow waiting for the user to authorize the application.
+///
+/// The device code is a temporary credential: it stays in the backend, is never
+/// sent to the frontend and is never logged.
+#[derive(Clone)]
+pub struct GitlabDeviceFlowPending {
+    pub device_code: String,
+    pub client_id: String,
+    pub interval: u64,
+    pub expires_at: i64,
+}
+
+impl std::fmt::Debug for GitlabDeviceFlowPending {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GitlabDeviceFlowPending")
+            .field("device_code", &"[REDACTED]")
+            .field("client_id", &self.client_id)
+            .field("interval", &self.interval)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
 /// Filesystem locations owned by the application.
 #[derive(Debug, Clone)]
 pub struct AppPaths {
@@ -54,8 +102,14 @@ pub struct AppState {
     pub runner_error: Option<AppError>,
     pub capability: Option<GitCapability>,
     pub interrupted: Mutex<Vec<OperationRecord>>,
-    pub gitlab: Mutex<Option<beebranch_gitlab::GitlabClient>>,
+    /// Shared so the background OAuth refresher can rotate the token of the
+    /// client already held by the commands.
+    pub gitlab: Arc<Mutex<Option<beebranch_gitlab::GitlabClient>>>,
     pub gitlab_instance: Mutex<Option<beebranch_store::InstanceRow>>,
+    /// OAuth device flow waiting for authorization, if any.
+    pub gitlab_device_flow: Mutex<Option<GitlabDeviceFlowPending>>,
+    /// Cancellation flag of the active OAuth refresh task.
+    pub gitlab_refresh_cancel: Mutex<Option<Arc<AtomicBool>>>,
     /// Credential read from the user's Git configuration when no token is
     /// stored in the keychain. Kept in memory only, never persisted.
     pub gitlab_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
@@ -66,6 +120,8 @@ pub struct AppState {
     pub github_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
     /// Secrets for the GitHub provider (separate keychain service).
     pub github_secrets: Arc<dyn SecretStore>,
+    /// OAuth device flow waiting for authorization, if any.
+    pub github_device_flow: Mutex<Option<GithubDeviceFlowPending>>,
     /// Cancel flags for long-running operations, keyed by operation id.
     pub operations: OperationRegistry,
 }
@@ -194,13 +250,16 @@ fn build_state_inner(
         runner_error,
         capability,
         interrupted: Mutex::new(Vec::new()),
-        gitlab: Mutex::new(None),
+        gitlab: Arc::new(Mutex::new(None)),
         gitlab_instance: Mutex::new(None),
+        gitlab_device_flow: Mutex::new(None),
+        gitlab_refresh_cancel: Mutex::new(None),
         gitlab_credential: Mutex::new(None),
         github: Mutex::new(None),
         github_instance: Mutex::new(None),
         github_credential: Mutex::new(None),
         github_secrets,
+        github_device_flow: Mutex::new(None),
         operations: Arc::new(Mutex::new(HashMap::new())),
     }
 }

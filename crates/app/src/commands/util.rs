@@ -6,6 +6,7 @@ use beebranch_core::{AppError, RepoState};
 use beebranch_git::session::{InvalidationArea, RepoSession};
 use beebranch_git::undo::{self, Fingerprint, ReversibleAction};
 use beebranch_git::GitRunner;
+use beebranch_git::ProcessEvent;
 use beebranch_store::{NewUndoRecord, OperationState, Store};
 use serde::Serialize;
 
@@ -210,6 +211,80 @@ pub fn finish_destructive(
 pub fn emit_operation(app: &tauri::AppHandle, event: &str, payload: serde_json::Value) {
     use tauri::Emitter;
     let _ = app.emit(event, payload);
+}
+
+/// Forward one running Git command to the operation console.
+///
+/// Events carry the repository so a panel only shows its own operation, and
+/// hook output (stdout/stderr of the child) is streamed line by line.
+pub fn operation_progress(
+    app: &tauri::AppHandle,
+    operation_id: &str,
+    repo_id: &str,
+) -> impl FnMut(ProcessEvent) + Send + 'static {
+    let app = app.clone();
+    let operation_id = operation_id.to_owned();
+    let repo_id = repo_id.to_owned();
+    move |event| match event {
+        ProcessEvent::Started { .. } => {}
+        ProcessEvent::Stdout(line) => emit_operation(
+            &app,
+            "op://progress",
+            serde_json::json!({
+                "operationId": operation_id,
+                "repoId": repo_id,
+                "stream": "stdout",
+                "line": line
+            }),
+        ),
+        ProcessEvent::Stderr(line) => emit_operation(
+            &app,
+            "op://progress",
+            serde_json::json!({
+                "operationId": operation_id,
+                "repoId": repo_id,
+                "stream": "stderr",
+                "line": line
+            }),
+        ),
+        ProcessEvent::Finished {
+            exit_code,
+            duration,
+        } => emit_operation(
+            &app,
+            "op://progress",
+            serde_json::json!({
+                "operationId": operation_id,
+                "repoId": repo_id,
+                "stream": "meta",
+                "line": format!("terminé ({exit_code:?}) en {:.1}s", duration.as_secs_f64())
+            }),
+        ),
+    }
+}
+
+/// Announce, before Git starts, the hooks it is about to run.
+///
+/// Git does not report hook transitions: the UI gets the resolved list first,
+/// then the hook output through [`operation_progress`].
+pub fn announce_hooks(
+    app: &tauri::AppHandle,
+    operation_id: &str,
+    repo_id: &str,
+    hooks: &[beebranch_git::hooks::ActiveHook],
+) {
+    for hook in hooks {
+        emit_operation(
+            app,
+            "op://progress",
+            serde_json::json!({
+                "operationId": operation_id,
+                "repoId": repo_id,
+                "stream": "meta",
+                "line": format!("hook Git actif : {} ({})", hook.name, hook.path.display())
+            }),
+        );
+    }
 }
 
 /// Monotonic-ish operation identifier for the journal.
