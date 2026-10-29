@@ -159,6 +159,9 @@ pub struct GitlabMergeRequest {
     pub project_id: Option<u64>,
     pub iid: u64,
     pub title: String,
+    /// Markdown description; GitLab always returns it (possibly empty).
+    #[serde(default)]
+    pub description: String,
     pub state: String,
     #[serde(default)]
     pub draft: bool,
@@ -195,6 +198,21 @@ impl GitlabMergeRequest {
     pub fn is_draft(&self) -> bool {
         self.draft || self.work_in_progress || self.title.starts_with("Draft:")
     }
+}
+
+/// One file of a merge request, as the changes endpoint reports it.
+///
+/// `patch` holds hunk text only; it is empty for binary files and for diffs
+/// GitLab considers too large.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitlabFilePatch {
+    pub old_path: String,
+    pub new_path: String,
+    pub new_file: bool,
+    pub deleted_file: bool,
+    pub renamed_file: bool,
+    pub patch: String,
 }
 
 /// Merge request list scope.
@@ -276,6 +294,32 @@ pub struct CreateMergeRequest {
     pub squash: bool,
     #[serde(default)]
     pub allow_collaboration: bool,
+    /// Reviewer user ids resolved by the caller.
+    #[serde(default, skip_serializing)]
+    pub reviewer_ids: Vec<u64>,
+    /// Assignee user ids resolved by the caller.
+    #[serde(default, skip_serializing)]
+    pub assignee_ids: Vec<u64>,
+    /// Label names; serialized as the comma-separated parameter GitLab expects.
+    #[serde(default, skip_serializing)]
+    pub labels: Vec<String>,
+}
+
+/// Fields an author may edit on an existing merge request.
+///
+/// `None` leaves a field unchanged; an empty description is meaningful.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeRequestUpdate {
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+impl MergeRequestUpdate {
+    /// Whether the update carries no change at all.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none() && self.description.is_none()
+    }
 }
 
 #[cfg(test)]
@@ -340,6 +384,9 @@ mod merge_request_tests {
             remove_source_branch: true,
             squash: false,
             allow_collaboration: false,
+            reviewer_ids: Vec::new(),
+            assignee_ids: Vec::new(),
+            labels: Vec::new(),
         };
         let json = serde_json::to_value(payload).expect("serialize");
         assert_eq!(json["source_branch"], "feature");

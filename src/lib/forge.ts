@@ -28,6 +28,10 @@ import {
   gitlabRepoLinkManual,
   gitlabStatus,
   gitlabUnapprove,
+  gitlabRequestChanges,
+  gitlabMrSetDraft,
+  gitlabMrSetState,
+  gitlabMrUpdate,
   githubApprove,
   githubApprovals,
   githubDiscussionCreate,
@@ -48,6 +52,10 @@ import {
   githubRepoLinkManual,
   githubStatus,
   githubUnapprove,
+  githubRequestChanges,
+  githubPrSetDraft,
+  githubPrSetState,
+  githubPrUpdate,
 } from '../ipc/commands'
 import type { MessageKey, TranslationParams } from '../i18n'
 import type {
@@ -104,6 +112,14 @@ export type ForgeCapabilities = {
   inlineComments: boolean
   /** The API exposes required/remaining approval counts. */
   approvalQuota: boolean
+  /** A review can ask for changes, with a body. */
+  requestChanges: boolean
+  /** The request can be closed and reopened. */
+  closeReopen: boolean
+  /** Title and description can be edited after creation. */
+  editMetadata: boolean
+  /** The draft state can be toggled on an existing request. */
+  draftToggle: boolean
 }
 
 export type ForgeApi = {
@@ -151,6 +167,9 @@ export type ForgeApi = {
     removeSourceBranch?: boolean
     squash?: boolean
     allowCollaboration?: boolean
+    reviewers?: string[]
+    assignees?: string[]
+    labels?: string[]
   }) => Promise<ForgeMergeRequest>
   discussions: (input: {
     projectId: number
@@ -180,6 +199,27 @@ export type ForgeApi = {
   approvals: (input: { projectId: number; iid: number }) => Promise<ApprovalsDto>
   approve: (input: { projectId: number; iid: number }) => Promise<ApprovalsDto>
   unapprove: (input: { projectId: number; iid: number }) => Promise<ApprovalsDto>
+  requestChanges: (input: {
+    projectId: number
+    iid: number
+    body: string
+  }) => Promise<ApprovalsDto>
+  update: (input: {
+    projectId: number
+    iid: number
+    title?: string
+    description?: string
+  }) => Promise<GitlabMergeRequest>
+  setOpen: (input: {
+    projectId: number
+    iid: number
+    open: boolean
+  }) => Promise<GitlabMergeRequest>
+  setDraft: (input: {
+    projectId: number
+    iid: number
+    draft: boolean
+  }) => Promise<GitlabMergeRequest>
   merge: (input: {
     projectId: number
     iid: number
@@ -232,6 +272,10 @@ export const gitlabForge: ForgeApi = {
     createMergeOptions: true,
     inlineComments: true,
     approvalQuota: true,
+    requestChanges: false,
+    closeReopen: true,
+    editMetadata: true,
+    draftToggle: true,
   },
   status: gitlabStatus,
   projectsPage: gitlabProjectsPage,
@@ -256,6 +300,16 @@ export const gitlabForge: ForgeApi = {
   approvals: gitlabApprovals,
   approve: gitlabApprove,
   unapprove: gitlabUnapprove,
+  requestChanges: gitlabRequestChanges,
+  update: (input) =>
+    gitlabMrUpdate({
+      projectId: input.projectId,
+      iid: input.iid,
+      title: input.title,
+      description: input.description,
+    }),
+  setOpen: gitlabMrSetState,
+  setDraft: gitlabMrSetDraft,
   merge: gitlabMergeMr,
   jobs: gitlabMrJobs,
   jobLog: gitlabJobLog,
@@ -281,6 +335,10 @@ export const githubForge: ForgeApi = {
     createMergeOptions: false,
     inlineComments: true,
     approvalQuota: false,
+    requestChanges: true,
+    closeReopen: true,
+    editMetadata: true,
+    draftToggle: true,
   },
   status: githubStatus,
   projectsPage: githubProjectsPage,
@@ -305,6 +363,16 @@ export const githubForge: ForgeApi = {
   approvals: githubApprovals,
   approve: githubApprove,
   unapprove: githubUnapprove,
+  requestChanges: githubRequestChanges,
+  update: (input) =>
+    githubPrUpdate({
+      projectId: input.projectId,
+      iid: input.iid,
+      title: input.title,
+      body: input.description,
+    }),
+  setOpen: githubPrSetState,
+  setDraft: githubPrSetDraft,
   merge: githubMergePr,
   jobs: githubPrJobs,
   jobLog: githubJobLog,

@@ -504,6 +504,9 @@ async fn creates_a_draft_merge_request_without_retrying() {
             remove_source_branch: true,
             squash: false,
             allow_collaboration: false,
+            reviewer_ids: Vec::new(),
+            assignee_ids: Vec::new(),
+            labels: Vec::new(),
         })
         .await
         .expect("create");
@@ -536,6 +539,9 @@ async fn maps_validation_errors_on_creation() {
             remove_source_branch: false,
             squash: false,
             allow_collaboration: false,
+            reviewer_ids: Vec::new(),
+            assignee_ids: Vec::new(),
+            labels: Vec::new(),
         })
         .await
         .expect_err("422");
@@ -843,4 +849,144 @@ async fn merge_sends_auto_merge_and_shas() {
         .await
         .expect("merge");
     assert_eq!(merged.state, "merged");
+}
+
+#[tokio::test]
+async fn updates_the_title_and_description_of_a_merge_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v4/projects/7/merge_requests/12"))
+        .and(body_json(json!({"title": "Nouveau titre", "description": ""})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")))
+        .mount(&server)
+        .await;
+
+    let updated = client(&server)
+        .update_merge_request(
+            7,
+            12,
+            &MergeRequestUpdate {
+                title: Some(" Nouveau titre ".to_owned()),
+                description: Some(String::new()),
+            },
+        )
+        .await
+        .expect("update");
+
+    assert_eq!(updated.iid, 12);
+}
+
+#[tokio::test]
+async fn closes_a_merge_request_with_state_event() {
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v4/projects/7/merge_requests/12"))
+        .and(body_json(json!({"state_event": "close"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .set_merge_request_open(7, 12, false)
+        .await
+        .expect("close");
+}
+
+#[tokio::test]
+async fn toggles_draft_through_the_title_prefix_without_doubling_it() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/7/merge_requests/12"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v4/projects/7/merge_requests/12"))
+        .and(body_json(json!({"title": "Draft: Add graph"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .set_merge_request_draft(7, 12, true)
+        .await
+        .expect("to draft");
+
+    // Coming back keeps a single marker and restores the original wording.
+    let mut drafted = merge_request_json(12, "feature");
+    drafted["title"] = json!("draft: add graph");
+    drafted["draft"] = json!(true);
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/7/merge_requests/12"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(drafted))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v4/projects/7/merge_requests/12"))
+        .and(body_json(json!({"title": "add graph"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .set_merge_request_draft(7, 12, false)
+        .await
+        .expect("ready");
+}
+
+#[tokio::test]
+async fn resolves_a_username_to_its_gitlab_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/users"))
+        .and(query_param("username", "octocat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([user_json()])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/users"))
+        .and(query_param("username", "ghost"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+
+    let client = client(&server);
+    assert_eq!(client.user_id("octocat").await.expect("lookup"), Some(7));
+    assert_eq!(client.user_id("ghost").await.expect("lookup"), None);
+    assert_eq!(client.user_id("  ").await.expect("lookup"), None);
+}
+
+#[tokio::test]
+async fn sends_reviewers_assignees_and_labels_on_creation() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/7/merge_requests"))
+        .and(wiremock::matchers::body_partial_json(json!({
+            "reviewer_ids": [7],
+            "assignee_ids": [8],
+            "labels": "frontend,backend"
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(merge_request_json(13, "feature")))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .create_merge_request(&CreateMergeRequest {
+            project_id: 7,
+            source_branch: "feature".into(),
+            target_branch: "main".into(),
+            title: "Add graph".into(),
+            description: String::new(),
+            draft: false,
+            remove_source_branch: false,
+            squash: false,
+            allow_collaboration: false,
+            reviewer_ids: vec![7],
+            assignee_ids: vec![8],
+            labels: vec!["frontend".to_owned(), "backend".to_owned()],
+        })
+        .await
+        .expect("create");
 }

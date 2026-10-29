@@ -4,7 +4,7 @@
 use beebranch_core::{AppError, Confirmation, ErrorCategory};
 use beebranch_github::{
     GithubApprovals, GithubDiscussion, GithubJob, GithubNote, GithubPosition, GithubPullRequest,
-    JobLog, Paged, PullRequestMerge,
+    JobLog, Paged, PullRequestMerge, PullUpdate,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -43,6 +43,41 @@ pub struct GithubDiscussionResolveInput {
     pub iid: u64,
     pub discussion_id: String,
     pub resolved: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubRequestChangesInput {
+    pub project_id: u64,
+    pub iid: u64,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubPullUpdateInput {
+    pub project_id: u64,
+    pub iid: u64,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubPullStateInput {
+    pub project_id: u64,
+    pub iid: u64,
+    pub open: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubPullDraftInput {
+    pub project_id: u64,
+    pub iid: u64,
+    pub draft: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -321,6 +356,111 @@ pub async fn github_unapprove(
             Err(github_error(error))
         }
     }
+}
+
+#[tauri::command]
+pub async fn github_request_changes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubRequestChangesInput,
+) -> Result<GithubApprovalsDto, AppError> {
+    validate_body(&input.body)?;
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    match client.request_changes(&repo, input.iid, &input.body).await {
+        Ok(value) => Ok(GithubApprovalsDto {
+            available: true,
+            state: Some(value),
+            reason: None,
+        }),
+        Err(error) if error.status() == Some(404) => Ok(GithubApprovalsDto {
+            available: false,
+            state: None,
+            reason: Some("Les revues ne sont pas accessibles sur ce dépôt.".to_owned()),
+        }),
+        Err(error) => {
+            auth_event(&app, &error, &instance);
+            Err(github_error(error))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn github_pr_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubPullUpdateInput,
+) -> Result<GithubPullRequest, AppError> {
+    let update = PullUpdate {
+        title: input.title.clone(),
+        body: input.body.clone(),
+    };
+    if update.is_empty() {
+        return Err(AppError::invalid_input(
+            "Aucun champ à modifier.".to_owned(),
+        ));
+    }
+    if let Some(title) = update.title.as_ref() {
+        if title.trim().is_empty() {
+            return Err(AppError::invalid_input(
+                "Le titre ne peut pas être vide.".to_owned(),
+            ));
+        }
+    }
+    if let Some(body) = update.body.as_ref() {
+        if body.chars().count() > 65_536 {
+            return Err(AppError::invalid_input(
+                "La description dépasse 65 536 caractères.".to_owned(),
+            ));
+        }
+    }
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    client
+        .update_pull_request(&repo, input.iid, &update)
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            github_error(error)
+        })
+}
+
+#[tauri::command]
+pub async fn github_pr_set_state(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubPullStateInput,
+) -> Result<GithubPullRequest, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    client
+        .set_pull_open(&repo, input.iid, input.open)
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            github_error(error)
+        })
+}
+
+#[tauri::command]
+pub async fn github_pr_set_draft(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubPullDraftInput,
+) -> Result<GithubPullRequest, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    client
+        .set_pull_draft(&repo, input.iid, input.draft)
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            github_error(error)
+        })
 }
 
 #[tauri::command]

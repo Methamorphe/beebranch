@@ -695,6 +695,9 @@ export function gitlabMrCreate(input: {
   removeSourceBranch?: boolean
   squash?: boolean
   allowCollaboration?: boolean
+  reviewers?: string[]
+  assignees?: string[]
+  labels?: string[]
 }): Promise<GitlabMergeRequest> {
   return call<GitlabMergeRequest>('gitlab_mr_create', { input })
 }
@@ -1276,6 +1279,39 @@ export function gitlabUnapprove(input: {
   return call<ApprovalsDto>('gitlab_unapprove', { input })
 }
 
+export function gitlabRequestChanges(input: {
+  projectId: number
+  iid: number
+  body: string
+}): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('gitlab_request_changes', { input })
+}
+
+export function gitlabMrUpdate(input: {
+  projectId: number
+  iid: number
+  title?: string
+  description?: string
+}): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('gitlab_mr_update', { input })
+}
+
+export function gitlabMrSetState(input: {
+  projectId: number
+  iid: number
+  open: boolean
+}): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('gitlab_mr_set_state', { input })
+}
+
+export function gitlabMrSetDraft(input: {
+  projectId: number
+  iid: number
+  draft: boolean
+}): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('gitlab_mr_set_draft', { input })
+}
+
 export function gitlabMergeMr(input: {
   projectId: number
   iid: number
@@ -1427,6 +1463,9 @@ export function githubPrCreate(input: {
   removeSourceBranch?: boolean
   squash?: boolean
   allowCollaboration?: boolean
+  reviewers?: string[]
+  assignees?: string[]
+  labels?: string[]
 }): Promise<GithubMergeRequest> {
   return call<GithubMergeRequest>('github_pr_create', { input })
 }
@@ -1487,6 +1526,39 @@ export function githubUnapprove(input: {
   iid: number
 }): Promise<ApprovalsDto> {
   return call<ApprovalsDto>('github_unapprove', { input })
+}
+
+export function githubRequestChanges(input: {
+  projectId: number
+  iid: number
+  body: string
+}): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('github_request_changes', { input })
+}
+
+export function githubPrUpdate(input: {
+  projectId: number
+  iid: number
+  title?: string
+  body?: string
+}): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('github_pr_update', { input })
+}
+
+export function githubPrSetState(input: {
+  projectId: number
+  iid: number
+  open: boolean
+}): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('github_pr_set_state', { input })
+}
+
+export function githubPrSetDraft(input: {
+  projectId: number
+  iid: number
+  draft: boolean
+}): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('github_pr_set_draft', { input })
 }
 
 export function githubMergePr(input: {

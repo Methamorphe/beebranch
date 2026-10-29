@@ -73,6 +73,13 @@
   export the workspace as a `.code-workspace` document, and import one — invalid
   folders are reported, never guessed. Cloning a missing repository stays manual:
   a workspace stores paths, not remotes.
+- **Review workflow**: a pull request can be closed and reopened, have its title
+  and description edited, be converted to draft and back, receive a "request
+  changes" review with its reason, and be created with reviewers, assignees and
+  labels. GitHub exposes the draft toggle through GraphQL only, so that mutation
+  is sent there and its refusals are reported verbatim; GitLab has no "request
+  changes" state, so the action is disabled there instead of being approximated.
+  Approvals list the reviewers who asked for changes.
 
 ### Changed
 

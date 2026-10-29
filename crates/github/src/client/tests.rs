@@ -318,6 +318,9 @@ async fn creates_a_pull_request_with_snake_case_wire_fields() {
                 body: "Body".to_owned(),
                 draft: true,
                 maintainer_can_modify: true,
+                reviewers: Vec::new(),
+                assignees: Vec::new(),
+                labels: Vec::new(),
             },
         )
         .await
@@ -652,4 +655,241 @@ fn parses_the_next_page_from_a_link_header() {
     );
     assert_eq!(next_page_from_link(&headers), Some(2));
     assert_eq!(next_page_from_link(&HeaderMap::new()), None);
+}
+
+#[tokio::test]
+async fn requests_changes_with_a_body_and_reports_it() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/repos/team/app/pulls/12/reviews"))
+        .and(body_json(json!({"event": "REQUEST_CHANGES", "body": "tests manquants"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": 9,
+            "user": user_json(),
+            "state": "CHANGES_REQUESTED",
+            "submitted_at": "2026-10-27T12:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/pulls/12/reviews"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": 9, "user": user_json(), "state": "CHANGES_REQUESTED", "submitted_at": "2026-10-27T12:00:00Z"}
+        ])))
+        .mount(&server)
+        .await;
+
+    let approvals = client(&server)
+        .request_changes(&repo_ref(), 12, "  tests manquants  ")
+        .await
+        .expect("request changes");
+
+    assert_eq!(approvals.changes_requested_by.len(), 1);
+    assert_eq!(approvals.changes_requested_by[0].user.username, "octocat");
+    assert!(approvals.approved_by.is_empty());
+}
+
+#[tokio::test]
+async fn refuses_a_changes_request_without_a_reason() {
+    let server = MockServer::start().await;
+    let error = client(&server)
+        .request_changes(&repo_ref(), 12, "   ")
+        .await
+        .expect_err("empty body");
+    assert_eq!(error.code(), "github.configuration");
+}
+
+#[tokio::test]
+async fn updates_the_title_and_body_of_a_pull_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path("/repos/team/app/pulls/12"))
+        .and(body_json(json!({"title": "Nouveau titre"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(pull_json(12)))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/pulls/12"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(pull_json(12)))
+        .mount(&server)
+        .await;
+
+    let updated = client(&server)
+        .update_pull_request(
+            &repo_ref(),
+            12,
+            &PullUpdate {
+                title: Some(" Nouveau titre ".to_owned()),
+                body: None,
+            },
+        )
+        .await
+        .expect("update");
+
+    assert_eq!(updated.iid, 12);
+}
+
+#[tokio::test]
+async fn closes_and_reopens_a_pull_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path("/repos/team/app/pulls/12"))
+        .and(body_json(json!({"state": "closed"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(pull_json(12)))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/pulls/12"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(pull_json(12)))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .set_pull_open(&repo_ref(), 12, false)
+        .await
+        .expect("close");
+}
+
+#[tokio::test]
+async fn toggles_the_draft_state_through_graphql() {
+    let server = MockServer::start().await;
+    let mut draft_pull = pull_json(12);
+    draft_pull["node_id"] = json!("PR_kwDOAbc");
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/pulls/12"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(draft_pull))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_json(json!({
+            "query": "mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { id isDraft } } }",
+            "variables": {"id": "PR_kwDOAbc"}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {"convertPullRequestToDraft": {"pullRequest": {"id": "PR_kwDOAbc", "isDraft": true}}}
+        })))
+        .mount(&server)
+        .await;
+
+    let updated = client(&server)
+        .set_pull_draft(&repo_ref(), 12, true)
+        .await
+        .expect("convert to draft");
+
+    assert_eq!(updated.iid, 12);
+}
+
+#[tokio::test]
+async fn reports_a_graphql_refusal_instead_of_assuming_success() {
+    let server = MockServer::start().await;
+    let mut draft_pull = pull_json(12);
+    draft_pull["node_id"] = json!("PR_kwDOAbc");
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/pulls/12"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(draft_pull))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": null,
+            "errors": [{"message": "Resource not accessible by integration"}]
+        })))
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .set_pull_draft(&repo_ref(), 12, true)
+        .await
+        .expect_err("refused");
+    assert_eq!(error.code(), "github.graphql");
+    assert!(error.message().contains("Resource not accessible"));
+}
+
+#[tokio::test]
+async fn applies_reviewers_assignees_and_labels_after_creation() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/repos/team/app/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(pull_json(12)))
+        .mount(&server)
+        .await;
+    for (tail, payload) in [
+        (
+            "/repos/team/app/pulls/12/requested_reviewers",
+            json!({"reviewers": ["octocat"]}),
+        ),
+        (
+            "/repos/team/app/issues/12/assignees",
+            json!({"assignees": ["octocat"]}),
+        ),
+        (
+            "/repos/team/app/issues/12/labels",
+            json!({"labels": ["frontend"]}),
+        ),
+    ] {
+        Mock::given(method("POST"))
+            .and(path(tail))
+            .and(body_json(payload))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+    }
+
+    let created = client(&server)
+        .create_pull_request(
+            &repo_ref(),
+            &CreatePullRequest {
+                title: "Add graph".to_owned(),
+                head: "feature/graph".to_owned(),
+                base: "main".to_owned(),
+                body: String::new(),
+                draft: false,
+                maintainer_can_modify: true,
+                reviewers: vec!["octocat".to_owned()],
+                assignees: vec!["octocat".to_owned()],
+                labels: vec!["frontend".to_owned()],
+            },
+        )
+        .await
+        .expect("create");
+
+    assert_eq!(created.iid, 12);
+}
+
+#[tokio::test]
+async fn says_the_pull_request_exists_when_an_extra_fails() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/repos/team/app/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(pull_json(12)))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/repos/team/app/issues/12/labels"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({"message": "Resource not accessible"})))
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .create_pull_request(
+            &repo_ref(),
+            &CreatePullRequest {
+                title: "Add graph".to_owned(),
+                head: "feature/graph".to_owned(),
+                base: "main".to_owned(),
+                body: String::new(),
+                draft: false,
+                maintainer_can_modify: true,
+                reviewers: Vec::new(),
+                assignees: Vec::new(),
+                labels: vec!["frontend".to_owned()],
+            },
+        )
+        .await
+        .expect_err("labels refused");
+
+    assert_eq!(error.code(), "github.created_with_warnings");
+    assert!(error.message().contains("Pull request #12 créée"));
 }

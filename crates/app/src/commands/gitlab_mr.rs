@@ -46,6 +46,15 @@ pub struct CreateMrInput {
     pub squash: bool,
     #[serde(default)]
     pub allow_collaboration: bool,
+    /// Reviewer names (GitHub logins, GitLab usernames).
+    #[serde(default)]
+    pub reviewers: Vec<String>,
+    /// Assignee names (GitHub logins, GitLab usernames).
+    #[serde(default)]
+    pub assignees: Vec<String>,
+    /// Label names applied at creation.
+    #[serde(default)]
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +86,30 @@ fn instance_id(state: &AppState) -> Result<String, AppError> {
         .as_ref()
         .map(|instance| instance.id.clone())
         .ok_or_else(not_configured)
+}
+
+/// Resolve usernames to GitLab ids, refusing unknown ones.
+///
+/// Duplicates collapse to a single id so the request stays within the
+/// provider's limits.
+async fn resolve_user_ids(
+    client: &GitlabClient,
+    names: &[String],
+) -> Result<Vec<u64>, AppError> {
+    let mut ids = Vec::with_capacity(names.len());
+    for name in names {
+        let id = client
+            .user_id(name)
+            .await
+            .map_err(gitlab_error)?
+            .ok_or_else(|| {
+                AppError::invalid_input(format!("L'utilisateur `{name}` est introuvable sur GitLab."))
+            })?;
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
 }
 
 fn auth_event(app: &AppHandle, error: &beebranch_gitlab::GitlabError, instance: &str) {
@@ -364,6 +397,8 @@ pub async fn gitlab_mr_create(
 
     let client = client(&state)?;
     let instance = instance_id(&state)?;
+    let reviewer_ids = resolve_user_ids(&client, &input.reviewers).await?;
+    let assignee_ids = resolve_user_ids(&client, &input.assignees).await?;
     let payload = CreateMergeRequest {
         project_id,
         source_branch: input.source_branch,
@@ -374,6 +409,9 @@ pub async fn gitlab_mr_create(
         remove_source_branch: input.remove_source_branch,
         squash: input.squash,
         allow_collaboration: input.allow_collaboration,
+        reviewer_ids,
+        assignee_ids,
+        labels: input.labels,
     };
     client
         .create_merge_request(&payload)

@@ -81,6 +81,23 @@ function checksStatus(checks: GitlabPipeline[]): string | undefined {
  * Stable identity of a review request: search results only carry the
  * repository name, detail responses only the numeric id.
  */
+/**
+ * Comma-separated names, trimmed, blanks dropped, duplicates collapsed.
+ *
+ * The create form collects free text; sending an empty name would make the
+ * provider reject the whole creation.
+ */
+function splitNames(value: string): string[] {
+  const names: string[] = []
+  for (const part of value.split(',')) {
+    const name = part.trim().replace(/^@/, '')
+    if (name && !names.includes(name)) {
+      names.push(name)
+    }
+  }
+  return names
+}
+
 function mrKey(mr: ForgeMergeRequest): string {
   return `${mr.projectId ?? mr.repositoryName ?? ''}:${mr.iid}`
 }
@@ -105,6 +122,10 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [draft, setDraft] = useState(false)
+  /** Comma-separated names, parsed at submission. */
+  const [reviewerNames, setReviewerNames] = useState('')
+  const [assigneeNames, setAssigneeNames] = useState('')
+  const [labelNames, setLabelNames] = useState('')
   const [removeSource, setRemoveSource] = useState(false)
   const [squash, setSquash] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -348,6 +369,9 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
         draft,
         removeSourceBranch: api.capabilities.createMergeOptions ? removeSource : undefined,
         squash: api.capabilities.createMergeOptions ? squash : undefined,
+        reviewers: splitNames(reviewerNames),
+        assignees: splitNames(assigneeNames),
+        labels: splitNames(labelNames),
       })
       setNotice({
         key: 'forge.review.created',
@@ -360,6 +384,9 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
       })
       setTitle('')
       setDescription('')
+      setReviewerNames('')
+      setAssigneeNames('')
+      setLabelNames('')
       setCreateOpen(false)
       void load(1)
     } catch (cause) {
@@ -695,6 +722,36 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
             aria-label={t('forge.create.descriptionAria', { short: api.short })}
           />
         </label>
+
+        <div className={p2.formRow}>
+          <label className={p2.field}>
+            {t('forge.create.reviewers')}
+            <input
+              value={reviewerNames}
+              onChange={(event) => setReviewerNames(event.target.value)}
+              placeholder={t('forge.create.namesPlaceholder')}
+              aria-label={t('forge.create.reviewers')}
+            />
+          </label>
+          <label className={p2.field}>
+            {t('forge.create.assignees')}
+            <input
+              value={assigneeNames}
+              onChange={(event) => setAssigneeNames(event.target.value)}
+              placeholder={t('forge.create.namesPlaceholder')}
+              aria-label={t('forge.create.assignees')}
+            />
+          </label>
+          <label className={p2.field}>
+            {t('forge.create.labels')}
+            <input
+              value={labelNames}
+              onChange={(event) => setLabelNames(event.target.value)}
+              placeholder={t('forge.create.labelsPlaceholder')}
+              aria-label={t('forge.create.labels')}
+            />
+          </label>
+        </div>
 
         <div className={p2.row}>
           <label className={p2.checkbox}>

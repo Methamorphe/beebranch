@@ -601,6 +601,8 @@ export type GitlabMergeRequest = {
   projectId?: number
   iid: number
   title: string
+  /** Markdown description: GitLab `description`, GitHub `body`. */
+  description?: string
   state: string
   draft: boolean
   workInProgress: boolean
@@ -923,6 +925,8 @@ export type GitlabApprovals = {
   approvalsRequired: number
   approvalsLeft: number
   approvedBy: { user: GitlabUserRef }[]
+  /** Reviewers whose latest decisive review asks for changes (GitHub). */
+  changesRequestedBy?: { user: GitlabUserRef }[]
 }
 
 export type ApprovalsDto = {

@@ -2,6 +2,7 @@ pub mod app_info;
 pub mod background;
 pub mod branches;
 pub mod commit;
+pub mod forge_diff;
 pub mod github;
 pub mod github_advanced;
 pub mod github_pr;

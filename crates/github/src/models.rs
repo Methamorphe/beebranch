@@ -80,8 +80,15 @@ pub struct GithubPullRequest {
     /// Pull request number (`iid` in the shared UI contract).
     pub iid: u64,
     pub title: String,
+    /// Markdown description of the request; empty when the provider omits it.
+    #[serde(default)]
+    pub body: String,
     pub state: String,
     pub draft: bool,
+    /// GraphQL global id, present when the provider returned it. Used by the
+    /// mutations GitHub exposes through GraphQL only (draft ⇄ ready).
+    #[serde(default)]
+    pub node_id: Option<String>,
     pub work_in_progress: bool,
     pub source_branch: String,
     pub target_branch: String,
@@ -152,6 +159,9 @@ pub struct GithubApprovals {
     pub approvals_required: u32,
     pub approvals_left: u32,
     pub approved_by: Vec<GithubApproval>,
+    /// Reviewers whose latest decisive review requests changes.
+    #[serde(default)]
+    pub changes_requested_by: Vec<GithubApproval>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +182,40 @@ pub struct GithubJob {
     pub duration: Option<f64>,
     pub created_at: Option<String>,
     pub finished_at: Option<String>,
+}
+
+/// Fields an author may edit on an existing request.
+///
+/// `None` means "leave unchanged"; GitHub applies a partial `PATCH` and an
+/// empty string is meaningful, so the distinction is preserved.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullUpdate {
+    pub title: Option<String>,
+    pub body: Option<String>,
+}
+
+impl PullUpdate {
+    /// Whether the update carries no change at all.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none() && self.body.is_none()
+    }
+}
+
+/// One file of a pull request, as the files endpoint reports it.
+///
+/// `patch` holds hunk text only (no `diff --git` header), and stays `None` for
+/// binary or too-large files: the caller synthesizes the header before parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubFilePatch {
+    pub old_path: String,
+    pub new_path: String,
+    /// `added`, `removed`, `modified`, `renamed`, `changed`, …
+    pub status: String,
+    pub additions: u32,
+    pub deletions: u32,
+    pub patch: Option<String>,
 }
 
 /// Merge parameters mapped onto `PUT /pulls/{number}/merge`.

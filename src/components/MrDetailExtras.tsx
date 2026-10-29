@@ -13,6 +13,7 @@ import type {
   JobLog,
 } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -75,6 +76,11 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
   const [removeSource, setRemoveSource] = useState(false)
   const [autoMerge, setAutoMerge] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
+  /** Open review dialog, or `null` when none is shown. */
+  const [reviewDialog, setReviewDialog] = useState<'changes' | 'edit' | null>(null)
+  const [changesBody, setChangesBody] = useState('')
+  const [editTitle, setEditTitle] = useState('')
+  const [editDescription, setEditDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -164,6 +170,54 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
     }
   }
 
+  const requestChanges = async () => {
+    if (!changesBody.trim()) {
+      return
+    }
+    await run(t('forge.detail.changesDone'), async () => {
+      setApprovals(
+        await api.requestChanges({
+          projectId,
+          iid: mr.iid,
+          body: changesBody.trim(),
+        }),
+      )
+      setChangesBody('')
+      setReviewDialog(null)
+    })
+  }
+
+  const saveMetadata = async () => {
+    const trimmed = editTitle.trim()
+    if (!trimmed) {
+      return
+    }
+    await run(t('forge.detail.metadataSaved'), async () => {
+      await api.update({
+        projectId,
+        iid: mr.iid,
+        title: trimmed,
+        description: editDescription,
+      })
+      setReviewDialog(null)
+    })
+  }
+
+  const toggleOpen = async () => {
+    const closing = isOpen
+    await run(
+      closing ? t('forge.detail.closed') : t('forge.detail.reopened'),
+      () => api.setOpen({ projectId, iid: mr.iid, open: !closing }),
+    )
+  }
+
+  const toggleDraft = async () => {
+    await run(
+      mr.draft ? t('forge.detail.readyDone') : t('forge.detail.draftDone'),
+      () => api.setDraft({ projectId, iid: mr.iid, draft: !mr.draft }),
+    )
+  }
+
   const send = async () => {
     if (!body.trim()) {
       return
@@ -224,6 +278,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
   }
 
   const approval = approvals?.state
+  const isOpen = mr.state === 'opened' || mr.state === 'open'
   const ordered = [...discussions].sort((a, b) => {
     const left = a.notes.find((note) => note.position)?.position
     const right = b.notes.find((note) => note.position)?.position
@@ -279,6 +334,77 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
           <span className={p2.meta}>{notice}</span>
         </div>
       ) : null}
+
+          <section className={p2.paneSection}>
+            <h3 className={p2.paneTitle}>{t('forge.detail.requestTitle')}</h3>
+            <div className={p2.row}>
+              {api.capabilities.editMetadata ? (
+                <button
+                  type="button"
+                  className={p2.secondary}
+                  disabled={busy}
+                  onClick={() => {
+                    setEditTitle(mr.title)
+                    setEditDescription(mr.description ?? '')
+                    setReviewDialog('edit')
+                  }}
+                >
+                  {t('forge.detail.metadataAction')}
+                </button>
+              ) : null}
+              {api.capabilities.draftToggle ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => void toggleDraft()}
+                >
+                  {mr.draft ? t('forge.detail.markReady') : t('forge.detail.markDraft')}
+                </button>
+              ) : null}
+              {api.capabilities.closeReopen ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => void toggleOpen()}
+                >
+                  {isOpen ? t('forge.detail.stateClose') : t('forge.detail.stateReopen')}
+                </button>
+              ) : null}
+              {api.capabilities.requestChanges ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => {
+                    setChangesBody('')
+                    setReviewDialog('changes')
+                  }}
+                >
+                  {t('forge.detail.requestChanges')}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={p2.ghost}
+                disabled={busy}
+                onClick={() => void openExternalUrl(mr.webUrl)}
+              >
+                {t('common.open')}
+              </button>
+            </div>
+            {approval && (approval.changesRequestedBy?.length ?? 0) > 0 ? (
+              <div className={p2.row}>
+                <span className={p2.asideHint}>{t('forge.detail.changesFrom')}</span>
+                {approval.changesRequestedBy?.map((entry) => (
+                  <span key={entry.user.id} className={`${p2.chip} ${p2.chipWarn}`}>
+                    @{entry.user.username}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </section>
 
       {tab === 'overview' ? (
         <>
@@ -796,6 +922,87 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
           ) : null}
         </>
       ) : null}
+
+      <Dialog
+        open={reviewDialog === 'changes'}
+        onClose={() => setReviewDialog(null)}
+        busy={busy}
+        titleId="review-changes-title"
+      >
+        <h2 id="review-changes-title">{t('forge.detail.changesTitle')}</h2>
+        <p className={p2.asideHint}>{t('forge.detail.changesHint')}</p>
+        <textarea
+          className={p2.editor}
+          value={changesBody}
+          aria-label={t('forge.detail.changesAria')}
+          onChange={(event) => setChangesBody(event.target.value)}
+          disabled={busy}
+        />
+        <div className={p2.row}>
+          <button
+            type="button"
+            className={p2.ghost}
+            disabled={busy}
+            onClick={() => setReviewDialog(null)}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className={p2.primary}
+            disabled={busy || !changesBody.trim()}
+            onClick={() => void requestChanges()}
+          >
+            {t('forge.detail.requestChanges')}
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={reviewDialog === 'edit'}
+        onClose={() => setReviewDialog(null)}
+        busy={busy}
+        titleId="review-edit-title"
+      >
+        <h2 id="review-edit-title">{t('forge.detail.metadataTitle')}</h2>
+        <label className={p2.field}>
+          {t('forge.detail.metadataTitleLabel')}
+          <input
+            value={editTitle}
+            aria-label={t('forge.detail.metadataTitleLabel')}
+            onChange={(event) => setEditTitle(event.target.value)}
+            disabled={busy}
+          />
+        </label>
+        <label className={p2.field}>
+          {t('forge.detail.metadataDescriptionLabel')}
+          <textarea
+            className={p2.editor}
+            value={editDescription}
+            aria-label={t('forge.detail.metadataDescriptionLabel')}
+            onChange={(event) => setEditDescription(event.target.value)}
+            disabled={busy}
+          />
+        </label>
+        <div className={p2.row}>
+          <button
+            type="button"
+            className={p2.ghost}
+            disabled={busy}
+            onClick={() => setReviewDialog(null)}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className={p2.primary}
+            disabled={busy || !editTitle.trim()}
+            onClick={() => void saveMetadata()}
+          >
+            {t('common.save')}
+          </button>
+        </div>
+      </Dialog>
 
       <ConfirmDialog
         open={mergeOpen}
