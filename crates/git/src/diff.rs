@@ -793,7 +793,12 @@ diff --git \"a/caf\\303\\251.txt\" \"b/caf\\303\\251.txt\"
     #[test]
     fn rejects_path_traversal() {
         assert!(validate_relative_path("../etc/passwd").is_err());
-        assert!(validate_relative_path("/etc/passwd").is_err());
+        let absolute = if cfg!(windows) {
+            r"C:\Windows\win.ini"
+        } else {
+            "/etc/passwd"
+        };
+        assert!(validate_relative_path(absolute).is_err());
         assert!(validate_relative_path(".git/config").is_err());
         assert!(validate_relative_path("src/main.rs").is_ok());
     }

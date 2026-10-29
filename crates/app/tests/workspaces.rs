@@ -49,6 +49,15 @@ fn repo(root: &Path, name: &str, with_remote: bool) -> std::path::PathBuf {
     std::fs::create_dir_all(&path).expect("mkdir");
     let runner = GitRunner::detect().expect("git");
     git(&runner, &path, GitSubcommand::Init, &["--quiet"]);
+    // Windows runners default to core.autocrlf=true, which would turn the
+    // checked-out fixtures into CRLF and break byte-level assertions.
+    git(
+        &runner,
+        &path,
+        GitSubcommand::Config,
+        &["core.autocrlf", "false"],
+    );
+    git(&runner, &path, GitSubcommand::Config, &["core.eol", "lf"]);
     git(
         &runner,
         &path,

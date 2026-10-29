@@ -19,7 +19,15 @@ fn discovers_worktree_and_git_directories() {
     assert!(!discovery.linked_worktree);
     assert!(!discovery.submodule);
     let canonical = std::fs::canonicalize(fixture.path()).expect("canonical");
-    assert_eq!(discovery.worktree, Some(canonical));
+    assert_eq!(
+        discovery
+            .worktree
+            .as_deref()
+            .expect("worktree")
+            .canonicalize()
+            .expect("canonical worktree"),
+        canonical
+    );
     assert!(discovery.git_dir.ends_with(".git"));
 }
 
@@ -149,7 +157,12 @@ fn locks_are_reported_and_never_removed() {
     std::fs::write(&lock, b"lock").expect("lock");
     let detected = detect(fixture.runner(), &fixture.discover(), Some(100)).expect("detect");
     let expected = std::fs::canonicalize(&lock).expect("canonical lock");
-    assert_eq!(detected.locks, vec![expected]);
+    let detected_locks: Vec<PathBuf> = detected
+        .locks
+        .iter()
+        .map(|path| path.canonicalize().expect("canonical detected lock"))
+        .collect();
+    assert_eq!(detected_locks, vec![expected]);
     assert!(lock.exists(), "lock must never be removed automatically");
 }
 

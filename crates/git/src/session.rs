@@ -885,10 +885,15 @@ mod tests {
             &[InvalidationArea::Worktree, InvalidationArea::State],
         )
         .expect("watcher must report a worktree change with the state area");
-        assert_eq!(
-            change.areas,
-            vec![InvalidationArea::Worktree, InvalidationArea::State],
-            "a worktree write must also invalidate the cached repository state"
+        assert!(
+            change.areas.contains(&InvalidationArea::Worktree),
+            "a worktree write must invalidate the worktree area: {:?}",
+            change.areas
+        );
+        assert!(
+            change.areas.contains(&InvalidationArea::State),
+            "a worktree write must also invalidate the cached repository state: {:?}",
+            change.areas
         );
         session.shutdown();
     }

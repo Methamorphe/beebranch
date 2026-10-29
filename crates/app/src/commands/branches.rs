@@ -870,6 +870,16 @@ mod tests {
             &["user.name", "Alice"],
             &[],
         );
+        // Keep fixtures byte-identical across platforms: Windows runners set
+        // core.autocrlf=true, which would rewrite restored stash contents.
+        git(
+            runner,
+            dir,
+            GitSubcommand::Config,
+            &["core.autocrlf", "false"],
+            &[],
+        );
+        git(runner, dir, GitSubcommand::Config, &["core.eol", "lf"], &[]);
         std::fs::write(dir.join("a.txt"), "one\n").expect("write");
         std::fs::write(dir.join("notes.txt"), "note\n").expect("write");
         git(runner, dir, GitSubcommand::Add, &["-A"], &[]);

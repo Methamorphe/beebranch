@@ -20,6 +20,10 @@ impl Fixture {
         fixture.init();
         fixture.config(&["user.email", "alice@example.test"]);
         fixture.config(&["user.name", "Alice"]);
+        // Windows runners default to core.autocrlf=true; byte-level assertions
+        // in the merge/stash fixtures expect LF on every platform.
+        fixture.config(&["core.autocrlf", "false"]);
+        fixture.config(&["core.eol", "lf"]);
         fixture
     }
 
