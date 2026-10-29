@@ -1,0 +1,10 @@
+# Propriétaire par défaut : toute modification requiert une revue du mainteneur.
+* @Methamorphe
+
+# Gouvernance, sécurité et distribution.
+/.github/ @Methamorphe
+/LICENSE @Methamorphe
+/SECURITY.md @Methamorphe
+/CODE_OF_CONDUCT.md @Methamorphe
+/CONTRIBUTING.md @Methamorphe
+/docs/adr/ @Methamorphe

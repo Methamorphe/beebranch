@@ -1,6 +1,9 @@
 # BeeBranch — spécification consolidée
 
-**Statut :** P3 implémenté et vérifié — preuves dans [docs/reviews/p3-review.md](docs/reviews/p3-review.md). Le dogfooding humain reste à exécuter.
+> Document de conception P0–P3. Pour découvrir, installer et contribuer au
+> projet, voir le [README](../README.md).
+
+**Statut :** P3 implémenté et vérifié — preuves dans [reviews/p3-review.md](reviews/p3-review.md). Le dogfooding humain reste à exécuter.
 **Date :** 2026-10-27
 **Nom du produit :** BeeBranch
 **Frontend :** React 19.3 + TypeScript + Vite
@@ -11,7 +14,8 @@
 
 ## 1. Objet
 
-Remplacer GitKraken dans l'entreprise par **BeeBranch**, un client Git desktop :
+Fournir avec **BeeBranch**, un client Git desktop open source, une alternative
+aux clients Git commerciaux :
 
 - **local-first** : Git est la source de vérité, le travail local ne dépend d'aucun service ;
 - **rapide et prévisible** : performance mesurée, pas supposée ;
@@ -90,9 +94,8 @@ Décisions de la révision 1 **conservées** : local-first, Tauri 2, rendu canva
 ### Installer une build (macOS, Apple Silicon)
 
 1. Télécharger le DMG de la dernière release :
-   <https://github.com/Methamorphe/beebranch-releases/releases/latest>
-   (`BeeBranch_<version>_aarch64.dmg`). Le dépôt public suffit : aucun accès au
-   code source n'est nécessaire.
+   <https://github.com/Methamorphe/beebranch/releases/latest>
+   (`BeeBranch_<version>_aarch64.dmg`).
 2. Ouvrir le DMG, glisser `BeeBranch.app` dans `/Applications`.
 3. Depuis 0.5.1, la build est signée et notariée : Gatekeeper l'accepte sans
    contournement. Pour une version antérieure (non notariée), macOS tue le
@@ -103,10 +106,10 @@ Décisions de la révision 1 **conservées** : local-first, Tauri 2, rendu canva
 4. Contrôle : `/Applications/BeeBranch.app/Contents/MacOS/beebranch --version`
    doit afficher `BeeBranch <version>`.
 
-Limites de la matrice publiée : `darwin-aarch64` uniquement (pas de build Intel),
-aucun installateur Windows/Linux. Prérequis d'usage : Git ≥ 2.34. Les mises à
-jour suivantes sont installées par l'application, après vérification de la
-signature minisign de l'artefact.
+Matrice publiée : `darwin-aarch64` (signé et notarié), `linux-x86_64` et
+`windows-x86_64` (signature OS optionnelle). Pas de build macOS Intel.
+Prérequis d'usage : Git ≥ 2.34. Les mises à jour suivantes sont installées par
+l'application, après vérification de la signature minisign de l'artefact.
 
 ## 6. Règles de lecture pour un agent de développement
 

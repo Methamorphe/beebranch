@@ -92,7 +92,7 @@ Chaque prototype répond à une question et produit une preuve. Il n'est pas un 
 | ID | Décision | Valeur | Date | Référence |
 |---|---|---|---|---|
 | D-01 | Framework frontend | **React 19.3 + TypeScript + Vite** | 2026-10-27 | [ADR-0006](adr/0006-react-frontend.md) |
-| D-02 | Nom du produit | **BeeBranch** | 2026-10-27 | README |
+| D-02 | Nom du produit | **BeeBranch** | 2026-10-27 | [SPECIFICATION](SPECIFICATION.md) |
 | D-03 | Version minimale de Git | **2.34** (plancher LTS distro), tests sur 2.56.0 | 2026-10-27 | [ADR-0007](adr/0007-version-baseline.md) |
 | D-04 | Versions GitLab | **3 dernières maintenues** (19.3–19.5), pas de LTS | 2026-10-27 | [ADR-0007](adr/0007-version-baseline.md) |
 | D-05 | Sauvegardes d'undo | **Aucune sauvegarde applicative** | 2026-10-27 | [ADR-0008](adr/0008-no-application-backups.md) |
