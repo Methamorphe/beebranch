@@ -400,8 +400,9 @@ function mockScript(commits, rows, diffLines) {
     workspace_add_repo: () => ({ id: 'ws_demo', name: 'Produit', createdAt: 1, updatedAt: 1, repos: [] }),
     workspace_remove_repo: () => ({ id: 'ws_demo', name: 'Produit', createdAt: 1, updatedAt: 1, repos: [] }),
     update_status: () => ({
-      currentVersion: '0.4.0', endpoint: 'https://updates.beebranch.fr/latest.json',
-      rollbackEndpoint: 'https://updates.beebranch.fr/rollback.json',
+      currentVersion: '0.4.0',
+      endpoint: 'https://github.com/Methamorphe/beebranch/releases/latest/download/latest.json',
+      rollbackEndpoint: 'https://github.com/Methamorphe/beebranch/releases/latest/download/rollback.json',
       signatureRequired: true, platform: 'macos-aarch64',
     }),
     update_check: () => (window.__scenarioUpdateAvailable ? { currentVersion: '0.4.0', version: '0.4.1', publishedAt: '2026-10-28T10:00:00Z', notes: '## BeeBranch 0.4.1\\n\\n- **Graphe** plus lisible\\n- rendu \`Markdown\` des notes', downloadUrl: 'https://example.test/BeeBranch.app.tar.gz', rollback: false } : null),
