@@ -2,6 +2,15 @@
   "name": "beebranch",
   "private": true,
   "version": "0.7.2",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Methamorphe/beebranch.git"
+  },
+  "homepage": "https://github.com/Methamorphe/beebranch",
+  "bugs": {
+    "url": "https://github.com/Methamorphe/beebranch/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
