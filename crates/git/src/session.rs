@@ -698,6 +698,13 @@ impl SessionRegistry {
             return Ok((session, false));
         }
         let session = Arc::new(RepoSession::open(runner, &worktree, options)?);
+        // The registry is keyed by the session's own id, never by the id of the
+        // path we were handed: on Windows `fs::canonicalize` returns a verbatim
+        // path (`\\?\C:\…`) while the session id comes from
+        // `git rev-parse --show-toplevel` (`C:/…`). Keying by the canonical
+        // path made every later lookup with the id returned to the frontend
+        // fail with `repo.not_open`.
+        let id = session.id().clone();
         let mut sessions = self.sessions.lock().map_err(lock_error)?;
         if let Some(existing) = sessions.get(&id) {
             return Ok((existing.clone(), false));

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.2] — 2026-10-29
+
+### Corrigé
+
+- **Dépôt inutilisable sous Windows** : « Le dépôt n'est pas ouvert. Ouvrez le
+  dépôt avant de lire son état. » s'affichait dès qu'un dépôt était ouvert. Le
+  registre de sessions était indexé par le chemin rendu par
+  `fs::canonicalize` (`\\?\C:\Dev\repo`) tandis que l'identifiant rendu à
+  l'interface venait de `git rev-parse --show-toplevel` (`C:/Dev/repo`) : les
+  deux condensés différaient, donc état, statut, refs et graphe ne retrouvaient
+  jamais leur session. Le registre est maintenant indexé par l'identifiant de
+  la session, et `RepoId::from_path` normalise le préfixe verbatim, le
+  séparateur et la casse du lecteur — les chemins POSIX restent inchangés, donc
+  les identifiants macOS/Linux déjà persistés sont conservés.
+
 ## [0.7.1] — 2026-10-29
 
 ### Ajouté
