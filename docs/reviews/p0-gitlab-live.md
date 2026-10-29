@@ -1,16 +1,16 @@
 # P0-T07 — Preuve sur instance GitLab réelle
 
 **Date :** 2026-10-27
-**Instance :** `https://gitlab.beelan.fr/`
+**Instance :** `https://gitlab.example.com/` (self-hosted, anonymisée)
 **Version :** GitLab **19.2.9** (`/api/v4/version`, `enterprise: false`)
 **TLS :** certificat public valide (`ssl_verify_result=0`), aucune CA interne
-**Identité :** `johann.raoul` (id 35)
+**Identité :** `jdoe` (id 35)
 **Token :** PAT lu depuis un fichier local `0600`, jamais affiché ni journalisé.
 
 ## Commandes exécutées
 
 ```bash
-curl -sS https://gitlab.beelan.fr/api/v4/version
+curl -sS https://gitlab.example.com/api/v4/version
 # {"version":"19.2.9", ...}
 
 cargo run -q -p beebranch-app --example live_gitlab
@@ -28,26 +28,26 @@ L'exemple exerce le **vrai chemin applicatif** : normalisation d'URL,
 ## Résultats
 
 ```text
-normalized base=https://gitlab.beelan.fr api=https://gitlab.beelan.fr/api/v4 host=gitlab.beelan.fr
-debug=GitlabClient { api_url: "https://gitlab.beelan.fr/api/v4", host: "gitlab.beelan.fr", token: "[REDACTED]", ... }
+normalized base=https://gitlab.example.com api=https://gitlab.example.com/api/v4 host=gitlab.example.com
+debug=GitlabClient { api_url: "https://gitlab.example.com/api/v4", host: "gitlab.example.com", token: "[REDACTED]", ... }
 
-user id=35 username=johann.raoul name=Johann RAOUL
+user id=35 username=jdoe name=Jane Doe
 projects first page items=40 next=Some(3) total=Some(90)
-project detail id=149 path=lcbois/lc_bois_app http_url_has_token=false
+project detail id=149 path=example-group/example-app http_url_has_token=false
 projects second call cached=true not_modified=true items=40
 bad token code=auth.failed status=Some(401) retryable=false detail=Some(false)
 
-configured connected=true instance=https://gitlab.beelan.fr user=johann.raoul
+configured connected=true instance=https://gitlab.example.com user=jdoe
 projects_via_app_client items=90 total=Some(90)
 projects_page persisted items=3 next=None
-persisted instances=1 identity=johann.raoul projects_cached=3 secret_present=true
+persisted instances=1 identity=jdoe projects_cached=3 secret_present=true
 sqlite_contains_token=false sqlite_contains_private_token_header=false
 diagnostics_contains_token=false diagnostics_contains_instance=true
 bad_token code=auth.failed detail_has_token=false
 keychain_roundtrip=true keychain_value_len=Some(15) keychain_cleaned=true
 
 # avec LIVE_KEYCHAIN=1 : configure stocke le PAT via KeychainStore
-persisted instances=1 identity=johann.raoul projects_cached=3 secret_present=true
+persisted instances=1 identity=jdoe projects_cached=3 secret_present=true
 live_keychain_secret_cleaned=true
 ```
 
@@ -55,7 +55,7 @@ live_keychain_secret_cleaned=true
 
 | Exigence T07 | Résultat |
 |---|---|
-| Connexion valide | `GET /user` → 200, identité `johann.raoul` |
+| Connexion valide | `GET /user` → 200, identité `jdoe` |
 | Connexion invalide | 401 → `auth.failed`, non retryable |
 | Token absent des logs | `Debug` client/config → `[REDACTED]` |
 | Token absent de SQLite | dump complet → aucun `glpat-`, aucun `private-token` |

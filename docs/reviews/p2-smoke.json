@@ -141,7 +141,7 @@
     }
   },
   "screenshots": [
-    "/Users/johannbee/Perso/beebranch/target/ui-smoke/p0-graph.png",
-    "/Users/johannbee/Perso/beebranch/target/ui-smoke/p0-diff.png"
+    "target/ui-smoke/p0-graph.png",
+    "target/ui-smoke/p0-diff.png"
   ]
 }
