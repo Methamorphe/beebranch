@@ -677,8 +677,12 @@ fn clones_a_local_repository_into_a_new_directory() {
     )
     .expect("clone");
     assert_eq!(cloned, destination.canonicalize().expect("canonical"));
+    // The clone inherits the runner's global core.autocrlf; compare the text
+    // independently of the platform's checkout line endings.
     assert_eq!(
-        std::fs::read_to_string(cloned.join("a.txt")).expect("file"),
+        std::fs::read_to_string(cloned.join("a.txt"))
+            .expect("file")
+            .replace("\r\n", "\n"),
         "base\n"
     );
 

@@ -178,7 +178,7 @@ pub fn add(
     // Git refuses the `file` transport for submodules by default. A local
     // path explicitly entered by the user is a legitimate source; scope the
     // allowance to that command.
-    if url.starts_with('/')
+    if std::path::Path::new(url).is_absolute()
         || url.starts_with("file://")
         || url.starts_with("./")
         || url.starts_with("../")
