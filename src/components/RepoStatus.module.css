@@ -4,15 +4,30 @@
 .filter:focus { border-color:var(--border-strong); background:var(--bg); }
 .ignoredToggle { display:flex; align-items:center; gap:8px; padding:8px; color:var(--muted-strong); font-size:13px; }
 .fileList { flex:1; display:flex; flex-direction:column; min-height:170px; overflow:hidden; }
+.bulkBar { display:flex; align-items:center; gap:5px; padding:5px 10px; border-block:1px solid var(--border); background:var(--surface-raised); font-size:12px; }
+.bulkBar strong { min-width:0; margin-right:auto; overflow:hidden; color:var(--text); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.bulkBar button { min-height:25px; padding:2px 7px; border:1px solid var(--border-strong); font-size:11px; }
+.bulkBar button:hover:not(:disabled) { border-color:var(--muted); }
+.clearSelection { width:25px; padding:0 !important; font-size:16px !important; line-height:1; }
 .fileGroup { flex:1; min-height:64px; overflow:auto; }
 .groupHeading { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:33px; padding:4px 12px; background:var(--surface); }
 .groupHeading h2 { margin:0; color:var(--muted-strong); font-size:13px; font-weight:600; }
 .groupHeading h2 span { margin-left:5px; color:var(--muted); font-size:12px; font-weight:400; }
 .groupHeading button { padding:3px 6px; border:1px solid var(--border-strong); color:var(--muted-strong); font-size:11px; }
 .fileGroup + .fileGroup { border-top:1px solid var(--border); margin-top:6px; }
-.fileRow { display:flex; align-items:center; gap:5px; height:29px; padding:0 8px 0 12px; }
+.fileRow { display:flex; align-items:center; gap:5px; height:29px; padding:0 8px 0 10px; }
 .fileRow:hover { background:var(--surface-raised); }
 .fileRow[data-selected='true'] { background:var(--accent-soft); }
+.fileRow[data-checked='true'] { background:var(--accent-soft); }
+.fileRow[data-flash='true'] { animation:file-flash 280ms var(--ease-out); }
+/* Directory rows in the tree view: disclosure, then the file count below it. */
+.dirRow { display:flex; align-items:center; gap:6px; width:100%; min-height:27px; padding:0 8px 0 10px; color:var(--muted); font-size:12px; text-align:left; }
+.dirRow:hover:not(:disabled) { color:var(--text); background:var(--surface-raised); }
+.caret { flex:none; width:10px; font-size:9px; text-align:center; }
+.dirName { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dirCount { flex:none; color:var(--muted); font-size:10px; }
+.select { flex:none; width:13px; height:13px; padding:0; accent-color:var(--accent); }
+@keyframes file-flash { 0%, 35% { background-color:var(--accent-soft); } 100% { background-color:transparent; } }
 .state { flex:none; width:14px; color:var(--warning); font:11px var(--sans); font-weight:600; }
 .state[data-kind='untracked'] { color:var(--success); }
 .state[data-kind='unmerged'] { color:var(--error); }

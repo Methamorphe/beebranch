@@ -456,3 +456,56 @@ fn diff_rejects_paths_outside_the_worktree() {
         .expect_err(".git");
     assert_eq!(error.code, "input.invalid");
 }
+
+#[test]
+fn graph_draws_one_stash_node_above_the_history() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "one\n", "first");
+    fixture.commit("a.txt", "two\n", "second");
+    // A side branch keeps the base commit expected by two lanes, so the stash
+    // line has to join it from above instead of sharing its lane.
+    fixture.switch_new("topic");
+    fixture.commit("b.txt", "topic\n", "topic work");
+    fixture.switch("main");
+    fixture.write("a.txt", "local change\n");
+    fixture.write("notes.txt", "untracked\n");
+    fixture.run(
+        GitSubcommand::Stash,
+        &["push", "--include-untracked", "-m", "BeeBranch stash"],
+        &[],
+    );
+    let base = fixture.rev_parse(&["stash@{0}^"]);
+
+    let session = RepoSession::open(fixture.runner(), fixture.path(), SessionOptions::default())
+        .expect("session");
+    let (page, rows) = session
+        .graph_page_scoped(&PageRequest::first(50), None, true)
+        .expect("graph page");
+    assert_eq!(rows.len(), page.items.len());
+
+    // One node per stash, labelled with the typed message, above the history.
+    assert_eq!(rows[0].stash.as_deref(), Some("stash@{0}"));
+    assert_eq!(page.items[0].subject, "BeeBranch stash");
+    assert_eq!(page.items[0].parents, vec![base.clone()]);
+    assert_eq!(rows[0].node_lane, 0);
+    assert!(rows[0].departures.is_empty());
+    // The index and untracked snapshots are not commits of the history.
+    assert!(
+        !page.items.iter().any(
+            |commit| commit.subject.contains("files on") || commit.subject.contains("index on")
+        ),
+        "stash snapshots leaked into the graph: {:?}",
+        page.items
+            .iter()
+            .map(|commit| commit.subject.as_str())
+            .collect::<Vec<_>>()
+    );
+    // The stash line ends on its base, which also receives the side branch.
+    let base_row = page
+        .items
+        .iter()
+        .position(|commit| commit.sha == base)
+        .expect("base row");
+    assert_eq!(rows[base_row].node_lane, 0);
+    assert_eq!(rows[base_row].arrivals, vec![1]);
+}

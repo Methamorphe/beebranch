@@ -98,6 +98,7 @@ fn diagnostics_export_carries_no_token() {
 
     let instance = InstanceRow {
         id: "gl_test".into(),
+        provider: "gitlab".into(),
         base_url: "https://gitlab.example.test".into(),
         api_url: "https://gitlab.example.test/api/v4".into(),
         display_name: Some("Interne".into()),

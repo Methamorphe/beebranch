@@ -9,6 +9,7 @@ type Props = {
   repoId: string
   generation: number
   onMutated: () => void
+  onUndo?: () => Promise<unknown>
   compact?: boolean
 }
 
@@ -16,7 +17,7 @@ const drafts = new Map<string, string>()
 
 const TEMPLATE = 'Résumé court\n\nCorps du message (optionnel).\n'
 
-export function CommitPanel({ repoId, generation, onMutated, compact = false }: Props) {
+export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = false }: Props) {
   const [message, setDraftMessage] = useState(() => drafts.get(repoId) ?? '')
   const setMessage = (next: string) => { drafts.set(repoId, next); setDraftMessage(next) }
   const [amend, setAmend] = useState(false)
@@ -28,6 +29,8 @@ export function CommitPanel({ repoId, generation, onMutated, compact = false }: 
   const [error, setError] = useState<string | null>(null)
   const [errorOutput, setErrorOutput] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [undoing, setUndoing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -48,11 +51,22 @@ export function CommitPanel({ repoId, generation, onMutated, compact = false }: 
     }
   }, [repoId, generation])
 
+  const canSubmit =
+    !busy &&
+    Boolean(status) &&
+    (status?.counts.conflicted ?? 0) === 0 &&
+    (allowEmpty || amend || (status?.counts.staged ?? 0) > 0) &&
+    (message.trim().length > 0 || (amend && keepMessage))
+
   const submit = async () => {
+    if (!canSubmit) {
+      return
+    }
     setBusy(true)
     setError(null)
     setErrorOutput(null)
     setOutcome(null)
+    setCopied(false)
     try {
       const result = await commitCreate({
         repoId,
@@ -75,6 +89,33 @@ export function CommitPanel({ repoId, generation, onMutated, compact = false }: 
     }
   }
 
+  const copySha = async () => {
+    if (!outcome || !navigator.clipboard) {
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(outcome.sha)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  const undoCommit = async () => {
+    if (!onUndo) {
+      return
+    }
+    setUndoing(true)
+    try {
+      await onUndo()
+      setOutcome(null)
+    } catch {
+      // App owns the user-facing error for a failed undo.
+    } finally {
+      setUndoing(false)
+    }
+  }
+
   return (
     <div className={compact ? styles.compact : shared.root}>
       <div className={compact ? styles.stack : shared.columns}>
@@ -84,6 +125,12 @@ export function CommitPanel({ repoId, generation, onMutated, compact = false }: 
             className={shared.textarea}
             value={message}
             onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                void submit()
+              }
+            }}
             placeholder="Résumé du commit
 
 Description (facultative)"
@@ -137,10 +184,13 @@ Description (facultative)"
           <button type="button" className={shared.secondary} disabled={busy} onClick={() => setMessage(TEMPLATE)}>Utiliser un modèle</button>
           </details>
           <button type="button" className={`${shared.primary} ${styles.submit}`}
-            disabled={busy || !status || status.counts.conflicted > 0 || (!allowEmpty && !amend && status.counts.staged === 0) || (!message.trim() && !(amend && keepMessage))}
+            disabled={!canSubmit}
+            aria-keyshortcuts="Meta+Enter Control+Enter"
+            title="Créer le commit · ⌘/Ctrl + Entrée"
             onClick={() => void submit()}>
             {busy ? 'Création…' : amend ? 'Amender le commit' : allowEmpty && !status?.counts.staged ? 'Créer un commit vide' : status?.counts.staged ? `Créer le commit · ${status.counts.staged} fichier(s)` : 'Préparez des fichiers pour committer'}
           </button>
+          <p className={styles.shortcutHint}><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Entrée</kbd> pour committer</p>
           {status?.counts.conflicted ? <p className={shared.danger}>Résolvez les conflits avant de committer.</p> : null}
           {error ? (
             <div className={shared.danger} role="alert" style={{ marginTop: 10 }}>
@@ -149,11 +199,21 @@ Description (facultative)"
             </div>
           ) : null}
           {outcome ? (
-            <div style={{ marginTop: 10 }}>
+            <div className={styles.successFeedback} style={{ marginTop: 10 }}>
               <p className={shared.success} role="status">
                 Commit <code>{outcome.sha.slice(0, 12)}</code> créé
                 {outcome.signed ? ' (signé)' : ''}.
               </p>
+              <div className={styles.successActions}>
+                <button type="button" className={shared.secondary} onClick={() => void copySha()}>
+                  {copied ? 'SHA copié' : 'Copier le SHA'}
+                </button>
+                {onUndo ? (
+                  <button type="button" className={shared.secondary} disabled={undoing} onClick={() => void undoCommit()}>
+                    {undoing ? 'Annulation…' : 'Annuler le commit'}
+                  </button>
+                ) : null}
+              </div>
               {outcome.output ? <pre className={shared.output}>{outcome.output}</pre> : null}
             </div>
           ) : null}

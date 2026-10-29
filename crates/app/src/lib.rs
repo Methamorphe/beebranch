@@ -6,9 +6,10 @@
 
 pub mod commands;
 pub mod error;
-pub mod gitlab_cache;
+pub mod forge_cache;
 pub mod logging;
 pub mod setup;
+pub mod splash;
 pub mod state;
 
 /// Build the Tauri application.
@@ -20,6 +21,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .setup(setup::setup)
         .invoke_handler(tauri::generate_handler![
             commands::app_info::app_info,
+            commands::startup::app_ready,
             commands::repo::repo_open,
             commands::repo::repo_init,
             commands::repo::repo_clone,
@@ -93,6 +95,29 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::gitlab_mr::gitlab_mr_get,
             commands::gitlab_mr::gitlab_mr_pipelines,
             commands::gitlab_mr::gitlab_mr_create,
+            commands::github::github_configure,
+            commands::github::github_status,
+            commands::github::github_validate,
+            commands::github::github_projects_page,
+            commands::github::github_disconnect,
+            commands::github_pr::github_repo_link,
+            commands::github_pr::github_repo_link_get,
+            commands::github_pr::github_repo_link_manual,
+            commands::github_pr::github_pr_page,
+            commands::github_pr::github_pr_get,
+            commands::github_pr::github_pr_checks,
+            commands::github_pr::github_pr_create,
+            commands::github_advanced::github_pr_discussions,
+            commands::github_advanced::github_discussion_create,
+            commands::github_advanced::github_discussion_reply,
+            commands::github_advanced::github_discussion_resolve,
+            commands::github_advanced::github_approvals,
+            commands::github_advanced::github_approve,
+            commands::github_advanced::github_unapprove,
+            commands::github_advanced::github_merge_pr,
+            commands::github_advanced::github_pr_jobs,
+            commands::github_advanced::github_job_log,
+            commands::github_advanced::github_pr_diff_refs,
             commands::worktrees::worktree_list,
             commands::worktrees::worktree_add,
             commands::worktrees::worktree_remove,

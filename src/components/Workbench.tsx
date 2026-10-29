@@ -21,18 +21,24 @@ import {
   diffGet,
   fileContentGet,
   historyCherryPick,
-  historyMerge,
+  historyReset,
   historyRevert,
-  gitlabMrPage,
-  gitlabRepoLinkGet,
+  githubStatus,
   gitlabStatus,
   openExternalUrl,
+  patchCreate,
+  patchSave,
+  preferenceGet,
+  preferenceSet,
   refsGet,
+  syncPull,
   syncPush,
   type DiffRequest,
 } from '../ipc/commands'
+import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
 import { errorMessage } from '../ipc/client'
 import { isCheckoutableRef, resolveGraphRef, shortRevision } from '../lib/graphRefs'
+import { projectWebUrl, refWebUrl } from '../lib/refLinks'
 import {
   INSPECTOR_MAX,
   INSPECTOR_MIN,
@@ -67,17 +73,21 @@ import { Resizer } from './Resizer'
 import { SubmodulesPanel } from './SubmodulesPanel'
 import { WorktreesPanel } from './WorktreesPanel'
 import { WorkspacesPanel } from './WorkspacesPanel'
-import { MergeRequestsPanel } from './MergeRequestsPanel'
+import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import { CommitPanel } from './CommitPanel'
 import { DiffViewer, type DocumentReader } from './DiffViewer'
 import { GitlabPanel } from './GitlabPanel'
+import { GithubPanel } from './GithubPanel'
+import { githubForge, gitlabForge } from '../lib/forge'
 import { GraphCanvas } from './GraphCanvas'
 import { RecoveryPanel } from './RecoveryPanel'
 import { RepoStatus } from './RepoStatus'
 import { SearchPanel } from './SearchPanel'
 import { StashPanel } from './StashPanel'
 import { SyncPanel } from './SyncPanel'
+import { TagDialog } from './TagDialog'
 import { ToolsPanel } from './ToolsPanel'
+import { WorktreeDialog } from './WorktreeDialog'
 import shared from './p1.module.css'
 import styles from './Workbench.module.css'
 
@@ -91,8 +101,10 @@ type Props = {
   onOpenDiff: (request: DiffRequest) => void
   onOpenRepo: (path: string) => void
   onMutated: () => void
+  onUndo: () => Promise<unknown>
   onNavigate: (view: ViewId) => void
-  connected: boolean
+  gitlabConnected: boolean
+  githubConnected: boolean
   theme: 'dark' | 'light' | 'system'
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void
   density: 'compact' | 'comfortable'
@@ -115,12 +127,26 @@ type ContextMenuState = {
   commit: CommitSummary
   x: number
   y: number
+  /** Inline expansion: checkout targets or reset modes, never a nested menu. */
+  panel: 'checkout' | 'reset' | null
 }
 
 function remoteBranchName(entry: RefEntry | null) {
   if (!entry) return undefined
   const prefix = `${entry.remote ?? entry.name.split('/')[0]}/`
   return entry.name.startsWith(prefix) ? entry.name.slice(prefix.length) : entry.name
+}
+
+/** `refs/remotes/origin/feature/x` → `{ remote: 'origin', branch: 'feature/x' }`. */
+function upstreamTarget(entry: RefEntry) {
+  const upstream = entry.upstream?.replace(/^refs\/remotes\//, '')
+  if (!upstream) return null
+  const separator = upstream.indexOf('/')
+  if (separator <= 0 || separator === upstream.length - 1) return null
+  return {
+    remote: upstream.slice(0, separator),
+    branch: upstream.slice(separator + 1),
+  }
 }
 
 type DropMenuState = {
@@ -173,8 +199,8 @@ type RefMenuState = {
   y: number
   renaming: boolean
   name: string
-  /** Remote-branch list shown in place of "Définir l'upstream…". */
-  pickingUpstream: boolean
+  /** Inline expansion: upstream list, checkout targets, reset modes, solo. */
+  panel: 'upstream' | 'checkout' | 'reset' | 'solo' | null
 }
 
 /**
@@ -199,8 +225,10 @@ export function Workbench({
   onOpenDiff,
   onOpenRepo,
   onMutated,
+  onUndo,
   onNavigate,
-  connected,
+  gitlabConnected,
+  githubConnected,
   theme,
   onThemeChange,
   density,
@@ -222,6 +250,7 @@ export function Workbench({
     >
   >({})
   const [linkWebUrl, setLinkWebUrl] = useState<string | null>(null)
+  const [linkProvider, setLinkProvider] = useState<'gitlab' | 'github' | null>(null)
   const graph = useGraph(repoId, generation, { revision: revision || undefined, allRefs })
   const changes = repo?.state.worktree
   const hasChanges = Boolean(changes && (changes.staged > 0 || changes.unstaged > 0 || changes.untracked > 0 || changes.conflicted > 0))
@@ -318,7 +347,13 @@ export function Workbench({
   const [pendingIntegration, setPendingIntegration] = useState<PendingIntegration | null>(null)
   const [integrationBusy, setIntegrationBusy] = useState(false)
   const [pendingRemoteDelete, setPendingRemoteDelete] = useState<RefEntry | null>(null)
-  const [pendingMerge, setPendingMerge] = useState<RefEntry | null>(null)
+  const [pendingDeleteBoth, setPendingDeleteBoth] = useState<RefEntry | null>(null)
+  /** Commit a tag dialog points at, and whether the tag is annotated. */
+  const [tagTarget, setTagTarget] = useState<{ sha: string; annotated: boolean } | null>(null)
+  /** Ref a worktree dialog starts from. */
+  const [worktreeTarget, setWorktreeTarget] = useState<string | null>(null)
+  /** Branches pinned to the left, per repository, persisted with the UI prefs. */
+  const [pins, setPins] = useState<Record<string, string>>({})
 
   const previousWorktreeRequest = useRef(worktreeRequest)
   useEffect(() => {
@@ -349,9 +384,26 @@ export function Workbench({
   }, [repoId, generation])
 
   useEffect(() => {
+    let cancelled = false
+    void preferenceGet('ui.graph.pins')
+      .then((raw) => {
+        if (cancelled || !raw) return
+        const parsed: unknown = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          setPins(parsed as Record<string, string>)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     if (!repoId || view !== 'graph') {
       setBadges({})
       setLinkWebUrl(null)
+      setLinkProvider(null)
       return
     }
     let cancelled = false
@@ -361,45 +413,58 @@ export function Workbench({
         return
       }
       try {
-        const session = await gitlabStatus()
-        if (!session.connected) {
-          return
-        }
-        const link = await gitlabRepoLinkGet(repoId)
-        if (!link) {
-          return
-        }
-        if (!cancelled) {
-          setLinkWebUrl(link.webUrl)
-        }
-        const page = await gitlabMrPage({
-          projectId: link.projectId,
-          scope: 'all',
-          page: 1,
-          perPage: 100,
-          repoId,
-        })
-        if (!cancelled) {
-          const next: Record<
-            string,
-            { iid: number; status: string; state: string; updatedAt?: string }
-          > = {}
-          for (const mr of page.items) {
-            const existing = next[mr.sourceBranch]
-            if (existing?.updatedAt && existing.updatedAt > (mr.updatedAt ?? '')) {
-              continue
-            }
-            next[mr.sourceBranch] = {
-              iid: mr.iid,
-              status: mr.headPipeline?.status ?? 'unknown',
-              state: pipelineState(mr.headPipeline?.status),
-              updatedAt: mr.updatedAt,
-            }
+        const providers = [
+          { api: gitlabForge, status: gitlabStatus },
+          { api: githubForge, status: githubStatus },
+        ]
+        for (const { api, status } of providers) {
+          let session
+          try {
+            session = await status()
+          } catch {
+            continue
           }
-          setBadges(next)
+          if (!session.connected) {
+            continue
+          }
+          const link = await api.linkGet(repoId)
+          if (!link) {
+            continue
+          }
+          if (!cancelled) {
+            setLinkWebUrl(link.webUrl)
+            setLinkProvider(api.id)
+          }
+          const page = await api.mrPage({
+            projectId: link.projectId,
+            scope: 'project',
+            page: 1,
+            perPage: 100,
+            repoId,
+          })
+          if (!cancelled) {
+            const next: Record<
+              string,
+              { iid: number; status: string; state: string; updatedAt?: string }
+            > = {}
+            for (const mr of page.items) {
+              const existing = next[mr.sourceBranch]
+              if (existing?.updatedAt && existing.updatedAt > (mr.updatedAt ?? '')) {
+                continue
+              }
+              next[mr.sourceBranch] = {
+                iid: mr.iid,
+                status: mr.headPipeline?.status ?? 'unknown',
+                state: pipelineState(mr.headPipeline?.status),
+                updatedAt: mr.updatedAt,
+              }
+            }
+            setBadges(next)
+          }
+          break
         }
       } catch {
-        // GitLab is optional; graph rendering must never depend on it.
+        // Forges are optional; graph rendering must never depend on them.
       }
     }
     void load()
@@ -651,8 +716,42 @@ export function Workbench({
     }
   }, [branchRequest, startBranchCreate, view])
 
+  const closeInspector = useCallback(() => {
+    if (comparison) {
+      setComparison(null)
+      setComparePath(null)
+      return
+    }
+    if (selected) {
+      setSelected(undefined)
+      return
+    }
+    setWorktreeSelected(false)
+    setLocalDiff(null)
+  }, [comparison, selected])
+
+  useEffect(() => {
+    if (!comparison && !selected && !showWorktree) {
+      return
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        !window.matchMedia('(max-width: 1120px)').matches ||
+        document.querySelector('[role="dialog"], [role="alertdialog"], [popover]:popover-open')
+      ) {
+        return
+      }
+      event.preventDefault()
+      closeInspector()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [closeInspector, comparison, selected, showWorktree])
+
   const openRefMenu = (entry: RefEntry, x: number, y: number) => {
-    setRefMenu({ entry, x, y, renaming: false, name: entry.name, pickingUpstream: false })
+    setRefMenu({ entry, x, y, renaming: false, name: entry.name, panel: null })
   }
 
   const pushBranch = (entry: RefEntry) => {
@@ -697,24 +796,30 @@ export function Workbench({
       .catch(() => undefined)
   }
 
-  const requestIntegration = async (mode: 'merge' | 'rebase', noFf = false) => {
+  const requestIntegration = async (
+    mode: 'merge' | 'rebase',
+    noFf = false,
+    pair?: { source: RefEntry; target: RefEntry },
+  ) => {
     const menu = dropMenu
-    if (!menu || !repoId) return
+    const source = pair?.source ?? menu?.source
+    const target = pair?.target ?? menu?.target
+    if (!source || !target || !repoId) return
     setDropMenu(null)
     setActionError(null)
     setActionNotice(null)
     try {
       const preview = await branchIntegrationPreview({
         repoId,
-        source: menu.source.name,
-        target: menu.target.name,
+        source: source.name,
+        target: target.name,
         mode,
       })
       if (!preview.applicable) {
         setActionError(preview.blockedReason ?? 'Intégration impossible pour ces branches.')
         return
       }
-      setPendingIntegration({ source: menu.source, target: menu.target, mode, noFf, preview })
+      setPendingIntegration({ source, target, mode, noFf, preview })
     } catch (cause) {
       setActionError(errorMessage(cause))
     }
@@ -762,7 +867,7 @@ export function Workbench({
       <div className={styles.content}>
         <ProfilesPanel
           repoId={repoId}
-          connected={connected}
+          connected={gitlabConnected}
           theme={theme}
           onThemeChange={onThemeChange}
           density={density}
@@ -788,6 +893,14 @@ export function Workbench({
     return (
       <div className={styles.content}>
         <GitlabPanel repoId={repoId} generation={generation} onLinked={onMutated} />
+      </div>
+    )
+  }
+
+  if (view === 'github') {
+    return (
+      <div className={styles.content}>
+        <GithubPanel repoId={repoId} generation={generation} onLinked={onMutated} />
       </div>
     )
   }
@@ -925,13 +1038,15 @@ export function Workbench({
     )
   }
 
-  if (view === 'mrs') {
+  if (view === 'mrs' || view === 'prs') {
+    const api = view === 'prs' ? githubForge : gitlabForge
     return (
       <div className={shared.root}>
-        <MergeRequestsPanel
+        <ReviewRequestsPanel
+          api={api}
           repoId={repoId}
           generation={generation}
-          connected={connected}
+          connected={view === 'prs' ? githubConnected : gitlabConnected}
           onCheckout={(branch: string) =>
             void runAction(`Checkout ${branch}.`, () =>
               branchCheckout({ repoId, name: branch }),
@@ -1080,6 +1195,9 @@ export function Workbench({
         >
           <option value="__all__">Toutes les branches et tags</option>
           <option value="">Branche courante</option>
+          {revision && !branches.some((entry) => entry.name === revision) ? (
+            <option value={revision}>{revision}</option>
+          ) : null}
           {branches.map((entry) => (
             <option key={entry.fullName} value={entry.name}>
               {entry.name}
@@ -1118,10 +1236,157 @@ export function Workbench({
   ) : null
 
   const openContextMenu = (commit: CommitSummary, x: number, y: number) => {
-    setContextMenu({ commit, x, y })
+    setContextMenu({ commit, x, y, panel: null })
   }
 
   const closeMenu = () => setContextMenu(null)
+
+  const currentBranch = repo.state.head?.kind === 'branch' ? repo.state.head.name : null
+  const currentBranchEntry = branches.find((entry) => entry.isHead) ?? null
+
+  /** Local and remote branches pointing at a commit, for the checkout panel. */
+  const refsAtCommit = (sha: string) =>
+    (refs?.entries ?? []).filter(
+      (entry) =>
+        entry.targetOid === sha &&
+        (entry.kind === 'branch' || entry.kind === 'remoteBranch') &&
+        !entry.name.endsWith('/HEAD'),
+    )
+
+  const copyText = async (text: string, notice: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setActionNotice(notice)
+    } catch {
+      setActionError('Presse-papiers indisponible : autorisez l’accès et réessayez.')
+    }
+  }
+
+  const copyLink = (
+    target: 'branch' | 'commit',
+    reference: string,
+    remoteName?: string | null,
+  ) => {
+    const root = projectWebUrl(refs?.remoteUrls, linkWebUrl, remoteName ?? null)
+    const url = root ? refWebUrl(root, target, reference) : null
+    if (!url) {
+      setActionError('Aucun remote reconnu : ajoutez un remote ou associez un projet GitLab.')
+      return
+    }
+    void copyText(url, `Lien copié : ${url}`)
+  }
+
+  /**
+   * GitKraken's Cloud Patch has no server here: the patch is generated locally
+   * and either saved to a file or copied, never uploaded.
+   */
+  const exportPatch = async (sha: string, saveFile: boolean) => {
+    if (!repoId) return
+    setActionError(null)
+    try {
+      const patch = await patchCreate({
+        repoId,
+        source: { kind: 'commit', sha, paths: [] },
+      })
+      if (!saveFile) {
+        await copyText(patch.text, 'Patch du commit copié pour partage.')
+        return
+      }
+      const path = await saveNativeDialog({
+        defaultPath: `${repo.repo.name}-${sha.slice(0, 10)}.patch`,
+      })
+      if (!path) return
+      await patchSave(path, patch.text)
+      setActionNotice(`Patch enregistré : ${path}`)
+    } catch (cause) {
+      setActionError(errorMessage(cause))
+    }
+  }
+
+  /** Soft and mixed only: `--hard` would not be reversible. */
+  const resetCurrentTo = (sha: string, mode: 'soft' | 'mixed') => {
+    if (!repoId || !currentBranch) return
+    closeMenu()
+    setRefMenu(null)
+    void runAction(
+      `${currentBranch} réinitialisée (${mode === 'soft' ? 'douce' : 'mixte'}) sur ${sha.slice(0, 10)}.`,
+      () => historyReset({ repoId, revision: sha, mode }),
+    )
+  }
+
+  const togglePin = (entry: RefEntry) => {
+    if (!repoId) return
+    const next = { ...pins }
+    const pinned = next[repoId] === entry.fullName
+    if (pinned) delete next[repoId]
+    else next[repoId] = entry.fullName
+    setPins(next)
+    setActionNotice(
+      pinned
+        ? `${entry.name} désépinglée.`
+        : `${entry.name} épinglée à gauche du graphe.`,
+    )
+    void preferenceSet('ui.graph.pins', JSON.stringify(next)).catch((cause: unknown) =>
+      setActionError(errorMessage(cause)),
+    )
+    setRefMenu(null)
+  }
+
+  /** Solo keeps the graph walk to one branch, without touching the repository. */
+  const soloOn = (entry: RefEntry) => {
+    setAllRefs(false)
+    setRevision(entry.name)
+    setRefMenu(null)
+    setActionNotice(`Graphe isolé sur ${entry.name}.`)
+  }
+
+  const action = (
+    key: string,
+    icon: Parameters<typeof ViewIcon>[0]['view'],
+    label: string,
+    onClick: () => void,
+    options?: { disabled?: boolean; title?: string },
+  ) => (
+    <button
+      key={key}
+      type="button"
+      className={styles.contextAction}
+      role="menuitem"
+      disabled={options?.disabled}
+      title={options?.title}
+      onClick={onClick}
+    >
+      <ViewIcon view={icon} />
+      <span>{label}</span>
+    </button>
+  )
+
+  const expander = (
+    key: string,
+    icon: Parameters<typeof ViewIcon>[0]['view'],
+    label: string,
+    open: boolean,
+    onToggle: () => void,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      className={styles.contextAction}
+      role="menuitem"
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      <ViewIcon view={icon} />
+      <span>{label}</span>
+      <span className={styles.contextChevron} aria-hidden="true">
+        {open ? '⌄' : '›'}
+      </span>
+    </button>
+  )
+
+  const separator = (key: string) => (
+    <div key={key} className={styles.contextSeparator} role="separator" />
+  )
 
   // The first and last picked commits are the A/B pair: a shift range is picked
   // oldest first, so the diff reads as chronology instead of click order.
@@ -1132,6 +1397,31 @@ export function Workbench({
     INSPECTOR_MAX,
     Math.max(INSPECTOR_MIN, Math.round(window.innerWidth * 0.6)),
   )
+  const pinnedFullName = repoId ? pins[repoId] ?? null : null
+  const pinnedEntry = pinnedFullName
+    ? (refs?.entries ?? []).find((entry) => entry.fullName === pinnedFullName) ?? null
+    : null
+  const pinnedIndex = pinnedEntry
+    ? graph.commits.findIndex((commit) => commit.sha === pinnedEntry.targetOid)
+    : -1
+  const pinnedLane = pinnedIndex >= 0 ? graph.rows[pinnedIndex]?.nodeLane ?? 0 : 0
+  const graphPin =
+    pinnedIndex >= 0 && pinnedLane > 0 ? { row: pinnedIndex, lane: pinnedLane } : null
+  /** A local branch deletes the remote its upstream names, not `origin` blind. */
+  const remoteDeleteTarget = pendingRemoteDelete
+    ? pendingRemoteDelete.kind === 'remoteBranch'
+      ? {
+          remote:
+            pendingRemoteDelete.remote ??
+            pendingRemoteDelete.name.split('/')[0] ??
+            'origin',
+          branch: remoteBranchName(pendingRemoteDelete) ?? pendingRemoteDelete.name,
+        }
+      : upstreamTarget(pendingRemoteDelete)
+    : null
+  const remoteDeleteLabel = remoteDeleteTarget
+    ? `${remoteDeleteTarget.remote}/${remoteDeleteTarget.branch}`
+    : ''
 
   return (
     <div className={styles.content}>
@@ -1217,10 +1507,10 @@ export function Workbench({
             selected={selected}
             mrBadges={badges}
             refEntries={refs?.entries ?? []}
+            pin={graphPin}
             checkoutDisabled={checkoutBusy}
             onCheckoutRef={(raw) => void checkoutGraphRef(raw)}
             picked={picked}
-            footer={comparison === null}
             onSelect={(sha, modifiers) => {
               setSelected(sha)
               setWorktreeSelected(false)
@@ -1313,150 +1603,217 @@ export function Workbench({
           </> : null}
         </div>
         {comparison || selected || showWorktree ? (
-          <Resizer
-            className={styles.inspectorResizer}
-            label="Redimensionner le panneau latéral"
-            side="left"
-            value={layout.inspector}
-            min={INSPECTOR_MIN}
-            max={inspectorMax}
-            onChange={(inspector) => onLayoutChange({ inspector })}
-            onReset={() => onLayoutChange({ inspector: defaultInspectorWidth() })}
-          />
+          <div className={styles.inspectorDock}>
+            <Resizer
+              className={styles.inspectorResizer}
+              label="Redimensionner le panneau latéral"
+              side="left"
+              value={layout.inspector}
+              min={INSPECTOR_MIN}
+              max={inspectorMax}
+              onChange={(inspector) => onLayoutChange({ inspector })}
+              onReset={() => onLayoutChange({ inspector: defaultInspectorWidth() })}
+            />
+            {comparison ? <ComparisonPanel
+              base={comparison.base}
+              target={comparison.target}
+              baseLabel={revisionLabel(comparison.base)}
+              targetLabel={revisionLabel(comparison.target)}
+              commits={comparisonCommits}
+              report={compareReport}
+              loading={compareLoading}
+              error={compareError}
+              activePath={comparePath}
+              onSelectPath={(path) =>
+                setComparePath((current) => (current === path ? null : path))
+              }
+              onClose={() => { setComparison(null); setComparePath(null) }}
+              onSwap={() => setComparison((current) => current ? { ...current, base: current.target, target: current.base } : current)}
+              onFullScreen={() => onOpenDiff({ target: 'range', base: comparison.base, targetRef: comparison.target })}
+            /> : selected ? <CommitDetailPanel
+              onClose={() => setSelected(undefined)}
+              detail={detail && detail.summary.sha === selected ? detail : null}
+              loading={detailLoading && !(detail && detail.summary.sha === selected)}
+              error={detailError}
+              onShowDiff={(sha, path) => onOpenDiff({ target: 'commit', base: sha, path })}
+            /> : showWorktree ? <aside className={styles.worktreePanel} aria-label="Préparation du prochain commit">
+              <div className={styles.worktreeHeading}><strong>Fichiers</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" aria-label="Fermer la préparation du commit" onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
+              <RepoStatus repoId={repoId} generation={generation} locks={repo.locks}
+                selectedPath={localDiff?.path} onSelectDiff={setLocalDiff} onMutated={onMutated} onNavigate={onNavigate} />
+              <CommitPanel compact repoId={repoId} generation={generation} onMutated={onMutated} onUndo={onUndo} />
+            </aside> : null}
+          </div>
         ) : null}
-        {comparison ? <ComparisonPanel
-          base={comparison.base}
-          target={comparison.target}
-          baseLabel={revisionLabel(comparison.base)}
-          targetLabel={revisionLabel(comparison.target)}
-          commits={comparisonCommits}
-          report={compareReport}
-          loading={compareLoading}
-          error={compareError}
-          activePath={comparePath}
-          onSelectPath={(path) =>
-            setComparePath((current) => (current === path ? null : path))
-          }
-          onClose={() => { setComparison(null); setComparePath(null) }}
-          onSwap={() => setComparison((current) => current ? { ...current, base: current.target, target: current.base } : current)}
-          onFullScreen={() => onOpenDiff({ target: 'range', base: comparison.base, targetRef: comparison.target })}
-        /> : selected ? <CommitDetailPanel
-          onClose={() => setSelected(undefined)}
-          detail={detail && detail.summary.sha === selected ? detail : null}
-          loading={detailLoading && !(detail && detail.summary.sha === selected)}
-          error={detailError}
-          onShowDiff={(sha, path) => onOpenDiff({ target: 'commit', base: sha, path })}
-        /> : showWorktree ? <aside className={styles.worktreePanel} aria-label="Préparation du prochain commit">
-          <div className={styles.worktreeHeading}><strong>Fichiers</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" aria-label="Fermer la préparation du commit" onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
-          <RepoStatus repoId={repoId} generation={generation} locks={repo.locks}
-            selectedPath={localDiff?.path} onSelectDiff={setLocalDiff} onMutated={onMutated} onNavigate={onNavigate} />
-          <CommitPanel compact repoId={repoId} generation={generation} onMutated={onMutated} />
-        </aside> : null}
       </div>
 
       {contextMenu ? (
         <ContextMenu x={contextMenu.x} y={contextMenu.y} title={contextMenu.commit.sha.slice(0, 10)} subtitle={contextMenu.commit.subject} onClose={closeMenu}>
           <div className={styles.contextActions}>
-            {branchesAtCommit(contextMenu.commit.sha).map((branch: RefEntry) => (
-              <button
-                key={branch.fullName}
-                type="button"
-                className={styles.contextAction}
-              role="menuitem"
-                onClick={() => {
-                  const name = branch.name
+            {expander('checkout', 'branch', 'Checkout', contextMenu.panel === 'checkout', () =>
+              setContextMenu((current) =>
+                current
+                  ? { ...current, panel: current.panel === 'checkout' ? null : 'checkout' }
+                  : current,
+              ),
+            )}
+            {contextMenu.panel === 'checkout' ? (
+              <>
+                {refsAtCommit(contextMenu.commit.sha).map((entry) =>
+                  action(
+                    `checkout-${entry.fullName}`,
+                    entry.kind === 'branch' ? 'branch' : 'remotes',
+                    `Basculer sur ${entry.name}`,
+                    () => {
+                      closeMenu()
+                      void checkoutGraphRef(entry.fullName)
+                    },
+                    {
+                      disabled: entry.isHead || checkoutBusy,
+                      title:
+                        entry.kind === 'remoteBranch'
+                          ? 'Crée une branche locale qui suit la branche distante'
+                          : undefined,
+                    },
+                  ),
+                )}
+                {action('checkout-detached', 'graph', 'HEAD détachée sur ce commit', () => {
+                  const sha = contextMenu.commit.sha
                   closeMenu()
-                  void runAction(`Checkout ${name}.`, () =>
-                    branchCheckout({ repoId, name }),
+                  void runAction('Checkout détaché.', () =>
+                    branchCheckout({ repoId, detachedAt: sha }),
                   )
-                }}
-              >
-                <ViewIcon view="branch" /><span>Basculer sur {branch.name}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className={styles.contextAction}
-              role="menuitem"
-              onClick={() => {
-                const sha = contextMenu.commit.sha
-                closeMenu()
-                void runAction('Checkout détaché.', () =>
-                  branchCheckout({ repoId, detachedAt: sha }),
-                )
-              }}
-            >
-              <ViewIcon view="graph" /><span>Explorer ce commit (HEAD détachée)</span>
-            </button>
-            <button
-              type="button"
-              className={styles.contextAction}
-              role="menuitem"
-              onClick={() => startBranchCreate(contextMenu.commit.sha)}
-            >
-              <ViewIcon view="branch" /><span>Créer une branche ici…</span>
-            </button>
-            {canAmend(contextMenu.commit.sha) ? (
-              <button
-                type="button"
-                className={styles.contextAction}
-                role="menuitem"
-                title="Amender HEAD réécrit l’historique"
-                onClick={() => {
-                  const { sha, subject } = contextMenu.commit
-                  closeMenu()
-                  setAmendTarget({ sha, subject })
-                }}
-              >
-                <ViewIcon view="commit" /><span>Amender ce commit…</span>
-              </button>
+                })}
+              </>
             ) : null}
-            <button
-              type="button"
-              className={styles.contextAction}
-              role="menuitem"
-              onClick={() => {
+            {action('worktree', 'worktrees', 'Créer un worktree ici…', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              setWorktreeTarget(sha)
+            })}
+            {action('branch-here', 'branch', 'Créer une branche ici…', () =>
+              startBranchCreate(contextMenu.commit.sha),
+            )}
+            {separator('history')}
+            {action('cherry-pick', 'commit', 'Cherry-picker ce commit', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              void runAction('Cherry-pick terminé.', () =>
+                historyCherryPick(repoId, [sha]),
+              )
+            })}
+            {currentBranch
+              ? expander(
+                  'reset',
+                  'recovery',
+                  `Réinitialiser ${currentBranch} sur ce commit`,
+                  contextMenu.panel === 'reset',
+                  () =>
+                    setContextMenu((current) =>
+                      current
+                        ? { ...current, panel: current.panel === 'reset' ? null : 'reset' }
+                        : current,
+                    ),
+                )
+              : null}
+            {contextMenu.panel === 'reset' && currentBranch ? (
+              <>
+                {action(
+                  'reset-soft',
+                  'recovery',
+                  'Douce — garde l’index et les fichiers',
+                  () => resetCurrentTo(contextMenu.commit.sha, 'soft'),
+                )}
+                {action(
+                  'reset-mixed',
+                  'recovery',
+                  'Mixte — vide l’index, garde les fichiers',
+                  () => resetCurrentTo(contextMenu.commit.sha, 'mixed'),
+                )}
+                <p className={styles.contextHint}>
+                  Recul de {currentBranch} seulement : aucun fichier n’est perdu.
+                </p>
+              </>
+            ) : null}
+            {action('revert', 'patches', 'Revenir sur ce commit (revert)', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              void runAction('Revert terminé.', () => historyRevert(repoId, [sha]))
+            })}
+            {canAmend(contextMenu.commit.sha)
+              ? action(
+                  'amend',
+                  'commit',
+                  'Amender ce commit…',
+                  () => {
+                    const { sha, subject } = contextMenu.commit
+                    closeMenu()
+                    setAmendTarget({ sha, subject })
+                  },
+                  { title: 'Amender HEAD réécrit l’historique' },
+                )
+              : null}
+            {action('compare', 'diff', 'Comparer à la branche courante', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              startComparison(sha, 'HEAD')
+            })}
+            {separator('copy')}
+            {action('copy-sha', 'patches', 'Copier le SHA', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              void copyText(sha, `SHA copié : ${sha}`)
+            })}
+            {action(
+              'copy-link',
+              'remotes',
+              'Copier le lien du commit',
+              () => {
                 const sha = contextMenu.commit.sha
                 closeMenu()
-                startComparison(sha, 'HEAD')
-              }}
-            >
-              <ViewIcon view="status" /><span>Comparer à la branche courante</span>
-            </button>
-            <button
-              type="button"
-              className={styles.contextAction}
-              role="menuitem"
-              onClick={() => {
-                const sha = contextMenu.commit.sha
-                closeMenu()
-                void navigator.clipboard?.writeText(sha)
-                setActionNotice(`SHA copié : ${sha}`)
-              }}
-            >
-              <ViewIcon view="patches" /><span>Copier le SHA</span>
-            </button>
-            <button
-              type="button"
-              className={styles.contextAction}
-              role="menuitem"
-              onClick={() => {
-                const atCommit = branchesAtCommit(contextMenu.commit.sha)[0]?.name
-                const head = repo.state.head
-                const branch =
-                  atCommit ?? (head?.kind === 'branch' ? head.name : null)
-                closeMenu()
-                if (!linkWebUrl || !branch) {
-                  setActionError('Associez le dépôt à un projet GitLab et poussez la branche.')
-                  return
-                }
-                const url = `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`
-                void openExternalUrl(url)
-              }}
-            >
-              <ViewIcon view="mrs" /><span>Ouvrir une merge request</span>
-            </button>
-
+                copyLink('commit', sha)
+              },
+              {
+                disabled: !linkWebUrl && !refs?.remoteUrls?.length,
+                title: 'Nécessite un remote reconnu ou un projet GitLab associé',
+              },
+            )}
+            {separator('patch')}
+            {action('patch-save', 'patches', 'Créer un patch depuis ce commit…', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              void exportPatch(sha, true)
+            })}
+            {action('patch-copy', 'patches', 'Copier le patch pour partage', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              void exportPatch(sha, false)
+            })}
+            {separator('tags')}
+            {action('tag', 'tags', 'Créer un tag ici…', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              setTagTarget({ sha, annotated: false })
+            })}
+            {action('tag-annotated', 'tags', 'Créer un tag annoté ici…', () => {
+              const sha = contextMenu.commit.sha
+              closeMenu()
+              setTagTarget({ sha, annotated: true })
+            })}
+            {separator('mr')}
+            {action('mr', 'mrs', 'Ouvrir une merge request', () => {
+              const atCommit = branchesAtCommit(contextMenu.commit.sha)[0]?.name
+              const branch = atCommit ?? currentBranch
+              closeMenu()
+              if (!linkWebUrl || !branch) {
+                setActionError('Associez le dépôt à un projet GitLab et poussez la branche.')
+                return
+              }
+              const url =
+                linkProvider === 'github'
+                  ? `${linkWebUrl}/compare/${encodeURIComponent(branch)}?expand=1`
+                  : `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`
+              void openExternalUrl(url)
+            })}
           </div>
         </ContextMenu>
       ) : null}
@@ -1530,194 +1887,443 @@ export function Workbench({
 
       {amendDialog}
 
+      {tagTarget ? (
+        <TagDialog
+          repoId={repoId}
+          target={tagTarget.sha}
+          annotated={tagTarget.annotated}
+          onClose={() => setTagTarget(null)}
+          onCreated={(name) => {
+            setTagTarget(null)
+            setActionNotice(`Tag ${name} créé.`)
+            onMutated()
+          }}
+        />
+      ) : null}
+      {worktreeTarget ? (
+        <WorktreeDialog
+          repoId={repoId}
+          reference={worktreeTarget}
+          onClose={() => setWorktreeTarget(null)}
+          onCreated={(path) => {
+            setWorktreeTarget(null)
+            setActionNotice(`Worktree créé : ${path}`)
+            onMutated()
+          }}
+        />
+      ) : null}
+
       {refMenu ? (
         <ContextMenu
           x={refMenu.x}
           y={refMenu.y}
           title={refMenu.entry.name}
-          subtitle={refMenu.entry.kind === 'remoteBranch' ? 'branche distante' : 'branche locale'}
+          subtitle={
+            refMenu.entry.kind === 'remoteBranch'
+              ? 'branche distante'
+              : refMenu.entry.kind === 'tag'
+                ? 'tag'
+                : 'branche locale'
+          }
           onClose={() => setRefMenu(null)}
         >
           <div className={styles.contextActions}>
-            <button
-              type="button"
-              className={styles.contextAction}
-              role="menuitem"
-              disabled={refMenu.entry.isHead || checkoutBusy}
-              onClick={() => {
-                const raw = refMenu.entry.fullName
-                setRefMenu(null)
-                void checkoutGraphRef(raw)
-              }}
-            >
-              <ViewIcon view="branch" /><span>Basculer sur {refMenu.entry.name}</span>
-            </button>
-            {refMenu.entry.kind === 'branch' ? (
-              refMenu.renaming ? (
-                <div className={shared.row}>
-                  <input
-                    autoFocus
-                    value={refMenu.name}
-                    onChange={(event) =>
-                      setRefMenu((current) =>
-                        current ? { ...current, name: event.target.value } : current,
-                      )
-                    }
-                    aria-label="Nouveau nom de branche"
-                    spellCheck={false}
-                  />
-                  <button
-                    type="button"
-                    className={shared.primary}
-                    disabled={!refMenu.name.trim() || refMenu.name.trim() === refMenu.entry.name}
-                    onClick={() => {
-                      const next = refMenu.name.trim()
-                      const old = refMenu.entry.name
-                      setRefMenu(null)
-                      void runAction(`Branche ${old} renommée en ${next}.`, () =>
-                        branchRename({ repoId, old, new: next }),
-                      )
-                    }}
-                  >
-                    Renommer
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className={styles.contextAction}
-                  role="menuitem"
-                  onClick={() =>
-                    setRefMenu((current) =>
-                      current ? { ...current, renaming: true } : current,
-                    )
-                  }
-                >
-                  <ViewIcon view="patches" /><span>Renommer…</span>
-                </button>
-              )
-            ) : null}
+            {refMenu.entry.kind !== 'tag'
+              ? action(
+                  'checkout',
+                  'branch',
+                  `Basculer sur ${refMenu.entry.name}`,
+                  () => {
+                    const raw = refMenu.entry.fullName
+                    setRefMenu(null)
+                    void checkoutGraphRef(raw)
+                  },
+                  {
+                    disabled: refMenu.entry.isHead || checkoutBusy,
+                    title: refMenu.entry.isHead ? 'Branche déjà extraite' : undefined,
+                  },
+                )
+              : null}
             {refMenu.entry.kind === 'branch' ? (
               <>
-                <button
-                  type="button"
-                  className={styles.contextAction}
-                  role="menuitem"
-                  onClick={() => pushBranch(refMenu.entry)}
-                >
-                  <ViewIcon view="sync" /><span>Pousser vers {pushTarget(refMenu.entry).target}</span>
-                </button>
-                {refMenu.pickingUpstream ? (
-                  (() => {
-                    const remotes = (refs?.entries ?? []).filter(
-                      (entry) => entry.kind === 'remoteBranch' && !entry.name.endsWith('/HEAD'),
-                    )
-                    if (remotes.length === 0) {
-                      return (
-                        <button type="button" className={styles.contextAction} role="menuitem" disabled>
-                          <ViewIcon view="remotes" /><span>Aucune branche distante : lancez un fetch.</span>
-                        </button>
+                {refMenu.entry.isHead
+                  ? action('pull', 'sync', 'Pull (fast-forward seulement)', () => {
+                      const entry = refMenu.entry
+                      setRefMenu(null)
+                      void runAction(`Pull (fast-forward) de ${entry.name}.`, () =>
+                        syncPull({
+                          repoId,
+                          remote: pushTarget(entry).remote,
+                          branch: entry.name,
+                          strategy: 'ffOnly',
+                        }),
                       )
-                    }
-                    return (
-                      <div role="group" aria-label="Branche distante à suivre">
-                        {remotes.map((remoteBranch) => (
-                          <button
-                            key={remoteBranch.fullName}
-                            type="button"
-                            className={styles.contextAction}
-                            role="menuitem"
-                            aria-current={
-                              remoteBranch.name === refMenu.entry.upstream ? 'true' : undefined
-                            }
-                            onClick={() => applyUpstream(refMenu.entry, remoteBranch.name)}
-                          >
-                            <ViewIcon view="remotes" />
-                            <span>
-                              {remoteBranch.name}
-                              {remoteBranch.name === refMenu.entry.upstream ? ' · actuel' : ''}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )
-                  })()
-                ) : (
-                  <button
-                    type="button"
-                    className={styles.contextAction}
-                    role="menuitem"
-                    onClick={() =>
-                      setRefMenu((current) =>
-                        current
-                          ? { ...current, pickingUpstream: true, renaming: false }
-                          : current,
+                    })
+                  : null}
+                {action(
+                  'push',
+                  'sync',
+                  `Pousser vers ${pushTarget(refMenu.entry).target}`,
+                  () => pushBranch(refMenu.entry),
+                )}
+                {expander(
+                  'upstream',
+                  'remotes',
+                  refMenu.entry.upstream
+                    ? `Upstream : ${refMenu.entry.upstream}`
+                    : "Définir l'upstream…",
+                  refMenu.panel === 'upstream',
+                  () =>
+                    setRefMenu((current) =>
+                      current
+                        ? {
+                            ...current,
+                            panel: current.panel === 'upstream' ? null : 'upstream',
+                            renaming: false,
+                          }
+                        : current,
+                    ),
+                )}
+                {refMenu.panel === 'upstream'
+                  ? (() => {
+                      const remotes = (refs?.entries ?? []).filter(
+                        (entry) => entry.kind === 'remoteBranch' && !entry.name.endsWith('/HEAD'),
                       )
-                    }
-                  >
-                    <ViewIcon view="remotes" />
-                    <span>
-                      {refMenu.entry.upstream
-                        ? `Upstream : ${refMenu.entry.upstream}`
-                        : "Définir l'upstream…"}
-                    </span>
-                  </button>
+                      if (remotes.length === 0) {
+                        return action(
+                          'upstream-empty',
+                          'remotes',
+                          'Aucune branche distante : lancez un fetch.',
+                          () => undefined,
+                          { disabled: true },
+                        )
+                      }
+                      return remotes.map((remoteBranch) =>
+                        action(
+                          `upstream-${remoteBranch.fullName}`,
+                          'remotes',
+                          `${remoteBranch.name}${remoteBranch.name === refMenu.entry.upstream ? ' · actuel' : ''}`,
+                          () => applyUpstream(refMenu.entry, remoteBranch.name),
+                        ),
+                      )
+                    })()
+                  : null}
+              </>
+            ) : null}
+            {refMenu.entry.kind === 'branch' &&
+            !refMenu.entry.isHead &&
+            currentBranchEntry ? (
+              <>
+                {separator('integrate')}
+                {action(
+                  'fast-forward',
+                  'sync',
+                  `Avancer ${refMenu.entry.name} sur ${currentBranchEntry.name}`,
+                  () => {
+                    const entry = refMenu.entry
+                    setRefMenu(null)
+                    void requestIntegration('merge', false, {
+                      source: currentBranchEntry,
+                      target: entry,
+                    })
+                  },
+                  { title: 'Fast-forward, sans commit de fusion' },
+                )}
+                {action(
+                  'merge',
+                  'mrs',
+                  `Fusionner ${currentBranchEntry.name} dans ${refMenu.entry.name}`,
+                  () => {
+                    const entry = refMenu.entry
+                    setRefMenu(null)
+                    void requestIntegration('merge', true, {
+                      source: currentBranchEntry,
+                      target: entry,
+                    })
+                  },
+                  { title: 'Commit de fusion créé' },
+                )}
+                {action(
+                  'rebase',
+                  'rebase',
+                  `Rebaser ${currentBranchEntry.name} sur ${refMenu.entry.name}`,
+                  () => {
+                    const entry = refMenu.entry
+                    setRefMenu(null)
+                    void requestIntegration('rebase', false, {
+                      source: currentBranchEntry,
+                      target: entry,
+                    })
+                  },
                 )}
               </>
             ) : null}
-            {refMenu.entry.kind === 'branch' && !refMenu.entry.isHead ? (
+            {separator('navigate')}
+            {action('worktree', 'worktrees', 'Créer un worktree à partir d’ici…', () => {
+              const reference = refMenu.entry.name
+              setRefMenu(null)
+              setWorktreeTarget(reference)
+            })}
+            {action('branch-here', 'branch', 'Créer une branche ici…', () =>
+              startBranchCreate(refMenu.entry.targetOid),
+            )}
+            {action('cherry-pick', 'commit', 'Cherry-picker ce commit', () => {
+              const sha = refMenu.entry.targetOid
+              setRefMenu(null)
+              void runAction('Cherry-pick terminé.', () =>
+                historyCherryPick(repoId, [sha]),
+              )
+            })}
+            {currentBranch
+              ? expander(
+                  'ref-reset',
+                  'recovery',
+                  `Réinitialiser ${currentBranch} sur ce commit`,
+                  refMenu.panel === 'reset',
+                  () =>
+                    setRefMenu((current) =>
+                      current
+                        ? { ...current, panel: current.panel === 'reset' ? null : 'reset' }
+                        : current,
+                    ),
+                )
+              : null}
+            {refMenu.panel === 'reset' && currentBranch ? (
               <>
-                <button
-                  type="button"
-                  className={styles.contextAction}
-                  role="menuitem"
-                  onClick={() => {
-                    const entry = refMenu.entry
-                    setRefMenu(null)
-                    setPendingMerge(entry)
-                  }}
-                >
-                  <ViewIcon view="mrs" /><span>Fusionner dans la branche courante</span>
-                </button>
-                <button
-                  type="button"
-                  className={styles.contextAction}
-                  role="menuitem"
-                  onClick={() => {
-                    const entry = refMenu.entry
-                    setRefMenu(null)
-                    setPendingDelete(entry)
-                  }}
-                >
-                  <ViewIcon view="status" /><span>Supprimer…</span>
-                </button>
+                {action(
+                  'ref-reset-soft',
+                  'recovery',
+                  'Douce — garde l’index et les fichiers',
+                  () => resetCurrentTo(refMenu.entry.targetOid, 'soft'),
+                )}
+                {action(
+                  'ref-reset-mixed',
+                  'recovery',
+                  'Mixte — vide l’index, garde les fichiers',
+                  () => resetCurrentTo(refMenu.entry.targetOid, 'mixed'),
+                )}
               </>
             ) : null}
-            {refMenu.entry.kind === 'remoteBranch' ? (
-              <button
-                type="button"
-                className={styles.contextAction}
-                role="menuitem"
-                onClick={() => {
+            {action('revert', 'patches', 'Revenir sur ce commit (revert)', () => {
+              const sha = refMenu.entry.targetOid
+              setRefMenu(null)
+              void runAction('Revert terminé.', () => historyRevert(repoId, [sha]))
+            })}
+            {separator('branch')}
+            {refMenu.entry.kind === 'branch'
+              ? refMenu.renaming
+                ? (
+                    <div className={shared.row} key="rename-branch">
+                      <input
+                        autoFocus
+                        value={refMenu.name}
+                        onChange={(event) =>
+                          setRefMenu((current) =>
+                            current ? { ...current, name: event.target.value } : current,
+                          )
+                        }
+                        aria-label="Nouveau nom de branche"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        className={shared.primary}
+                        disabled={
+                          !refMenu.name.trim() ||
+                          refMenu.name.trim() === refMenu.entry.name
+                        }
+                        onClick={() => {
+                          const next = refMenu.name.trim()
+                          const old = refMenu.entry.name
+                          setRefMenu(null)
+                          void runAction(`Branche ${old} renommée en ${next}.`, () =>
+                            branchRename({ repoId, old, new: next }),
+                          )
+                        }}
+                      >
+                        Renommer
+                      </button>
+                    </div>
+                  )
+                : action('rename', 'patches', 'Renommer…', () =>
+                    setRefMenu((current) =>
+                      current ? { ...current, renaming: true } : current,
+                    ),
+                  )
+              : null}
+            {refMenu.entry.kind === 'branch' && !refMenu.entry.isHead
+              ? action('delete', 'status', 'Supprimer la branche locale…', () => {
+                  const entry = refMenu.entry
+                  setRefMenu(null)
+                  setPendingDelete(entry)
+                })
+              : null}
+            {refMenu.entry.kind === 'remoteBranch'
+              ? action('delete-remote', 'status', 'Supprimer la branche distante…', () => {
                   const entry = refMenu.entry
                   setRefMenu(null)
                   setPendingRemoteDelete(entry)
-                }}
-              >
-                <ViewIcon view="status" /><span>Supprimer la branche distante…</span>
-              </button>
+                })
+              : null}
+            {refMenu.entry.kind === 'branch' &&
+            !refMenu.entry.isHead &&
+            upstreamTarget(refMenu.entry)
+              ? action(
+                  'delete-upstream',
+                  'status',
+                  'Supprimer la branche distante suivie…',
+                  () => {
+                    const entry = refMenu.entry
+                    setRefMenu(null)
+                    setPendingRemoteDelete(entry)
+                  },
+                )
+              : null}
+            {refMenu.entry.kind === 'branch' &&
+            !refMenu.entry.isHead &&
+            upstreamTarget(refMenu.entry)
+              ? action(
+                  'delete-both',
+                  'status',
+                  'Supprimer la branche locale et sa distante…',
+                  () => {
+                    const entry = refMenu.entry
+                    setRefMenu(null)
+                    setPendingDeleteBoth(entry)
+                  },
+                )
+              : null}
+            {separator('copy')}
+            {action('copy-branch-name', 'branch', 'Copier le nom de la branche', () => {
+              const entry = refMenu.entry
+              const name =
+                entry.kind === 'remoteBranch'
+                  ? remoteBranchName(entry) ?? entry.name
+                  : entry.name
+              setRefMenu(null)
+              void copyText(name, `Nom copié : ${name}`)
+            })}
+            {action('copy-sha', 'patches', 'Copier le SHA', () => {
+              const sha = refMenu.entry.targetOid
+              setRefMenu(null)
+              void copyText(sha, `SHA copié : ${sha}`)
+            })}
+            {action(
+              'copy-branch-link',
+              'remotes',
+              'Copier le lien de la branche',
+              () => {
+                const entry = refMenu.entry
+                const name =
+                  entry.kind === 'remoteBranch'
+                    ? remoteBranchName(entry) ?? entry.name
+                    : entry.name
+                const remote =
+                  entry.kind === 'remoteBranch' ? entry.remote : pushTarget(entry).remote
+                setRefMenu(null)
+                copyLink('branch', name, remote)
+              },
+              {
+                disabled: !linkWebUrl && !refs?.remoteUrls?.length,
+                title: 'Nécessite un remote reconnu ou un projet GitLab associé',
+              },
+            )}
+            {action(
+              'copy-commit-link',
+              'remotes',
+              'Copier le lien du commit',
+              () => {
+                const entry = refMenu.entry
+                setRefMenu(null)
+                copyLink('commit', entry.targetOid, entry.remote ?? null)
+              },
+              {
+                disabled: !linkWebUrl && !refs?.remoteUrls?.length,
+                title: 'Nécessite un remote reconnu ou un projet GitLab associé',
+              },
+            )}
+            {separator('patch')}
+            {action('patch-save', 'patches', 'Créer un patch depuis ce commit…', () => {
+              const sha = refMenu.entry.targetOid
+              setRefMenu(null)
+              void exportPatch(sha, true)
+            })}
+            {action('patch-copy', 'patches', 'Copier le patch pour partage', () => {
+              const sha = refMenu.entry.targetOid
+              setRefMenu(null)
+              void exportPatch(sha, false)
+            })}
+            {separator('view')}
+            {refMenu.entry.kind !== 'tag'
+              ? action(
+                  'pin',
+                  'graph',
+                  pins[repoId ?? ''] === refMenu.entry.fullName
+                    ? 'Désépingler du bord gauche'
+                    : 'Épingler à gauche du graphe',
+                  () => togglePin(refMenu.entry),
+                )
+              : null}
+            {refMenu.entry.kind !== 'tag' ? (
+              <>
+                {expander(
+                  'solo',
+                  'search',
+                  'Solo',
+                  refMenu.panel === 'solo',
+                  () =>
+                    setRefMenu((current) =>
+                      current
+                        ? { ...current, panel: current.panel === 'solo' ? null : 'solo' }
+                        : current,
+                    ),
+                )}
+                {refMenu.panel === 'solo' ? (
+                  <>
+                    {action('solo-branch', 'search', `Isoler ${refMenu.entry.name}`, () =>
+                      soloOn(refMenu.entry),
+                    )}
+                    {action('solo-all', 'search', 'Tout afficher', () => {
+                      setAllRefs(true)
+                      setRevision('')
+                      setRefMenu(null)
+                      setActionNotice('Filtre du graphe retiré.')
+                    })}
+                  </>
+                ) : null}
+              </>
             ) : null}
-            <button
-              type="button"
-              className={styles.contextAction}
-              role="menuitem"
-              onClick={() => {
-                const name = refMenu.entry.name
-                startComparison(name, 'HEAD')
-              }}
-            >
-              <ViewIcon view="diff" /><span>Comparer à HEAD</span>
-            </button>
+            {separator('tags')}
+            {action('tag', 'tags', 'Créer un tag ici…', () => {
+              const sha = refMenu.entry.targetOid
+              setRefMenu(null)
+              setTagTarget({ sha, annotated: false })
+            })}
+            {action('tag-annotated', 'tags', 'Créer un tag annoté ici…', () => {
+              const sha = refMenu.entry.targetOid
+              setRefMenu(null)
+              setTagTarget({ sha, annotated: true })
+            })}
+            {refMenu.entry.kind === 'branch'
+              ? action('mr', 'mrs', 'Ouvrir une merge request', () => {
+                  const name = refMenu.entry.name
+                  setRefMenu(null)
+                  if (!linkWebUrl) {
+                    setActionError('Associez le dépôt à un projet GitLab et poussez la branche.')
+                    return
+                  }
+                  const url =
+                    linkProvider === 'github'
+                      ? `${linkWebUrl}/compare/${encodeURIComponent(name)}?expand=1`
+                      : `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(name)}`
+                  void openExternalUrl(url)
+                })
+              : null}
+            {action('compare', 'diff', 'Comparer à HEAD', () => {
+              const name = refMenu.entry.name
+              setRefMenu(null)
+              startComparison(name, 'HEAD')
+            })}
           </div>
         </ContextMenu>
       ) : null}
@@ -1745,18 +2351,17 @@ export function Workbench({
       />
       <ConfirmDialog
         open={pendingRemoteDelete !== null}
-        title={`Supprimer ${pendingRemoteDelete?.name ?? ''}`}
+        title={`Supprimer ${remoteDeleteLabel}`}
         consequence="La branche est supprimée sur le remote après un push de suppression. Les autres clones perdent la référence au prochain fetch."
-        typed={remoteBranchName(pendingRemoteDelete)}
+        typed={remoteDeleteTarget?.branch}
         irreversible
         confirmLabel="Supprimer sur le remote"
         onCancel={() => setPendingRemoteDelete(null)}
         onConfirm={(typed) => {
-          const entry = pendingRemoteDelete
+          const target = remoteDeleteTarget
           setPendingRemoteDelete(null)
-          if (repoId && entry) {
-            const remote = entry.remote ?? entry.name.split('/')[0] ?? 'origin'
-            const branch = remoteBranchName(entry) ?? entry.name
+          if (repoId && target) {
+            const { remote, branch } = target
             void runAction(`Branche distante ${remote}/${branch} supprimée.`, () =>
               branchDeleteRemote({
                 repoId,
@@ -1769,19 +2374,34 @@ export function Workbench({
         }}
       />
       <ConfirmDialog
-        open={pendingMerge !== null}
-        title={`Fusionner ${pendingMerge?.name ?? ''}`}
-        consequence={`${pendingMerge?.name ?? 'La branche'} sera fusionnée dans la branche courante avec un commit de fusion. Un conflit laissera l'opération visible dans toute l'application.`}
-        confirmLabel="Fusionner"
-        onCancel={() => setPendingMerge(null)}
-        onConfirm={() => {
-          const entry = pendingMerge
-          setPendingMerge(null)
-          if (repoId && entry) {
-            void runAction(`Merge de ${entry.name}.`, () =>
-              historyMerge({ repoId, target: entry.name, noFf: true }),
-            )
-          }
+        open={pendingDeleteBoth !== null}
+        title={`Supprimer ${pendingDeleteBoth?.name ?? ''} et sa branche distante`}
+        consequence="La branche locale et son upstream sont supprimés. Le push de suppression est irréversible pour les autres clones."
+        typed={pendingDeleteBoth?.name}
+        irreversible
+        confirmLabel="Supprimer les deux"
+        onCancel={() => setPendingDeleteBoth(null)}
+        onConfirm={(typed) => {
+          const entry = pendingDeleteBoth
+          setPendingDeleteBoth(null)
+          const target = entry ? upstreamTarget(entry) : null
+          if (!repoId || !entry || !target) return
+          void runAction(
+            `Branche ${entry.name} et ${target.remote}/${target.branch} supprimées.`,
+            async () => {
+              await branchDelete({
+                repoId,
+                name: entry.name,
+                confirmation: { acknowledged: true, typed },
+              })
+              await branchDeleteRemote({
+                repoId,
+                remote: target.remote,
+                branch: target.branch,
+                confirmation: { acknowledged: true, typed },
+              })
+            },
+          )
         }}
       />
     </div>

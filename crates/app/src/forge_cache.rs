@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use beebranch_gitlab::{CachedResponse, ResponseCache};
+use beebranch_core::{CachedResponse, ResponseCache};
 use beebranch_store::{CacheEntry, Store};
 
-/// SQLite-backed response cache for GitLab ETag revalidation.
+/// SQLite-backed response cache for forge ETag revalidation (GitLab and GitHub).
 pub struct SqliteCache {
     store: Arc<Store>,
 }
@@ -33,13 +33,13 @@ impl ResponseCache for SqliteCache {
             expires_at: entry.expires_at,
         };
         if let Err(error) = self.store.put_cache(key, &stored) {
-            tracing::warn!(%error, "GitLab cache write failed");
+            tracing::warn!(%error, "forge cache write failed");
         }
     }
 
     fn remove_prefix(&self, prefix: &str) {
         if let Err(error) = self.store.delete_cache_prefix(prefix) {
-            tracing::warn!(%error, "GitLab cache invalidation failed");
+            tracing::warn!(%error, "forge cache invalidation failed");
         }
     }
 }

@@ -73,8 +73,11 @@ type Props = {
   generation: number
   theme?: string
   picked?: string[]
-  /** The status line under the rows; hidden while a comparison docks beside it. */
-  footer?: boolean
+  /**
+   * Branch pinned to the left: its lane is drawn in column 0 from `row` down,
+   * so the lineage stays anchored whatever the graph does around it.
+   */
+  pin?: { row: number; lane: number } | null
 }
 
 const ROW_HEIGHT = 30
@@ -94,6 +97,9 @@ function commitDateLabel(timestamp: number) {
 const LANE_PITCH = 22
 /** Commit dot radius, measured from GitKraken: 11 px across on a 28 px row. */
 const NODE_RADIUS = 5.5
+/** Half of the stash medallion: a dashed rounded square the width of a lane,
+ * the node GitKraken draws for a stash entry. */
+const STASH_RADIUS = 10
 /** Radius of the corner that turns a parent edge into its lane. */
 const ELBOW_RADIUS = 7
 const LANE_COLORS = [
@@ -238,6 +244,68 @@ function drawRefIcon(context: CanvasRenderingContext2D, kind: GraphRefKind, x: n
   context.restore()
 }
 
+/** A stash entry is not a commit dot: GitKraken draws a dashed medallion with
+ * a chest inside, so the row reads as a stash at a glance. The medallion owns
+ * its lane, hence the background fill that knocks the rail out. */
+function drawStashNode(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  background: string,
+  ring: string | null,
+) {
+  context.save()
+  context.fillStyle = background
+  context.beginPath()
+  context.roundRect(
+    x - STASH_RADIUS - 2,
+    y - STASH_RADIUS - 2,
+    (STASH_RADIUS + 2) * 2,
+    (STASH_RADIUS + 2) * 2,
+    5,
+  )
+  context.fill()
+  context.strokeStyle = color
+  context.lineCap = 'butt'
+  context.lineWidth = 1.2
+  context.setLineDash([2.4, 2.4])
+  context.beginPath()
+  context.roundRect(
+    x - STASH_RADIUS,
+    y - STASH_RADIUS,
+    STASH_RADIUS * 2,
+    STASH_RADIUS * 2,
+    3.5,
+  )
+  context.stroke()
+  context.setLineDash([])
+  // Chest: a body with a wavy lid. The two humps stay apart so the lid reads
+  // as a wave and not as a filled diamond at 1x.
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.lineWidth = 1.3
+  context.beginPath()
+  context.roundRect(x - 6.5, y - 5, 13, 10, 2.5)
+  context.stroke()
+  context.beginPath()
+  context.moveTo(x - 6, y - 0.5)
+  context.bezierCurveTo(x - 5, y - 3, x - 3.5, y - 3, x - 2.5, y - 0.5)
+  context.stroke()
+  context.beginPath()
+  context.moveTo(x + 2.5, y - 0.5)
+  context.bezierCurveTo(x + 3.5, y - 3, x + 5, y - 3, x + 6, y - 0.5)
+  context.stroke()
+  if (ring) {
+    context.strokeStyle = ring
+    context.lineWidth = 1.5
+    context.beginPath()
+    context.arc(x, y, STASH_RADIUS + 3.2, 0, Math.PI * 2)
+    context.stroke()
+  }
+  context.restore()
+}
+
 declare global {
   interface Window {
     __beebranchGraphStats?: FrameStats
@@ -280,7 +348,7 @@ export function GraphCanvas({
   generation,
   theme,
   picked = [],
-  footer = true,
+  pin = null,
 }: Props) {
   const [viewportWidth, setViewportWidth] = useState(1000)
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
@@ -452,6 +520,15 @@ export function GraphCanvas({
     const corner = (from: number, to: number) =>
       Math.min(ELBOW_RADIUS, Math.abs(to - from) / 2, ROW_HEIGHT / 2 - 1)
     const laneColor = (lane: number) => laneColors[lane % laneColors.length]!
+    /**
+     * Pin to left: below the pinned tip, columns 0 and `pin.lane` trade places.
+     * The boundary row draws both halves so the swap reads as the branch
+     * stepping left instead of a hole in the rail.
+     */
+    const swapLane = (lane: number) =>
+      pin ? (lane === 0 ? pin.lane : lane === pin.lane ? 0 : lane) : lane
+    const laneAt = (lane: number, index: number) =>
+      pin && index > pin.row ? swapLane(lane) : lane
     const emphasisFor = (sha: string, index: number) =>
       sha === selected ? 0.5 : picked.includes(sha) ? 0.34 : hoveredRef.current === index ? 0.18 : 0
 
@@ -476,9 +553,10 @@ export function GraphCanvas({
       }
     }
 
-    // 2. Lane rails. Each span carries its own extents, so a lane opens on the
-    // elbow of the commit that created it and stops on the commit it reaches
-    // instead of running through the whole row.
+    // 2. Lane rails. A lane keeps its column until the row of the commit it
+    // heads to: an inherited lane is crossed edge to edge, while a lane opened
+    // by an extra parent starts under that commit's elbow and a lane that ends
+    // on the commit stops where its rounded corner begins.
     context.lineCap = 'round'
     context.lineJoin = 'round'
     context.lineWidth = 2
@@ -491,41 +569,91 @@ export function GraphCanvas({
       if (!row) continue
       const top = index * ROW_HEIGHT - scrollTop
       const center = top + ROW_HEIGHT / 2
-      const nodeX = laneX(row.nodeLane)
+      const boundary = pin !== null && index === pin.row
+      const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
+      const nodeX = laneX(nodeLane)
       for (const rail of row.rails) {
-        const x = laneX(rail.lane)
-        // A rail opened by a parent edge starts after the elbow's corner; the
-        // node lane stops on the dot.
-        const start = rail.fromTop ? top : center + corner(x, nodeX)
-        const end = rail.toBottom ? top + ROW_HEIGHT : center
-        if (end - start < 0.5) continue
-        context.strokeStyle = laneColor(rail.lane)
+        const topLane = laneAt(rail.lane, index)
+        const bottomLane = boundary ? swapLane(rail.lane) : topLane
+        if (!rail.fromTop) {
+          // Opened by this commit's parent edge: the rail starts below the dot.
+          const x = laneX(bottomLane)
+          const start = center + corner(x, nodeX)
+          const end = rail.toBottom ? top + ROW_HEIGHT : center
+          if (end - start < 0.5) continue
+          context.strokeStyle = laneColor(bottomLane)
+          context.beginPath()
+          context.moveTo(x, start)
+          context.lineTo(x, end)
+          context.stroke()
+          continue
+        }
+        const xTop = laneX(topLane)
+        const xBottom = laneX(bottomLane)
+        // A lane arriving on this commit stops where its corner turns.
+        const arrival = rail.lane !== row.nodeLane && row.arrivals.includes(rail.lane)
+        const end = rail.toBottom
+          ? top + ROW_HEIGHT
+          : center - (arrival ? corner(xTop, nodeX) : 0)
+        context.strokeStyle = laneColor(bottomLane)
         context.beginPath()
-        context.moveTo(x, start)
-        context.lineTo(x, end)
+        context.moveTo(xTop, top)
+        if (topLane === bottomLane) {
+          if (end - top < 0.5) continue
+          context.lineTo(xTop, end)
+        } else {
+          // Pin boundary: the incoming column steps to the pinned column on
+          // the centerline instead of leaving a gap between the two rows.
+          context.lineTo(xTop, center)
+          context.lineTo(xBottom, center)
+          if (rail.toBottom) context.lineTo(xBottom, end)
+        }
         context.stroke()
       }
     }
 
-    // 3. Parent edges: the horizontal run sits on the commit's centerline and
-    // turns into the parent lane with a rounded corner, the shape GitKraken
-    // uses, instead of a full-row S-curve crossing every other lane.
+    // 3. Lane joins. The horizontal run sits on the commit's centerline: a
+    // lane arriving from above curves in with its corner above the centerline,
+    // an extra parent curves away below it. GitKraken anchors the join on the
+    // commit the line lands on, not on the commit it leaves, so a branch folds
+    // into the parent instead of dropping into the parent's lane early.
     for (let index = first; index <= last; index += 1) {
       const row = rows[index]
       if (!row) continue
       const center = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
-      const nodeX = laneX(row.nodeLane)
-      for (const parentLane of row.parents) {
-        if (parentLane === row.nodeLane) continue
-        const x = laneX(parentLane)
-        const radius = corner(nodeX, x)
-        const sign = x > nodeX ? 1 : -1
-        context.strokeStyle = laneColor(parentLane)
-        context.beginPath()
-        context.moveTo(nodeX, center)
-        context.lineTo(x - sign * radius, center)
-        context.arcTo(x, center, x, center + radius, radius)
-        context.stroke()
+      const boundary = pin !== null && index === pin.row
+      const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
+      const nodeX = laneX(nodeLane)
+      const lanes = [...new Set([...row.arrivals, ...row.departures])].sort(
+        (left, right) => left - right,
+      )
+      for (const laneIndex of lanes) {
+        if (laneIndex === row.nodeLane) continue
+        context.strokeStyle = laneColor(laneIndex)
+        if (row.departures.includes(laneIndex)) {
+          const x = laneX(boundary ? swapLane(laneIndex) : laneAt(laneIndex, index))
+          if (x !== nodeX) {
+            const radius = corner(nodeX, x)
+            const sign = x > nodeX ? 1 : -1
+            context.beginPath()
+            context.moveTo(nodeX, center)
+            context.lineTo(x - sign * radius, center)
+            context.arcTo(x, center, x, center + radius, radius)
+            context.stroke()
+          }
+        }
+        if (row.arrivals.includes(laneIndex)) {
+          const x = laneX(laneAt(laneIndex, index))
+          if (x !== nodeX) {
+            const radius = corner(nodeX, x)
+            const sign = x > nodeX ? 1 : -1
+            context.beginPath()
+            context.moveTo(nodeX, center)
+            context.lineTo(x - sign * radius, center)
+            context.arcTo(x, center, x, center - radius, radius)
+            context.stroke()
+          }
+        }
       }
     }
 
@@ -537,11 +665,24 @@ export function GraphCanvas({
       const row = rows[index]
       if (!commit || !row) continue
       const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
-      const nodeX = laneX(row.nodeLane)
+      const boundary = pin !== null && index === pin.row
+      const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
+      const nodeX = laneX(nodeLane)
       const isSelected = commit.sha === selected
       const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
       const radius = isSelected ? NODE_RADIUS + 1 : NODE_RADIUS
       const rowBackground = mix(bgColor, raisedColor, emphasisFor(commit.sha, index))
+      if (row.stash) {
+        drawStashNode(
+          context,
+          nodeX,
+          y,
+          laneColor(row.nodeLane),
+          rowBackground,
+          isSelected ? accentColor : null,
+        )
+        continue
+      }
       if (isSelected || headCommit) {
         context.fillStyle = rowBackground
         context.beginPath()
@@ -671,7 +812,7 @@ export function GraphCanvas({
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
 
-  }, [commits, rows, selected, mrBadges, picked, maxLanes, layout, decorations])
+  }, [commits, rows, selected, mrBadges, picked, maxLanes, layout, decorations, pin])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -972,7 +1113,7 @@ export function GraphCanvas({
   }
 
   return (
-    <div className={styles.wrap} data-footer={footer ? undefined : 'false'} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
+    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
       <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
         <div className={styles.refsHeader}>
           <span>{layout.refs ? 'Branches / tags' : ''}</span>
@@ -1078,7 +1219,6 @@ export function GraphCanvas({
         </div>
       ) : null}
       {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
-      {footer ? <div className={styles.footer}><span>{commits.length} commits chargés{rows.some((row) => row.overflow) ? ' · Certaines branches sont regroupées' : ''}</span><span>{loading ? 'Chargement…' : 'Glissez une branche sur une autre pour l’intégrer · ↑ ↓ pour parcourir · Maj+clic pour sélectionner une plage · ⌘/Ctrl+clic pour comparer deux commits seulement · clic droit pour les actions'}</span></div> : null}
       <span className={styles.srOnly} role="status">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )

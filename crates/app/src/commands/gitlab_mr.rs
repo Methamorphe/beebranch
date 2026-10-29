@@ -191,7 +191,10 @@ pub fn gitlab_repo_link_get(
     state: State<'_, AppState>,
     repo_id: String,
 ) -> Result<Option<RepoLinkDto>, AppError> {
-    let link = state.store.repo_link(&repo_id).map_err(store_error)?;
+    let link = state
+        .store
+        .repo_link_for(&repo_id, "gitlab")
+        .map_err(store_error)?;
     Ok(link.map(|link| link_dto(&state, &link)))
 }
 
@@ -221,7 +224,7 @@ pub fn gitlab_repo_link_manual(
 fn linked_project(state: &AppState, repo_id: &str) -> Option<u64> {
     state
         .store
-        .repo_link(repo_id)
+        .repo_link_for(repo_id, "gitlab")
         .ok()
         .flatten()
         .map(|link| link.project_id)

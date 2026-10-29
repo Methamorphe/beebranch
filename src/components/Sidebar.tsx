@@ -10,19 +10,26 @@ type Props = {
   conflicts: number
   stashes: number
   mergeRequests: number
-  connected: boolean
+  gitlabConnected: boolean
+  githubConnected: boolean
   version: string
   onSelect: (view: ViewId) => void
 }
 
 const sections: { label: string; ids: ViewId[]; expandable?: boolean }[] = [
-  { label: 'Espace de travail', ids: ['graph', 'workspaces', 'stash', 'mrs', 'search'] },
+  { label: 'Espace de travail', ids: ['graph', 'workspaces', 'stash', 'mrs', 'prs', 'search'] },
   { label: 'Outils avancés', ids: ['rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync'], expandable: true },
-  { label: 'Préférences', ids: ['profiles', 'gitlab', 'tools', 'recovery'], expandable: true },
+  { label: 'Préférences', ids: ['profiles', 'gitlab', 'github', 'tools', 'recovery'], expandable: true },
 ]
 
 export function Sidebar(props: Props) {
-  const { active, repoName, conflicts, stashes, connected, onSelect } = props
+  const { active, repoName, conflicts, stashes, gitlabConnected, githubConnected, onSelect } = props
+  const forgeView: ViewId = gitlabConnected || !githubConnected ? 'gitlab' : 'github'
+  const forgeLabel = gitlabConnected
+    ? 'GitLab connecté'
+    : githubConnected
+      ? 'GitHub connecté'
+      : 'Connecter GitLab'
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const current = active === 'commit' || active === 'diff' ? 'graph' : active
   const item = (id: ViewId) => {
@@ -59,9 +66,20 @@ export function Sidebar(props: Props) {
         </section>
       })}
     </nav>
-    <button type="button" className={styles.connection} onClick={() => onSelect('gitlab')}>
-      <span className={styles.dot} data-connected={connected} aria-hidden="true" />
-      <span>{connected ? 'GitLab connecté' : 'Connecter GitLab'}<small>{connected ? 'Revues et pipelines' : 'Vos dépôts restent accessibles'}</small></span>
+    <button type="button" className={styles.connection} onClick={() => onSelect(forgeView)}>
+      <span
+        className={styles.dot}
+        data-connected={gitlabConnected || githubConnected}
+        aria-hidden="true"
+      />
+      <span>
+        {forgeLabel}
+        <small>
+          {gitlabConnected || githubConnected
+            ? 'Revues, CI et dépôts'
+            : 'Vos dépôts restent accessibles'}
+        </small>
+      </span>
       <span aria-hidden="true">↗</span>
     </button>
   </aside>

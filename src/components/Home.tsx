@@ -1,7 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { ViewId } from '../data/navigation'
 import type { GitlabProject, GitlabSession, RecentRepo } from '../types/git'
-import { gitlabProjectsPage, gitlabStatus } from '../ipc/commands'
+import {
+  githubProjectsPage,
+  githubStatus,
+  gitlabProjectsPage,
+  gitlabStatus,
+} from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
 import styles from './Home.module.css'
 
@@ -20,8 +25,6 @@ type Props = {
   onOpenDialog: () => void
   onClone: (input: CloneInput) => Promise<void>
   onCreate?: () => void
-  cloneOnly?: boolean
-  onCancelClone?: () => void
   onPickDirectory?: (defaultPath?: string) => Promise<string | null>
 }
 
@@ -78,12 +81,12 @@ export function Home({
   onOpenDialog,
   onClone,
   onCreate,
-  cloneOnly = false,
-  onCancelClone,
   onPickDirectory,
 }: Props) {
-  const [mode, setMode] = useState<'idle' | 'clone'>(cloneOnly ? 'clone' : 'idle')
+  const [mode, setMode] = useState<'idle' | 'clone'>('idle')
+  const [provider, setProvider] = useState<'gitlab' | 'github'>('gitlab')
   const [session, setSession] = useState<GitlabSession | null>(null)
+  const [githubSession, setGithubSession] = useState<GitlabSession | null>(null)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [projects, setProjects] = useState<GitlabProject[]>([])
   const [projectSearch, setProjectSearch] = useState('')
@@ -102,33 +105,43 @@ export function Home({
 
   useEffect(() => {
     let cancelled = false
-    void gitlabStatus()
-      .then((value) => {
-        if (!cancelled) {
-          setSession(value)
-          setManual(!value.connected)
-        }
-      })
-      .catch((cause) => {
-        if (!cancelled) {
-          setSessionError(errorMessage(cause))
-          setManual(true)
-        }
-      })
+    const load = async () => {
+      const [gitlab, github] = await Promise.allSettled([gitlabStatus(), githubStatus()])
+      if (cancelled) {
+        return
+      }
+      const gitlabSession = gitlab.status === 'fulfilled' ? gitlab.value : null
+      const githubSessionValue = github.status === 'fulfilled' ? github.value : null
+      setSession(gitlabSession)
+      setGithubSession(githubSessionValue)
+      setManual(!(gitlabSession?.connected || githubSessionValue?.connected))
+      if (!gitlabSession?.connected && githubSessionValue?.connected) {
+        setProvider('github')
+      }
+      if (gitlab.status === 'rejected') {
+        setSessionError(errorMessage(gitlab.reason))
+      }
+    }
+    void load()
     return () => {
       cancelled = true
     }
   }, [])
 
+  const activeSession = provider === 'github' ? githubSession : session
+  const anyConnected = Boolean(session?.connected || githubSession?.connected)
+  const providerName = provider === 'github' ? 'GitHub' : 'GitLab'
+
   useEffect(() => {
-    if (mode !== 'clone' || !session?.connected) {
+    if (mode !== 'clone' || !activeSession?.connected) {
       return
     }
     let cancelled = false
+    const fetchProjects = provider === 'github' ? githubProjectsPage : gitlabProjectsPage
     const timer = window.setTimeout(() => {
       setProjectLoading(true)
       setProjectError(null)
-      void gitlabProjectsPage({
+      void fetchProjects({
         search: projectSearch.trim() || undefined,
         perPage: 50,
       })
@@ -152,7 +165,7 @@ export function Home({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [mode, session, projectSearch])
+  }, [mode, provider, activeSession, projectSearch])
 
   const selectProject = (project: GitlabProject) => {
     setSelectedProject(project)
@@ -223,9 +236,9 @@ export function Home({
   }
 
   return (
-    <div className={cloneOnly ? styles.cloneOnly : styles.root}>
-      <section className={styles.start} aria-labelledby={cloneOnly ? undefined : 'start-title'}>
-        {!cloneOnly ? <><h1 id="start-title">Ouvrir un dépôt</h1>
+    <div className={styles.root}>
+      <section className={styles.start} aria-labelledby="start-title">
+        <h1 id="start-title">Ouvrir un dépôt</h1>
         <div className={styles.actions}>
           <button
             type="button"
@@ -261,204 +274,241 @@ export function Home({
           </button>
         </div>
 
-        </> : null}
-
         {mode === 'clone' ? (
           <form className={styles.cloneForm} onSubmit={(event) => void submit(event)}>
-            <div className={styles.projectPanel}>
-              <div className={styles.projectHeader}>
-                <strong>Projets GitLab accessibles</strong>
-                <label className={styles.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={manual}
-                    onChange={(event) => {
-                      setManual(event.target.checked)
-                      if (event.target.checked) {
-                        setSelectedProject(null)
-                      }
-                    }}
-                  />
-                  saisir une URL manuellement
-                </label>
-              </div>
-
-              {session?.connected &&
-              session.credentialSource &&
-              session.credentialSource !== 'keychain' ? (
-                <p className={styles.hint}>
-                  Connecté avec un token déjà présent dans Git ({session.credentialSource}) :
-                  aucune configuration GitLab n’est nécessaire.
-                </p>
-              ) : null}
-
-              {session?.connected && !manual ? (
-                <>
-                  <input
-                    value={projectSearch}
-                    onChange={(event) => setProjectSearch(event.target.value)}
-                    placeholder="Rechercher un projet GitLab…"
-                    aria-label="Rechercher un projet GitLab"
-                    spellCheck={false}
-                  />
-                  {projectError ? (
-                    <p className={styles.error}>{projectError}</p>
-                  ) : null}
-                  <div className={styles.projectList} role="listbox" aria-label="Projets GitLab">
-                    {projects.map((project) => (
-                      <button
-                        key={project.id}
-                        type="button"
-                        role="option"
-                        aria-selected={selectedProject?.id === project.id}
-                        className={
-                          selectedProject?.id === project.id
-                            ? styles.projectOn
-                            : styles.project
-                        }
-                        onClick={() => selectProject(project)}
-                      >
-                        <strong>{project.name}</strong>
-                        <span>{project.pathWithNamespace}</span>
-                      </button>
-                    ))}
-                    {projectLoading ? (
-                      <p className={styles.projectEmpty}>Recherche…</p>
-                    ) : null}
-                    {!projectLoading && projects.length === 0 ? (
-                      <p className={styles.projectEmpty}>
-                        Aucun projet accessible avec ce token.
-                      </p>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <div className={styles.projectEmpty}>
-                  {sessionError
-                    ? sessionError
-                    : session?.connected
-                      ? 'Saisissez l’URL du dépôt à cloner.'
-                      : 'GitLab n’est pas connecté. Connectez une instance pour lister vos projets, ou utilisez une URL manuelle.'}
-                  {!session?.connected ? (
-                    <button
-                      type="button"
-                      className={styles.secondary}
-                      onClick={() => onSelect('gitlab')}
-                    >
-                      Connecter GitLab →
-                    </button>
-                  ) : null}
-                </div>
-              )}
-            </div>
-
-            {manual ? (
-              <label className={styles.field}>
-                URL du dépôt
-                <input
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
-                  placeholder="git@gitlab.example.com:team/repo.git"
-                  spellCheck={false}
-                  required={manual}
-                />
-              </label>
-            ) : selectedProject ? (
-              <div className={styles.chosen}>
-                <span className={styles.chosenLabel}>Dépôt sélectionné</span>
-                <strong>{selectedProject.pathWithNamespace}</strong>
-                <div className={styles.row}>
-                  <label className={styles.field}>
-                    Protocole
-                    <select
-                      value={protocol}
-                      onChange={(event) => {
-                        const next = event.target.value as 'ssh' | 'https'
-                        setProtocol(next)
-                        setUrl(projectUrl(selectedProject, next))
-                      }}
-                    >
-                      <option value="ssh">SSH</option>
-                      <option value="https">HTTPS</option>
-                    </select>
-                  </label>
-                  <code>{projectUrl(selectedProject, protocol)}</code>
-                </div>
-                <p className={styles.hint}>
-                  HTTPS utilise le token GitLab (scope <code>read_repository</code>
-                  requis). SSH utilise votre agent et <code>known_hosts</code>.
-                </p>
-              </div>
-            ) : (
-              <p className={styles.hint}>
-                Choisissez un projet dans la liste pour remplir l’URL
-                automatiquement.
-              </p>
-            )}
-
-            <div className={styles.field}>
-              <label htmlFor="clone-destination">
-                Dossier de destination (absolu, inexistant)
-              </label>
-              <div className={styles.pathRow}>
-                <input
-                  id="clone-destination"
-                  value={destination}
-                  onChange={(event) => setDestination(event.target.value)}
-                  placeholder="/Users/vous/src/repo"
-                  spellCheck={false}
-                  required
-                />
-                {onPickDirectory ? (
+            <div className={styles.cloneHeader}>
+              <strong>Projets {providerName} accessibles</strong>
+              {anyConnected ? (
+                <span
+                  className={styles.toggleGroup}
+                  role="group"
+                  aria-label="Fournisseur"
+                >
                   <button
                     type="button"
-                    className={styles.secondary}
-                    onClick={() => void browseDestination()}
-                    disabled={busy}
+                    aria-pressed={provider === 'gitlab'}
+                    onClick={() => {
+                      setProvider('gitlab')
+                      setProjects([])
+                      setSelectedProject(null)
+                      setUrl('')
+                      setProjectSearch('')
+                      setManual(!session?.connected)
+                    }}
                   >
-                    Parcourir…
+                    GitLab
                   </button>
-                ) : null}
-              </div>
-              <span className={styles.hint}>
-                « Parcourir… » ouvre le sélecteur de dossiers de l’OS ; le nom du
-                dépôt est ajouté au dossier choisi.
-              </span>
-            </div>
-            <div className={styles.row}>
-              <label className={styles.field}>
-                Branche (optionnel)
-                <input
-                  value={branch}
-                  onChange={(event) => setBranch(event.target.value)}
-                  placeholder="main"
-                  spellCheck={false}
-                />
-              </label>
-              <label className={styles.field}>
-                Profondeur (optionnel)
-                <input
-                  value={depth}
-                  onChange={(event) => setDepth(event.target.value)}
-                  placeholder="1"
-                  inputMode="numeric"
-                />
-              </label>
+                  <button
+                    type="button"
+                    aria-pressed={provider === 'github'}
+                    onClick={() => {
+                      setProvider('github')
+                      setProjects([])
+                      setSelectedProject(null)
+                      setUrl('')
+                      setProjectSearch('')
+                      setManual(!githubSession?.connected)
+                    }}
+                  >
+                    GitHub
+                  </button>
+                </span>
+              ) : null}
               <label className={styles.checkbox}>
                 <input
                   type="checkbox"
-                  checked={recurse}
-                  onChange={(event) => setRecurse(event.target.checked)}
+                  checked={manual}
+                  onChange={(event) => {
+                    setManual(event.target.checked)
+                    if (event.target.checked) {
+                      setSelectedProject(null)
+                    }
+                  }}
                 />
-                sous-modules récursifs
+                saisir une URL manuellement
               </label>
             </div>
-            {error ? (
-              <p className={styles.error} role="alert">
-                {error}
-              </p>
+
+            {activeSession?.connected ? null : (
+              <div className={styles.notice}>
+                <span>
+                  {sessionError ??
+                    `${providerName} n’est pas connecté. Connectez une instance pour lister vos projets, ou saisissez une URL manuelle.`}
+                </span>
+                <button
+                  type="button"
+                  className={styles.secondary}
+                  onClick={() => onSelect(provider)}
+                >
+                  Connecter {providerName} →
+                </button>
+              </div>
+            )}
+
+            {!manual && activeSession?.connected ? (
+              <div className={styles.projectPanel}>
+                {activeSession.credentialSource &&
+                activeSession.credentialSource !== 'keychain' ? (
+                  <p className={styles.hint}>
+                    Connecté avec un token déjà présent dans Git (
+                    {activeSession.credentialSource}) : aucune configuration{' '}
+                    {providerName} n’est nécessaire.
+                  </p>
+                ) : null}
+                <input
+                  value={projectSearch}
+                  onChange={(event) => setProjectSearch(event.target.value)}
+                  placeholder={`Rechercher un projet ${providerName}…`}
+                  aria-label={`Rechercher un projet ${providerName}`}
+                  spellCheck={false}
+                />
+                {projectError ? (
+                  <p className={styles.error}>{projectError}</p>
+                ) : null}
+                <div
+                  className={styles.projectList}
+                  role="listbox"
+                  aria-label={`Projets ${providerName}`}
+                >
+                  {projects.map((project) => (
+                    <button
+                      key={project.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selectedProject?.id === project.id}
+                      className={
+                        selectedProject?.id === project.id
+                          ? styles.projectOn
+                          : styles.project
+                      }
+                      onClick={() => selectProject(project)}
+                    >
+                      <strong>{project.name}</strong>
+                      <span>{project.pathWithNamespace}</span>
+                    </button>
+                  ))}
+                  {projectLoading ? (
+                    <p className={styles.projectEmpty}>Recherche…</p>
+                  ) : null}
+                  {!projectLoading && projects.length === 0 ? (
+                    <p className={styles.projectEmpty}>
+                      Aucun projet accessible avec ce token.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
-            <div className={styles.actions}>
+
+            <div className={styles.cloneSettings}>
+              {manual ? (
+                <label className={styles.field}>
+                  URL du dépôt
+                  <input
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    placeholder="git@hote:owner/repo.git"
+                    spellCheck={false}
+                    required={manual}
+                  />
+                </label>
+              ) : selectedProject ? (
+                <div className={styles.chosen}>
+                  <div className={styles.chosenRow}>
+                    <span className={styles.chosenLabel}>Dépôt sélectionné</span>
+                    <strong>{selectedProject.pathWithNamespace}</strong>
+                    <label className={styles.inlineField}>
+                      Protocole
+                      <select
+                        value={protocol}
+                        onChange={(event) => {
+                          const next = event.target.value as 'ssh' | 'https'
+                          setProtocol(next)
+                          setUrl(projectUrl(selectedProject, next))
+                        }}
+                      >
+                        <option value="ssh">SSH</option>
+                        <option value="https">HTTPS</option>
+                      </select>
+                    </label>
+                    <code>{projectUrl(selectedProject, protocol)}</code>
+                  </div>
+                  <p className={styles.hint}>
+                    HTTPS utilise le token {providerName}. SSH utilise votre agent
+                    et <code>known_hosts</code>.
+                  </p>
+                </div>
+              ) : activeSession?.connected ? (
+                <p className={styles.hint}>
+                  Choisissez un projet dans la liste pour remplir l’URL
+                  automatiquement.
+                </p>
+              ) : null}
+
+              <div className={styles.field}>
+                <label htmlFor="clone-destination">
+                  Dossier de destination (absolu, inexistant)
+                </label>
+                <div className={styles.pathRow}>
+                  <input
+                    id="clone-destination"
+                    value={destination}
+                    onChange={(event) => setDestination(event.target.value)}
+                    placeholder="/Users/vous/src/repo"
+                    spellCheck={false}
+                    required
+                  />
+                  {onPickDirectory ? (
+                    <button
+                      type="button"
+                      className={styles.secondary}
+                      onClick={() => void browseDestination()}
+                      disabled={busy}
+                    >
+                      Parcourir…
+                    </button>
+                  ) : null}
+                </div>
+                <span className={styles.hint}>
+                  « Parcourir… » ouvre le sélecteur de dossiers de l’OS ; le nom du
+                  dépôt est ajouté au dossier choisi.
+                </span>
+              </div>
+              <div className={styles.options}>
+                <label className={styles.field}>
+                  Branche (optionnel)
+                  <input
+                    value={branch}
+                    onChange={(event) => setBranch(event.target.value)}
+                    placeholder="main"
+                    spellCheck={false}
+                  />
+                </label>
+                <label className={styles.field}>
+                  Profondeur (optionnel)
+                  <input
+                    value={depth}
+                    onChange={(event) => setDepth(event.target.value)}
+                    placeholder="1"
+                    inputMode="numeric"
+                  />
+                </label>
+                <label className={styles.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={recurse}
+                    onChange={(event) => setRecurse(event.target.checked)}
+                  />
+                  sous-modules récursifs
+                </label>
+              </div>
+            </div>
+
+            <div className={styles.cloneFooter}>
+              {error ? (
+                <p className={styles.error} role="alert">
+                  {error}
+                </p>
+              ) : null}
               <button
                 type="submit"
                 className={styles.primary}
@@ -469,7 +519,7 @@ export function Home({
               <button
                 type="button"
                 className={styles.secondary}
-                onClick={() => onCancelClone ? onCancelClone() : setMode('idle')}
+                onClick={() => setMode('idle')}
                 disabled={busy}
               >
                 Annuler
@@ -479,7 +529,7 @@ export function Home({
         ) : null}
       </section>
 
-      {!cloneOnly ? <><section className={styles.recent} aria-label="Dépôts récents">
+      <section className={styles.recent} aria-label="Dépôts récents">
         <div className={styles.sectionHeading}>
           <h2>Reprendre le travail</h2>
           <span>
@@ -524,10 +574,15 @@ export function Home({
           <span className={styles.dot} />
           Votre code reste sur votre machine.
         </span>
-        <button type="button" onClick={() => onSelect('gitlab')}>
-          Connecter GitLab →
-        </button>
-      </footer></> : null}
+        <span className={styles.row}>
+          <button type="button" onClick={() => onSelect('gitlab')}>
+            Connecter GitLab →
+          </button>
+          <button type="button" onClick={() => onSelect('github')}>
+            Connecter GitHub →
+          </button>
+        </span>
+      </footer>
     </div>
   )
 }

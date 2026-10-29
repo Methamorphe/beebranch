@@ -59,6 +59,13 @@ pub struct AppState {
     /// Credential read from the user's Git configuration when no token is
     /// stored in the keychain. Kept in memory only, never persisted.
     pub gitlab_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
+    /// GitHub session. Tokens live in `github_secrets`, never in the client.
+    pub github: Mutex<Option<beebranch_github::GithubClient>>,
+    pub github_instance: Mutex<Option<beebranch_store::InstanceRow>>,
+    /// GitHub credential read from the Git configuration, kept in memory only.
+    pub github_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
+    /// Secrets for the GitHub provider (separate keychain service).
+    pub github_secrets: Arc<dyn SecretStore>,
     /// Cancel flags for long-running operations, keyed by operation id.
     pub operations: OperationRegistry,
 }
@@ -72,6 +79,10 @@ impl std::fmt::Debug for AppState {
             .field(
                 "has_gitlab",
                 &self.gitlab.lock().map(|g| g.is_some()).unwrap_or(false),
+            )
+            .field(
+                "has_github",
+                &self.github.lock().map(|g| g.is_some()).unwrap_or(false),
             )
             .finish()
     }
@@ -140,8 +151,30 @@ impl AppState {
     }
 }
 
+/// Build production or test state with an isolated GitHub secret store.
+pub fn build_state_with_secrets(
+    paths: AppPaths,
+    store: Arc<Store>,
+    secrets: Arc<dyn SecretStore>,
+    github_secrets: Arc<dyn SecretStore>,
+) -> AppState {
+    build_state_inner(paths, store, secrets, github_secrets)
+}
+
 /// Build production or test state.
+///
+/// Tests that only exercise Git and GitLab get an isolated in-memory GitHub
+/// secret store; production always calls [`build_state_with_secrets`].
 pub fn build_state(paths: AppPaths, store: Arc<Store>, secrets: Arc<dyn SecretStore>) -> AppState {
+    build_state_inner(paths, store, secrets, Arc::new(MemorySecretStore::new()))
+}
+
+fn build_state_inner(
+    paths: AppPaths,
+    store: Arc<Store>,
+    secrets: Arc<dyn SecretStore>,
+    github_secrets: Arc<dyn SecretStore>,
+) -> AppState {
     let (runner, runner_error) = match GitRunner::detect() {
         Ok(runner) => (Some(runner), None),
         Err(error) => (None, Some(AppError::from(error))),
@@ -164,6 +197,10 @@ pub fn build_state(paths: AppPaths, store: Arc<Store>, secrets: Arc<dyn SecretSt
         gitlab: Mutex::new(None),
         gitlab_instance: Mutex::new(None),
         gitlab_credential: Mutex::new(None),
+        github: Mutex::new(None),
+        github_instance: Mutex::new(None),
+        github_credential: Mutex::new(None),
+        github_secrets,
         operations: Arc::new(Mutex::new(HashMap::new())),
     }
 }

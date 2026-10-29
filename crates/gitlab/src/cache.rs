@@ -1,36 +1,13 @@
 //! Response cache used for conditional GitLab requests.
 //!
-//! The client only depends on this trait; the application can back it with
-//! SQLite. Bodies are stored verbatim so a `304 Not Modified` can be replayed
-//! without hitting the network payload again.
+//! The trait and entry type live in `beebranch-core` so every forge client
+//! shares one cache contract. This module keeps the GitLab names as
+//! re-exports and provides an in-memory implementation for tests.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-/// A cached HTTP response body with its validators.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CachedResponse {
-    /// `ETag` returned by GitLab, sent back as `If-None-Match`.
-    pub etag: Option<String>,
-    /// Raw JSON body.
-    pub body: Vec<u8>,
-    /// Unix timestamp (seconds) of the fetch.
-    pub fetched_at: i64,
-    /// Unix timestamp (seconds) after which the entry must be refreshed.
-    pub expires_at: Option<i64>,
-}
-
-/// Cache contract shared by the client and the storage layer.
-pub trait ResponseCache: Send + Sync {
-    /// Return the entry stored for `key`, if any.
-    fn get(&self, key: &str) -> Option<CachedResponse>;
-    /// Store `entry` for `key`, replacing any previous value.
-    fn put(&self, key: &str, entry: CachedResponse);
-    /// Drop every entry whose key starts with `prefix`.
-    ///
-    /// Used after a mutation so a list refresh never replays a stale body.
-    fn remove_prefix(&self, _prefix: &str) {}
-}
+pub use beebranch_core::{CachedResponse, ResponseCache};
 
 /// In-memory cache, useful for tests and single-session usage.
 #[derive(Debug, Default)]

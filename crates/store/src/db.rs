@@ -128,6 +128,13 @@ CREATE TABLE IF NOT EXISTS workspace_repos (
     PRIMARY KEY (workspace_id, path)
 );
 "#,
+    r#"
+-- Forge providers share the instance/project tables; the provider column
+-- keeps GitLab and GitHub sessions and links from ever being confused.
+ALTER TABLE gitlab_instances ADD COLUMN provider TEXT NOT NULL DEFAULT 'gitlab';
+CREATE INDEX IF NOT EXISTS gitlab_instances_provider
+    ON gitlab_instances(provider);
+"#,
 ];
 
 pub(crate) fn configure(connection: &Connection) -> Result<(), StoreError> {

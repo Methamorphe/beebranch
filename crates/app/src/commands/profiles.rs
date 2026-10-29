@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::error::store_error;
-use crate::gitlab_cache::SqliteCache;
+use crate::forge_cache::SqliteCache;
 use crate::state::AppState;
 
 const PROFILES_KEY: &str = "profiles";

@@ -32,9 +32,35 @@
 .contextAction svg { flex:none; color:var(--muted); }
 .contextAction span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .contextAction:focus-visible { background:var(--surface-raised); outline-offset:-2px; }
+.contextSeparator { height:1px; margin:4px 6px; background:var(--border); }
+.contextChevron { flex:none; margin-left:auto; color:var(--muted); font-size:11px; }
+.contextHint { margin:0; padding:2px 9px 6px; color:var(--muted); font-size:11px; line-height:1.5; }
+.inspectorDock { display:contents; }
 .inspectorResizer { position:relative; z-index:2; flex:none; width:6px; margin-left:-3px; margin-right:-3px; }
 @media(max-width:1200px) { .wipMessage > span { display:none; } }
-@media(max-width:1000px) { .graphLayout { flex-direction:column; overflow:auto; } .inspectorResizer { display:none; } .historyMain { flex:none; height:400px; min-height:300px; } .worktreePanel { width:100%; min-height:580px; flex-shrink:0; border-left:0; border-top:1px solid var(--border); } }
+@media(max-width:1120px) {
+  .graphLayout { position:relative; overflow:hidden; }
+  .inspectorDock {
+    position:absolute;
+    inset:0 0 0 auto;
+    z-index:8;
+    display:flex;
+    width:min(440px, calc(100% - 44px));
+    background:var(--surface);
+    box-shadow:var(--shadow-pop);
+  }
+  .inspectorDock > aside,
+  .inspectorDock > aside.worktreePanel {
+    width:100%;
+    min-width:0;
+    max-width:100%;
+    height:100%;
+    min-height:0;
+    border-left:1px solid var(--border);
+  }
+  .inspectorResizer { display:none; }
+}
+
 @media(max-width:600px) { .graphControls select { max-width:155px; font-size:11px; } }
 .wipRef { max-width:100%; padding:0; text-indent:10px; }
 

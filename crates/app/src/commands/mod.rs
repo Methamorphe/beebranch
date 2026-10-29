@@ -1,6 +1,9 @@
 pub mod app_info;
 pub mod branches;
 pub mod commit;
+pub mod github;
+pub mod github_advanced;
+pub mod github_pr;
 pub mod gitlab;
 pub mod gitlab_advanced;
 pub mod gitlab_mr;
@@ -15,6 +18,7 @@ pub mod recovery;
 pub mod repo;
 pub mod repository_admin;
 pub mod search;
+pub mod startup;
 pub mod stash;
 pub mod sync;
 pub mod tools;

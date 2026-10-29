@@ -4,7 +4,7 @@
 **Date :** 2026-10-27
 **Nom du produit :** BeeBranch
 **Frontend :** React 19.3 + TypeScript + Vite
-**Compatibilité :** Git ≥ 2.34 (testé 2.55.0) / GitLab 19.3–19.5 (dernières versions maintenues)
+**Compatibilité :** Git ≥ 2.34 (testé 2.55.0) / GitLab 19.3–19.5 (dernières versions maintenues) / GitHub.com et GitHub Enterprise Server (REST v3)
 **Périmètre actuel :** P3 — finition : P2 + undo/redo explicite, drag & drop branche/commits, design system et densité, pages de graphe en flux pour les gros dépôts, workspaces multi-dépôts, accessibilité auditée, distribution signée et mises à jour/rollback signés.
 
 ---
@@ -66,6 +66,7 @@ Décisions de la révision 1 **conservées** : local-first, Tauri 2, rendu canva
 | [docs/03-git-engine.md](docs/03-git-engine.md) | Moteur Git CLI : commandes, parsing, streaming, annulation, conflits, worktrees, LFS |
 | [docs/04-undo-redo.md](docs/04-undo-redo.md) | Matrice de réversibilité, préconditions, stockage, restauration, tests |
 | [docs/05-gitlab.md](docs/05-gitlab.md) | Authentification, endpoints, flux, cache, offline, TLS, erreurs, modèle de données |
+| [docs/06-github.md](docs/06-github.md) | GitHub Cloud/Enterprise : authentification, endpoints, limites REST, séparation des fournisseurs |
 | [docs/06-performance.md](docs/06-performance.md) | Corpus, scénarios, métriques, instrumentation, budgets, gouvernance |
 | [docs/07-reliability-security.md](docs/07-reliability-security.md) | Préflight, confirmations, reprise après crash, modèle de menace, secrets, TLS |
 | [docs/08-roadmap.md](docs/08-roadmap.md) | Phases, tâches, dépendances, Definition of Done, stratégie de tests |
@@ -158,6 +159,10 @@ Fonctionnalités P1 disponibles dans l'application :
 - **Graphe** : filtres, menu contextuel, badges MR/CI, stash via toutes les refs.
 - **GitLab** : MR (mes MR, à reviewer, assignées, projet), détail, création,
   pipelines, badge CI, association dépôt ↔ projet.
+- **GitHub** : pull requests (mes PR, à relire, assignées, projet), détail,
+  création, revues et approbations, commentaires de revue, checks CI et logs
+  Actions, association dépôt ↔ projet. Limitations de l'API REST documentées
+  dans [docs/06-github.md](docs/06-github.md).
 - **Outils** : détection/configuration éditeur, terminal, diff, merge.
 - **Reprise** : journal d'opérations, actions destructives tracées, reprise
   après interruption.
@@ -204,6 +209,7 @@ crates/
   core/       types partagés et contrats UI
   git/        processus Git, index/commit/branches/sync/history/stash/search, lanes
   gitlab/     client REST v4, URL/CA, cache ETag, remote matching
+  github/     client REST v3, GitHub Cloud/Enterprise, checks, Actions, remotes
   store/      SQLite (journal, cache, préférences) et keychain
   app/        shell Tauri : commandes typées, setup, logging, reprise
   bench/      corpus déterministe, scénarios PERF, rapports et seuils

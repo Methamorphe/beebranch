@@ -62,6 +62,12 @@ La palette de base est relevée sur le site Beecoming : `#0A0A0A`, `#191919`, `#
 - Les panneaux peuvent être masqués, jamais au détriment de l'état Git visible.
 - Les actions destructives ou les états intermédiaires occupent une zone persistante, pas un toast éphémère.
 
+Sous `1120px`, le détail du commit, la comparaison et la préparation du commit
+deviennent un **drawer superposé** au graphe au lieu d'être empilés : le graphe
+conserve sa hauteur, le panneau se ferme par son bouton ou `Échap`. La barre
+d'état reste actionnable (branche, compteurs, opérations, GitLab) et son menu
+Opérations expose le journal récent sans transformer les retours en toasts.
+
 ## 5. Tokens
 
 | Token | Sombre | Clair | Usage |
@@ -161,7 +167,21 @@ Le graphe suit les conventions de lecture GitKraken sans reprendre ses assets :
   `+N` et ouvre le menu des références ;
 - les nœuds sont des disques de la couleur de lane, cerclés de `--surface` pour
   se détacher des lignes ; HEAD reçoit un halo d'accent ;
-- l'espacement des lanes est fixe (18 px) et la colonne des branches suit le
+- les **jonctions de lane** sont arrondies sur la ligne du commit d'arrivée,
+  comme dans GitKraken : une branche qui rejoint son parent garde sa colonne
+  jusqu'à la ligne du parent puis courbe **au-dessus** de la médiane ; seul un
+  parent secondaire ouvre une colonne **sous** le commit, avec un arrondi sous
+  la médiane. Un commit dont le parent est déjà pris par une autre colonne
+  n'abandonne donc plus sa colonne prématurément ;
+- un **stash** est un nœud à part, en tête de l'historique : médaillon carré
+  arrondi en pointillés avec un coffre, dans la couleur de lane, et libellé par
+  le message saisi (sans le préfixe `On <branche>:`). Ses instantanés `index`
+  et `untracked` restent hors du graphe : un stash = une ligne ;
+- **épingler à gauche** ancre une branche en première colonne à partir de son
+  sommet : les colonnes 0 et n échangent leur place à la ligne du sommet, qui
+  dessine la bascule, sans déplacer les nœuds au-dessus. **Solo** réduit le
+  graphe à une branche via le filtre, sans modifier le dépôt ;
+- l'espacement des lanes est fixe (22 px) et la colonne des branches suit le
   libellé le plus long (96 à 220 px), en réservant 520 px au message et 90 px à
   l'auteur pour ne jamais tronquer le sujet.
 

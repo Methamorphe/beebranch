@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BeeBranch</title>
+    <!-- Blocking stylesheet on purpose: the splash must be styled on its very
+    first frame, otherwise the bare SVG flashes at its default size. -->
+    <link rel="stylesheet" href="/src/splash.css" />
+  </head>
+  <body>
+    <!-- Shown in its own frameless window while the main window boots. The
+    backend closes this window once the main window reported its first paint
+    (see crates/app/src/splash.rs); the page is purely decorative and never
+    talks to the Tauri API. -->
+    <main class="splash" role="status" aria-label="BeeBranch, démarrage en cours">
+      <div class="badge" aria-hidden="true">
+        <!-- Presentation attributes mirror the stylesheet so the mark stays
+        correct even if the stylesheet is late. -->
+        <svg viewBox="0 0 512 512" width="128" height="128">
+          <path
+            class="hex"
+            pathLength="1"
+            fill="none"
+            stroke="#f5bb45"
+            stroke-width="22"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M256 96 392 176v160L256 416 120 336V176Z"
+          />
+          <path
+            class="branch"
+            pathLength="1"
+            fill="none"
+            stroke="#f5bb45"
+            stroke-width="18"
+            stroke-linecap="round"
+            d="M256 150v212"
+          />
+          <path
+            class="branch branch-left"
+            pathLength="1"
+            fill="none"
+            stroke="#f5bb45"
+            stroke-width="18"
+            stroke-linecap="round"
+            d="M256 236l-72 40"
+          />
+          <path
+            class="branch branch-right"
+            pathLength="1"
+            fill="none"
+            stroke="#f5bb45"
+            stroke-width="18"
+            stroke-linecap="round"
+            d="M256 236l72 40"
+          />
+          <circle class="node node-top" cx="256" cy="150" r="24" fill="#f5bb45" />
+          <circle class="node node-left" cx="184" cy="276" r="24" fill="#f5bb45" />
+          <circle class="node node-right" cx="328" cy="276" r="24" fill="#f5bb45" />
+          <circle class="node node-bottom" cx="256" cy="362" r="24" fill="#f5bb45" />
+        </svg>
+      </div>
+      <h1 class="wordmark">BeeBranch</h1>
+      <p class="tagline">Préparation de l’espace de travail…</p>
+      <div class="track" aria-hidden="true"><span class="bar"></span></div>
+    </main>
+  </body>
+</html>

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::error::{gitlab_error, store_error};
-use crate::gitlab_cache::SqliteCache;
+use crate::forge_cache::SqliteCache;
 use crate::state::AppState;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -128,7 +128,7 @@ fn session(state: &AppState) -> Result<GitlabSessionDto, AppError> {
 /// token, reuse an HTTPS credential already configured for Git so a workstation
 /// whose `git clone` works does not need to re-enter a GitLab token.
 pub fn restore(state: &mut AppState) {
-    if let Ok(instances) = state.store.list_instances() {
+    if let Ok(instances) = state.store.list_instances_for("gitlab") {
         if let Some(instance) = instances
             .into_iter()
             .max_by_key(|instance| instance.created_at)
@@ -231,6 +231,7 @@ pub fn detect_git_credentials(state: &AppState) -> Result<bool, AppError> {
             id: InstanceId::from_api_url(&normalized.api_url)
                 .as_str()
                 .to_owned(),
+            provider: "gitlab".to_owned(),
             base_url: normalized.base_url.clone(),
             api_url: normalized.api_url.clone(),
             display_name: None,
@@ -331,6 +332,7 @@ pub async fn configure(
 
     let instance = InstanceRow {
         id: instance_id.as_str().to_owned(),
+        provider: "gitlab".to_owned(),
         base_url: normalized.base_url.clone(),
         api_url: normalized.api_url.clone(),
         display_name: input.display_name.clone(),

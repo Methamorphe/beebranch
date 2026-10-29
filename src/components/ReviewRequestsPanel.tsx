@@ -1,18 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  gitlabMrCreate,
-  gitlabMrGet,
-  gitlabMrPage,
-  gitlabMrPipelines,
-  gitlabRepoLink,
-  gitlabRepoLinkGet,
-  openExternalUrl,
-  refsGet,
-  statusGet,
-} from '../ipc/commands'
+import { openExternalUrl, refsGet, statusGet } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import type { ForgeApi, ForgeMergeRequest, ForgeScope } from '../lib/forge'
 import type {
-  GitlabMergeRequest,
   GitlabPipeline,
   RefEntry,
   RepoLink,
@@ -23,13 +13,12 @@ import { MrDetailExtras } from './MrDetailExtras'
 import shared from './p1.module.css'
 
 type Props = {
+  api: ForgeApi
   repoId: string | null
   generation: number
   connected: boolean
   onCheckout: (branch: string) => void
 }
-
-type Scope = 'createdByMe' | 'reviewsForMe' | 'assignedToMe' | 'project'
 
 function stateClass(state: PipelineState): string {
   switch (state) {
@@ -45,12 +34,12 @@ function stateClass(state: PipelineState): string {
   }
 }
 
-export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }: Props) {
+export function ReviewRequestsPanel({ api, repoId, generation, connected, onCheckout }: Props) {
   const [link, setLink] = useState<RepoLink | null>(null)
-  const [scope, setScope] = useState<Scope>('createdByMe')
-  const [items, setItems] = useState<GitlabMergeRequest[]>([])
+  const [scope, setScope] = useState<ForgeScope>('createdByMe')
+  const [items, setItems] = useState<ForgeMergeRequest[]>([])
   const [nextPage, setNextPage] = useState<number | undefined>()
-  const [selected, setSelected] = useState<GitlabMergeRequest | null>(null)
+  const [selected, setSelected] = useState<ForgeMergeRequest | null>(null)
   const [pipelines, setPipelines] = useState<GitlabPipeline[]>([])
   const [branches, setBranches] = useState<RefEntry[]>([])
   const [currentBranch, setCurrentBranch] = useState('')
@@ -73,11 +62,11 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
       return
     }
     try {
-      setLink(await gitlabRepoLinkGet(repoId))
+      setLink(await api.linkGet(repoId))
     } catch (cause) {
       setError(errorMessage(cause))
     }
-  }, [repoId])
+  }, [api, repoId])
 
   useEffect(() => {
     void loadLink()
@@ -118,16 +107,9 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
       setBusy(true)
       setError(null)
       try {
-        const pageResult = await gitlabMrPage({
+        const pageResult = await api.mrPage({
           projectId: scope === 'project' ? projectId : undefined,
-          scope:
-            scope === 'project'
-              ? 'all'
-              : scope === 'createdByMe'
-                ? 'createdByMe'
-                : scope === 'reviewsForMe'
-                  ? 'reviewsForMe'
-                  : 'assignedToMe',
+          scope,
           page: next,
           perPage: 25,
           repoId: scope === 'project' ? (repoId ?? undefined) : undefined,
@@ -142,7 +124,7 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
         setBusy(false)
       }
     },
-    [connected, projectId, repoId, scope],
+    [api, connected, projectId, repoId, scope],
   )
 
   useEffect(() => {
@@ -167,12 +149,12 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
         if (!pid) {
           return
         }
-        const detail = await gitlabMrGet(pid, selected.iid)
+        const detail = await api.mrGet(pid, selected.iid)
         if (disposed) {
           return
         }
         setSelected((current) => (current?.iid === selected.iid ? detail : current))
-        const pipes = await gitlabMrPipelines(pid, selected.iid)
+        const pipes = await api.pipelines(pid, selected.iid)
         if (!disposed) {
           setPipelines(pipes)
         }
@@ -185,7 +167,7 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
       disposed = true
       window.clearInterval(timer)
     }
-  }, [connected, projectId, selected])
+  }, [api, connected, projectId, selected])
 
   const associate = async () => {
     if (!repoId) {
@@ -194,7 +176,7 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
     setBusy(true)
     setError(null)
     try {
-      const linked = await gitlabRepoLink(repoId)
+      const linked = await api.link(repoId)
       setLink(linked)
       setNotice(`Projet associé : ${linked.pathWithNamespace}.`)
     } catch (cause) {
@@ -204,24 +186,25 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
     }
   }
 
-  const openDetail = async (mr: GitlabMergeRequest) => {
+  const openDetail = async (mr: ForgeMergeRequest) => {
     const token = ++detailRequest.current
     setSelected(mr)
     setPipelines([])
     const pid = mr.projectId ?? projectId
-    if (!pid) {
+    if (!pid && !mr.repositoryName) {
       setError(
-        'Le projet de cette MR est inconnu ; associez le dépôt ou ouvrez la MR dans GitLab.',
+        `Le projet de cette ${api.short} est inconnu ; associez le dépôt ou ouvrez la ${api.noun} dans ${api.label}.`,
       )
       return
     }
     try {
-      const detail = await gitlabMrGet(pid, mr.iid)
+      const detail = await api.mrGet(pid ?? 0, mr.iid, mr.repositoryName)
       if (token !== detailRequest.current) {
         return
       }
       setSelected(detail)
-      const pipes = await gitlabMrPipelines(pid, mr.iid)
+      const resolved = detail.projectId ?? pid
+      const pipes = resolved ? await api.pipelines(resolved, mr.iid) : []
       if (token === detailRequest.current) {
         setPipelines(pipes)
       }
@@ -240,7 +223,7 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
     setError(null)
     setNotice(null)
     try {
-      const created = await gitlabMrCreate({
+      const created = await api.mrCreate({
         repoId,
         projectId: projectId,
         sourceBranch: source,
@@ -248,10 +231,10 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
         title,
         description,
         draft,
-        removeSourceBranch: removeSource,
-        squash,
+        removeSourceBranch: api.capabilities.createMergeOptions ? removeSource : undefined,
+        squash: api.capabilities.createMergeOptions ? squash : undefined,
       })
-      setNotice(`MR !${created.iid} créée : ${created.title}`)
+      setNotice(`${api.short} ${api.short === 'MR' ? '!' : '#'}${created.iid} créée : ${created.title}`)
       setTitle('')
       setDescription('')
       void load(1)
@@ -272,7 +255,7 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
 
   return (
     <div className={shared.card}>
-      <h2>Merge requests</h2>
+      <h2>{api.title}</h2>
       <div className={shared.row}>
         <span className={shared.badge}>
           {link ? `${link.pathWithNamespace} (#${link.projectId})` : 'aucun projet associé'}
@@ -292,21 +275,14 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
       </div>
 
       <div className={shared.tabs}>
-        {(
-          [
-            ['createdByMe', 'Mes MR'],
-            ['reviewsForMe', 'À relire'],
-            ['assignedToMe', 'Assignées'],
-            ['project', 'Projet'],
-          ] as Array<[Scope, string]>
-        ).map(([value, label]) => (
+        {api.scopes.map((option) => (
           <button
-            key={value}
+            key={option.value}
             type="button"
-            className={scope === value ? shared.tabActive : shared.tab}
-            onClick={() => setScope(value)}
+            className={scope === option.value ? shared.tabActive : shared.tab}
+            onClick={() => setScope(option.value)}
           >
-            {label}
+            {option.label}
           </button>
         ))}
       </div>
@@ -322,15 +298,15 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
         <div className={shared.list}>
           {items.length === 0 ? (
             <div className={shared.empty} role="status">
-              <strong>{busy ? 'Chargement…' : !connected ? 'Connectez votre compte GitLab' : !link ? 'Associez ce dépôt à un projet' : 'Aucune merge request'}</strong>
-              {!busy ? <p>{!connected ? 'La connexion est disponible dans les préférences GitLab.' : !link ? 'Utilisez « Associer au projet » pour retrouver les revues du dépôt.' : 'Les merge requests correspondant à ce filtre apparaîtront ici.'}</p> : null}
+              <strong>{busy ? 'Chargement…' : !connected ? `Connectez votre compte ${api.label}` : !link ? 'Associez ce dépôt à un projet' : `Aucune ${api.noun}`}</strong>
+              {!busy ? <p>{!connected ? `La connexion est disponible dans les préférences ${api.label}.` : !link ? 'Utilisez « Associer au projet » pour retrouver les revues du dépôt.' : `Les ${api.title.toLowerCase()} correspondant à ce filtre apparaîtront ici.`}</p> : null}
             </div>
           ) : null}
           {items.map((mr) => {
             const mrState = pipelineState(mr.headPipeline?.status)
             return (
               <button
-                key={mr.iid}
+                key={`${mr.projectId ?? projectId ?? 0}:${mr.iid}`}
                 type="button"
                 className={`${shared.item} ${selected?.iid === mr.iid ? shared.itemSelected : ''}`}
                 aria-current={selected?.iid === mr.iid ? 'true' : undefined}
@@ -339,10 +315,10 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
               >
                 <div>
                   <span>
-                    !{mr.iid} {mr.title}
+                    {api.short} {mr.iid} {mr.title}
                   </span>
                   <span className={shared.mono}>
-                    {mr.sourceBranch} → {mr.targetBranch} · @{mr.author.username}
+                    {mr.sourceBranch || '?'} → {mr.targetBranch || '?'} · @{mr.author.username}
                     {mr.draft ? ' · draft' : ''}
                     {mr.hasConflicts ? ' · conflits' : ''}
                   </span>
@@ -364,10 +340,10 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
           {selected ? (
             <>
               <h3>
-                !{selected.iid} {selected.title}
+                {api.short} {selected.iid} {selected.title}
               </h3>
               <span className={shared.mono}>
-                {selected.sourceBranch} → {selected.targetBranch} · {selected.state}
+                {selected.sourceBranch || '?'} → {selected.targetBranch || '?'} · {selected.state}
                 {selected.detailedMergeStatus ? ` · ${selected.detailedMergeStatus}` : ''}
               </span>
               <div className={shared.row}>
@@ -379,10 +355,11 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
                   className={shared.small}
                   onClick={() => void openExternalUrl(selected.webUrl)}
                 >
-                  Ouvrir dans GitLab
+                  Ouvrir dans {api.label}
                 </button>
               </div>
               <MrDetailExtras
+                api={api}
                 projectId={selected.projectId ?? projectId ?? 0}
                 mr={selected}
                 onRefresh={() => void openDetail(selected)}
@@ -409,10 +386,10 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
               ) : null}
             </>
           ) : (
-            <p className={shared.notice}>Sélectionnez une MR pour le détail et la CI.</p>
+            <p className={shared.notice}>Sélectionnez une {api.short} pour le détail et la CI.</p>
           )}
 
-          <h3 style={{ marginTop: 12 }}>Créer une MR</h3>
+          <h3 style={{ marginTop: 12 }}>Créer une {api.noun}</h3>
           <div className={shared.row}>
             <label className={shared.field}>
               Branche source
@@ -436,12 +413,12 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
             </label>
           </div>
           <label className={shared.field}>
-            Titre de la merge request
+            Titre de la {api.noun}
             <input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Titre de la MR"
-              aria-label="Titre de la MR"
+              placeholder={`Titre de la ${api.short}`}
+              aria-label={`Titre de la ${api.short}`}
             />
           </label>
           <label className={shared.field}>
@@ -451,7 +428,7 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Description"
               rows={4}
-              aria-label="Description de la MR"
+              aria-label={`Description de la ${api.short}`}
             />
           </label>
           <div className={shared.row}>
@@ -459,18 +436,22 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
               <input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} />
               Brouillon
             </label>
-            <label className={shared.checkbox}>
-              <input
-                type="checkbox"
-                checked={removeSource}
-                onChange={(event) => setRemoveSource(event.target.checked)}
-              />
-              Supprimer la branche source après fusion
-            </label>
-            <label className={shared.checkbox}>
-              <input type="checkbox" checked={squash} onChange={(event) => setSquash(event.target.checked)} />
-              Regrouper les commits
-            </label>
+            {api.capabilities.createMergeOptions ? (
+              <>
+                <label className={shared.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={removeSource}
+                    onChange={(event) => setRemoveSource(event.target.checked)}
+                  />
+                  Supprimer la branche source après fusion
+                </label>
+                <label className={shared.checkbox}>
+                  <input type="checkbox" checked={squash} onChange={(event) => setSquash(event.target.checked)} />
+                  Regrouper les commits
+                </label>
+              </>
+            ) : null}
             <button
               type="button"
               className={shared.primary}
@@ -482,7 +463,7 @@ export function MergeRequestsPanel({ repoId, generation, connected, onCheckout }
           </div>
           <p className={shared.notice}>
             La branche source doit être poussée. Création hors ligne impossible : aucune
-            mutation GitLab n'est mise en file. Source courante : {currentBranch || 'inconnue'}.
+            mutation {api.label} n'est mise en file. Source courante : {currentBranch || 'inconnue'}.
           </p>
         </div>
       </div>

@@ -1,19 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  gitlabApprove,
-  gitlabApprovals,
-  gitlabDiscussionCreate,
-  gitlabDiscussionReply,
-  gitlabDiscussionResolve,
-  gitlabJobLog,
-  gitlabMergeMr,
-  gitlabMrDiffRefs,
-  gitlabMrDiscussions,
-  gitlabMrJobs,
-  gitlabUnapprove,
-  openExternalUrl,
-} from '../ipc/commands'
+import { openExternalUrl } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
+import type { ForgeApi } from '../lib/forge'
 import type {
   ApprovalsDto,
   GitlabDiffRefs,
@@ -26,6 +14,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import p2 from './p2.module.css'
 
 type Props = {
+  api: ForgeApi
   projectId: number
   mr: GitlabMergeRequest
   onRefresh: () => void
@@ -34,7 +23,7 @@ type Props = {
 
 type Tab = 'overview' | 'discussions' | 'jobs'
 
-export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) {
+export function MrDetailExtras({ api, projectId, mr, onRefresh, onCheckout }: Props) {
   const [tab, setTab] = useState<Tab>('overview')
   const [discussions, setDiscussions] = useState<GitlabDiscussion[]>([])
   const [approvals, setApprovals] = useState<ApprovalsDto | null>(null)
@@ -59,30 +48,30 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
 
   const loadDiscussions = useCallback(async () => {
     try {
-      const page = await gitlabMrDiscussions({ projectId, iid: mr.iid })
+      const page = await api.discussions({ projectId, iid: mr.iid })
       setDiscussions(page.items)
     } catch (cause) {
       setError(errorMessage(cause))
     }
-  }, [projectId, mr.iid])
+  }, [api, projectId, mr.iid])
 
   const loadApprovals = useCallback(async () => {
     try {
-      setApprovals(await gitlabApprovals({ projectId, iid: mr.iid }))
+      setApprovals(await api.approvals({ projectId, iid: mr.iid }))
     } catch (cause) {
       setError(errorMessage(cause))
     }
-  }, [projectId, mr.iid])
+  }, [api, projectId, mr.iid])
 
   const loadJobs = useCallback(async () => {
     try {
-      const page = await gitlabMrJobs({ projectId, iid: mr.iid })
+      const page = await api.jobs({ projectId, iid: mr.iid })
       setJobs(page.items)
       setPipelineId(page.pipelineId ?? null)
     } catch (cause) {
       setError(errorMessage(cause))
     }
-  }, [projectId, mr.iid])
+  }, [api, projectId, mr.iid])
 
   useEffect(() => {
     setDiscussions([])
@@ -107,10 +96,10 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
     if (!inline || refs) {
       return
     }
-    void gitlabMrDiffRefs({ projectId, iid: mr.iid })
+    void api.diffRefs({ projectId, iid: mr.iid })
       .then(setRefs)
       .catch((cause) => setError(errorMessage(cause)))
-  }, [inline, refs, projectId, mr.iid])
+  }, [api, inline, refs, projectId, mr.iid])
 
   const run = async (label: string, action: () => Promise<unknown>) => {
     setBusy(true)
@@ -135,7 +124,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
     setError(null)
     try {
       if (replyTo) {
-        await gitlabDiscussionReply({
+        await api.discussionReply({
           projectId,
           iid: mr.iid,
           discussionId: replyTo,
@@ -155,7 +144,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
                 oldLine: positionSide === 'old' ? Number(positionLine) || 1 : undefined,
               }
             : undefined
-        await gitlabDiscussionCreate({
+        await api.discussionCreate({
           projectId,
           iid: mr.iid,
           body,
@@ -178,7 +167,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
     setBusy(true)
     setError(null)
     try {
-      setLog({ job, value: await gitlabJobLog({ projectId, jobId: job.id }) })
+      setLog({ job, value: await api.jobLog({ projectId, jobId: job.id }) })
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
@@ -227,7 +216,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
               </span>
               <span className={p2.spacer} />
               <button type="button" className={p2.ghost} onClick={() => void openExternalUrl(mr.webUrl)}>
-                Ouvrir dans GitLab
+                Ouvrir dans {api.label}
               </button>
               <button type="button" className={p2.secondary} onClick={() => onCheckout(mr.sourceBranch)}>
                 Checkout la branche
@@ -242,8 +231,10 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
             ) : approvals.available && approval ? (
               <>
                 <p className={p2.small}>
-                  {approval.approvedBy.length} approbation(s) ·{' '}
-                  {approval.approvalsLeft} restante(s) · {approval.approvalsRequired} requise(s)
+                  {approval.approvedBy.length} approbation(s)
+                  {api.capabilities.approvalQuota
+                    ? ` · ${approval.approvalsLeft} restante(s) · ${approval.approvalsRequired} requise(s)`
+                    : ''}
                 </p>
                 <div className={p2.row}>
                   {approval.approvedBy.map((entry) => (
@@ -258,7 +249,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
                     disabled={busy}
                     onClick={() =>
                       void run('Approbation enregistrée.', async () => {
-                        setApprovals(await gitlabApprove({ projectId, iid: mr.iid }))
+                        setApprovals(await api.approve({ projectId, iid: mr.iid }))
                       })
                     }
                   >
@@ -270,7 +261,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
                     disabled={busy}
                     onClick={() =>
                       void run('Approbation retirée.', async () => {
-                        setApprovals(await gitlabUnapprove({ projectId, iid: mr.iid }))
+                        setApprovals(await api.unapprove({ projectId, iid: mr.iid }))
                       })
                     }
                   >
@@ -290,29 +281,40 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
                 Stratégie
                 <select value={strategy} onChange={(event) => setStrategy(event.target.value)}>
                   <option value="merge">Merge commit</option>
-                  <option value="rebase_merge">Rebase merge</option>
+                  {api.id === 'github' ? (
+                    <>
+                      <option value="squash">Squash</option>
+                      <option value="rebase">Rebase</option>
+                    </>
+                  ) : (
+                    <option value="rebase_merge">Rebase merge</option>
+                  )}
                 </select>
               </label>
               <label className={p2.checkbox}>
                 <input type="checkbox" checked={squash} onChange={(event) => setSquash(event.target.checked)} />
                 squash
               </label>
-              <label className={p2.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={removeSource}
-                  onChange={(event) => setRemoveSource(event.target.checked)}
-                />
-                supprimer la branche source
-              </label>
-              <label className={p2.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={autoMerge}
-                  onChange={(event) => setAutoMerge(event.target.checked)}
-                />
-                auto-merge si la pipeline réussit
-              </label>
+              {api.capabilities.removeSourceBranchOnMerge ? (
+                <label className={p2.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={removeSource}
+                    onChange={(event) => setRemoveSource(event.target.checked)}
+                  />
+                  supprimer la branche source
+                </label>
+              ) : null}
+              {api.capabilities.autoMerge ? (
+                <label className={p2.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={autoMerge}
+                    onChange={(event) => setAutoMerge(event.target.checked)}
+                  />
+                  auto-merge si la pipeline réussit
+                </label>
+              ) : null}
               <span className={p2.spacer} />
               <button type="button" className={p2.primary} disabled={busy} onClick={() => setMergeOpen(true)}>
                 Merge into {mr.targetBranch}
@@ -320,7 +322,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
             </div>
             <p className={p2.notice}>
               Le merge utilise le SHA courant {mr.sha ? mr.sha.slice(0, 10) : '(inconnu)'} ;
-              si la MR a changé, GitLab répond 409 et rien n’est fusionné.
+              si la {api.short} a changé, {api.label} refuse la fusion et rien n’est modifié.
             </p>
           </div>
         </div>
@@ -378,14 +380,14 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
                   >
                     Répondre
                   </button>
-                  {resolvable ? (
+                  {resolvable && api.capabilities.resolveThreads ? (
                     <button
                       type="button"
                       className={p2.ghost}
                       disabled={busy}
                       onClick={() =>
                         void run(resolved ? 'Thread rouvert.' : 'Thread résolu.', async () => {
-                          await gitlabDiscussionResolve({
+                          await api.discussionResolve({
                             projectId,
                             iid: mr.iid,
                             discussionId: discussion.id,
@@ -545,7 +547,7 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
                       disabled={busy}
                       onClick={() => {
                         setBusy(true)
-                        void gitlabJobLog({
+                        void api.jobLog({
                           projectId,
                           jobId: log.job.id,
                           offset: log.value.nextOffset,
@@ -579,15 +581,15 @@ export function MrDetailExtras({ projectId, mr, onRefresh, onCheckout }: Props) 
 
       <ConfirmDialog
         open={mergeOpen}
-        title={`Fusionner !${mr.iid}`}
+        title={`Fusionner ${api.short} ${mr.iid}`}
         consequence={`La merge request sera fusionnée dans ${mr.targetBranch} avec la stratégie ${strategy}${squash ? ', squashée' : ''}${autoMerge ? ', automatiquement dès que la pipeline réussit' : ''}. Le SHA courant est vérifié.`}
         confirmLabel="Fusionner"
         busy={busy}
         onCancel={() => setMergeOpen(false)}
         onConfirm={() => {
           setMergeOpen(false)
-          void run('Merge request fusionnée.', () =>
-            gitlabMergeMr({
+          void run(`${api.noun} fusionnée.`, () =>
+            api.merge({
               projectId,
               iid: mr.iid,
               sha: mr.sha,

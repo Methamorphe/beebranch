@@ -2,7 +2,6 @@ import { listen } from '@tauri-apps/api/event'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
-import { CloneRepoDialog } from './components/CloneRepoDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { Home } from './components/Home'
 import { InitRepoDialog } from './components/InitRepoDialog'
@@ -16,6 +15,8 @@ import { Workbench } from './components/Workbench'
 import { navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
 import { errorMessage } from './ipc/client'
 import {
+  branchCheckout,
+  githubStatus,
   gitlabStatus,
   preferenceGet,
   preferenceSet,
@@ -38,6 +39,7 @@ import {
 } from './ipc/commands'
 import { useRepoEvents } from './hooks/useRepoEvents'
 import { useShortcuts } from './hooks/useShortcuts'
+import { useZoom } from './hooks/useZoom'
 import {
   SIDEBAR_MAX,
   SIDEBAR_MIN,
@@ -101,13 +103,14 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [pendingClose, setPendingClose] = useState<RepoView | null>(null)
   const [hydrated, setHydrated] = useState(false)
-  const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
+  const [launcherOpen, setLauncherOpen] = useState(false)
   const [initDialogOpen, setInitDialogOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [previousView, setPreviousView] = useState<ViewId>('graph')
   const pickingRepository = useRef(false)
-  const [connected, setConnected] = useState(false)
-  const [gitlabUser, setGitlabUser] = useState<string | null>(null)
+  const [gitlabConnected, setGitlabConnected] = useState(false)
+  const [githubConnected, setGithubConnected] = useState(false)
+  const [forgeUser, setForgeUser] = useState<string | null>(null)
   const [stashCount, setStashCount] = useState(0)
   const [undoState, setUndoState] = useState<UndoStatus | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -158,6 +161,19 @@ export default function App() {
       setActiveId(next.repo.repoId)
       setGeneration(next.generation)
     }
+  }, [])
+
+  const moveRepo = useCallback((repoId: string, targetId: string, side: 'before' | 'after') => {
+    if (repoId === targetId) return
+    setRepos((current) => {
+      const from = current.findIndex((entry) => entry.repo.repoId === repoId)
+      if (from < 0) return current
+      const next = current.filter((entry) => entry.repo.repoId !== repoId)
+      const target = next.findIndex((entry) => entry.repo.repoId === targetId)
+      if (target < 0) return current
+      next.splice(side === 'after' ? target + 1 : target, 0, current[from]!)
+      return next
+    })
   }, [])
 
   useEffect(() => {
@@ -394,17 +410,22 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      try {
-        const session = await gitlabStatus()
-        if (!cancelled) {
-          setConnected(session.connected)
-          setGitlabUser(session.user?.name ?? session.user?.username ?? null)
-        }
-      } catch {
-        if (!cancelled) {
-          setConnected(false)
-        }
+      const [gitlab, github] = await Promise.allSettled([gitlabStatus(), githubStatus()])
+      if (cancelled) {
+        return
       }
+      const gitlabSession = gitlab.status === 'fulfilled' ? gitlab.value : null
+      const githubSession = github.status === 'fulfilled' ? github.value : null
+      setGitlabConnected(Boolean(gitlabSession?.connected))
+      setGithubConnected(Boolean(githubSession?.connected))
+      const labels: string[] = []
+      if (gitlabSession?.user) {
+        labels.push(`${gitlabSession.user.name ?? gitlabSession.user.username} (GitLab)`)
+      }
+      if (githubSession?.user) {
+        labels.push(`${githubSession.user.name ?? githubSession.user.username} (GitHub)`)
+      }
+      setForgeUser(labels.length > 0 ? labels.join(' · ') : null)
     }
     void load()
     const timer = window.setInterval(() => void load(), 60_000)
@@ -457,6 +478,7 @@ export default function App() {
       try {
         const opened = await repoOpen(path)
         upsert(opened)
+        setLauncherOpen(false)
         setDiffRequest(null)
         setView('graph')
         await reloadRecent()
@@ -474,6 +496,7 @@ export default function App() {
     try {
       const opened = await repoClone(input)
       upsert(opened)
+      setLauncherOpen(false)
       setDiffRequest(null)
       setView('graph')
       await reloadRecent()
@@ -487,6 +510,7 @@ export default function App() {
     try {
       const opened = await repoInit(input)
       upsert(opened)
+      setLauncherOpen(false)
       setDiffRequest(null)
       setView('graph')
       setInitDialogOpen(false)
@@ -503,6 +527,7 @@ export default function App() {
     }
     setActiveId(target)
     setGeneration(existing.generation)
+    setLauncherOpen(false)
     setDiffRequest(null)
     try {
       const refreshed = await repoGetState(target)
@@ -524,6 +549,23 @@ export default function App() {
       setGeneration(refreshed.generation)
     } catch (cause) {
       setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const checkoutBranch = async (name: string) => {
+    if (!repoId) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await branchCheckout({ repoId, name })
+      const refreshed = await repoRefresh(repoId)
+      upsert(refreshed, false)
+      setGeneration(refreshed.generation)
+      setUndoState(await undoStatus(repoId).catch(() => null))
     } finally {
       setBusy(false)
     }
@@ -596,6 +638,7 @@ export default function App() {
   }
 
   const navigate = useCallback((target: ViewId) => {
+    setLauncherOpen(false)
     if (target === 'status' || target === 'commit') {
       setView('graph')
       setWorktreeRequest((value) => value + 1)
@@ -634,6 +677,22 @@ export default function App() {
   }, [])
 
   const openInitDialog = useCallback(() => setInitDialogOpen(true), [])
+
+  const openLauncher = useCallback(() => {
+    setLauncherOpen(true)
+    setPaletteOpen(false)
+    void reloadRecent()
+  }, [reloadRecent])
+
+  // The launcher behaves like a tab: Escape closes it, as in GitKraken.
+  useEffect(() => {
+    if (!launcherOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLauncherOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [launcherOpen])
 
   const openRepositoryDialog = useCallback(async () => {
     if (pickingRepository.current || busy) return
@@ -674,6 +733,12 @@ export default function App() {
         group: 'Actions',
         shortcut: '⌘O',
         run: () => openRepositoryDialog(),
+      },
+      {
+        id: 'action-launcher',
+        label: 'Ouvrir ou cloner un dépôt…',
+        group: 'Actions',
+        run: () => openLauncher(),
       },
       {
         id: 'action-refresh',
@@ -798,7 +863,9 @@ export default function App() {
       },
     )
     return items
-  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, undoState, performUndo])
+  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo])
+
+  useZoom()
 
   useShortcuts({
     palette: () => setPaletteOpen(true),
@@ -814,7 +881,10 @@ export default function App() {
   }, shortcuts)
 
   const showHome =
-    !repo && !['profiles', 'gitlab', 'recovery', 'workspaces'].includes(view)
+    !repo && !['profiles', 'gitlab', 'github', 'recovery', 'workspaces'].includes(view)
+  // The launcher is a tab of its own: it shows the same start screen as the
+  // empty state without closing the repository tabs.
+  const showStart = launcherOpen || showHome
   const branch =
     repo?.state.head?.kind === 'branch' ? repo.state.head.name : null
 
@@ -832,14 +902,16 @@ export default function App() {
         busy={busy}
         onActivate={(target) => void activate(target)}
         onClose={requestClose}
+        onReorder={moveRepo}
         onOpenDialog={() => openRepositoryDialog()}
-        onClone={() => setCloneDialogOpen(true)}
-        onInit={openInitDialog}
+        launcherOpen={launcherOpen}
+        onAdd={openLauncher}
+        onCloseLauncher={() => setLauncherOpen(false)}
         onSettings={() => navigate('profiles')}
         updateVersion={availableUpdate}
         updateBusy={installingUpdate}
         onInstallUpdate={() => void installUpdate()}
-        user={gitlabUser}
+        user={forgeUser}
       />
       {availableUpdate && dismissedUpdate !== availableUpdate ? (
         <UpdateNotice
@@ -874,7 +946,8 @@ export default function App() {
           conflicts={repo?.state.conflicts.files.length ?? 0}
           stashes={stashCount}
           mergeRequests={0}
-          connected={connected}
+          gitlabConnected={gitlabConnected}
+          githubConnected={githubConnected}
           version="0.4.0"
           onSelect={navigate}
         />
@@ -892,8 +965,10 @@ export default function App() {
           <div className={`${styles.viewbar} ${view === 'graph' && repo ? styles.compactViewbar : ''}`}>
             {view === 'diff' ? <button type="button" className={styles.back} onClick={() => navigate(previousView)}>← Retour</button> : null}
             <div className={styles.viewHeading}>
-              <h1>{showHome ? 'Bienvenue' : VIEW_LABELS[view]}</h1>
-              {!showHome && viewDescriptions[view] ? <p>{viewDescriptions[view]}</p> : null}
+              <h1>{showStart ? 'Bienvenue' : VIEW_LABELS[view]}</h1>
+              {!showStart && viewDescriptions[view] ? (
+                <p>{viewDescriptions[view]}</p>
+              ) : null}
             </div>
             {repo ? (
               <span className={styles.crumb}>{repo.repo.name}</span>
@@ -949,7 +1024,7 @@ export default function App() {
           ) : null}
 
           <div className={styles.workspace} data-page={view}>
-            {showHome ? (
+            {showStart ? (
               <Home
                 onOpenDialog={() => openRepositoryDialog()}
                 onSelect={navigate}
@@ -971,8 +1046,10 @@ export default function App() {
                 onOpenDiff={openDiff}
                 onOpenRepo={(path) => void openRepo(path)}
                 onMutated={() => void refresh()}
+                onUndo={() => performUndo('undo')}
                 onNavigate={navigate}
-                connected={connected}
+                gitlabConnected={gitlabConnected}
+                githubConnected={githubConnected}
                 theme={theme}
                 onThemeChange={changeTheme}
                 density={density}
@@ -989,11 +1066,19 @@ export default function App() {
           </div>
         </main>
       </div>
-      <StatusBar repo={repo} generation={repo?.generation ?? generation} connected={connected} />
+      <StatusBar
+        repo={repo}
+        gitlabConnected={gitlabConnected}
+        githubConnected={githubConnected}
+        lastOperation={undoState?.undo?.undoLabel ?? undoState?.undo?.label ?? null}
+        canUndo={Boolean(undoState?.undo)}
+        onNavigate={navigate}
+        onCheckoutBranch={checkoutBranch}
+        onNewBranch={newBranch}
+        onUndo={() => void performUndo('undo')}
+        onError={setError}
+      />
 
-      {cloneDialogOpen ? <CloneRepoDialog busy={busy} recent={recent} onClose={() => setCloneDialogOpen(false)}
-        onClone={async (input) => { await cloneRepo(input); setCloneDialogOpen(false) }}
-        onOpen={(path) => void openRepo(path)} onOpenDialog={openRepositoryDialog} onNavigate={navigate} onPickDirectory={pickCloneDirectory} /> : null}
       {initDialogOpen ? <InitRepoDialog
         busy={busy}
         defaultParent={initParent}

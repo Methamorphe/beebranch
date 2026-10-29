@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { buildFileTree, flattenFileTree } from '../lib/fileTree'
 import { shortRevision } from '../lib/graphRefs'
 import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
 import type { CommitSummary, DiffReport, FileDiff } from '../types/git'
@@ -32,83 +33,6 @@ type FileView = 'path' | 'tree'
 type FileEntry = {
   entry: FileDiff
   path: string
-}
-
-type TreeDir = {
-  name: string
-  path: string
-  dirs: TreeDir[]
-  files: FileEntry[]
-  /** Changed files below this directory, its own included. */
-  count: number
-}
-
-type TreeRow =
-  | { kind: 'dir'; key: string; name: string; depth: number; count: number; open: boolean }
-  | { kind: 'file'; key: string; item: FileEntry; depth: number }
-
-function buildTree(entries: FileEntry[]): TreeDir {
-  const root: TreeDir = { name: '', path: '', dirs: [], files: [], count: 0 }
-  for (const item of entries) {
-    const segments = item.path.split('/')
-    let node = root
-    for (let depth = 0; depth < segments.length - 1; depth += 1) {
-      const path = segments.slice(0, depth + 1).join('/')
-      let child = node.dirs.find((dir) => dir.path === path)
-      if (!child) {
-        child = { name: segments[depth]!, path, dirs: [], files: [], count: 0 }
-        node.dirs.push(child)
-      }
-      node = child
-    }
-    node.files.push(item)
-  }
-  const finalise = (node: TreeDir): number => {
-    node.dirs.sort((left, right) => left.name.localeCompare(right.name))
-    node.files.sort((left, right) => left.path.localeCompare(right.path))
-    node.count =
-      node.files.length + node.dirs.reduce((sum, child) => sum + finalise(child), 0)
-    return node.count
-  }
-  finalise(root)
-  return root
-}
-
-/** A directory that only holds another one reads as `a/b/c`, like git clients show it. */
-function compactDir(dir: TreeDir) {
-  let current = dir
-  let name = dir.name
-  while (current.files.length === 0 && current.dirs.length === 1) {
-    current = current.dirs[0]!
-    name = `${name}/${current.name}`
-  }
-  return { name, dir: current }
-}
-
-function flattenTree(root: TreeDir, collapsed: Set<string>): TreeRow[] {
-  const rows: TreeRow[] = []
-  const walk = (dir: TreeDir, depth: number) => {
-    for (const child of dir.dirs) {
-      const compact = compactDir(child)
-      const open = !collapsed.has(compact.dir.path)
-      rows.push({
-        kind: 'dir',
-        key: compact.dir.path,
-        name: compact.name,
-        depth,
-        count: compact.dir.count,
-        open,
-      })
-      if (open) {
-        walk(compact.dir, depth + 1)
-      }
-    }
-    for (const item of dir.files) {
-      rows.push({ kind: 'file', key: item.path, item, depth })
-    }
-  }
-  walk(root, 0)
-  return rows
 }
 
 function shortDate(timestamp: number) {
@@ -174,7 +98,7 @@ export function ComparisonPanel({
     [files],
   )
   const tree = useMemo(
-    () => (fileView === 'tree' ? flattenTree(buildTree(entries), collapsed) : []),
+    () => (fileView === 'tree' ? flattenFileTree(buildFileTree(entries), collapsed) : []),
     [entries, fileView, collapsed],
   )
 

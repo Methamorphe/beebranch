@@ -8,7 +8,7 @@ use beebranch_store::{SecretStore, Store};
 use tauri::{App, Manager, Runtime};
 
 use crate::logging;
-use crate::state::{build_state, AppPaths};
+use crate::state::{build_state_with_secrets, AppPaths};
 
 /// Prepare the application state before the window is shown.
 pub fn setup<R: Runtime>(app: &mut App<R>) -> Result<(), Box<dyn std::error::Error>> {
@@ -35,16 +35,22 @@ pub fn setup<R: Runtime>(app: &mut App<R>) -> Result<(), Box<dyn std::error::Err
     }
 
     #[cfg(debug_assertions)]
-    let secrets: Arc<dyn SecretStore> = {
-        let file = FileSecretStore::new(paths.data_dir().join("secrets-dev.json"));
+    let (secrets, github_secrets): (Arc<dyn SecretStore>, Arc<dyn SecretStore>) = {
+        let file = Arc::new(FileSecretStore::new(
+            paths.data_dir().join("secrets-dev.json"),
+        ));
         migrate_keychain_token_once(&store, &file, paths.data_dir());
-        Arc::new(file)
+        (file.clone(), file)
     };
     #[cfg(not(debug_assertions))]
-    let secrets: Arc<dyn SecretStore> = Arc::new(KeychainStore::default_service());
-    let mut state = build_state(paths.clone(), store, secrets);
+    let (secrets, github_secrets): (Arc<dyn SecretStore>, Arc<dyn SecretStore>) = (
+        Arc::new(KeychainStore::default_service()),
+        Arc::new(KeychainStore::new("beebranch.github")),
+    );
+    let mut state = build_state_with_secrets(paths.clone(), store, secrets, github_secrets);
     state.interrupted = std::sync::Mutex::new(interrupted);
     crate::commands::gitlab::restore(&mut state);
+    crate::commands::github::restore(&mut state);
 
     tracing::info!(
         data_dir = %paths.data_dir.display(),
@@ -59,6 +65,7 @@ pub fn setup<R: Runtime>(app: &mut App<R>) -> Result<(), Box<dyn std::error::Err
     );
 
     app.manage(state);
+    crate::splash::init(app);
     Ok(())
 }
 
@@ -72,7 +79,7 @@ fn migrate_keychain_token_once(store: &Store, file: &FileSecretStore, data_dir: 
         return;
     }
     let instance = store
-        .list_instances()
+        .list_instances_for("gitlab")
         .ok()
         .and_then(|instances| instances.into_iter().max_by_key(|entry| entry.created_at));
     if let Some(instance) = instance {

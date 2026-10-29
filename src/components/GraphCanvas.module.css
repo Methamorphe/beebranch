@@ -13,12 +13,10 @@
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
   position: absolute;
-  inset:32px 0 24px;
+  inset:32px 0 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
-
-.wrap[data-footer='false'] .scroll { bottom: 0; }
 
 .spacer {
   grid-area: 1 / 1;
@@ -96,9 +94,7 @@
 .columns > span { overflow:hidden; padding:0 10px; white-space:nowrap; }
 .columns > span:empty { padding:0; }
 .columnResizer { position:absolute; top:0; height:32px; width:7px; transform:translateX(-50%); z-index:3; }
-.footer { position:absolute; bottom:0; left:0; right:0; height:24px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 12px; border-top:1px solid var(--border); color:var(--muted); font-size:10px; background:var(--surface); }
 .srOnly { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-@media(max-width:750px) { .footer span:last-child { display:none; } }
 
 .refsHeader { display:flex; align-items:center; gap:4px; min-width:0; height:100%; padding:0 6px 0 10px; }
 .refsHeader > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

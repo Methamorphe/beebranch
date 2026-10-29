@@ -77,16 +77,16 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       </ActionMenu>
     </div>
     <div className={styles.gitActions} role="group" aria-label="Actions Git">
-      <button type="button" className={styles.action} disabled={disabled} title="Récupérer les références distantes" onClick={() => repoId && void run('Fetch', () => syncFetch(repoId, remote))}><ToolbarIcon name="fetch" /><span>Fetch</span></button>
-      <button type="button" className={styles.action} disabled={disabled} title="Récupérer et intégrer les commits de la branche distante" onClick={() => sync('pull')}><ToolbarIcon name="pull" /><span>Pull</span></button>
-      <button type="button" className={styles.action} disabled={disabled} title="Envoyer les commits de la branche courante" onClick={() => sync('push')}><ToolbarIcon name="push" /><span>Push</span></button>
+      <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title="Récupérer les références distantes" onClick={() => repoId && void run('Fetch', () => syncFetch(repoId, remote))}><ToolbarIcon name="fetch" /><span>Fetch</span></button>
+      <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title="Récupérer et intégrer les commits de la branche distante" onClick={() => sync('pull')}><ToolbarIcon name="pull" /><span>Pull</span></button>
+      <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title="Envoyer les commits de la branche courante" onClick={() => sync('push')}><ToolbarIcon name="push" /><span>Push</span></button>
       <button type="button" className={styles.action} disabled={!repoId || busy} onClick={onNewBranch} title="Créer une branche dans le graphe"><ToolbarIcon name="branch" /><span>Branche</span></button>
       <button type="button" className={styles.action} disabled={disabled} onClick={() => onNavigate('stash')} title="Créer et gérer les stashes"><ToolbarIcon name="stash" /><span>Stash</span></button>
       <button type="button" className={styles.action} disabled={disabled || !latestStash || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} title={latestStash ? `Réappliquer le dernier stash : ${latestStash.message}` : 'Aucun stash à réappliquer'} onClick={() => repoId && latestStash && void run('Pop', () => stashPop(repoId, latestStash.selector))}><ToolbarIcon name="pop" /><span>Pop</span></button>
       <span className={styles.divider} aria-hidden="true" />
       <button
         type="button"
-        className={styles.action}
+        className={`${styles.action} ${styles.wideOnly}`}
         disabled={!repoId || busy || pending !== null || !undo}
         title={undo?.undoLabel ?? 'Aucune opération annulable'}
         aria-keyshortcuts="Meta+Z Control+Z"
@@ -96,7 +96,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       </button>
       <button
         type="button"
-        className={styles.action}
+        className={`${styles.action} ${styles.wideOnly}`}
         disabled={!repoId || busy || pending !== null || !redo}
         title={redo?.redoLabel ?? 'Aucune opération à rétablir'}
         aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z"
@@ -104,17 +104,26 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       >
         <ToolbarIcon name="redo" /><span>Redo</span>
       </button>
-      <button type="button" className={styles.action} disabled={disabled} title="Ouvrir le terminal dans ce dépôt" onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }))}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
+      <button type="button" className={`${styles.action} ${styles.wideOnly}`} disabled={disabled} title="Ouvrir le terminal dans ce dépôt" onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }))}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
     </div>
     <div className={styles.utilities}>
       <span className={styles.notice} role="status">{pending ? `${pending}…` : notice}</span>
       <ActionMenu label="Autres actions du dépôt" triggerClassName={styles.action} triggerContent={<><ToolbarIcon name="actions" /><span>Actions</span></>}>
+        <button type="button" disabled={!repoId || busy || pending !== null || !undo} onClick={() => void run('Annulation', onUndo)}>
+          Annuler · {undo?.undoLabel ?? 'aucune opération'}
+        </button>
+        <button type="button" disabled={!repoId || busy || pending !== null || !redo} onClick={() => void run('Rétablissement', onRedo)}>
+          Rétablir · {redo?.redoLabel ?? 'aucune opération'}
+        </button>
+        <button type="button" disabled={disabled} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }))}>
+          Ouvrir le terminal
+        </button>
         <button type="button" onClick={onRefresh} disabled={!repoId || busy} aria-label="Rafraîchir l'état du dépôt">Rafraîchir l’état du dépôt</button>
         <button type="button" onClick={() => onNavigate('sync')} disabled={!repoId}>Options de synchronisation</button>
         <button type="button" onClick={() => onNavigate('tools')} disabled={!repoId}>Outils externes</button>
         <button type="button" onClick={() => onNavigate('recovery')}>Journal et récupération</button>
       </ActionMenu>
-      <button type="button" className={styles.action} onClick={onOpenPalette} aria-label="Rechercher une commande" title="Rechercher une commande · ⌘K"><ToolbarIcon name="search" /><span>Recherche</span></button>
+      <button type="button" className={styles.action} onClick={onOpenPalette} aria-label="Rechercher une commande" title="Ouvrir la palette de commandes · ⌘K"><ToolbarIcon name="search" /><span>Commandes</span></button>
     </div>
   </div>
 }

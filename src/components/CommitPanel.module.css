@@ -11,4 +11,10 @@
 .identity { margin:8px 0; }
 .identity summary { padding:4px 0; cursor:pointer; }
 .compact .submit { width:100%; min-height:36px; font-size:13px; }
+.shortcutHint { display:flex; align-items:center; justify-content:center; gap:3px; margin:5px 0 0 !important; color:var(--muted); font-size:11px !important; }
+.shortcutHint kbd { padding:0 3px; border:1px solid var(--border); border-radius:3px; color:var(--muted-strong); font:10px var(--mono); }
+.successFeedback { animation:commit-success var(--duration-normal) var(--ease-out); }
+.successActions { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+.successActions button { min-height:26px; padding:3px 8px; font-size:11px; }
+@keyframes commit-success { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
 @media(max-height:760px) and (min-width:1001px) { .compact textarea { min-height:100px; } }

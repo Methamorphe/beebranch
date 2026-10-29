@@ -9,6 +9,8 @@ import type {
   Generation,
   GitlabProject,
   GitlabSession,
+  GithubProject,
+  GithubSession,
   GraphPage,
   OperationRecord,
   Paged,
@@ -435,6 +437,17 @@ export function historyRebase(input: {
   return call<MutationResult<HistoryOutcome>>('history_rebase', { request: input })
 }
 
+/** Soft or mixed only: the backend refuses `--hard`, which is not undoable. */
+export function historyReset(input: {
+  repoId: string
+  revision: string
+  mode: 'soft' | 'mixed'
+}): Promise<MutationResult<HistoryOutcome>> {
+  return call<MutationResult<HistoryOutcome>>('history_reset', {
+    request: input,
+  })
+}
+
 export function operationContinue(repoId: string): Promise<MutationResult<HistoryOutcome>> {
   return call<MutationResult<HistoryOutcome>>('operation_continue', { request: { repoId } })
 }
@@ -723,6 +736,11 @@ import type {
   GitlabDiscussion,
   GitlabNote,
   GitlabPosition,
+  GithubDiffRefs,
+  GithubDiscussion,
+  GithubMergeRequest,
+  GithubNote,
+  GithubPosition,
   JobLog,
   JobsDto,
   PatchApplyReport,
@@ -1146,4 +1164,177 @@ export function gitlabMrDiffRefs(input: {
   iid: number
 }): Promise<GitlabDiffRefs> {
   return call<GitlabDiffRefs>('gitlab_mr_diff_refs', { input })
+}
+
+// --- GitHub ---------------------------------------------------------------
+
+export function githubConfigure(input: GitlabConfigureInput): Promise<GithubSession> {
+  return call<GithubSession>('github_configure', { input })
+}
+
+export function githubStatus(): Promise<GithubSession> {
+  return call<GithubSession>('github_status')
+}
+
+export function githubProjectsPage(input: {
+  search?: string
+  page?: number
+  perPage?: number
+}): Promise<Paged<GithubProject>> {
+  return call<Paged<GithubProject>>('github_projects_page', { input })
+}
+
+export function githubDisconnect(): Promise<boolean> {
+  return call<boolean>('github_disconnect')
+}
+
+export function githubRepoLink(repoId: string): Promise<RepoLink> {
+  return call<RepoLink>('github_repo_link', { repoId })
+}
+
+export function githubRepoLinkGet(repoId: string): Promise<RepoLink | null> {
+  return call<RepoLink | null>('github_repo_link_get', { repoId })
+}
+
+export function githubRepoLinkManual(
+  repoId: string,
+  projectId: number,
+): Promise<RepoLink> {
+  return call<RepoLink>('github_repo_link_manual', { repoId, projectId })
+}
+
+export function githubPrPage(input: {
+  projectId?: number
+  scope: 'createdByMe' | 'assignedToMe' | 'reviewsForMe' | 'all'
+  page?: number
+  perPage?: number
+  repoId?: string
+}): Promise<Paged<GithubMergeRequest>> {
+  return call<Paged<GithubMergeRequest>>('github_pr_page', { input })
+}
+
+export function githubPrGet(
+  projectId: number,
+  iid: number,
+  repositoryName?: string,
+): Promise<GithubMergeRequest> {
+  return call<GithubMergeRequest>('github_pr_get', { projectId, iid, repositoryName })
+}
+
+export function githubPrChecks(
+  projectId: number,
+  iid: number,
+): Promise<GitlabPipeline[]> {
+  return call<GitlabPipeline[]>('github_pr_checks', { projectId, iid })
+}
+
+export function githubPrCreate(input: {
+  repoId: string
+  projectId?: number
+  sourceBranch: string
+  targetBranch: string
+  title: string
+  description?: string
+  draft?: boolean
+  removeSourceBranch?: boolean
+  squash?: boolean
+  allowCollaboration?: boolean
+}): Promise<GithubMergeRequest> {
+  return call<GithubMergeRequest>('github_pr_create', { input })
+}
+
+export function githubPrDiscussions(input: {
+  projectId: number
+  iid: number
+  page?: number
+  perPage?: number
+}): Promise<{ items: GithubDiscussion[]; nextPage?: number }> {
+  return call('github_pr_discussions', { input })
+}
+
+export function githubDiscussionCreate(input: {
+  projectId: number
+  iid: number
+  body: string
+  position?: GithubPosition
+  discussionId?: string
+}): Promise<GithubDiscussion> {
+  return call<GithubDiscussion>('github_discussion_create', { input })
+}
+
+export function githubDiscussionReply(input: {
+  projectId: number
+  iid: number
+  body: string
+  discussionId: string
+}): Promise<GithubNote> {
+  return call<GithubNote>('github_discussion_reply', { input })
+}
+
+export function githubDiscussionResolve(input: {
+  projectId: number
+  iid: number
+  discussionId: string
+  resolved: boolean
+}): Promise<GithubDiscussion> {
+  return call<GithubDiscussion>('github_discussion_resolve', { input })
+}
+
+export function githubApprovals(input: {
+  projectId: number
+  iid: number
+}): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('github_approvals', { input })
+}
+
+export function githubApprove(input: {
+  projectId: number
+  iid: number
+}): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('github_approve', { input })
+}
+
+export function githubUnapprove(input: {
+  projectId: number
+  iid: number
+}): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('github_unapprove', { input })
+}
+
+export function githubMergePr(input: {
+  projectId: number
+  iid: number
+  sha?: string
+  mergeMethod?: string
+  squash?: boolean
+  removeSourceBranch?: boolean
+  autoMerge?: boolean
+  confirmation: { acknowledged: boolean }
+}): Promise<unknown> {
+  return call('github_merge_pr', { input })
+}
+
+export function githubPrJobs(input: {
+  projectId: number
+  iid: number
+  page?: number
+  perPage?: number
+}): Promise<JobsDto> {
+  return call<JobsDto>('github_pr_jobs', { input })
+}
+
+export function githubJobLog(input: {
+  projectId: number
+  jobId: number
+  maxBytes?: number
+  offset?: number
+}): Promise<JobLog> {
+  return call<JobLog>('github_job_log', { input })
+}
+
+export function githubPrDiffRefs(input: {
+  projectId: number
+  iid: number
+}): Promise<GithubDiffRefs> {
+  return call<GithubDiffRefs>('github_pr_diff_refs', { input })
 }

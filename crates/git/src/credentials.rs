@@ -84,6 +84,15 @@ impl DiscoveredCredential {
             || self.password.starts_with("glft-")
             || self.password.starts_with("glptt-")
     }
+
+    /// GitHub tokens always carry a documented prefix (`ghp_`, `github_pat_`,
+    /// ...). Like GitLab detection, this is a preference signal used only
+    /// when no instance is configured yet.
+    pub fn looks_like_github_token(&self) -> bool {
+        ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"]
+            .iter()
+            .any(|prefix| self.password.starts_with(prefix))
+    }
 }
 
 /// Discover every usable HTTPS credential without touching the network.
@@ -336,6 +345,15 @@ mod tests {
         assert_eq!(credential.username, "oauth2");
         assert_eq!(credential.password, "glpat-abc123");
         assert!(credential.looks_like_gitlab_token());
+        assert!(!credential.looks_like_github_token());
+
+        let github = parse_https_credential(
+            "https://x-access-token:ghp_abc123@github.com/owner/repo.git",
+            store("/tmp/creds"),
+        )
+        .expect("github credential");
+        assert!(github.looks_like_github_token());
+        assert!(!github.looks_like_gitlab_token());
 
         assert_eq!(
             parse_https_credential("https://user:token@host.test:8443", store("/tmp/creds"))

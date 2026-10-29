@@ -9,7 +9,8 @@ import {
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import type { GitlabProject, GitlabSession } from '../types/git'
-import { MergeRequestsPanel } from './MergeRequestsPanel'
+import { gitlabForge } from '../lib/forge'
+import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import styles from './GitlabPanel.module.css'
 
 type Props = {
@@ -322,7 +323,8 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
       ) : null}
       </div>
       {session?.connected ? (
-        <MergeRequestsPanel
+        <ReviewRequestsPanel
+          api={gitlabForge}
           repoId={repoId}
           generation={generation}
           connected={session.connected}

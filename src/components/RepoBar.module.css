@@ -15,7 +15,7 @@
 .notice { max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--accent-text); }
 .notice:empty { display:none; }
 @media(max-width:1200px) { .root { gap:8px; } .selector { width:150px; } .action { padding-inline:6px; } .notice { max-width:80px; } }
-@media(max-width:1060px) { .action > span { display:none; } .action { padding-inline:8px; } .selector { width:140px; } }
+@media(max-width:1060px) { .action:not(.gitPrimary) > span { display:none; } .action { padding-inline:8px; } .wideOnly { display:none; } .selector { width:140px; } }
 @media(max-width:900px) { .selector { width:126px; } .value { font-size:12.5px; } }
 @media(max-width:700px) { .root { padding-inline:5px; gap:6px; } .identity > button:first-child,.contextSeparator { display:none; } .selector { width:145px; } .notice { display:none; } }
 

@@ -1,5 +1,90 @@
 # Changelog
 
+## [0.7.0] — 2026-10-29
+
+### Ajouté
+
+- **Écran de démarrage** : une petite fenêtre sans cadre (460 × 280) joue
+  l’animation du logo BeeBranch au lancement, puis laisse place à la fenêtre
+  principale dès que l’interface a effectué son premier rendu — la fenêtre
+  principale reste masquée pendant l’animation, sans flash de fenêtre vide.
+  L’écran de démarrage est stylé dès sa première image, affiché au moins
+  2,4 s (animation réduite si `prefers-reduced-motion`), et un délai de
+  sécurité de 8 s garantit l’ouverture de la fenêtre principale même si le
+  frontend ne répond pas.
+- **Intégration GitHub** : connexion à github.com ou à GitHub Enterprise
+  Server via un Personal Access Token (stocké dans le trousseau
+  `beebranch.github`), liste et recherche des dépôts, association
+  dépôt ↔ projet GitHub, pull requests (mes PR, à relire, assignées, projet),
+  création, revues et approbations, commentaires de revue, checks CI et logs
+  des jobs Actions. Les badges du graphe et le sélecteur de clonage prennent
+  en charge GitHub en plus de GitLab, sans jamais mélanger les deux
+  fournisseurs (identifiants d'instance `gh_`, session et keychain séparés).
+  Limites assumées par l'API REST : résolution de thread, auto-merge et
+  suppression de branche au merge restent dans l'interface GitHub.
+- **Écran d’ouverture de dépôt** : le bouton `+` des onglets ouvre un onglet
+  « Ouvrir un dépôt » qui reprend l’écran d’accueil comme dans GitKraken —
+  dépôts récents, ouverture d’un dossier local, création d’un dépôt et
+  clonage. Le formulaire de clonage s’affiche dans cet onglet (la boîte de
+  dialogue de clonage séparée disparaît) ; Échap ou la croix referment
+  l’onglet et le focus revient sur le bouton `+`.
+- **Onglets de dépôts type navigateur** : le clic molette ferme l’onglet, le
+  glisser-déposer réordonne les dépôts (indicateur d’insertion, Échap annule)
+  et l’ordre est conservé d’une session à l’autre via `ui.openRepos`.
+- **Sélection multiple de fichiers** : cases à cocher dans « À préparer » et
+  « Prêts à committer », plage avec Maj+clic, actions groupées Préparer /
+  Retirer / Abandonner, et confirmation détaillée avant un discard multiple.
+- **Arborescence des fichiers modifiés** : « À préparer », « Prêts à
+  committer » et « Conflits » se regroupent par dossier repliable, avec les
+  dossiers à enfant unique compactés (`a/b/c`) et le nombre de fichiers de
+  chaque dossier. L’option d’affichage est mémorisée (`ui.status.view`) ; les
+  fichiers ignorés restent une liste à plat.
+- **Barre d’état interactive** : branche, compteurs, conflits, opération en
+  cours et état GitLab sont cliquables ; le menu Opérations affiche le journal
+  récent et permet d’annuler la dernière opération.
+- **Commit au clavier** : ⌘/Ctrl + Entrée crée le commit depuis le message ; le
+  retour de succès permet de copier le SHA ou d’annuler le commit.
+- **Inspecteur en drawer** : sous 1120 px, le détail du commit, la comparaison
+  et la préparation du commit s’affichent en surimpression sans comprimer ni
+  empiler le graphe. Échap ferme le drawer.
+- **Stashs dans le graphe** : chaque stash est un nœud en tête de l’historique,
+  dessiné comme dans GitKraken (médaillon carré arrondi en pointillés avec un
+  coffre) et libellé par le message saisi ; ses instantanés `index` et
+  `untracked` ne polluent plus l’arbre.
+- **Clic droit complet sur le graphe** : le menu d’un commit et celui d’une
+  branche couvrent le checkout (liste dépliée dans le menu), le worktree, le
+  cherry-pick, le reset doux ou mixte, le revert, la copie du SHA et des liens
+  web, la création ou la copie d’un patch, les tags simple et annoté, le pull
+  fast-forward, le push, l’upstream, le fast-forward / merge / rebase entre
+  branches, les suppressions locale, distante ou les deux, la copie du nom de
+  branche, l’épinglage à gauche, le solo et l’ouverture d’une merge request. Le
+  reset n’expose que les modes réversibles (`--hard` reste refusé).
+- **Épingler à gauche** : une branche épinglée garde sa voie en première colonne
+  du graphe à partir de son sommet, et le choix est conservé par dépôt
+  (`ui.graph.pins`). **Solo** isole une branche dans le filtre du graphe sans
+  toucher au dépôt.
+- **Worktree, tags et patch depuis le graphe** : deux boîtes de dialogue
+  dédiées créent un worktree à la référence cliquée ou un tag (annoté avec son
+  message) sur le commit visé. Un patch de commit peut être enregistré via le
+  dialogue natif ou copié pour partage — aucun envoi réseau.
+
+### Modifié
+
+- **Zoom de l’interface borné** : ⌘/Ctrl + `+` ou `-` ajuste le zoom par
+  paliers de 10 % entre 50 % et 200 %, ⌘/Ctrl + `0` le réinitialise. La molette
+  et le pincement ne modifient plus le zoom, même avec ⌘/Ctrl.
+- **Sens des arrondis du graphe** : une branche qui rejoint son parent garde sa
+  colonne jusqu’à la ligne du parent et courbe au-dessus de la médiane, au lieu
+  de quitter sa colonne sur la ligne du commit de départ. Seul un parent
+  secondaire ouvre une colonne sous le commit. Le tracé reprend le sens des
+  jonctions GitKraken.
+- **Barre d’outils progressive** : Fetch, Pull et Push conservent leurs
+  libellés ; les actions secondaires basculent en icônes puis dans le menu
+  Actions. Le bouton « Recherche » devient « Commandes » pour le distinguer de
+  la recherche Git.
+- **Feedback** : flash court lors du staging, animation du changement
+  d’opération et apparition discrète du succès de commit.
+
 ## [0.6.4] — 2026-10-28
 
 ### Ajouté

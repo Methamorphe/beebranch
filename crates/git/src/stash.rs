@@ -5,11 +5,15 @@ use std::path::Path;
 use beebranch_core::AppError;
 use serde::{Deserialize, Serialize};
 
+use crate::log::{CommitIdentity, CommitSummary};
 use crate::process::{CaptureLimits, CommandSpec, GitRunner};
 use crate::status::read_status;
 use crate::GitSubcommand;
 
-pub const STASH_FORMAT: &str = "%gd%x1f%H%x1f%ct%x1f%gs";
+/// Reflog selector, commit, parents, author, committer, date and reflog
+/// subject. The graph needs the parents to attach the stash to its base and
+/// the identities to render the row like any other commit.
+pub const STASH_FORMAT: &str = "%gd%x1f%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%gs";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,8 +21,31 @@ pub struct StashEntry {
     /// Reflog selector (`stash@{0}`).
     pub selector: String,
     pub sha: String,
+    /// Parents of the stash commit: the base first, then the index and
+    /// untracked snapshots.
+    pub parents: Vec<String>,
+    pub author: CommitIdentity,
+    pub committer: CommitIdentity,
     pub timestamp: i64,
+    /// The message the user typed, without the `On <branch>: ` prefix Git
+    /// writes in the reflog.
     pub message: String,
+}
+
+impl StashEntry {
+    /// The stash as a single-parent commit pointing at its base: what the graph
+    /// draws, so a stash is one node like in GitKraken instead of three (the
+    /// index and untracked snapshots stay out of the history).
+    pub fn summary(&self) -> CommitSummary {
+        CommitSummary {
+            sha: self.sha.clone(),
+            parents: self.parents.first().cloned().into_iter().collect(),
+            author: self.author.clone(),
+            committer: self.committer.clone(),
+            refs: Vec::new(),
+            subject: self.message.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,19 +217,60 @@ fn parse_list(input: &str) -> Result<Vec<StashEntry>, String> {
             continue;
         }
         let fields: Vec<&str> = line.split('\u{1f}').collect();
-        if fields.len() < 4 {
+        if fields.len() < 10 {
             return Err(format!("ligne incomplète: {line:?}"));
         }
+        let number = |value: &str| {
+            value
+                .parse::<i64>()
+                .map_err(|_| "horodatage invalide".to_owned())
+        };
         entries.push(StashEntry {
             selector: fields[0].to_owned(),
             sha: fields[1].to_owned(),
-            timestamp: fields[2]
-                .parse()
-                .map_err(|_| "horodatage invalide".to_owned())?,
-            message: fields[3].to_owned(),
+            parents: fields[2].split_whitespace().map(str::to_owned).collect(),
+            author: CommitIdentity {
+                name: fields[3].to_owned(),
+                email: fields[4].to_owned(),
+                timestamp: number(fields[5])?,
+            },
+            committer: CommitIdentity {
+                name: fields[6].to_owned(),
+                email: fields[7].to_owned(),
+                timestamp: number(fields[8])?,
+            },
+            timestamp: number(fields[8])?,
+            message: stash_subject(fields[9]),
         });
     }
     Ok(entries)
+}
+
+/// `git stash list` reports the reflog subject, which prefixes the entry with
+/// the branch it was taken on. GitKraken labels the node with the message the
+/// user typed, so the prefix is dropped; the default `WIP on` message also
+/// carries the base SHA, which is not part of that message.
+fn stash_subject(reflog: &str) -> String {
+    if let Some(rest) = reflog.strip_prefix("WIP on ") {
+        let Some((_, message)) = rest.split_once(": ") else {
+            return reflog.to_owned();
+        };
+        return match message.split_once(' ') {
+            Some((sha, message))
+                if (7..=40).contains(&sha.len())
+                    && sha.chars().all(|character| character.is_ascii_hexdigit()) =>
+            {
+                message.to_owned()
+            }
+            _ => message.to_owned(),
+        };
+    }
+    if let Some(rest) = reflog.strip_prefix("On ") {
+        if let Some((_, message)) = rest.split_once(": ") {
+            return message.to_owned();
+        }
+    }
+    reflog.to_owned()
 }
 
 fn join_output(stdout: String, stderr: String) -> String {
@@ -229,12 +297,41 @@ mod tests {
 
     #[test]
     fn parses_stash_lines() {
-        let entries =
-            parse_list("stash@{0}\u{1f}abcdef\u{1f}1700000000\u{1f}WIP on main: message\n")
-                .expect("parse");
+        let entries = parse_list(
+            "stash@{0}\u{1f}abcdef\u{1f}abcdef 0123456\u{1f}Alice\u{1f}alice@example.test\u{1f}1700000001\u{1f}Alice\u{1f}alice@example.test\u{1f}1700000000\u{1f}WIP on main: 0123456 fix graph lanes\n",
+        )
+        .expect("parse");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].selector, "stash@{0}");
         assert_eq!(entries[0].sha, "abcdef");
-        assert_eq!(entries[0].message, "WIP on main: message");
+        assert_eq!(entries[0].parents, vec!["abcdef", "0123456"]);
+        // The branch and base SHA prefixes belong to the reflog, not the label.
+        assert_eq!(entries[0].message, "fix graph lanes");
+        assert_eq!(entries[0].timestamp, 1_700_000_000);
+        assert_eq!(entries[0].author.name, "Alice");
+        let summary = entries[0].summary();
+        // The graph node points at the base only: the stash is one commit.
+        assert_eq!(summary.parents, vec!["abcdef"]);
+        assert_eq!(summary.subject, "fix graph lanes");
+        assert!(summary.refs.is_empty());
+    }
+
+    #[test]
+    fn keeps_an_explicit_stash_message_whole() {
+        assert_eq!(
+            stash_subject("On develop: BeeBranch stash"),
+            "BeeBranch stash"
+        );
+        assert_eq!(
+            stash_subject("On feature/x: WIP: api: retry"),
+            "WIP: api: retry"
+        );
+        // A message that already looks like a SHA keeps its words.
+        assert_eq!(
+            stash_subject("On main: deadbeef troubleshooting"),
+            "deadbeef troubleshooting"
+        );
+        // `WIP on` without a base SHA still drops only the branch prefix.
+        assert_eq!(stash_subject("WIP on main: fix"), "fix");
     }
 }

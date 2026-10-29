@@ -421,7 +421,7 @@ impl RepoSession {
         all_refs: bool,
     ) -> Result<(Page<CommitSummary>, Vec<GraphRow>), AppError> {
         let generation = self.generation();
-        let page = {
+        let mut page = {
             let mut guard = self.log_stream.lock().map_err(lock_error)?;
             if request.after.is_none() {
                 *guard = None;
@@ -455,14 +455,50 @@ impl RepoSession {
                 }
             }
         };
+        // Stashes are commits of their own: the walk sees them as ordinary
+        // rows (with their index and untracked snapshots between them), while
+        // GitKraken draws one node per stash, above the history. They are
+        // lifted out of the walk and re-inserted as single-parent rows on the
+        // first page, so their line runs down to the base commit.
+        let mut selectors: Vec<String> = Vec::new();
+        if all_refs {
+            let stashes = crate::stash::list(&self.runner, self.worktree())?;
+            let mut suppressed: Vec<&str> = Vec::with_capacity(stashes.len() * 3);
+            for entry in &stashes {
+                suppressed.push(entry.sha.as_str());
+                suppressed.extend(entry.parents.iter().skip(1).map(String::as_str));
+            }
+            if !suppressed.is_empty() {
+                page.items
+                    .retain(|commit| !suppressed.contains(&commit.sha.as_str()));
+                for commit in &mut page.items {
+                    commit
+                        .parents
+                        .retain(|parent| !suppressed.contains(&parent.as_str()));
+                }
+            }
+            if request.after.is_none() {
+                let mut items = Vec::with_capacity(stashes.len() + page.items.len());
+                for entry in &stashes {
+                    items.push(entry.summary());
+                    selectors.push(entry.selector.clone());
+                }
+                items.append(&mut page.items);
+                page.items = items;
+            }
+        }
         let rows = {
             let mut pager = self.graph.lock().map_err(lock_error)?;
-            pager.rows(
+            let mut rows = pager.rows(
                 request.after.as_deref(),
                 generation,
                 &page.items,
                 page.next.as_deref(),
-            )
+            );
+            for (row, selector) in rows.iter_mut().zip(&selectors) {
+                row.stash = Some(selector.clone());
+            }
+            rows
         };
         Ok((page, rows))
     }

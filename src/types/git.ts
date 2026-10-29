@@ -139,7 +139,7 @@ export type CommitSummary = {
 }
 
 /** One vertical lane segment inside a row. `fromTop`/`toBottom` tell where the
- * segment starts and stops, so a lane can open or close on a commit. */
+ * segment starts and stops, so a lane can open below a commit or end on it. */
 export type LaneSpan = {
   lane: number
   fromTop: boolean
@@ -150,8 +150,14 @@ export type GraphRow = {
   nodeLane: number
   laneCount: number
   rails: LaneSpan[]
-  parents: number[]
+  /** Lanes whose line ends on this commit: the corner is rounded above the
+   * centerline, so the branch joins the node from above. */
+  arrivals: number[]
+  /** Lanes opened below the commit for its 2nd..nth parents. */
+  departures: number[]
   overflow: boolean
+  /** Stash selector when the row stands for a stash entry (`stash@{0}`). */
+  stash?: string
 }
 
 export type GraphPage = {
@@ -907,3 +913,21 @@ export type GitlabDiffRefs = {
   startSha: string
   headSha: string
 }
+
+// --- GitHub ---------------------------------------------------------------
+// The backend normalizes GitHub payloads to the same shapes as GitLab so the
+// review panel and detail extras are shared. Only provider-specific facts
+// (repository full name on search results) are added.
+
+export type GithubUser = GitlabUser
+export type GithubProject = GitlabProject
+export type GithubSession = GitlabSession
+export type GithubUserRef = GitlabUserRef
+export type GithubPipeline = GitlabPipeline
+export type GithubMergeRequest = GitlabMergeRequest & { repositoryName?: string }
+export type GithubNote = GitlabNote
+export type GithubDiscussion = GitlabDiscussion
+export type GithubPosition = GitlabPosition
+export type GithubApprovals = GitlabApprovals
+export type GithubJob = GitlabJob
+export type GithubDiffRefs = GitlabDiffRefs

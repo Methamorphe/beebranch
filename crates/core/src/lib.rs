@@ -7,6 +7,7 @@
 pub mod actions;
 pub mod app;
 pub mod error;
+pub mod http_cache;
 pub mod ids;
 pub mod pagination;
 pub mod redaction;
@@ -15,6 +16,7 @@ pub mod state;
 pub use actions::{Confirmation, DestructiveAction};
 pub use app::AppInfo;
 pub use error::{classify_git_failure, AppError, ErrorCategory, MAX_DETAIL_BYTES};
+pub use http_cache::{CachedResponse, ResponseCache};
 pub use ids::{InstanceId, MergeRequestIid, OperationId, ProjectId, RepoId};
 pub use pagination::{Page, PageRequest, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE};
 pub use state::{

@@ -16,6 +16,7 @@ flowchart TB
     APP[crates/app<br/>commandes Tauri, événements]
     GIT[crates/git<br/>moteur Git CLI]
     GL[crates/gitlab<br/>client REST v4]
+    GH[crates/github<br/>client REST v3]
     CORE[crates/core<br/>types, erreurs, config]
     STORE[crates/store<br/>SQLite, keychain]
     BENCH[crates/bench<br/>harnais de mesure]
@@ -48,6 +49,7 @@ beebranch/
     core/                    # types partagés, erreurs, configuration
     git/                     # unique propriétaire du processus `git`
     gitlab/                  # client REST v4
+    github/                  # client REST v3 (Cloud et Enterprise)
     store/                   # persistance locale, keychain
     app/                     # shell Tauri, commandes, événements
     bench/                   # harnais et scénarios de mesure
@@ -60,10 +62,11 @@ beebranch/
 
 | Crate | Peut dépendre de | Ne doit jamais dépendre de |
 |---|---|---|
-| `core` | bibliothèques génériques (`serde`, `thiserror`) | `git`, `gitlab`, `store`, `app` |
-| `git` | `core` | `gitlab`, `app` |
-| `gitlab` | `core` | `git`, `app` |
-| `store` | `core` | `git`, `gitlab`, `app` |
+| `core` | bibliothèques génériques (`serde`, `thiserror`) | `git`, `gitlab`, `github`, `store`, `app` |
+| `git` | `core` | `gitlab`, `github`, `app` |
+| `gitlab` | `core` | `git`, `github`, `app` |
+| `github` | `core` | `git`, `gitlab`, `app` |
+| `store` | `core` | `git`, `gitlab`, `github`, `app` |
 | `app` | toutes | — |
 | `bench` | `git`, `gitlab`, `core` | `app` (sauf binaire de mesure dédié) |
 
@@ -81,6 +84,7 @@ Aucun cycle. Aucune abstraction de type `GitBackend` ou `GitProvider` : les modu
 | `error` | `AppError`, catégories, codes stables, remédiation |
 | `config` | schéma des préférences, version de schéma, migrations |
 | `pagination` | `PageRequest`, `Page<T>`, curseurs |
+| `http_cache` | `CachedResponse`, `ResponseCache` partagés par les clients GitLab et GitHub |
 | `time` | horodatage UTC, formatage |
 
 Interdit : I/O, spawn de processus, HTTP, accès keychain.
@@ -126,16 +130,38 @@ Interdit : logique UI, accès HTTP, stockage de préférences, connaissance de G
 
 Interdit : spawn Git, accès direct aux dépôts, stockage du token hors keychain.
 
+### `crates/github`
+
+Symétrique de `crates/gitlab`, sans dépendance entre les deux crates.
+
+| Sous-module | Responsabilité |
+|---|---|
+| `client` | reqwest, GitHub Cloud/Enterprise, retries, `Link` pagination, rate limit |
+| `models` | types normalisés identiques aux DTO GitLab pour partager l'UI |
+| `remote` | normalisation des remotes et appariement `owner/repo` |
+| `pipeline` | mapping check-runs / jobs Actions vers les états CI partagés |
+| `url` | `api.github.com` ou `<hôte>/api/v3`, refus de `http` et des identifiants |
+
+Limites assumées : la résolution de thread, l'auto-merge et la suppression de
+branche au merge ne sont pas exposées par l'API REST utilisée ; l'UI masque
+ces actions pour GitHub.
+
 ### `crates/store`
 
-- SQLite applicatif : préférences, dépôts récents, associations GitLab, cache HTTP, journal d'opérations, journal undo/redo et workspaces locaux.
-- Keychain OS : tokens et secrets.
+- SQLite applicatif : préférences, dépôts récents, associations de forge
+  (GitLab/GitHub, colonne `provider`), cache HTTP, journal d'opérations,
+  journal undo/redo et workspaces locaux.
+- Keychain OS : tokens et secrets (`beebranch.gitlab`, `beebranch.github`).
 - Migrations versionnées, transactions, WAL.
 - Aucun fichier de dépôt modifié.
 
 ### `crates/app`
 
 - Bootstrap Tauri, fenêtres, menus, capabilities.
+- Écran de démarrage (`splash.rs`) : la fenêtre principale est créée masquée,
+  une petite fenêtre sans cadre affiche l'animation du logo puis est relâchée
+  par la commande `app_ready` (minimum 1,5 s, repli à 8 s si le frontend ne
+  répond pas).
 - État applicatif : registre de sessions, registre d'opérations, client GitLab, store.
 - Commandes Tauri et émission d'événements.
 - Mapping `AppError` → payload stable.
@@ -176,6 +202,7 @@ Toutes les commandes sont typées, versionnées et renvoient `Result<T, AppError
 | Distribution | `update_status`, `update_check`, `update_install`, `update_rollback` |
 | Undo | `undo_apply`, `redo_apply` (inverses Git typés, journal SQLite) |
 | GitLab | `gitlab_configure`, `gitlab_validate`, `gitlab_projects_page`, `gitlab_mr_page`, `gitlab_mr_get`, `gitlab_mr_create`, `gitlab_mr_diffs`, `gitlab_pipelines` |
+| GitHub | `github_configure`, `github_validate`, `github_projects_page`, `github_pr_page`, `github_pr_get`, `github_pr_create`, `github_pr_checks`, `github_merge_pr` |
 | Diagnostics | `diagnostics_export` (redacté) |
 
 ### Événements
@@ -187,7 +214,8 @@ Toutes les commandes sont typées, versionnées et renvoient `Result<T, AppError
 | `op://output` | `{ operation_id, stream, chunk }` | logs de hooks, progression |
 | `op://done` | `{ operation_id, result }` | fin |
 | `op://error` | `{ operation_id, error }` | échec |
-| `gitlab://auth-expired` | `{ instance_id }` | réauthentification |
+| `gitlab://auth-expired` | `{ instance_id }` | réauthentification GitLab |
+| `github://auth-expired` | `{ instance_id }` | réauthentification GitHub |
 | `repo://state-changed` | `{ repo_id, state }` | conflit/rebase détecté |
 
 ### Règles IPC

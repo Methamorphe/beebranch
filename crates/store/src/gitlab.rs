@@ -8,11 +8,18 @@ use crate::Store;
 #[serde(rename_all = "camelCase")]
 pub struct InstanceRow {
     pub id: String,
+    /// `gitlab` or `github`.
+    #[serde(default = "default_provider")]
+    pub provider: String,
     pub base_url: String,
     pub api_url: String,
     pub display_name: Option<String>,
     pub ca_bundle_id: Option<String>,
     pub created_at: i64,
+}
+
+fn default_provider() -> String {
+    "gitlab".to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,15 +82,17 @@ impl Store {
         self.with_connection(|connection| {
             connection.execute(
                 "INSERT INTO gitlab_instances
-                    (id, base_url, api_url, display_name, ca_bundle_id, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                    (id, provider, base_url, api_url, display_name, ca_bundle_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(id) DO UPDATE SET
+                    provider = excluded.provider,
                     base_url = excluded.base_url,
                     api_url = excluded.api_url,
                     display_name = excluded.display_name,
                     ca_bundle_id = excluded.ca_bundle_id",
                 params![
                     instance.id,
+                    instance.provider,
                     instance.base_url,
                     instance.api_url,
                     instance.display_name,
@@ -99,17 +108,18 @@ impl Store {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT id, base_url, api_url, display_name, ca_bundle_id, created_at
+                    "SELECT id, provider, base_url, api_url, display_name, ca_bundle_id, created_at
                      FROM gitlab_instances WHERE id = ?1",
                     params![id],
                     |row| {
                         Ok(InstanceRow {
                             id: row.get(0)?,
-                            base_url: row.get(1)?,
-                            api_url: row.get(2)?,
-                            display_name: row.get(3)?,
-                            ca_bundle_id: row.get(4)?,
-                            created_at: row.get(5)?,
+                            provider: row.get(1)?,
+                            base_url: row.get(2)?,
+                            api_url: row.get(3)?,
+                            display_name: row.get(4)?,
+                            ca_bundle_id: row.get(5)?,
+                            created_at: row.get(6)?,
                         })
                     },
                 )
@@ -119,19 +129,31 @@ impl Store {
     }
 
     pub fn list_instances(&self) -> Result<Vec<InstanceRow>, StoreError> {
+        self.list_instances_where(None)
+    }
+
+    /// Instances belonging to one forge provider (`gitlab` or `github`).
+    pub fn list_instances_for(&self, provider: &str) -> Result<Vec<InstanceRow>, StoreError> {
+        self.list_instances_where(Some(provider))
+    }
+
+    fn list_instances_where(&self, provider: Option<&str>) -> Result<Vec<InstanceRow>, StoreError> {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(
-                "SELECT id, base_url, api_url, display_name, ca_bundle_id, created_at
-                 FROM gitlab_instances ORDER BY created_at",
+                "SELECT id, provider, base_url, api_url, display_name, ca_bundle_id, created_at
+                 FROM gitlab_instances
+                 WHERE ?1 IS NULL OR provider = ?1
+                 ORDER BY created_at",
             )?;
-            let rows = statement.query_map([], |row| {
+            let rows = statement.query_map(params![provider], |row| {
                 Ok(InstanceRow {
                     id: row.get(0)?,
-                    base_url: row.get(1)?,
-                    api_url: row.get(2)?,
-                    display_name: row.get(3)?,
-                    ca_bundle_id: row.get(4)?,
-                    created_at: row.get(5)?,
+                    provider: row.get(1)?,
+                    base_url: row.get(2)?,
+                    api_url: row.get(3)?,
+                    display_name: row.get(4)?,
+                    ca_bundle_id: row.get(5)?,
+                    created_at: row.get(6)?,
                 })
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -357,6 +379,38 @@ impl Store {
         })
     }
 
+    /// Repository link belonging to one forge provider.
+    ///
+    /// A repository has at most one link; this lookup keeps a GitLab command
+    /// from reading a GitHub association (and vice versa).
+    pub fn repo_link_for(
+        &self,
+        repo_id: &str,
+        provider: &str,
+    ) -> Result<Option<RepoLink>, StoreError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT l.repo_id, l.instance_id, l.project_id, l.match_kind, l.verified_at
+                     FROM repo_project_links l
+                     JOIN gitlab_instances i ON i.id = l.instance_id
+                     WHERE l.repo_id = ?1 AND i.provider = ?2",
+                    params![repo_id, provider],
+                    |row| {
+                        Ok(RepoLink {
+                            repo_id: row.get(0)?,
+                            instance_id: row.get(1)?,
+                            project_id: row.get(2)?,
+                            match_kind: row.get(3)?,
+                            verified_at: row.get(4)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(StoreError::from)
+        })
+    }
+
     pub fn delete_repo_link(&self, repo_id: &str) -> Result<(), StoreError> {
         self.with_connection(|connection| {
             connection.execute(
@@ -534,6 +588,7 @@ mod tests {
     fn instance() -> InstanceRow {
         InstanceRow {
             id: "gl_1".into(),
+            provider: "gitlab".into(),
             base_url: "https://gitlab.example.test".into(),
             api_url: "https://gitlab.example.test/api/v4".into(),
             display_name: None,
@@ -596,6 +651,45 @@ mod tests {
     }
 
     #[test]
+    fn instances_and_links_are_provider_scoped() {
+        let store = Store::open_in_memory().expect("store");
+        store.upsert_instance(&instance()).expect("gitlab");
+        store
+            .upsert_instance(&InstanceRow {
+                id: "gh_1".into(),
+                provider: "github".into(),
+                base_url: "https://github.com".into(),
+                api_url: "https://api.github.com".into(),
+                display_name: None,
+                ca_bundle_id: None,
+                created_at: 2,
+            })
+            .expect("github");
+
+        assert_eq!(store.list_instances().unwrap().len(), 2);
+        assert_eq!(store.list_instances_for("gitlab").unwrap().len(), 1);
+        assert_eq!(store.list_instances_for("github").unwrap()[0].id, "gh_1");
+
+        store
+            .set_repo_link(&RepoLink {
+                repo_id: "repo_1".into(),
+                instance_id: "gh_1".into(),
+                project_id: 12,
+                match_kind: "url".into(),
+                verified_at: 1,
+            })
+            .expect("link");
+        assert!(store.repo_link_for("repo_1", "gitlab").unwrap().is_none());
+        assert_eq!(
+            store
+                .repo_link_for("repo_1", "github")
+                .unwrap()
+                .map(|link| link.project_id),
+            Some(12)
+        );
+    }
+
+    #[test]
     fn cache_roundtrip() {
         let store = Store::open_in_memory().expect("store");
         let entry = CacheEntry {
@@ -630,6 +724,7 @@ mod link_tests {
         store
             .upsert_instance(&InstanceRow {
                 id: "gl_1".into(),
+                provider: "gitlab".into(),
                 base_url: "https://gitlab.example.test".into(),
                 api_url: "https://gitlab.example.test/api/v4".into(),
                 display_name: None,

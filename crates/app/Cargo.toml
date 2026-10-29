@@ -9,6 +9,7 @@ license.workspace = true
 beebranch-core = { path = "../core" }
 beebranch-git = { path = "../git" }
 beebranch-gitlab = { path = "../gitlab" }
+beebranch-github = { path = "../github" }
 beebranch-store = { path = "../store" }
 serde.workspace = true
 serde_json.workspace = true

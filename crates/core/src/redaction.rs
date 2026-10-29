@@ -14,7 +14,7 @@ pub fn redact(input: &str) -> Cow<'_, str> {
     let output = redact_key_values(Cow::Borrowed(input), &QUERY_KEYS);
     let output = redact_headers(output);
     let output = redact_url_credentials(output);
-    redact_glpat_tokens(output)
+    redact_forge_tokens(output)
 }
 
 /// Redact credentials from raw process output.
@@ -147,8 +147,23 @@ fn redact_url_credentials<'a>(input: Cow<'a, str>) -> Cow<'a, str> {
     }
 }
 
-fn redact_glpat_tokens<'a>(input: Cow<'a, str>) -> Cow<'a, str> {
-    const PREFIXES: [&str; 3] = ["glpat-", "gloas-", "glrt-"];
+fn redact_forge_tokens<'a>(input: Cow<'a, str>) -> Cow<'a, str> {
+    // GitLab and GitHub personal access tokens. The prefix is replaced with
+    // the token body so a truncated token never survives in a diagnostic.
+    const PREFIXES: [&str; 12] = [
+        "glpat-",
+        "gloas-",
+        "glrt-",
+        "glcbt-",
+        "glft-",
+        "glptt-",
+        "github_pat_",
+        "ghp_",
+        "gho_",
+        "ghu_",
+        "ghs_",
+        "ghr_",
+    ];
 
     let text: &str = input.as_ref();
     let mut output: Option<String> = None;
@@ -274,9 +289,11 @@ mod tests {
     }
 
     #[test]
-    fn redacts_gitlab_tokens_everywhere() {
+    fn redacts_forge_tokens_everywhere() {
         assert_eq!(redact("token glpat-AbC_123-xyz end"), "token *** end");
         assert_eq!(redact("token glrt-AbC_123 end"), "token *** end");
+        assert_eq!(redact("token ghp_AbC123 end"), "token *** end");
+        assert_eq!(redact("token github_pat_11ABC_def end"), "token *** end");
     }
 
     #[test]

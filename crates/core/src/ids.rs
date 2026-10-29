@@ -79,9 +79,18 @@ pub struct InstanceId(String);
 
 impl InstanceId {
     pub fn from_api_url(api_url: &str) -> Self {
+        Self::from_api_url_with_prefix("gl_", api_url)
+    }
+
+    /// GitHub instance identifier (`gh_` prefix) for the same API base.
+    pub fn from_github_api_url(api_url: &str) -> Self {
+        Self::from_api_url_with_prefix("gh_", api_url)
+    }
+
+    fn from_api_url_with_prefix(prefix: &str, api_url: &str) -> Self {
         let digest = Sha256::digest(api_url.as_bytes());
-        let mut identifier = String::with_capacity(16);
-        identifier.push_str("gl_");
+        let mut identifier = String::with_capacity(prefix.len() + 12);
+        identifier.push_str(prefix);
         for byte in &digest[..6] {
             identifier.push_str(&format!("{byte:02x}"));
         }
@@ -138,6 +147,19 @@ mod tests {
         assert_eq!(one, two);
         assert_ne!(one, three);
         assert!(one.as_str().starts_with("repo_"));
+    }
+
+    #[test]
+    fn instance_ids_are_provider_scoped() {
+        let gitlab = InstanceId::from_api_url("https://api.example.test/v4");
+        let github = InstanceId::from_github_api_url("https://api.example.test/v4");
+        assert!(gitlab.as_str().starts_with("gl_"));
+        assert!(github.as_str().starts_with("gh_"));
+        assert_ne!(gitlab, github);
+        assert_eq!(
+            github,
+            InstanceId::from_github_api_url("https://api.example.test/v4")
+        );
     }
 
     #[test]

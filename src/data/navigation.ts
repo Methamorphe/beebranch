@@ -12,7 +12,9 @@ export type ViewId =
   | 'fileHistory'
   | 'search'
   | 'mrs'
+  | 'prs'
   | 'gitlab'
+  | 'github'
   | 'stash'
   | 'sync'
   | 'diff'
@@ -59,11 +61,13 @@ export const navigationGroups: NavigationGroup[] = [
   },
   {
     id: 'gitlab',
-    label: 'GitLab',
+    label: 'Forge',
     items: [
       { id: 'mrs', label: 'Merge requests', icon: '⑃', requiresRepo: true },
+      { id: 'prs', label: 'Pull requests', icon: '⑂', requiresRepo: true },
       { id: 'sync', label: 'Synchronisation', icon: '↻', requiresRepo: true },
       { id: 'gitlab', label: 'Connexion GitLab', icon: '◎', requiresRepo: false },
+      { id: 'github', label: 'Connexion GitHub', icon: '◉', requiresRepo: false },
     ],
   },
   {
@@ -98,7 +102,8 @@ export const viewDescriptions: Partial<Record<ViewId, string>> = {
   status: 'Examinez vos modifications et préparez le prochain commit.',
   commit: 'Sélectionnez les changements à inclure dans votre commit.',
   stash: 'Mettez vos modifications de côté et reprenez-les plus tard.',
-  mrs: 'Retrouvez vos revues, les discussions et les pipelines du dépôt.',
+  mrs: 'Retrouvez vos merge requests GitLab, les discussions et les pipelines.',
+  prs: 'Retrouvez vos pull requests GitHub, les revues et les checks.',
   search: 'Retrouvez un commit, un fichier ou du texte dans votre dépôt.',
   conflicts: 'Comparez les versions et choisissez le contenu à conserver.',
   rebase: 'Réordonnez et regroupez vos commits avant de les partager.',
@@ -111,6 +116,7 @@ export const viewDescriptions: Partial<Record<ViewId, string>> = {
   sync: 'Récupérez et publiez les changements de votre branche.',
   profiles: 'Personnalisez votre environnement et vos identités Git.',
   gitlab: 'Connectez votre compte et associez vos projets GitLab.',
+  github: 'Connectez votre compte et associez vos dépôts GitHub.',
   tools: 'Ouvrez votre dépôt dans vos outils de développement.',
   recovery: 'Retrouvez les opérations interrompues et les actions récentes.',
   diff: 'Comparez les versions et examinez chaque changement.',

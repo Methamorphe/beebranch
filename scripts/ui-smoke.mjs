@@ -103,6 +103,7 @@ function mockScript(commits, rows, diffLines) {
       { fullName:'refs/remotes/origin/HEAD', name:'origin/HEAD', kind:'remoteBranch', remote:'origin', targetOid:commits[0].sha, objectType:'commit', isHead:false, symref:'refs/remotes/origin/main' },
     ],
     remotes: ['origin'],
+    remoteUrls: [{ name: 'origin', url: 'git@gitlab.example.test:team/beebranch-demo.git', direction: 'push' }],
   };
   const lines = ${JSON.stringify(diffLines)};
   const diff = {
@@ -276,7 +277,7 @@ function mockScript(commits, rows, diffLines) {
     },
     index_stage: (args) => { (window.__p1Calls ??= []).push(['stage', args]); return { data: { files: ['src/module-1.ts'], hunks: 1, patchBytes: 42 }, generation: 2, state: repo.state }; },
     index_unstage: (args) => { (window.__p1Calls ??= []).push(['unstage', args]); return { data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state }; },
-    index_discard: () => ({ data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state }),
+    index_discard: (args) => { (window.__p1Calls ??= []).push(['discard', args]); return { data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state } },
     gitlab_status: () => ({
       connected: true,
       instance: { id: 'gl_demo', baseUrl: 'https://gitlab.example.test', displayName: 'GitLab' },
@@ -303,6 +304,27 @@ function mockScript(commits, rows, diffLines) {
     }),
     gitlab_repo_link_get: () => null,
     gitlab_mr_page: () => ({ items: [], page: 1, perPage: 25, nextPage: undefined, notModified: false, fromCache: false }),
+    github_status: () => ({
+      connected: true,
+      instance: { id: 'gh_demo', baseUrl: 'https://github.com', displayName: 'GitHub' },
+      user: { id: 2, username: 'octocat', name: 'Octocat', avatarUrl: undefined },
+    }),
+    github_projects_page: () => ({
+      items: [{
+        id: 84,
+        name: 'beebranch-demo',
+        pathWithNamespace: 'team/beebranch-demo',
+        webUrl: 'https://github.com/team/beebranch-demo',
+        sshUrlToRepo: 'git@github.com:team/beebranch-demo.git',
+        httpUrlToRepo: 'https://github.com/team/beebranch-demo.git',
+        defaultBranch: 'main',
+        lastActivityAt: undefined,
+        description: undefined,
+      }],
+      page: 1, perPage: 50, nextPage: undefined, total: 1, notModified: false, fromCache: false,
+    }),
+    github_repo_link_get: () => null,
+    github_pr_page: () => ({ items: [], page: 1, perPage: 25, nextPage: undefined, notModified: false, fromCache: false }),
     undo_status: () => ({
       undo: { id: 'undo_1', kind: 'commit', label: 'commit abc123', state: 'available',
         createdAt: 1700000000, position: 1, undoLabel: 'Annuler commit abc123.' },
@@ -515,28 +537,28 @@ const commits = Array.from({ length: count }, (_, index) => ({
   subject: `Commit ${index + 1} — ${['fix graph lanes', 'add diff window', 'wire session watcher', 'document benchmarks'][index % 4]}`,
 }))
 // A deterministic two-lane history: a merge every six rows, with the side
-// branch shown on lane 1 until it converges back into lane 0. The layout is
-// what the Rust lane algorithm emits, so the graph proof covers forks and
-// merges instead of a single straight line.
+// branch travelling on lane 1 until it joins lane 0 on the parent's row. The
+// layout is what the Rust lane algorithm emits, so the graph proof covers
+// forks and merges instead of a single straight line.
 const rail = (lane, fromTop, toBottom) => ({ lane, fromTop, toBottom })
 const rows = commits.map((commit, index) => {
-  const phase = index % 6
   if (commit.parents.length === 0) {
-    return { nodeLane: 0, laneCount: 1, rails: [rail(0, true, false)], parents: [], overflow: false }
+    return { nodeLane: 0, laneCount: 1, rails: [rail(0, true, false)], arrivals: [], departures: [], overflow: false }
   }
+  const phase = index % 6
   if (phase === 0) {
-    return { nodeLane: 0, laneCount: 2, rails: [rail(0, false, true), rail(1, false, true)], parents: [0, 1], overflow: false }
-  }
-  if (phase === 2) {
-    return { nodeLane: 1, laneCount: 2, rails: [rail(0, true, true), rail(1, true, true)], parents: [1], overflow: false }
+    // Merge: the second parent opens lane 1 below the row.
+    return { nodeLane: 0, laneCount: 2, rails: [rail(0, false, true), rail(1, false, true)], arrivals: [], departures: [1], overflow: false }
   }
   if (phase === 4) {
-    return { nodeLane: 1, laneCount: 2, rails: [rail(0, true, true), rail(1, true, false)], parents: [0], overflow: false }
+    // The shared parent: lane 1 curves into lane 0 above the centerline.
+    return { nodeLane: 0, laneCount: 2, rails: [rail(0, true, true), rail(1, true, false)], arrivals: [1], departures: [], overflow: false }
   }
   if (phase === 5) {
-    return { nodeLane: 0, laneCount: 2, rails: [rail(0, true, true)], parents: [0], overflow: false }
+    return { nodeLane: 0, laneCount: 1, rails: [rail(0, true, true)], arrivals: [], departures: [], overflow: false }
   }
-  return { nodeLane: 0, laneCount: 2, rails: [rail(0, true, true), rail(1, true, true)], parents: [0], overflow: false }
+  // Side-branch commits: their line keeps lane 1 down to the shared parent.
+  return { nodeLane: 1, laneCount: 2, rails: [rail(0, true, true), rail(1, true, true)], arrivals: [], departures: [], overflow: false }
 })
 const diffLines = Array.from({ length: 4000 }, (_, index) =>
   index === 3
@@ -791,9 +813,8 @@ try {
   // The comparison must not leave the history: the tree stays rendered and the
   // A→B panel docks in the inspector, like a git client's right-hand pane.
   await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') !== null`, 'comparison inspector')
-  // The comparison gets the graph's height: its status line steps aside.
-  assertUI('comparison-hides-graph-footer', await evaluate(client, `!document.body.innerText.includes('commits chargés') && !document.body.innerText.includes('Glissez une branche sur une autre')`))
-  assertUI('comparison-graph-fills-footer-space', await evaluate(client, `(() => {
+  // The comparison gets the graph's height: the history fills its wrapper.
+  assertUI('comparison-graph-fills-wrapper', await evaluate(client, `(() => {
     const wrap = document.querySelector('canvas').closest('div[class*=wrap]')
     const scroll = wrap.querySelector('div[class*=scroll]')
     return Math.abs(wrap.getBoundingClientRect().bottom - scroll.getBoundingClientRect().bottom) < 1
@@ -867,7 +888,6 @@ try {
   await screenshot(client, 'p0-compare.png')
   await evaluate(client, `document.querySelector('aside[aria-label="Comparaison"] button[aria-label="Fermer la comparaison"]').click()`)
   await waitFor(client, `document.querySelector('aside[aria-label="Comparaison"]') === null`, 'comparison closed')
-  assertUI('graph-footer-restored-after-comparison', await evaluate(client, `document.body.innerText.includes('commits chargés')`))
   if (!(await evaluate(client, `document.querySelector('canvas') !== null`))) throw new Error('graph lost after closing the comparison')
   if (!(await openGraphOptions())) throw new Error('graph display options missing after comparison')
   await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'graph display options reopened')
@@ -1029,6 +1049,35 @@ try {
   await evaluate(client, `document.querySelector('button[aria-pressed="false"]')?.click()`)
   await waitFor(client, `document.querySelector('button[title="src/module-1.ts"]') !== null`, 'status rows')
   await screenshot(client, 'p0-status.png')
+
+  // Status file lists: tree view groups rows by folder, collapses them, and
+  // remembers the choice.
+  await evaluate(client, `document.querySelector('button[aria-label="Options d’affichage des fichiers"]').click()`)
+  await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'status display options')
+  const treeToggled = await evaluate(client, `(() => {
+    const label = [...document.querySelectorAll('[popover] label')].find((item) => item.textContent.includes('Afficher en arborescence'))
+    const box = label?.querySelector('input[type="checkbox"]')
+    if (!box) return false
+    box.click()
+    document.querySelector('[popover]')?.hidePopover()
+    return true
+  })()`)
+  if (!treeToggled) throw new Error('tree toggle not found')
+  await waitFor(client, `document.querySelector('section[aria-label="À préparer"] button[aria-expanded="true"]') !== null`, 'status tree rows')
+  assertUI('status-tree-file-label', await evaluate(client, `document.querySelector('section[aria-label="Prêts à committer"] button[title="src/module-3.ts"]')?.textContent === 'module-3.ts'`))
+  await screenshot(client, 'p0-status-tree.png')
+  const folderCollapsed = await evaluate(client, `(() => {
+    const row = [...document.querySelectorAll('section[aria-label="À préparer"] button[aria-expanded="true"]')].find((item) => item.textContent.includes('src'))
+    if (!row) return false
+    row.click()
+    return true
+  })()`)
+  if (!folderCollapsed) throw new Error('tree folder not found')
+  await waitFor(client, `document.querySelector('section[aria-label="À préparer"] button[aria-expanded="false"]') !== null`, 'status folder collapsed')
+  assertUI('status-tree-collapsed', await evaluate(client, `document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]') === null`))
+  assertUI('status-tree-preference', await evaluate(client, `(window.__preferenceSets ?? []).some((entry) => entry.input?.key === 'ui.status.view' && entry.input.value === 'tree')`))
+  await evaluate(client, `[...document.querySelectorAll('section[aria-label="À préparer"] button[aria-expanded="false"]')].forEach((item) => item.click())`)
+  await waitFor(client, `document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]') !== null`, 'status tree restored')
 
   const clicked = await evaluate(client, `(() => {
     const button = document.querySelector('section[aria-label="Prêts à committer"] button[title="src/module-3.ts"]')
@@ -1211,7 +1260,7 @@ try {
     await client.send('Emulation.setDeviceMetricsOverride', {
       width, height: 900, deviceScaleFactor: 1, mobile: false,
     })
-    for (const view of ['workspaces', 'stash', 'mrs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'tools', 'recovery', 'conflicts']) {
+    for (const view of ['workspaces', 'stash', 'mrs', 'prs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'github', 'tools', 'recovery', 'conflicts']) {
       await go(view)
       const report = await evaluate(client, `(() => {
         const main = document.querySelector('main')
@@ -1244,11 +1293,15 @@ try {
   assertUI('secondary-panels-do-not-overlap', layoutReports.every((item) => !item.panelOverlaps))
   assertUI('secondary-screens-fit-viewport', layoutReports.every((item) => !item.overflow && !item.documentOverflow))
   assertUI('secondary-screens-show-active-navigation', layoutReports.every((item) => item.active === item.view && item.heading))
+  await go('github')
+  await waitFor(client, `document.querySelector('main').innerText.includes('Dépôts accessibles')`, 'GitHub repositories panel')
+  await waitFor(client, `document.querySelector('main').innerText.includes('team/beebranch-demo')`, 'GitHub repository list')
+  assertUI('github-connection-lists-repositories', await evaluate(client, `document.body.innerText.includes('octocat') && document.body.innerText.includes('github.com')`))
   await client.send('Emulation.setDeviceMetricsOverride', {
     width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
   })
   await evaluate(client, `document.documentElement.dataset.theme = 'light'`)
-  for (const view of ['workspaces', 'stash', 'mrs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'tools', 'recovery', 'conflicts']) {
+  for (const view of ['workspaces', 'stash', 'mrs', 'prs', 'search', 'rebase', 'fileHistory', 'worktrees', 'tags', 'remotes', 'submodules', 'patches', 'sync', 'profiles', 'gitlab', 'github', 'tools', 'recovery', 'conflicts']) {
     await go(view)
     await screenshot(client, 'screen-' + view + '-light.png')
   }
@@ -1656,6 +1709,62 @@ try {
   await delay(100)
   const callsAfterStage = await evaluate(client, 'window.__p1Calls ?? []')
   assertUI('stage-single-file', callsAfterStage.some(([action, args]) => action === 'stage' && args.request.selections[0].path === 'src/module-1.ts'))
+  await evaluate(client, `(() => {
+    document.querySelector('input[aria-label="Sélectionner src/module-2.ts"]').click()
+    document.querySelector('input[aria-label="Sélectionner src/module-4.ts"]').click()
+  })()`)
+  await waitFor(client, `document.querySelector('[aria-label="Fichiers sélectionnés"]')?.innerText.includes('2 sélectionnés')`, 'multi-file selection')
+  assertUI('multi-file-selection-visible', await evaluate(client, `(() => {
+    const bar = document.querySelector('[aria-label="Fichiers sélectionnés"]')
+    return Boolean(bar)
+      && document.querySelector('input[aria-label="Sélectionner src/module-2.ts"]').checked
+      && document.querySelector('input[aria-label="Sélectionner src/module-4.ts"]').checked
+      && [...bar.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Préparer' && !button.disabled)
+  })()`))
+  await screenshot(client, 'ux-file-multi-select.png')
+  await evaluate(client, `([...document.querySelectorAll('[aria-label="Fichiers sélectionnés"] button')].find((button) => button.textContent.trim() === 'Préparer')).click()`)
+  await waitFor(client, `(window.__p1Calls ?? []).some(([action, args]) => action === 'stage' && args.request.selections.length === 2)`, 'bulk stage call')
+  assertUI('multi-file-stage-bulk', await evaluate(client, `(window.__p1Calls ?? []).some(([action, args]) => action === 'stage' && args.request.selections.map((selection) => selection.path).sort().join(',') === 'src/module-2.ts,src/module-4.ts')`))
+  await waitFor(client, `document.querySelector('[aria-label="Fichiers sélectionnés"]') === null`, 'bulk selection cleared')
+
+  await evaluate(client, `(() => {
+    document.querySelector('input[aria-label="Sélectionner src/module-2.ts"]').click()
+    document.querySelector('input[aria-label="Sélectionner src/module-4.ts"]').click()
+  })()`)
+  await waitFor(client, `document.querySelector('[aria-label="Fichiers sélectionnés"]')?.innerText.includes('2 sélectionnés')`, 'discard selection')
+  await evaluate(client, `([...document.querySelectorAll('[aria-label="Fichiers sélectionnés"] button')].find((button) => button.textContent.trim() === 'Abandonner…')).click()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'bulk discard confirmation')
+  assertUI('multi-file-discard-confirmation', await evaluate(client, `(() => {
+    const dialog = document.querySelector('[role="alertdialog"]')
+    return dialog.innerText.includes('2 fichiers')
+      && dialog.innerText.includes('src/module-2.ts')
+      && dialog.innerText.includes('src/module-4.ts')
+      && dialog.innerText.includes('irréversible')
+  })()`))
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Discard')).click()`)
+  await waitFor(client, `(window.__p1Calls ?? []).some(([action, args]) => action === 'discard' && args.request.selections.length === 2)`, 'bulk discard call')
+  assertUI('multi-file-discard-bulk', await evaluate(client, `(window.__p1Calls ?? []).some(([action, args]) => action === 'discard' && args.request.selections.map((selection) => selection.path).sort().join(',') === 'src/module-2.ts,src/module-4.ts')`))
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'bulk discard closed')
+  await waitFor(client, `document.querySelector('[aria-label="Fichiers sélectionnés"]') === null`, 'discard selection cleared')
+
+  const commitCallsBeforeShortcut = await evaluate(client, '(window.__amendCalls ?? []).length')
+  await evaluate(client, `(() => {
+    const editor = document.querySelector('textarea[aria-label="Message de commit"]')
+    editor.focus()
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+  })()`)
+  await waitFor(client, `(window.__amendCalls ?? []).length > ${commitCallsBeforeShortcut}`, 'keyboard commit call')
+  const shortcutCommit = await evaluate(client, `window.__amendCalls.at(-1)`)
+  assertUI('commit-keyboard-shortcut', shortcutCommit.amend === false && shortcutCommit.message.includes('fix: conserver mon brouillon'))
+  await waitFor(client, `Boolean(document.querySelector('[class*="successActions"]'))`, 'commit success actions')
+  assertUI('commit-success-actions', await evaluate(client, `(() => {
+    const actions = document.querySelector('[class*="successActions"]')
+    return [...actions.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Copier le SHA')
+      && [...actions.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Annuler le commit')
+  })()`))
+  await evaluate(client, `([...document.querySelectorAll('[class*="successActions"] button')].find((button) => button.textContent.trim() === 'Annuler le commit')).click()`)
+  await waitFor(client, `document.querySelector('[class*="successActions"]') === null`, 'commit undo closes feedback')
+  await evaluate(client, `window.__amendCalls = []`)
   await evaluate(client, `document.querySelector('button[aria-label="Actions pour src/module-1.ts"]').click()`)
   await delay(80)
   assertUI('file-actions-open', await evaluate(client, `Boolean(document.querySelector('[popover]:popover-open'))`))
@@ -1988,54 +2097,70 @@ try {
     return Math.abs((plus.top + plus.height / 2) - (tab.top + tab.height / 2))
   })()`)
   assertUI('add-repo-plus-centered-on-tabs', plusAlignment <= 1)
+  const tabsBeforeLauncher = await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length`)
   await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
-  await waitFor(client, `document.querySelector('[popover]:popover-open') !== null`, 'add repository menu')
-  assertUI('add-repo-menu-local-or-clone', await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); return m.innerText.includes('Créer un dépôt local') && m.innerText.includes('Ouvrir un dépôt local') && m.innerText.includes('Cloner un dépôt') })()`))
-  await screenshot(client, 'ux-add-repo-menu.png')
+  await waitFor(client, `document.querySelector('main').innerText.includes('Reprendre le travail')`, 'repository launcher')
+  assertUI('add-repo-launcher-tab-active', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"] [data-launcher] button[aria-current="page"]') !== null`))
+  assertUI('add-repo-launcher-recent-open-create-clone', await evaluate(client, `(() => { const text = document.querySelector('main').innerText; return text.includes('beebranch-demo') && text.includes('Ouvrir un dépôt local…') && text.includes('Créer un dépôt…') && text.includes('Cloner un dépôt…') })()`))
+  assertUI('add-repo-launcher-preserves-tabs', await evaluate(client, `document.querySelectorAll('[aria-label="Dépôts ouverts"] > div:not([data-launcher]) button[title]').length === ${tabsBeforeLauncher} && document.querySelector('header').innerText.includes('beebranch-demo') && document.querySelector('canvas') === null`))
+  await screenshot(client, 'ux-repo-launcher.png')
   const beforePlusPicker = await evaluate(client, 'window.__pickerCalls.length')
-  await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); [...m.querySelectorAll('button')].find(b => b.textContent.includes('Ouvrir un dépôt local')).click() })()`)
+  await evaluate(client, `window.__pickerSelection = null`)
+  await evaluate(client, `(() => { const b = [...document.querySelectorAll('main button')].find((item) => item.textContent.includes('Ouvrir un dépôt local…')); b.click() })()`)
   await delay(100)
   assertUI('add-repo-local-opens-native-picker', await evaluate(client, `window.__pickerCalls.length === ${beforePlusPicker + 1}`))
-  const openCloneFromPlus = async () => {
+  await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"] [data-launcher] button[aria-current="page"]').focus()`)
+  await key('Escape')
+  await waitFor(client, `document.querySelector('canvas') !== null`, 'graph after closing the launcher')
+  assertUI('add-repo-launcher-escape-closes', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"] [data-launcher]') === null && document.activeElement.getAttribute('aria-label') === 'Ajouter un dépôt'`))
+  await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
+  await waitFor(client, `document.querySelector('main').innerText.includes('Reprendre le travail')`, 'repository launcher reopened')
+  await evaluate(client, `(() => { const b = document.querySelector('button[aria-label="Fermer l’écran d’ouverture de dépôt"]'); b.focus(); b.click() })()`)
+  await waitFor(client, `document.querySelector('canvas') !== null`, 'graph after closing the launcher tab')
+  assertUI('add-repo-launcher-close-returns-focus', await evaluate(client, `document.activeElement.getAttribute('aria-label') === 'Ajouter un dépôt'`))
+  const openCloneFromLauncher = async () => {
     await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
-    await delay(40)
-    await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); [...m.querySelectorAll('button')].find(b => b.textContent.includes('Cloner un dépôt')).click() })()`)
-    await waitFor(client, `document.querySelector('[aria-labelledby="clone-repo-title"]') !== null`, 'clone dialog')
-    await waitFor(client, `document.querySelector('[aria-labelledby="clone-repo-title"]').innerText.includes('team/payment-platform')`, 'clone projects')
+    await waitFor(client, `document.querySelector('main').innerText.includes('Reprendre le travail')`, 'repository launcher')
+    await evaluate(client, `(() => { const b = [...document.querySelectorAll('main button')].find((item) => item.textContent.includes('Cloner un dépôt…')); b.click() })()`)
+    await waitFor(client, `document.body.innerText.includes('Projets GitLab accessibles')`, 'clone form')
+    await waitFor(client, `document.body.innerText.includes('team/payment-platform')`, 'clone projects')
   }
   const tabsBeforeClone = await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length`)
-  await openCloneFromPlus()
-  assertUI('add-repo-clone-focus-trapped', await evaluate(client, `document.querySelector('[aria-labelledby="clone-repo-title"]').contains(document.activeElement)`))
-  assertUI('add-repo-clone-preserves-current-repo', await evaluate(client, `document.querySelector('canvas') !== null && document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeClone}`))
-  await screenshot(client, 'ux-clone-dialog.png')
+  await openCloneFromLauncher()
+  assertUI('add-repo-clone-preserves-current-repo', await evaluate(client, `document.querySelectorAll('[aria-label="Dépôts ouverts"] > div:not([data-launcher]) button[title]').length === ${tabsBeforeClone} && document.querySelector('[aria-label="Dépôts ouverts"] [data-launcher]') !== null`))
+  await screenshot(client, 'ux-clone-launcher.png')
   await key('Escape')
-  assertUI('add-repo-clone-cancel-restores-plus', await evaluate(client, `!document.querySelector('[aria-labelledby="clone-repo-title"]') && document.activeElement.getAttribute('aria-label') === 'Ajouter un dépôt'`))
-  await openCloneFromPlus()
-  await evaluate(client, `(() => { const d = document.querySelector('[aria-labelledby="clone-repo-title"]'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('team/payment-platform')).click(); window.__cloneFailure = true; })()`)
+  await waitFor(client, `document.querySelector('canvas') !== null`, 'graph after leaving the clone form')
+  await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
+  await waitFor(client, `document.querySelector('main').innerText.includes('Reprendre le travail')`, 'launcher reopened after the clone form')
+  await waitFor(client, `document.querySelector('#clone-destination') === null`, 'clone form closed')
+  assertUI('add-repo-clone-cancel-restores-launcher', await evaluate(client, `document.querySelector('#clone-destination') === null`))
+  await openCloneFromLauncher()
+  await evaluate(client, `(() => { const d = document.querySelector('main'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('team/payment-platform')).click(); window.__cloneFailure = true; })()`)
   await delay(60)
   const pickerCallsBeforeClone = await evaluate(client, 'window.__pickerCalls.length')
   await evaluate(client, `window.__pickerSelection = '/tmp/choisi'`)
-  await evaluate(client, `(() => { const d = document.querySelector('[aria-labelledby="clone-repo-title"]'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('Parcourir')).click() })()`)
+  await evaluate(client, `(() => { const d = document.querySelector('main'); [...d.querySelectorAll('button')].find(b => b.textContent.includes('Parcourir')).click() })()`)
   await waitFor(client, `document.querySelector('#clone-destination')?.value === '/tmp/choisi/payment-platform'`, 'clone destination from folder picker')
   assertUI('clone-folder-picker-uses-native-directory-dialog', await evaluate(client, `(() => { const call = window.__pickerCalls.at(-1); return window.__pickerCalls.length === ${pickerCallsBeforeClone + 1} && call.directory === true && call.multiple === false })()`))
   await fill('#clone-destination', '/tmp/payment-platform')
   await evaluate(client, `window.__pickerSelection = null`)
-  await evaluate(client, `document.querySelector('[aria-labelledby="clone-repo-title"] button[type="submit"]').click()`)
-  await waitFor(client, `document.querySelector('[aria-labelledby="clone-repo-title"]').innerText.includes('Le clonage a échoué.')`, 'clone error feedback')
-  assertUI('add-repo-clone-error-retains-dialog', await evaluate(client, `Boolean(document.querySelector('[aria-labelledby="clone-repo-title"] [role="alert"]'))`))
+  await evaluate(client, `document.querySelector('main form button[type="submit"]').click()`)
+  await waitFor(client, `document.querySelector('main').innerText.includes('Le clonage a échoué.')`, 'clone error feedback')
+  assertUI('add-repo-clone-error-retains-launcher', await evaluate(client, `Boolean(document.querySelector('main [role="alert"]')) && document.querySelector('main').innerText.includes('Reprendre le travail')`))
   await evaluate(client, `window.__cloneFailure = false`)
-  await evaluate(client, `document.querySelector('[aria-labelledby="clone-repo-title"] button[type="submit"]').click()`)
-  await waitFor(client, `!document.querySelector('[aria-labelledby="clone-repo-title"]') && document.querySelector('header').innerText.includes('cloned-demo')`, 'cloned repository tab')
-  assertUI('add-repo-clone-opens-new-tab', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeClone + 1} && document.querySelector('header').innerText.includes('beebranch-demo')`))
+  await evaluate(client, `document.querySelector('main form button[type="submit"]').click()`)
+  await waitFor(client, `document.querySelector('header').innerText.includes('cloned-demo') && document.querySelector('canvas') !== null`, 'cloned repository tab')
+  assertUI('add-repo-clone-opens-new-tab', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeClone + 1} && document.querySelector('header').innerText.includes('beebranch-demo') && document.querySelector('[aria-label="Dépôts ouverts"] [data-launcher] button[aria-current="page"]') === null`))
   assertUI('add-repo-clone-request', await evaluate(client, `window.__cloneCalls.at(-1).destination === '/tmp/payment-platform' && window.__cloneCalls.at(-1).url.includes('team/payment-platform.git')`))
   const tabsBeforeInit = await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length`)
-  const openInitFromPlus = async () => {
+  const openInitFromLauncher = async () => {
     await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
-    await delay(40)
-    await evaluate(client, `(() => { const m = document.querySelector('[popover]:popover-open'); [...m.querySelectorAll('button')].find(b => b.textContent.includes('Créer un dépôt local')).click() })()`)
+    await waitFor(client, `document.querySelector('main').innerText.includes('Reprendre le travail')`, 'repository launcher')
+    await evaluate(client, `(() => { const b = [...document.querySelectorAll('main button')].find((item) => item.textContent.includes('Créer un dépôt…')); b.click() })()`)
     await waitFor(client, `document.querySelector('[aria-labelledby="init-repo-title"]') !== null`, 'init dialog')
   }
-  await openInitFromPlus()
+  await openInitFromLauncher()
   assertUI('add-repo-init-focus-trapped', await evaluate(client, `document.querySelector('[aria-labelledby="init-repo-title"]').contains(document.activeElement)`))
   await waitFor(client, `document.querySelector('input[aria-label="Dossier parent"]')?.value === '/tmp'`, 'init default parent')
   await screenshot(client, 'ux-init-dialog.png')
@@ -2056,8 +2181,8 @@ try {
   assertUI('add-repo-init-error-retains-dialog', await evaluate(client, `Boolean(document.querySelector('[aria-labelledby="init-repo-title"] [role="alert"]'))`))
   await evaluate(client, `window.__initFailure = false`)
   await evaluate(client, `document.querySelector('[aria-labelledby="init-repo-title"] button[type="submit"]').click()`)
-  await waitFor(client, `!document.querySelector('[aria-labelledby="init-repo-title"]') && document.querySelector('header').innerText.includes('nouveau-projet')`, 'initialised repository tab')
-  assertUI('add-repo-init-opens-new-tab', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeInit + 1}`))
+  await waitFor(client, `!document.querySelector('[aria-labelledby="init-repo-title"]') && document.querySelector('header').innerText.includes('nouveau-projet') && document.querySelector('canvas') !== null`, 'initialised repository tab')
+  assertUI('add-repo-init-opens-new-tab', await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length === ${tabsBeforeInit + 1} && document.querySelector('[aria-label="Dépôts ouverts"] [data-launcher] button[aria-current="page"]') === null`))
   assertUI('add-repo-init-request', await evaluate(client, `window.__initCalls.at(-1).destination === '/tmp/choisi/nouveau-projet' && window.__initCalls.at(-1).initialBranch === 'main'`))
   await evaluate(client, `window.__pickerSelection = null`)
   // --- P3: undo, drag and drop, workspaces, design system, accessibility ---
@@ -2070,6 +2195,60 @@ try {
   assertUI('undo-button-connected', undoClicked)
   await waitFor(client, `(window.__p3Calls ?? []).some(([name]) => name === 'undo_apply')`, 'undo call')
   assertUI('undo-notice', await evaluate(client, `document.body.innerText.includes('Annulé : commit abc123')`))
+
+  await evaluate(client, `(() => {
+    window.__scenarioDirty = true
+    document.querySelector('[aria-label="Dépôts ouverts"] button[title="/tmp/beebranch-demo"]')?.click()
+  })()`)
+  await waitFor(client, `(() => {
+    const counts = [...document.querySelectorAll('footer[aria-label="État du dépôt"] button')].find((button) => button.title === 'Ouvrir les modifications')
+    return Boolean(counts && !counts.textContent.startsWith('0 préparé'))
+  })()`, 'dirty status bar counts')
+
+  const statusBranchTrigger = await evaluate(client, `(() => {
+    const trigger = document.querySelector('footer[aria-label="État du dépôt"] button[aria-label^="Choisir une branche"]')
+    if (!trigger) return false
+    trigger.click(); return true
+  })()`)
+  assertUI('statusbar-branch-trigger', statusBranchTrigger)
+  await waitFor(client, `Boolean(document.querySelector('[popover]:popover-open'))`, 'status branch menu')
+  await waitFor(client, `document.querySelector('[popover]:popover-open')?.innerText.includes('main')`, 'status branch list')
+  assertUI('statusbar-branch-list', await evaluate(client, `[...document.querySelectorAll('[popover]:popover-open button')].some((button) => button.textContent.includes('main'))`))
+  await key('Escape')
+  assertUI('statusbar-branch-menu-escape', await evaluate(client, `!document.querySelector('[popover]:popover-open')`))
+
+  const statusJournal = await evaluate(client, `(() => {
+    const trigger = document.querySelector('footer[aria-label="État du dépôt"] button[aria-label="Journal des opérations"]')
+    if (!trigger) return false
+    trigger.click(); return true
+  })()`)
+  assertUI('statusbar-journal-trigger', statusJournal)
+  await waitFor(client, `document.querySelector('[popover]:popover-open')?.innerText.includes('Aucune opération récente.')`, 'operation journal menu')
+  assertUI('statusbar-journal-empty', await evaluate(client, `document.querySelector('[popover]:popover-open').innerText.includes('Aucune opération récente.')`))
+  await key('Escape')
+  await waitFor(client, `!document.querySelector('[popover]:popover-open')`, 'operation journal closed')
+
+  const statusCounts = await evaluate(client, `(() => {
+    const button = document.querySelector('footer[aria-label="État du dépôt"] button[title="Ouvrir les modifications"]')
+    if (!button) return false
+    button.click(); return true
+  })()`)
+  assertUI('statusbar-counts-trigger', statusCounts)
+  await waitFor(client, `Boolean(document.querySelector('[aria-label="Préparation du prochain commit"]'))`, 'status counts opens worktree')
+
+  await client.send('Emulation.setDeviceMetricsOverride', { width:1024, height:768, deviceScaleFactor:1, mobile:false })
+  await waitFor(client, `Boolean(document.querySelector('[aria-label="Préparation du prochain commit"]'))`, 'worktree panel at drawer width')
+  const drawer = await evaluate(client, `(() => {
+    const aside = document.querySelector('[aria-label="Préparation du prochain commit"]')
+    const dock = aside?.parentElement
+    return { position: dock ? getComputedStyle(dock).position : null, width: dock?.getBoundingClientRect().width, canvasHeight: document.querySelector('canvas')?.getBoundingClientRect().height }
+  })()`)
+  assertUI('inspector-drawer-overlay', drawer.position === 'absolute' && drawer.width > 300 && drawer.width < 500)
+  assertUI('inspector-drawer-keeps-graph-height', drawer.canvasHeight > 400)
+  await screenshot(client, 'ux-inspector-drawer-1024.png')
+  await key('Escape')
+  await waitFor(client, `!document.querySelector('[aria-label="Préparation du prochain commit"]')`, 'inspector drawer escape')
+  await client.send('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false })
 
   assertUI('no-branches-nav-tab', await evaluate(client, `!document.querySelector('aside button[data-view="branches"]')`))
 
@@ -2115,7 +2294,7 @@ try {
     return {
       rename: menu.textContent.includes('Renommer'),
       remove: menu.textContent.includes('Supprimer'),
-      merge: menu.textContent.includes('Fusionner dans la branche courante'),
+      merge: menu.textContent.includes('Fusionner main dans feature'),
     }
   })()`)
   assertUI('graph-ref-menu-branch-management', refActions.rename && refActions.remove && refActions.merge)
@@ -2145,6 +2324,204 @@ try {
   await delay(120)
   assertUI('graph-ref-delete-connected', await evaluate(client, `(window.__toolbarCalls ?? []).some(([name, args]) => name === 'branch_delete' && args.request.name === 'feature' && args.request.confirmation.typed === 'feature')`))
   await screenshot(client, 'p3-graph-branches.png')
+
+  // Right-click parity: every action of the reference and commit menus. The
+  // commands are captured so a menu entry that renders but does nothing fails.
+  await evaluate(client, `(() => {
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__menuCalls = []
+    window.__copied = []
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: (text) => { window.__copied.push(text); return Promise.resolve() },
+    } })
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'history_reset' || command === 'history_cherry_pick' || command === 'history_revert' || command === 'tag_create' || command === 'worktree_add' || command === 'branch_delete' || command === 'branch_delete_remote') {
+        window.__menuCalls.push([command, args])
+        if (command === 'tag_create') return { data: { name: args.request.name, targetOid: args.request.target }, generation: 2 }
+        if (command === 'worktree_add') return { data: { entries: [], truncated: false }, generation: 2 }
+        return { data: null, generation: 2 }
+      }
+      if (command === 'patch_create') {
+        window.__menuCalls.push([command, args])
+        return { source: 'commit ' + args.request.source.sha, text: 'diff --git a/x b/x', files: ['x'], bytes: 18, truncated: false, binary: false }
+      }
+      if (command === 'patch_save') { window.__menuCalls.push([command, args]); return args.request.path }
+      if (command === 'plugin:dialog|save') { (window.__saveCalls ??= []).push(args.options); return '/tmp/beebranch-demo.patch' }
+      return original(command, args)
+    }
+  })()`)
+  await openRefMenu(12)
+  const branchCoverage = await evaluate(client, `document.querySelector('[role="menu"]').innerText`)
+  assertUI('branch-menu-covers-right-click-actions', [
+    'Pousser vers origin/feature',
+    'Avancer feature sur main',
+    'Fusionner main dans feature',
+    'Rebaser main sur feature',
+    'Créer un worktree à partir d’ici…',
+    'Cherry-picker ce commit',
+    'Réinitialiser main sur ce commit',
+    'Revenir sur ce commit (revert)',
+    'Copier le nom de la branche',
+    'Copier le lien de la branche',
+    'Copier le lien du commit',
+    'Créer un patch depuis ce commit…',
+    'Copier le patch pour partage',
+    'Épingler à gauche du graphe',
+    'Solo',
+    'Créer un tag ici…',
+    'Créer un tag annoté ici…',
+    'Ouvrir une merge request',
+  ].every((label) => branchCoverage.includes(label)))
+  await screenshot(client, 'ux-branch-menu-actions.png')
+
+  await evaluate(client, `${menuButton('Réinitialiser main sur ce commit')}.click()`)
+  await delay(60)
+  assertUI('branch-menu-reset-reversible-only', await evaluate(client, `(() => {
+    const text = document.querySelector('[role="menu"]').innerText
+    return text.includes('Douce — garde l’index') && text.includes('Mixte — vide l’index') && !text.includes('Dure')
+  })()`))
+  await evaluate(client, `${menuButton('Douce — garde l’index')}.click()`)
+  await delay(120)
+  assertUI('branch-menu-reset-connected', await evaluate(client, `window.__menuCalls.some(([name, args]) => name === 'history_reset' && args.request.mode === 'soft' && args.request.revision === '${commits[12].sha}')`))
+
+  for (const label of ['Copier le nom de la branche', 'Copier le lien de la branche', 'Copier le lien du commit']) {
+    await openRefMenu(12)
+    await evaluate(client, `${menuButton(label)}.click()`)
+    await delay(80)
+  }
+  assertUI('branch-menu-copy-actions', await evaluate(client, `window.__copied.includes('feature')
+    && window.__copied.includes('https://gitlab.example.test/team/beebranch-demo/-/tree/feature')
+    && window.__copied.includes('https://gitlab.example.test/team/beebranch-demo/-/commit/${commits[12].sha}')`))
+
+  await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')) })()`)
+  await delay(80)
+  const graphSignature = () => evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
+    let hash = 0
+    for (let index = 0; index < data.length; index += 89) hash = (hash * 33 + data[index]) >>> 0
+    return hash
+  })()`)
+  const unpinnedSignature = await graphSignature()
+  await openRefMenu(8)
+  await evaluate(client, `${menuButton('Épingler à gauche du graphe')}.click()`)
+  await delay(200)
+  assertUI('branch-menu-pin-persisted', await evaluate(client, `(window.__preferenceSets ?? []).some((entry) => entry.input?.key === 'ui.graph.pins' && entry.input.value.includes('refs/heads/other'))`))
+  await openRefMenu(8)
+  assertUI('branch-menu-pin-label-toggles', await evaluate(client, `${menuButton('Désépingler du bord gauche')} !== undefined`))
+  await key('Escape')
+  await delay(200)
+  const pinnedSignature = await graphSignature()
+  assertUI('branch-menu-pin-moves-lane', pinnedSignature !== unpinnedSignature)
+  await openRefMenu(8)
+  await evaluate(client, `${menuButton('Désépingler du bord gauche')}.click()`)
+  await delay(200)
+  assertUI('branch-menu-unpin-restores-lanes', (await graphSignature()) === unpinnedSignature)
+
+  await openRefMenu(12)
+  await evaluate(client, `${menuButton('Solo')}.click()`)
+  await delay(60)
+  await evaluate(client, `${menuButton('Isoler feature')}.click()`)
+  await delay(150)
+  assertUI('branch-menu-solo-filters-graph', await evaluate(client, `document.querySelector('select[aria-label="Filtrer le graphe par branche"]').value === 'feature'`))
+  await evaluate(client, `(() => {
+    const select = document.querySelector('select[aria-label="Filtrer le graphe par branche"]')
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
+    setter.call(select, '__all__')
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  await delay(120)
+
+  const openCommitMenu = async () => {
+    await evaluate(client, `(() => {
+      const canvas = document.querySelector('canvas')
+      canvas.parentElement.scrollTop = 0
+      canvas.parentElement.dispatchEvent(new Event('scroll'))
+      const bounds = canvas.getBoundingClientRect()
+      canvas.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: bounds.left + Math.max(120, bounds.width * 0.55), clientY: bounds.top + 15 }))
+    })()`)
+    await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'commit context menu')
+  }
+  await openCommitMenu()
+  const commitCoverage = await evaluate(client, `document.querySelector('[role="menu"]').innerText`)
+  assertUI('commit-menu-covers-right-click-actions', [
+    'Checkout',
+    'Créer un worktree ici…',
+    'Créer une branche ici…',
+    'Cherry-picker ce commit',
+    'Réinitialiser main sur ce commit',
+    'Revenir sur ce commit (revert)',
+    'Copier le SHA',
+    'Copier le lien du commit',
+    'Créer un patch depuis ce commit…',
+    'Copier le patch pour partage',
+    'Créer un tag ici…',
+    'Créer un tag annoté ici…',
+    'Ouvrir une merge request',
+  ].every((label) => commitCoverage.includes(label)))
+  await screenshot(client, 'ux-commit-menu-actions.png')
+  await evaluate(client, `${menuButton('Checkout')}.click()`)
+  await delay(60)
+  assertUI('commit-menu-checkout-targets', await evaluate(client, `(() => {
+    const text = document.querySelector('[role="menu"]').innerText
+    return text.includes('HEAD détachée sur ce commit') && text.includes('Basculer sur main')
+  })()`))
+  await key('Escape')
+  await delay(80)
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Copier le SHA')}.click()`)
+  await delay(80)
+  assertUI('commit-menu-copies-sha', await evaluate(client, `window.__copied.includes('${commits[0].sha}')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Copier le lien du commit')}.click()`)
+  await delay(80)
+  assertUI('commit-menu-copies-link', await evaluate(client, `window.__copied.includes('https://gitlab.example.test/team/beebranch-demo/-/commit/${commits[0].sha}')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Créer un patch depuis ce commit')}.click()`)
+  await delay(150)
+  assertUI('commit-menu-exports-patch', await evaluate(client, `(window.__saveCalls ?? []).length === 1 && window.__menuCalls.some(([name, args]) => name === 'patch_save' && args.request.path === '/tmp/beebranch-demo.patch')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Copier le patch pour partage')}.click()`)
+  await delay(120)
+  assertUI('commit-menu-copies-patch', await evaluate(client, `window.__copied.includes('diff --git a/x b/x')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Créer un tag annoté ici…')}.click()`)
+  await waitFor(client, `document.querySelector('[role="dialog"]') !== null`, 'annotated tag dialog')
+  await fill('input[aria-label="Nom du tag"]', 'v9.9.9')
+  await fill('textarea[aria-label="Message du tag annoté"]', 'notes de version')
+  await evaluate(client, `([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === 'Créer le tag')).click()`)
+  await delay(150)
+  assertUI('commit-menu-creates-annotated-tag', await evaluate(client, `window.__menuCalls.some(([name, args]) => name === 'tag_create' && args.request.name === 'v9.9.9' && args.request.message === 'notes de version' && args.request.target === '${commits[0].sha}')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Créer un worktree ici…')}.click()`)
+  await waitFor(client, `document.querySelector('input[aria-label="Dossier du worktree"]') !== null`, 'worktree dialog')
+  await fill('input[aria-label="Dossier du worktree"]', '/tmp/beebranch-worktree')
+  await evaluate(client, `([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === 'Créer le worktree')).click()`)
+  await delay(150)
+  assertUI('commit-menu-creates-worktree', await evaluate(client, `window.__menuCalls.some(([name, args]) => name === 'worktree_add' && args.request.path === '/tmp/beebranch-worktree' && args.request.reference === '${commits[0].sha}')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Cherry-picker ce commit')}.click()`)
+  await delay(120)
+  assertUI('commit-menu-cherry-pick', await evaluate(client, `window.__menuCalls.some(([name, args]) => name === 'history_cherry_pick' && args.request.shas[0] === '${commits[0].sha}')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Réinitialiser main sur ce commit')}.click()`)
+  await delay(60)
+  await evaluate(client, `${menuButton('Mixte — vide l’index')}.click()`)
+  await delay(120)
+  assertUI('commit-menu-reset-mixed', await evaluate(client, `window.__menuCalls.some(([name, args]) => name === 'history_reset' && args.request.mode === 'mixed' && args.request.revision === '${commits[0].sha}')`))
+
+  await openCommitMenu()
+  await evaluate(client, `${menuButton('Revenir sur ce commit (revert)')}.click()`)
+  await delay(120)
+  assertUI('commit-menu-revert', await evaluate(client, `window.__menuCalls.some(([name, args]) => name === 'history_revert' && args.request.shas[0] === '${commits[0].sha}')`))
 
   // Drag a branch reference onto another one: menu, preview, confirmation.
   await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)

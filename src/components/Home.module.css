@@ -6,7 +6,7 @@
 }
 
 .start {
-  max-width: 760px;
+  max-width: 1440px;
   padding-bottom: 26px;
   border-bottom: 1px solid var(--border);
 }
@@ -57,12 +57,104 @@
 .cloneForm {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   margin-top: 18px;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+}
+
+.cloneHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cloneHeader strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.cloneHeader .checkbox {
+  margin-left: auto;
+}
+
+.toggleGroup {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.toggleGroup button {
+  min-height: 26px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 1px);
+  color: var(--muted-strong);
+  background: transparent;
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+.toggleGroup button:hover:not([aria-pressed='true']) {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.toggleGroup button[aria-pressed='true'] {
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.notice > span {
+  flex: 1;
+  min-width: 220px;
+}
+
+.notice button {
+  flex: none;
+  min-height: 30px;
+}
+
+.cloneSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cloneFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.cloneFooter .error {
+  flex: 1;
+  min-width: 200px;
 }
 
 .row {
@@ -127,7 +219,7 @@
 }
 
 .recent {
-  max-width: 760px;
+  max-width: 1440px;
   margin-top: 28px;
 }
 
@@ -219,7 +311,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  max-width: 760px;
+  max-width: 1440px;
   margin-top: 28px;
   color: var(--muted);
   font-size: 11.5px;
@@ -253,32 +345,18 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: var(--bg);
 }
 
-.projectHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-.projectHeader strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .projectList {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 2px;
-  max-height: 220px;
+  max-height: 240px;
   overflow: auto;
 }
 
@@ -288,6 +366,7 @@
   flex-direction: column;
   gap: 2px;
   width: 100%;
+  min-width: 0;
   padding: 7px 9px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -319,29 +398,33 @@
 }
 
 .projectEmpty {
+  grid-column: 1 / -1;
   margin: 4px 0;
   color: var(--muted);
   font-size: 11.5px;
 }
 
-.projectEmpty button {
-  margin-left: 8px;
-}
-
 .chosen {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent-text);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--bg);
+}
+
+.chosenRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
 }
 
 .chosen strong {
   font-size: 12.5px;
-  font-weight: 550;
+  font-weight: 600;
 }
 
 .chosen code {
@@ -349,6 +432,20 @@
   color: var(--muted);
   font-family: var(--mono);
   font-size: 11px;
+}
+
+.inlineField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.inlineField select {
+  height: 28px;
+  padding: 0 6px;
 }
 
 .chosenLabel {
@@ -364,6 +461,14 @@
   font-size: 11.5px;
 }
 
-.cloneOnly { min-width:0; }
-.cloneOnly .start { max-width:none; padding:0; border:0; }
-.cloneOnly .cloneForm { margin:0; padding:0; border:0; background:none; }
+.options {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.options .field {
+  flex: 0 1 240px;
+}
+

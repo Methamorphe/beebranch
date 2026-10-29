@@ -177,11 +177,12 @@ pub struct CloneRequest {
     pub recurse_submodules: bool,
 }
 
-/// Use the active GitLab token only when the clone URL targets the same
-/// HTTPS host. Other hosts never receive the token. A credential discovered in
-/// the Git configuration is used when the keychain holds nothing for that host.
+/// Use the active forge token only when the clone URL targets the same HTTPS
+/// host. Other hosts never receive the token. A credential discovered in the
+/// Git configuration is used when the keychain holds nothing for that host.
 fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
     let clone_url = normalize_url(url).ok()?;
+
     if let Some(instance) = state.gitlab_instance.lock().ok()?.clone() {
         if let Ok(instance_url) = normalize_url(&instance.base_url) {
             if clone_url.host.eq_ignore_ascii_case(&instance_url.host) {
@@ -195,7 +196,39 @@ fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
             }
         }
     }
-    let credential = state.gitlab_credential.lock().ok()?.clone()?;
+    if let Some(instance) = state.github_instance.lock().ok()?.clone() {
+        if let Ok(instance_url) = beebranch_github::normalize_url(&instance.base_url) {
+            if clone_url.host.eq_ignore_ascii_case(&instance_url.host) {
+                let account = format!("{}#{}", instance_url.host, instance.id);
+                if let Some(token) = state.github_secrets.get(&account).ok().flatten() {
+                    return Some(HttpsAuth {
+                        username: "x-access-token".to_owned(),
+                        token,
+                    });
+                }
+            }
+        }
+    }
+
+    let gitlab = state
+        .gitlab_credential
+        .lock()
+        .ok()
+        .and_then(|value| value.clone());
+    if let Some(credential) = gitlab {
+        if clone_url.host.eq_ignore_ascii_case(&credential.host) {
+            return Some(HttpsAuth {
+                username: credential.username,
+                token: credential.password,
+            });
+        }
+    }
+    let github = state
+        .github_credential
+        .lock()
+        .ok()
+        .and_then(|value| value.clone());
+    let credential = github?;
     if !clone_url.host.eq_ignore_ascii_case(&credential.host) {
         return None;
     }
