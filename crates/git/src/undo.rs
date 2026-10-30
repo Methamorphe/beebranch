@@ -1247,14 +1247,14 @@ fn status_hash(runner: &GitRunner, worktree: &Path) -> Result<String, AppError> 
     ]))?;
     let outcome = outcome.ensure_success()?;
     let digest = Sha256::digest(outcome.stdout.bytes());
-    Ok(format!("{digest:x}"))
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn hash_file(path: PathBuf) -> Result<String, AppError> {
     match std::fs::read(&path) {
         Ok(bytes) => {
             let digest = Sha256::digest(&bytes);
-            Ok(format!("{digest:x}"))
+            Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("absent".to_owned()),
         Err(error) => Err(AppError::new(
