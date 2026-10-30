@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0] — 2026-10-30
+
+### Added
+
+- **Local author avatars (graph)**: at comfortable density every commit node of
+  the graph column becomes an initials disc — fill derived from a stable hash
+  of the normalised author email over the `--lane-*` palette, lane colour as
+  outer ring, label contrast kept at WCAG ≥ 4.5:1 in both themes. Compact
+  density and stash nodes keep their original dots.
+- **Author tooltip on the graph column**: hovering the graph column sets the
+  canvas title to the author name and email of the commit under the pointer.
+
+### Changed
+
+- The author column lists plain author names again; the initials discs live in
+  the graph column only. No third-party avatar URL and no CSP change: the
+  application stays local-first.
+
 ## [1.1.0] — 2026-10-30
 
 ### Added
