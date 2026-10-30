@@ -32,7 +32,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || inputs.tag }}
           fetch-depth: 0
@@ -88,7 +88,7 @@ jobs:
       APPLE_SIGNING_ENABLED: ${{ secrets.APPLE_CERTIFICATE != '' }}
       WINDOWS_SIGNING_ENABLED: ${{ secrets.TAURI_WINDOWS_CERTIFICATE != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
@@ -338,7 +338,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
