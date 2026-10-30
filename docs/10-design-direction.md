@@ -232,9 +232,14 @@ Preferences → General accepts an image or animated GIF (png, jpg, gif, webp,
 avif, bmp · 32 MB). The path is the only persisted data
 (`ui.background`); the backend rereads the file at startup and returns it as a
 `data:` URL, avoiding opening filesystem access to the webview and
-letting the webview animate the GIF. The `--app-bg-image`,
-`--app-bg-size`, `--app-bg-repeat`, `--app-bg-dim`, and `--app-bg-blur` variables control
-the fixed layer rendered beneath the shell, at `z-index: -1`.
+letting the webview animate the GIF. The image is written as a
+`background-image` on the fixed layer itself (`z-index: -1`, beneath the
+shell), while `--app-bg-size`, `--app-bg-repeat`, `--app-bg-dim`, and
+`--app-bg-blur` tune it. The image must not travel through a CSS custom
+property: Chromium (WebView2 on Windows) silently drops custom property values
+above 2 MiB, less than the base64 of an ordinary photo, so the wallpaper never
+appeared there while WebKit accepted it. Presentation options stay variables;
+only the payload is applied to the node.
 
 When an image is active, `data-background="image"` on `:root` replaces
 `--bg`, `--surface`, `--surface-raised`, `--border`, and `--selection-bg` with
@@ -251,7 +256,8 @@ the same controls. The splash window does not use the application's
 stylesheet: the page remains in `data-splash="pending"` (nothing but the
 window color) until `src/splash.ts` has read the preference through
 IPC and obtained the image as a `data:` URL; it then switches to `data-splash="image"`
-and sets `--splash-image`, `--splash-size`, `--splash-repeat`, `--splash-dim`, and
+and sets the image directly on the `.backdrop` layer (same 2 MiB limit as the
+wallpaper) with `--splash-size`, `--splash-repeat`, `--splash-dim`, and
 `--splash-blur`. The hexagonal logo is hidden, the brand and progress
 bar remain above the veil. Without a preference, or if the file has
 disappeared, the mode reverts to `data-splash="logo"`: the splash screen can
