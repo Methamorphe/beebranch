@@ -32,7 +32,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || inputs.tag }}
           fetch-depth: 0
@@ -88,11 +88,11 @@ jobs:
       APPLE_SIGNING_ENABLED: ${{ secrets.APPLE_CERTIFICATE != '' }}
       WINDOWS_SIGNING_ENABLED: ${{ secrets.TAURI_WINDOWS_CERTIFICATE != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -309,7 +309,7 @@ jobs:
             --out "target/update/fragments/${{ matrix.target }}.json"
 
       - name: Upload signed bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bundles-${{ matrix.platform }}
           path: |
@@ -325,7 +325,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload manifest fragment
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-${{ matrix.target }}
           path: target/update/fragments/${{ matrix.target }}.json
@@ -338,17 +338,17 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: bundles-*
           path: target/release/bundle
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: manifest-*
           path: target/update/fragments

@@ -22,6 +22,18 @@ fn default_provider() -> String {
     "gitlab".to_owned()
 }
 
+/// SQLite has no unsigned 64-bit integer and rusqlite no longer implements
+/// `ToSql`/`FromSql` for `u64`. GitLab identifiers are positive and far below
+/// 2^63; both casts are bit-preserving, so the round trip is exact even for a
+/// hypothetical identifier above that bound.
+fn id_to_i64(id: u64) -> i64 {
+    id as i64
+}
+
+fn id_from_i64(id: i64) -> u64 {
+    id as u64
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityRow {
@@ -182,7 +194,7 @@ impl Store {
                     validated_at = excluded.validated_at",
                 params![
                     identity.instance_id,
-                    identity.user_id,
+                    id_to_i64(identity.user_id),
                     identity.username,
                     identity.name,
                     identity.avatar_url,
@@ -203,7 +215,7 @@ impl Store {
                     |row| {
                         Ok(IdentityRow {
                             instance_id: row.get(0)?,
-                            user_id: row.get(1)?,
+                            user_id: id_from_i64(row.get(1)?),
                             username: row.get(2)?,
                             name: row.get(3)?,
                             avatar_url: row.get(4)?,
@@ -236,7 +248,7 @@ impl Store {
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
                         project.instance_id,
-                        project.project_id,
+                        id_to_i64(project.project_id),
                         project.path_with_namespace,
                         project.name,
                         project.web_url,
@@ -276,7 +288,7 @@ impl Store {
                         etag = excluded.etag",
                     params![
                         project.instance_id,
-                        project.project_id,
+                        id_to_i64(project.project_id),
                         project.path_with_namespace,
                         project.name,
                         project.web_url,
@@ -316,7 +328,7 @@ impl Store {
                 |row| {
                     Ok(ProjectRow {
                         instance_id: row.get(0)?,
-                        project_id: row.get(1)?,
+                        project_id: id_from_i64(row.get(1)?),
                         path_with_namespace: row.get(2)?,
                         name: row.get(3)?,
                         web_url: row.get(4)?,
@@ -348,7 +360,7 @@ impl Store {
                 params![
                     link.repo_id,
                     link.instance_id,
-                    link.project_id,
+                    id_to_i64(link.project_id),
                     link.match_kind,
                     link.verified_at
                 ],
@@ -368,7 +380,7 @@ impl Store {
                         Ok(RepoLink {
                             repo_id: row.get(0)?,
                             instance_id: row.get(1)?,
-                            project_id: row.get(2)?,
+                            project_id: id_from_i64(row.get(2)?),
                             match_kind: row.get(3)?,
                             verified_at: row.get(4)?,
                         })
@@ -400,7 +412,7 @@ impl Store {
                         Ok(RepoLink {
                             repo_id: row.get(0)?,
                             instance_id: row.get(1)?,
-                            project_id: row.get(2)?,
+                            project_id: id_from_i64(row.get(2)?),
                             match_kind: row.get(3)?,
                             verified_at: row.get(4)?,
                         })
