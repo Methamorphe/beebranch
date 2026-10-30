@@ -309,7 +309,7 @@ jobs:
             --out "target/update/fragments/${{ matrix.target }}.json"
 
       - name: Upload signed bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bundles-${{ matrix.platform }}
           path: |
@@ -325,7 +325,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload manifest fragment
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-${{ matrix.target }}
           path: target/update/fragments/${{ matrix.target }}.json
