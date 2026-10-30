@@ -66,6 +66,10 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','patches','search','operations'].every((id) => document.querySelector('[data-repository-section="' + id + '"]'))`)
   await check('graph-fills-height', `document.querySelector('canvas').getBoundingClientRect().height > 600`)
   await screenshot('workspace-tree.png')
+  await evaluate(client, `document.documentElement.dataset.density = 'compact'`)
+  await delay(300)
+  await screenshot('workspace-graph-compact.png')
+  await evaluate(client, `document.documentElement.dataset.density = 'comfortable'`)
 
   for (const id of ['remotes', 'tags', 'stash', 'worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search', 'operations']) {
     await click(`[data-repository-section="${id}"] button[aria-expanded]`)
