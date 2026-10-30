@@ -312,6 +312,7 @@ impl CommandOutcome {
 #[derive(Debug, Clone)]
 pub struct GitRunner {
     program: GitProgram,
+    https_credentials: Option<std::sync::Arc<crate::https_auth::CredentialHelper>>,
 }
 
 impl GitRunner {
@@ -320,6 +321,7 @@ impl GitRunner {
         let path = program.resolve_path()?;
         Ok(Self {
             program: GitProgram::from_path(path),
+            https_credentials: None,
         })
     }
 
@@ -330,6 +332,23 @@ impl GitRunner {
 
     pub fn program(&self) -> &GitProgram {
         &self.program
+    }
+
+    /// Add in-memory forge credentials as a fallback to native Git helpers.
+    /// Secrets stay in private temporary files until every child has finished.
+    pub fn with_https_credentials(
+        &self,
+        credentials: &[(String, crate::clone::HttpsAuth)],
+    ) -> Result<Self, beebranch_core::AppError> {
+        let mut runner = self.clone();
+        runner.https_credentials = if credentials.is_empty() {
+            None
+        } else {
+            Some(std::sync::Arc::new(
+                crate::https_auth::CredentialHelper::new(credentials)?,
+            ))
+        };
+        Ok(runner)
     }
 
     /// Run a command to completion.
@@ -355,7 +374,7 @@ impl GitRunner {
             operation_id = spec.operation.id.as_deref().unwrap_or(""),
         );
 
-        exec::spawn(
+        let mut running = exec::spawn(
             command,
             ExecOptions {
                 timeout: spec.timeout,
@@ -364,7 +383,9 @@ impl GitRunner {
                 span,
             },
             on_event,
-        )
+        )?;
+        running.https_credentials = self.https_credentials.clone();
+        Ok(running)
     }
 
     fn build_command(&self, spec: &CommandSpec) -> Result<std::process::Command, GitError> {
@@ -377,6 +398,9 @@ impl GitRunner {
         command.arg("-c").arg("core.quotepath=false");
         if spec.subcommand.is_read_only() {
             command.arg("--no-optional-locks");
+        }
+        if let Some(helper) = &self.https_credentials {
+            command.arg("-c").arg(helper.config());
         }
         command.arg(spec.subcommand.as_str());
         command.args(&spec.args);

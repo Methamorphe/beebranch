@@ -12,6 +12,49 @@ use crate::commands::util::{
 };
 use crate::state::AppState;
 
+/// Build a short-lived runner; Git's existing helpers remain first in order.
+fn authenticated_runner(
+    state: &AppState,
+    runner: &beebranch_git::GitRunner,
+) -> Result<beebranch_git::GitRunner, AppError> {
+    let mut hosts = Vec::new();
+    for instance in [
+        state.gitlab_instance.lock().ok().and_then(|v| v.clone()),
+        state.github_instance.lock().ok().and_then(|v| v.clone()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Ok(url) = url::Url::parse(&instance.base_url) {
+            if let Some(host) = url.host_str() {
+                let authority = match url.port() {
+                    Some(port) => format!("{host}:{port}"),
+                    None => host.to_owned(),
+                };
+                hosts.push(authority);
+            }
+        }
+    }
+    for credential in [
+        state.gitlab_credential.lock().ok().and_then(|v| v.clone()),
+        state.github_credential.lock().ok().and_then(|v| v.clone()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        hosts.push(credential.host);
+    }
+    hosts.sort();
+    hosts.dedup();
+    let credentials = hosts
+        .into_iter()
+        .filter_map(|host| {
+            super::repo::https_auth_for(state, &format!("https://{host}")).map(|auth| (host, auth))
+        })
+        .collect::<Vec<_>>();
+    runner.with_https_credentials(&credentials)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FetchRequest {
@@ -57,6 +100,7 @@ pub async fn sync_fetch(
     request: FetchRequest,
 ) -> Result<MutationResult<SyncOutcome>, AppError> {
     let session = state.session(&request.repo_id)?;
+    let runner = authenticated_runner(&state, session.runner())?;
     let operation_id = new_operation_id("fetch");
     begin_operation(
         &state,
@@ -70,7 +114,8 @@ pub async fn sync_fetch(
         let operation_id = operation_id.clone();
         let remote = request.remote.clone();
         let app = app.clone();
-        move |runner, discovery| {
+        move |_, discovery| {
+            let runner = &runner;
             let worktree = discovery.worktree()?;
             let context = beebranch_git::OperationContext::new(&operation_id, "fetch");
             let command = sync::spawn_fetch(
@@ -111,6 +156,7 @@ pub async fn sync_pull(
     request: PullRequest,
 ) -> Result<MutationResult<SyncOutcome>, AppError> {
     let session = state.session(&request.repo_id)?;
+    let runner = authenticated_runner(&state, session.runner())?;
     let operation_id = new_operation_id("pull");
     begin_operation(
         &state,
@@ -123,7 +169,8 @@ pub async fn sync_pull(
     let result = run_mutation(session, {
         let operation_id = operation_id.clone();
         let app = app.clone();
-        move |runner, discovery| {
+        move |_, discovery| {
+            let runner = &runner;
             let worktree = discovery.worktree()?;
             let context = beebranch_git::OperationContext::new(&operation_id, "pull");
             let before = sync::branch_position(runner, worktree);
@@ -173,15 +220,17 @@ pub async fn sync_push(
             .verify(DestructiveAction::ForcePush, Some(&request.branch))?;
     }
     let session = state.session(&request.repo_id)?;
+    let runner = authenticated_runner(&state, session.runner())?;
     let operation_id = new_operation_id("push");
     let journal_id = if request.force {
         let previous = tauri::async_runtime::spawn_blocking({
             let session = session.clone();
+            let runner = runner.clone();
             let remote = request.remote.clone();
             let branch = request.branch.clone();
             move || {
                 beebranch_git::sync::remote_branch_sha(
-                    session.runner(),
+                    &runner,
                     session.worktree(),
                     &remote,
                     &branch,
@@ -228,7 +277,8 @@ pub async fn sync_push(
         let operation_id = operation_id.clone();
         let app = app.clone();
         let force = request.force;
-        move |runner, discovery| {
+        move |_, discovery| {
+            let runner = &runner;
             let worktree = discovery.worktree()?;
             // Informational only: failing to list hooks must not block the
             // push, Git runs them anyway.
@@ -301,4 +351,64 @@ pub fn operation_cancel(
         return Err(AppError::invalid_input("operation_id invalide".to_owned()));
     }
     state.cancel_operation(&request.operation_id)
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::authenticated_runner;
+    use beebranch_git::{credentials, CommandSpec, GitSubcommand};
+    use beebranch_store::{InstanceRow, Store};
+
+    #[test]
+    fn sync_runner_uses_connected_pat_and_serialized_oauth_tokens() {
+        let directory = tempfile::tempdir().expect("directory");
+        let state = crate::state::test_state(
+            directory.path().to_path_buf(),
+            Store::open_in_memory().expect("store"),
+        );
+        let runner = state.runner().expect("runner");
+        for (command, args) in [
+            (GitSubcommand::Init, vec!["--quiet"]),
+            (
+                GitSubcommand::Config,
+                vec!["--local", "credential.helper", ""],
+            ),
+        ] {
+            assert!(runner
+                .run(&CommandSpec::new(command, directory.path()).args(args))
+                .expect("git")
+                .success());
+        }
+        *state.gitlab_instance.lock().expect("instance") = Some(InstanceRow {
+            id: "gl_sync".into(),
+            provider: "gitlab".into(),
+            base_url: "https://forge.example.test:8443".into(),
+            api_url: "https://forge.example.test:8443/api/v4".into(),
+            display_name: None,
+            ca_bundle_id: None,
+            created_at: 1,
+        });
+        let account = "forge.example.test:8443#gl_sync";
+        state.secrets.set(account, "glpat-sync-test").expect("PAT");
+        let authenticated = authenticated_runner(&state, runner).expect("authenticated runner");
+        let pat = credentials::fill(&authenticated, directory.path(), "forge.example.test:8443")
+            .expect("fill")
+            .expect("PAT credential");
+        assert_eq!(pat.password, "glpat-sync-test");
+        // Exercise the exact JSON format persisted by the OAuth connection.
+        state.secrets.set(&format!("{account}#oauth"),
+            r#"{"accessToken":"oauth-sync-test","refreshToken":"refresh","expiresAt":9999999999,"clientId":"test"}"#)
+            .expect("OAuth");
+        let authenticated = authenticated_runner(&state, runner).expect("OAuth runner");
+        let oauth = credentials::fill(&authenticated, directory.path(), "forge.example.test:8443")
+            .expect("fill")
+            .expect("OAuth credential");
+        assert_eq!(oauth.username, "oauth2");
+        assert_eq!(oauth.password, "oauth-sync-test");
+        assert!(
+            credentials::fill(&authenticated, directory.path(), "other.example.test")
+                .expect("fill")
+                .is_none()
+        );
+    }
 }

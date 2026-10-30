@@ -339,10 +339,10 @@ git -c sequence.editor=<helper> rebase -i --autosquash <base>
 
 ### Credential helper HTTPS
 
-- `git -c credential.helper= -c credential.helper=<chemin du helper>`.
-- Le helper reçoit `get`/`store`/`erase` sur stdin et renvoie `username` + `password` (token).
-- Le helper lit le token dans le keychain via l'instance GitLab associée ; aucun secret en argv ni dans l'URL.
-- Le remote enregistré reste `https://host/group/project.git`.
+- Fetch, pull, push et la lecture du SHA distant ajoutent un helper temporaire après les helpers Git de l’utilisateur.
+- Le helper répond uniquement à `get`, pour HTTPS et l’hôte et le port exacts d’une connexion GitLab/GitHub. Les autres protocoles, hôtes et opérations ne reçoivent aucun identifiant.
+- Les tokens GitLab PAT/OAuth et GitHub proviennent du keychain, avec les identifiants Git découverts en repli. Les secrets restent dans des fichiers temporaires privés (0600 sous Unix), jamais dans les arguments, les URL ou les valeurs d’environnement.
+- Le processus conserve les fichiers jusqu’à sa fin ou son annulation, puis les supprime. Le remote enregistré n’est pas modifié.
 
 ## 12. Mapping des erreurs
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.1] — 2026-10-30
+
+### Corrigé
+
+- **Authentification HTTPS (#8)** : fetch, pull, push et la lecture du SHA distant
+  réutilisent les identifiants GitLab/GitHub connectés lorsque les helpers Git
+  existants n’en fournissent pas. Les tokens PAT et OAuth restent limités à leur
+  hôte et port HTTPS, dans des fichiers temporaires privés supprimés après
+  l’opération.
+
 ## [1.0.0] — 2026-10-29
 
 ### Ajouté

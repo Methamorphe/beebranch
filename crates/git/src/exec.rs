@@ -49,6 +49,7 @@ struct Control {
 /// Dropping the handle force-stops the process and reaps it; call
 /// [`Self::wait`] for a graceful outcome.
 pub struct RunningCommand {
+    pub(crate) https_credentials: Option<Arc<crate::https_auth::CredentialHelper>>,
     child: Option<Child>,
     pid: Option<u32>,
     control: Arc<Control>,
@@ -309,6 +310,7 @@ where
     };
 
     Ok(RunningCommand {
+        https_credentials: None,
         child: Some(child),
         pid: Some(pid),
         control: Arc::new(Control {

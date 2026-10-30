@@ -23,6 +23,7 @@ mod exec;
 pub mod graph;
 pub mod history;
 pub mod hooks;
+mod https_auth;
 pub mod index;
 pub mod init;
 pub mod integration;
