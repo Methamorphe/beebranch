@@ -146,6 +146,32 @@ fn ff_only_fast_forwards_when_possible() {
 }
 
 #[test]
+fn merge_preview_when_target_is_ahead_source_has_nothing_to_integrate() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    let develop = current_branch(&fixture);
+    fixture.switch_new("release/test");
+    fixture.commit("b.txt", "release\n", "release");
+    fixture.switch(&develop);
+
+    let preview = integration::preview(
+        fixture.runner(),
+        fixture.path(),
+        &develop,
+        "release/test",
+        IntegrationMode::Merge,
+    )
+    .expect("preview");
+    assert!(preview.applicable);
+    assert_eq!(preview.ahead, 0, "source adds no commits to target");
+    assert_eq!(preview.behind, 1, "target has commits source lacks");
+    assert!(
+        !preview.fast_forward,
+        "fast-forward merge of source into target is impossible"
+    );
+}
+
+#[test]
 fn ff_only_refuses_a_diverged_target_without_mutating_the_repository() {
     let fixture = Fixture::new();
     fixture.commit("a.txt", "base\n", "base");

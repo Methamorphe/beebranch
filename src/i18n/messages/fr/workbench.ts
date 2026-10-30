@@ -85,6 +85,10 @@ const messages = {
 
   'workbench.integration.alreadyIntegrated':
     '{target} contient déjà tous les commits de {source}.',
+  'workbench.integration.targetAheadUseReverse.one':
+    '{target} a {count} commit d’avance sur {source} ; cette fusion ne change rien. Glissez {target} sur {source} pour avancer {source} en fast-forward.',
+  'workbench.integration.targetAheadUseReverse.other':
+    '{target} a {count} commits d’avance sur {source} ; cette fusion ne change rien. Glissez {target} sur {source} pour avancer {source} en fast-forward.',
   'workbench.integration.checkoutRequired': '{target} sera extraite pendant l’opération',
   'workbench.integration.commitsBehind.one': '{count} commit(s) de retard',
   'workbench.integration.commitsBehind.other': '{count} commit(s) de retard',
