@@ -1299,7 +1299,11 @@
   .field input, .field select, .field textarea,
   .fieldInline input, .fieldInline select { width:100%; min-width:0; max-width:100%; box-sizing:border-box; }
   .formRow, .actionRow { grid-template-columns:minmax(0,1fr); }
-  .entry { grid-template-columns:auto minmax(0,1fr); gap:6px; padding:8px; }
+  /* A content-sized first track may eat all the free space and push the last
+     column (time, duration, chip) past the panel edge: the first track can
+     shrink to zero, the last one never goes below its min-content. */
+  .entry { grid-template-columns:minmax(0,auto) minmax(min-content,1fr); gap:6px; padding:8px; }
+  .entry > * { min-width:0; max-width:100%; }
   .entryActions { grid-column:2; min-width:0; justify-content:flex-start; }
   .entryMeta { flex-wrap:wrap; gap:4px; white-space:normal; }
   .entryMeta > span, .entryStack .linkButton { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; text-align:left; }
