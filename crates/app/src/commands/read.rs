@@ -221,11 +221,9 @@ pub async fn file_write(
         .flatten()
         .filter(|value| matches!(value.as_str(), "utf8" | "utf16le" | "windows1252" | "guess"))
         .unwrap_or_else(|| "utf8".to_owned());
-    tauri::async_runtime::spawn_blocking(move || {
-        write_file_content(&session, &request, &encoding)
-    })
-    .await
-    .map_err(join_error)?
+    tauri::async_runtime::spawn_blocking(move || write_file_content(&session, &request, &encoding))
+        .await
+        .map_err(join_error)?
 }
 
 fn write_file_content(
@@ -264,8 +262,9 @@ fn write_file_content(
             request.path
         )));
     }
-    let existing = std::fs::read(&canonical)
-        .map_err(|error| AppError::internal(format!("lecture de {}: {error}", canonical.display())))?;
+    let existing = std::fs::read(&canonical).map_err(|error| {
+        AppError::internal(format!("lecture de {}: {error}", canonical.display()))
+    })?;
     if let Some(expected) = request.expected_sha256.as_deref() {
         let current = sha256_hex(&existing);
         if current != expected {
@@ -288,8 +287,9 @@ fn write_file_content(
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| "file".to_owned())
     ));
-    std::fs::write(&temporary, &bytes)
-        .map_err(|error| AppError::internal(format!("écriture de {}: {error}", temporary.display())))?;
+    std::fs::write(&temporary, &bytes).map_err(|error| {
+        AppError::internal(format!("écriture de {}: {error}", temporary.display()))
+    })?;
     std::fs::rename(&temporary, &canonical).map_err(|error| {
         let _ = std::fs::remove_file(&temporary);
         AppError::internal(format!("remplacement de {}: {error}", canonical.display()))
@@ -502,7 +502,11 @@ fn decode_content(
     let utf16le = data.starts_with(&[0xFF, 0xFE]);
     let utf16be = data.starts_with(&[0xFE, 0xFF]);
     if encoding == "utf16le" || (encoding == "guess" && (utf16le || utf16be)) {
-        let body = if utf16le || utf16be { &data[2..] } else { &data[..] };
+        let body = if utf16le || utf16be {
+            &data[2..]
+        } else {
+            &data[..]
+        };
         return (Some(decode_utf16(body, utf16be)), false);
     }
     if encoding != "utf16le" && data.contains(&0) {
@@ -519,9 +523,7 @@ fn decode_content(
             Some(String::from_utf8_lossy(error.as_bytes()).into_owned()),
             false,
         ),
-        Err(error) if encoding == "guess" => {
-            (Some(decode_windows1252(error.as_bytes())), false)
-        }
+        Err(error) if encoding == "guess" => (Some(decode_windows1252(error.as_bytes())), false),
         Err(_) => (None, true),
     }
 }
@@ -815,8 +817,12 @@ mod tests {
             "a refused write leaves the file untouched"
         );
 
-        write_file_content(&session, &request("one\nagain\n", Some(&written.sha256)), "utf8")
-            .expect("guarded write");
+        write_file_content(
+            &session,
+            &request("one\nagain\n", Some(&written.sha256)),
+            "utf8",
+        )
+        .expect("guarded write");
 
         // Windows-1252 keeps its bytes; an unsupported character is refused.
         write_file_content(&session, &request("café\n", None), "windows1252").expect("1252 write");
@@ -844,23 +850,34 @@ mod tests {
         let session =
             RepoSession::open(&runner, dir.path(), SessionOptions::default()).expect("session");
 
-        let worktree =
-            read_file_content(&session, &content_request("a.txt", None, None), "utf8").expect("worktree");
+        let worktree = read_file_content(&session, &content_request("a.txt", None, None), "utf8")
+            .expect("worktree");
         assert_eq!(worktree.content.as_deref(), Some("one\ntwo\n"));
         assert_eq!(worktree.bytes, 8);
         assert!(!worktree.truncated && !worktree.binary);
 
-        let head = read_file_content(&session, &content_request("a.txt", Some("head"), None), "utf8")
-            .expect("head");
+        let head = read_file_content(
+            &session,
+            &content_request("a.txt", Some("head"), None),
+            "utf8",
+        )
+        .expect("head");
         assert_eq!(head.content.as_deref(), Some("one\ntwo\n"));
 
-        let first = read_file_content(&session, &content_request("a.txt", Some(&root), None), "utf8")
-            .expect("root");
+        let first = read_file_content(
+            &session,
+            &content_request("a.txt", Some(&root), None),
+            "utf8",
+        )
+        .expect("root");
         assert_eq!(first.content.as_deref(), Some("one\n"));
 
-        let missing =
-            read_file_content(&session, &content_request("missing.md", Some("head"), None), "utf8")
-                .expect("missing");
+        let missing = read_file_content(
+            &session,
+            &content_request("missing.md", Some("head"), None),
+            "utf8",
+        )
+        .expect("missing");
         assert!(missing.content.is_none());
         assert_eq!(missing.bytes, 0);
         assert!(!missing.binary);
@@ -875,15 +892,19 @@ mod tests {
             RepoSession::open(&runner, dir.path(), SessionOptions::default()).expect("session");
 
         std::fs::write(dir.path().join("bin.dat"), b"a\0b").expect("write");
-        let binary =
-            read_file_content(&session, &content_request("bin.dat", None, None), "utf8").expect("binary");
+        let binary = read_file_content(&session, &content_request("bin.dat", None, None), "utf8")
+            .expect("binary");
         assert!(binary.binary);
         assert!(binary.content.is_none());
         assert_eq!(binary.bytes, 3);
 
         std::fs::write(dir.path().join("big.md"), "x".repeat(4096)).expect("write");
-        let truncated = read_file_content(&session, &content_request("big.md", None, Some(1024)), "utf8")
-            .expect("truncated");
+        let truncated = read_file_content(
+            &session,
+            &content_request("big.md", None, Some(1024)),
+            "utf8",
+        )
+        .expect("truncated");
         assert!(truncated.truncated);
         assert_eq!(truncated.bytes, 4096);
         assert_eq!(truncated.content.as_deref().map(str::len), Some(1024));
@@ -897,12 +918,20 @@ mod tests {
         let session =
             RepoSession::open(&runner, dir.path(), SessionOptions::default()).expect("session");
 
-        assert!(read_file_content(&session, &content_request("../escape.md", None, None), "utf8").is_err());
+        assert!(read_file_content(
+            &session,
+            &content_request("../escape.md", None, None),
+            "utf8"
+        )
+        .is_err());
 
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink("/etc/hosts", dir.path().join("link.md")).expect("symlink");
-            assert!(read_file_content(&session, &content_request("link.md", None, None), "utf8").is_err());
+            assert!(
+                read_file_content(&session, &content_request("link.md", None, None), "utf8")
+                    .is_err()
+            );
         }
     }
 
@@ -910,7 +939,9 @@ mod tests {
     fn decodes_with_the_configured_encoding() {
         let utf16: Vec<u8> = [0xFF, 0xFE, b'h', 0, b'i', 0].to_vec();
         assert_eq!(
-            decode_content(Some(utf16.clone()), false, "utf16le").0.as_deref(),
+            decode_content(Some(utf16.clone()), false, "utf16le")
+                .0
+                .as_deref(),
             Some("hi")
         );
         assert_eq!(
@@ -921,9 +952,14 @@ mod tests {
 
         // 0xE9 is 'é' in Windows-1252 and invalid on its own in UTF-8.
         let latin1 = vec![b'c', b'a', b'f', 0xE9];
-        assert!(decode_content(Some(latin1.clone()), false, "utf8").1, "utf8 refuses it");
+        assert!(
+            decode_content(Some(latin1.clone()), false, "utf8").1,
+            "utf8 refuses it"
+        );
         assert_eq!(
-            decode_content(Some(latin1.clone()), false, "windows1252").0.as_deref(),
+            decode_content(Some(latin1.clone()), false, "windows1252")
+                .0
+                .as_deref(),
             Some("café")
         );
         assert_eq!(

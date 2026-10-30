@@ -395,14 +395,9 @@ pub async fn history_squash(
         history_meta("history.squash", label.clone()),
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
-            let outcome = history::squash(
-                runner,
-                worktree,
-                &request.shas,
-                request.message.as_deref(),
-            )?;
-            let builder =
-                history_builder("history.squash", label, &outcome, RestoreMode::Hard);
+            let outcome =
+                history::squash(runner, worktree, &request.shas, request.message.as_deref())?;
+            let builder = history_builder("history.squash", label, &outcome, RestoreMode::Hard);
             Ok((outcome, history_areas(), builder))
         },
     )

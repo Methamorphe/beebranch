@@ -512,9 +512,7 @@ where
             detected.state.operation,
             Some(beebranch_core::InProgressOperation::Rebase { .. })
         );
-    if (detected.state.operation.is_some() && !edit_stop)
-        || !detected.state.conflicts.is_empty()
-    {
+    if (detected.state.operation.is_some() && !edit_stop) || !detected.state.conflicts.is_empty() {
         return Err(AppError::new(
             "operation.in_progress",
             beebranch_core::ErrorCategory::GitState,

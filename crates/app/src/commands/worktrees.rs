@@ -280,12 +280,7 @@ pub async fn worktree_prune(
     let session = state.session(&request.repo_id)?;
     run_mutation(session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
-        let report = worktree::prune(
-            runner,
-            worktree,
-            request.dry_run,
-            request.expire.as_deref(),
-        )?;
+        let report = worktree::prune(runner, worktree, request.dry_run, request.expire.as_deref())?;
         let areas = if request.dry_run {
             vec![InvalidationArea::Refs]
         } else {

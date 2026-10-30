@@ -337,9 +337,7 @@ pub async fn workspace_sync(
                 .find(|row| same_path(&row.path, path))
                 .cloned()
                 .ok_or_else(|| {
-                    AppError::invalid_input(format!(
-                        "`{path}` n'appartient pas à ce workspace"
-                    ))
+                    AppError::invalid_input(format!("`{path}` n'appartient pas à ce workspace"))
                 })?;
             selected.push(found);
         }
@@ -380,7 +378,15 @@ pub fn run_sync_workers(
             if index >= rows.len() {
                 break;
             }
-            let result = run_one(&runner, &registry, &rows[index], action, index, worker, strategy);
+            let result = run_one(
+                &runner,
+                &registry,
+                &rows[index],
+                action,
+                index,
+                worker,
+                strategy,
+            );
             if let Ok(mut guard) = results.lock() {
                 guard.insert(index, result);
             }

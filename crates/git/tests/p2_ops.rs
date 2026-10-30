@@ -169,8 +169,8 @@ fn worktree_prune_reports_the_entries_it_removes() {
     .expect("add");
     std::fs::remove_dir_all(&target).expect("delete worktree directory");
 
-    let dry = worktree::prune(fixture.runner(), fixture.path(), true, Some("now"))
-        .expect("dry run");
+    let dry =
+        worktree::prune(fixture.runner(), fixture.path(), true, Some("now")).expect("dry run");
     assert!(dry.dry_run);
     assert!(
         !dry.removed.is_empty(),
@@ -178,8 +178,8 @@ fn worktree_prune_reports_the_entries_it_removes() {
     );
     assert_eq!(dry.report.entries.len(), 2, "a dry run removes nothing");
 
-    let real = worktree::prune(fixture.runner(), fixture.path(), false, Some("now"))
-        .expect("prune");
+    let real =
+        worktree::prune(fixture.runner(), fixture.path(), false, Some("now")).expect("prune");
     assert!(!real.removed.is_empty());
     assert_eq!(real.report.entries.len(), 1, "the metadata is gone");
 
@@ -809,7 +809,11 @@ fn rebase_messages_outlive_a_pause() {
     assert!(paused.state.operation.is_some(), "an edit stop must pause");
 
     let todo = std::fs::read_to_string(
-        fixture.path().join(".git").join("rebase-merge").join("git-rebase-todo"),
+        fixture
+            .path()
+            .join(".git")
+            .join("rebase-merge")
+            .join("git-rebase-todo"),
     )
     .expect("todo");
     let message_file = todo
@@ -827,7 +831,11 @@ fn rebase_messages_outlive_a_pause() {
     assert!(resumed.state.operation.is_none(), "rebase must finish");
     assert!(subjects(&fixture).contains(&"three reworded".to_owned()));
     assert!(
-        !fixture.path().join(".git").join("beebranch-rebase").exists(),
+        !fixture
+            .path()
+            .join(".git")
+            .join("beebranch-rebase")
+            .exists(),
         "message files are removed once the rebase ends"
     );
 }
@@ -996,8 +1004,13 @@ fn squash_refuses_merges_and_non_contiguous_ranges() {
     let side = merged.commit("side.txt", "side\n", "side");
     merged.switch("main");
     merged.commit("main.txt", "main\n", "main");
-    history::merge(merged.runner(), merged.path(), "side", MergeFastForward::Auto)
-        .expect("merge");
+    history::merge(
+        merged.runner(),
+        merged.path(),
+        "side",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
     let head = merged.rev_parse(&["HEAD"]);
     let error = history::squash(merged.runner(), merged.path(), &[head, side], None)
         .expect_err("merge commit");
@@ -1007,8 +1020,8 @@ fn squash_refuses_merges_and_non_contiguous_ranges() {
 #[test]
 fn squash_preview_reports_the_combined_message() {
     let (fixture, shas, upstream) = linear_fixture();
-    let preview = history::squash_preview(fixture.runner(), fixture.path(), &shas[1..3])
-        .expect("preview");
+    let preview =
+        history::squash_preview(fixture.runner(), fixture.path(), &shas[1..3]).expect("preview");
     assert_eq!(preview.upstream, shas[0]);
     assert_eq!(preview.commits.len(), 2);
     assert_eq!(preview.commits[0].sha, shas[1]);
@@ -1033,8 +1046,8 @@ fn tag_annotation_and_fast_forward_are_guarded() {
     assert_eq!(annotated.message.as_deref(), Some("release"));
 
     let second = fixture.commit("b.txt", "b\n", "second");
-    let moved = refs_admin::move_tag(fixture.runner(), fixture.path(), "v0", "HEAD")
-        .expect("fast-forward");
+    let moved =
+        refs_admin::move_tag(fixture.runner(), fixture.path(), "v0", "HEAD").expect("fast-forward");
     assert_eq!(moved.target_oid.as_deref(), Some(second.as_str()));
     assert!(moved.annotated, "the annotation is preserved");
     assert_eq!(moved.message.as_deref(), Some("release"));

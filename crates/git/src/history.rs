@@ -627,11 +627,7 @@ fn commit_message(runner: &GitRunner, worktree: &Path, sha: &str) -> Result<Stri
     Ok(outcome.stdout.text_lossy())
 }
 
-fn write_message(
-    directory: &Path,
-    index: usize,
-    message: &str,
-) -> Result<String, AppError> {
+fn write_message(directory: &Path, index: usize, message: &str) -> Result<String, AppError> {
     let path = directory.join(format!("message-{index}.txt"));
     std::fs::write(&path, message.as_bytes())
         .map_err(|error| AppError::internal(format!("écriture du message : {error}")))?;
@@ -645,7 +641,10 @@ fn write_message(
 /// when the function returns would leave `exec git commit --amend -F` pointing
 /// at a missing file. It lives inside the repository's Git directory and is
 /// removed once the rebase finishes or is aborted.
-fn rebase_message_root(runner: &GitRunner, worktree: &Path) -> Result<std::path::PathBuf, AppError> {
+fn rebase_message_root(
+    runner: &GitRunner,
+    worktree: &Path,
+) -> Result<std::path::PathBuf, AppError> {
     let outcome = runner
         .run(
             &CommandSpec::new(GitSubcommand::RevParse, worktree)
@@ -853,10 +852,8 @@ fn squash_order(
                 parents.insert(commit.sha.as_str(), parent.as_str());
             }
             _ => {
-                return Err(
-                    squash_error("un commit de fusion ne peut pas être combiné")
-                        .with_detail(commit.sha.clone()),
-                )
+                return Err(squash_error("un commit de fusion ne peut pas être combiné")
+                    .with_detail(commit.sha.clone()))
             }
         }
     }
@@ -911,9 +908,7 @@ fn squash_upstream(
             .arg(format!("{oldest}^")),
     )?;
     if !outcome.success() {
-        return Err(squash_error(
-            "le commit le plus ancien n'a pas de parent",
-        ));
+        return Err(squash_error("le commit le plus ancien n'a pas de parent"));
     }
     Ok(outcome.stdout.text_lossy().trim().to_owned())
 }

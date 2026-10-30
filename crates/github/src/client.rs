@@ -26,8 +26,8 @@ use tracing::debug;
 
 use crate::error::GithubError;
 use crate::models::{
-    GithubApprovals, GithubDiffRefs, GithubDiscussion, GithubJob, GithubJobStep, GithubNote,
-    GithubPipeline, GithubFilePatch, GithubPosition, GithubProject, GithubPullRequest, GithubUser,
+    GithubApprovals, GithubDiffRefs, GithubDiscussion, GithubFilePatch, GithubJob, GithubJobStep,
+    GithubNote, GithubPipeline, GithubPosition, GithubProject, GithubPullRequest, GithubUser,
     GithubUserRef, GithubWorkflowRun, JobLog, Paged, PullRequestMerge, PullUpdate,
 };
 use crate::pipeline::normalize_status;
@@ -600,7 +600,14 @@ impl GithubClient {
         let mut failures = Vec::new();
         if !input.reviewers.is_empty() {
             if let Err(error) = self
-                .post_name_list(repo, "pulls", number, "requested_reviewers", "reviewers", &input.reviewers)
+                .post_name_list(
+                    repo,
+                    "pulls",
+                    number,
+                    "requested_reviewers",
+                    "reviewers",
+                    &input.reviewers,
+                )
                 .await
             {
                 failures.push(format!("relecteurs : {}", error.message()));
@@ -608,7 +615,14 @@ impl GithubClient {
         }
         if !input.assignees.is_empty() {
             if let Err(error) = self
-                .post_name_list(repo, "issues", number, "assignees", "assignees", &input.assignees)
+                .post_name_list(
+                    repo,
+                    "issues",
+                    number,
+                    "assignees",
+                    "assignees",
+                    &input.assignees,
+                )
                 .await
             {
                 failures.push(format!("assignés : {}", error.message()));
@@ -987,7 +1001,8 @@ impl GithubClient {
         } else {
             format!("{}/graphql", self.url.api_url.trim_end_matches('/'))
         };
-        Url::parse(&base).map_err(|error| GithubError::configuration(format!("URL GraphQL : {error}")))
+        Url::parse(&base)
+            .map_err(|error| GithubError::configuration(format!("URL GraphQL : {error}")))
     }
 
     async fn graphql(
@@ -1079,11 +1094,8 @@ impl GithubClient {
                             .map(|step| GithubJobStep {
                                 number: step.number,
                                 name: step.name,
-                                status: normalize_status(
-                                    &step.status,
-                                    step.conclusion.as_deref(),
-                                )
-                                .to_owned(),
+                                status: normalize_status(&step.status, step.conclusion.as_deref())
+                                    .to_owned(),
                                 conclusion: step.conclusion,
                             })
                             .collect(),
@@ -1142,8 +1154,7 @@ impl GithubClient {
                         id: job.id,
                         name: job.name,
                         stage: job.workflow_name.clone().unwrap_or_default(),
-                        status: normalize_status(&job.status, job.conclusion.as_deref())
-                            .to_owned(),
+                        status: normalize_status(&job.status, job.conclusion.as_deref()).to_owned(),
                         web_url: job.html_url,
                         duration,
                         created_at: job.started_at,
@@ -1154,11 +1165,8 @@ impl GithubClient {
                             .map(|step| GithubJobStep {
                                 number: step.number,
                                 name: step.name,
-                                status: normalize_status(
-                                    &step.status,
-                                    step.conclusion.as_deref(),
-                                )
-                                .to_owned(),
+                                status: normalize_status(&step.status, step.conclusion.as_deref())
+                                    .to_owned(),
                                 conclusion: step.conclusion,
                             })
                             .collect(),
@@ -1178,11 +1186,7 @@ impl GithubClient {
     ///
     /// A run still queued or running is refused before anything is sent, so the
     /// caller gets a stable code instead of GitHub's 409.
-    pub async fn rerun_failed_jobs(
-        &self,
-        repo: &RepoRef,
-        run_id: u64,
-    ) -> Result<(), GithubError> {
+    pub async fn rerun_failed_jobs(&self, repo: &RepoRef, run_id: u64) -> Result<(), GithubError> {
         let run = self.workflow_run(repo, run_id).await?;
         if matches!(run.status.as_str(), "pending" | "running") {
             return Err(GithubError::new(
@@ -1243,19 +1247,19 @@ impl GithubClient {
             let state = data
                 .get("repository")
                 .and_then(|repository| repository.get(format!("r{index}")))
-                .and_then(|pull| {
-                    pull.pointer("/commits/nodes/0/commit/statusCheckRollup/state")
-                })
+                .and_then(|pull| pull.pointer("/commits/nodes/0/commit/statusCheckRollup/state"))
                 .and_then(serde_json::Value::as_str);
             result.push((
                 *number,
-                state.map(|state| match state {
-                    "SUCCESS" => "success",
-                    "FAILURE" | "ERROR" => "failed",
-                    "PENDING" | "EXPECTED" => "pending",
-                    _ => "unknown",
-                }
-                .to_owned()),
+                state.map(|state| {
+                    match state {
+                        "SUCCESS" => "success",
+                        "FAILURE" | "ERROR" => "failed",
+                        "PENDING" | "EXPECTED" => "pending",
+                        _ => "unknown",
+                    }
+                    .to_owned()
+                }),
             ));
         }
         Ok(result)
@@ -1874,14 +1878,17 @@ fn aggregate_reviews(reviews: Vec<WireReview>) -> GithubApprovals {
                 (review.state, entry)
             })
         })
-        .fold((Vec::new(), Vec::new()), |(mut approved, mut changes), (state, entry)| {
-            match state.as_str() {
-                "APPROVED" => approved.push(entry),
-                "CHANGES_REQUESTED" => changes.push(entry),
-                _ => {}
-            }
-            (approved, changes)
-        });
+        .fold(
+            (Vec::new(), Vec::new()),
+            |(mut approved, mut changes), (state, entry)| {
+                match state.as_str() {
+                    "APPROVED" => approved.push(entry),
+                    "CHANGES_REQUESTED" => changes.push(entry),
+                    _ => {}
+                }
+                (approved, changes)
+            },
+        );
     GithubApprovals {
         approvals_required: 0,
         approvals_left: 0,

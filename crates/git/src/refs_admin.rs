@@ -99,7 +99,10 @@ pub fn validate_remote_url(url: &str) -> Result<(), AppError> {
     // protocol colon is not part of it (`ssh://git@host/repo`), and scp-like
     // syntax (`git@host:path`) has no colon before the `@` either.
     if let Some((head, _)) = trimmed.split_once('@') {
-        let userinfo = head.rsplit_once("://").map(|(_, rest)| rest).unwrap_or(head);
+        let userinfo = head
+            .rsplit_once("://")
+            .map(|(_, rest)| rest)
+            .unwrap_or(head);
         if userinfo.contains(':') {
             return Err(AppError::new(
                 "remote.url_has_credentials",
@@ -322,7 +325,14 @@ pub fn move_tag(
         .into_iter()
         .find(|tag| tag.name == name)
         .and_then(|tag| tag.message);
-    create_tag(runner, worktree, name, message.as_deref(), Some(&next), true)
+    create_tag(
+        runner,
+        worktree,
+        name,
+        message.as_deref(),
+        Some(&next),
+        true,
+    )
 }
 
 pub fn delete_tag(runner: &GitRunner, worktree: &Path, name: &str) -> Result<(), AppError> {

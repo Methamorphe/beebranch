@@ -92,10 +92,7 @@ fn instance_id(state: &AppState) -> Result<String, AppError> {
 ///
 /// Duplicates collapse to a single id so the request stays within the
 /// provider's limits.
-async fn resolve_user_ids(
-    client: &GitlabClient,
-    names: &[String],
-) -> Result<Vec<u64>, AppError> {
+async fn resolve_user_ids(client: &GitlabClient, names: &[String]) -> Result<Vec<u64>, AppError> {
     let mut ids = Vec::with_capacity(names.len());
     for name in names {
         let id = client
@@ -103,7 +100,9 @@ async fn resolve_user_ids(
             .await
             .map_err(gitlab_error)?
             .ok_or_else(|| {
-                AppError::invalid_input(format!("L'utilisateur `{name}` est introuvable sur GitLab."))
+                AppError::invalid_input(format!(
+                    "L'utilisateur `{name}` est introuvable sur GitLab."
+                ))
             })?;
         if !ids.contains(&id) {
             ids.push(id);

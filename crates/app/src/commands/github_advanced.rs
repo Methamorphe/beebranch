@@ -2,11 +2,11 @@
 //! jobs with bounded logs.
 
 use beebranch_core::{AppError, Confirmation, ErrorCategory};
+use beebranch_git::diff::DiffReport;
 use beebranch_github::{
     GithubApprovals, GithubDiscussion, GithubJob, GithubNote, GithubPosition, GithubPullRequest,
     JobLog, Paged, PullRequestMerge, PullUpdate,
 };
-use beebranch_git::diff::DiffReport;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -359,7 +359,10 @@ pub async fn github_approve(
     let client = client(&state)?;
     let instance = instance_id(&state)?;
     let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
-    match client.approve(&repo, input.iid, input.note.as_deref()).await {
+    match client
+        .approve(&repo, input.iid, input.note.as_deref())
+        .await
+    {
         Ok(value) => Ok(GithubApprovalsDto {
             available: true,
             state: Some(value),

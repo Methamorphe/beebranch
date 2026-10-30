@@ -453,16 +453,18 @@ impl GitSubcommand {
                     ]
                 }
             }
-            Self::Rm => const {
-                &[
-                    flag("--cached"),
-                    flag("-r"),
-                    flag("-f"),
-                    flag("--force"),
-                    flag("--quiet"),
-                    flag("-q"),
-                ]
-            },
+            Self::Rm => {
+                const {
+                    &[
+                        flag("--cached"),
+                        flag("-r"),
+                        flag("-f"),
+                        flag("--force"),
+                        flag("--quiet"),
+                        flag("-q"),
+                    ]
+                }
+            }
             Self::Restore => {
                 const {
                     &[

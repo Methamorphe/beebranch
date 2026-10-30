@@ -269,10 +269,7 @@ pub async fn tag_delete_remote(
     state: State<'_, AppState>,
     request: DeleteRemoteTagRequest,
 ) -> Result<MutationResult<refs_admin::PushReport>, AppError> {
-    require_explicit(
-        &request.confirmation,
-        "la suppression du tag sur le remote",
-    )?;
+    require_explicit(&request.confirmation, "la suppression du tag sur le remote")?;
     let session = state.session(&request.repo_id)?;
     run_mutation(session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
