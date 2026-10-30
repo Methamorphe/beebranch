@@ -30,6 +30,7 @@ import {
   resolveGraphRef,
   type GraphRefKind,
 } from '../lib/graphRefs'
+import { authorAvatarStyle } from '../lib/authorAvatar'
 import styles from './GraphCanvas.module.css'
 
 export type MrBadge = {
@@ -84,6 +85,9 @@ type Props = {
 
 const ROW_HEIGHT = 30
 const OVERSCAN = 8
+/** Comfortable-density graph node: initials disc plus lane ring, within 30 px rows. */
+const AVATAR_NODE_RADIUS = 11
+const AVATAR_LANE_RING = 2.25
 
 /** Commit date and local time shown in the history date column. */
 function commitDateLabel(timestamp: number) {
@@ -172,6 +176,50 @@ function mix(color: string, target: string, ratio: number) {
   const channel = (index: number) => Math.round(from[index]! + (to[index]! - from[index]!) * ratio)
   return `rgb(${channel(0)} ${channel(1)} ${channel(2)})`
 }
+function drawGraphAuthorNode(
+  context: CanvasRenderingContext2D,
+  nodeX: number,
+  y: number,
+  radius: number,
+  laneColorValue: string,
+  avatar: ReturnType<typeof authorAvatarStyle>,
+  rowBackground: string,
+  fontFamily: string,
+  accentRing: boolean,
+  accentColor: string,
+) {
+  const inner = Math.max(4, radius - AVATAR_LANE_RING)
+  if (accentRing) {
+    context.fillStyle = rowBackground
+    context.beginPath()
+    context.arc(nodeX, y, radius + 2.4, 0, Math.PI * 2)
+    context.fill()
+  }
+  context.fillStyle = laneColorValue
+  context.beginPath()
+  context.arc(nodeX, y, radius, 0, Math.PI * 2)
+  context.fill()
+  context.fillStyle = avatar.fill
+  context.beginPath()
+  context.arc(nodeX, y, inner, 0, Math.PI * 2)
+  context.fill()
+  context.fillStyle = avatar.label
+  context.font = `600 ${Math.max(8, Math.round(inner * 0.92))}px ${fontFamily}`
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText(avatar.initials, nodeX, y + 0.5)
+  context.textAlign = 'left'
+  context.textBaseline = 'alphabetic'
+  if (accentRing) {
+    context.strokeStyle = accentColor
+    context.lineWidth = 1.5
+    context.beginPath()
+    context.arc(nodeX, y, radius + 3.2, 0, Math.PI * 2)
+    context.stroke()
+    context.lineWidth = 2
+  }
+}
+
 function fitText(context: CanvasRenderingContext2D, text: string, width: number) {
   if (width <= 0) return ''
   if (context.measureText(text).width <= width) return text
@@ -537,6 +585,7 @@ export function GraphCanvas({
     const messageRight = width - col.author - col.date
     const stripInset = 3
     const chipText = light ? '#101216' : '#F4F6FA'
+    const avatarNodes = document.documentElement.dataset.density !== 'compact'
 
     const laneX = (lane: number) => graphLeft + lane * pitch
     /** Corner radius for an elbow, capped by half the run and half a row. */
@@ -693,30 +742,48 @@ export function GraphCanvas({
       const nodeX = laneX(nodeLane)
       const isSelected = commit.sha === selected
       const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
-      const radius = isSelected ? NODE_RADIUS + 1 : NODE_RADIUS
+      const accentRing = isSelected || headCommit
       const rowBackground = mix(bgColor, raisedColor, emphasisFor(commit.sha, index))
+      const lane = laneColor(row.nodeLane)
       if (row.stash) {
         drawStashNode(
           context,
           nodeX,
           y,
-          laneColor(row.nodeLane),
+          lane,
           rowBackground,
           isSelected ? accentColor : null,
         )
         continue
       }
-      if (isSelected || headCommit) {
+      if (avatarNodes) {
+        const radius = isSelected ? AVATAR_NODE_RADIUS + 1 : AVATAR_NODE_RADIUS
+        drawGraphAuthorNode(
+          context,
+          nodeX,
+          y,
+          radius,
+          lane,
+          authorAvatarStyle(commit.author.name, commit.author.email, light),
+          rowBackground,
+          fontFamily,
+          accentRing,
+          accentColor,
+        )
+        continue
+      }
+      const radius = isSelected ? NODE_RADIUS + 1 : NODE_RADIUS
+      if (accentRing) {
         context.fillStyle = rowBackground
         context.beginPath()
         context.arc(nodeX, y, radius + 2.4, 0, Math.PI * 2)
         context.fill()
       }
-      context.fillStyle = laneColor(row.nodeLane)
+      context.fillStyle = lane
       context.beginPath()
       context.arc(nodeX, y, radius, 0, Math.PI * 2)
       context.fill()
-      if (isSelected || headCommit) {
+      if (accentRing) {
         context.strokeStyle = accentColor
         context.lineWidth = 1.5
         context.beginPath()
@@ -817,7 +884,13 @@ export function GraphCanvas({
       context.restore()
       context.font = `12px ${fontFamily}`
       context.fillStyle = mutedColor
-      if (col.author) context.fillText(fitText(context, commit.author.name, col.author - 20), width - col.author - col.date + 10, y)
+      if (col.author) {
+        context.fillText(
+          fitText(context, commit.author.name, col.author - 20),
+          width - col.author - col.date + 10,
+          y,
+        )
+      }
       if (col.date) context.fillText(fitText(context, commitDateLabel(commit.committer.timestamp), col.date - 16), width - col.date + 8, y)
 
     }
@@ -887,7 +960,10 @@ export function GraphCanvas({
     const media = window.matchMedia('(prefers-color-scheme: light)')
     media.addEventListener('change', scheduleDraw)
     const observer = new MutationObserver(scheduleDraw)
-    observer.observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-density'],
+    })
     return () => { media.removeEventListener('change', scheduleDraw); observer.disconnect() }
   }, [scheduleDraw])
 
@@ -1036,12 +1112,17 @@ export function GraphCanvas({
     } else {
       if (refHover) closeRefSoon()
       const commit = commits[index]
-      // No tooltip on a readable row: only a subject cut by the message column
-      // needs the popup to reveal its full text.
-      event.currentTarget.title =
-        commit && truncatedSubjects.current.has(commit.sha)
-          ? `${commit.subject}\n${commit.author.name} · ${commit.sha.slice(0, 12)}`
-          : ''
+      const pointerX = event.clientX - bounds.left
+      const overGraph =
+        pointerX >= layout.refs && pointerX < layout.refs + layout.graph
+      if (commit && overGraph) {
+        event.currentTarget.title = `${commit.author.name}\n${commit.author.email}`
+      } else if (commit && truncatedSubjects.current.has(commit.sha)) {
+        // Only truncated subjects need the popup; readable rows stay quiet.
+        event.currentTarget.title = `${commit.subject}\n${commit.author.name} · ${commit.sha.slice(0, 12)}`
+      } else {
+        event.currentTarget.title = ''
+      }
     }
     if (hoveredRef.current !== index) { hoveredRef.current = index; scheduleDraw() }
   }

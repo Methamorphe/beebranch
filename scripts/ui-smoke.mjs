@@ -602,7 +602,16 @@ const count = 800
 const commits = Array.from({ length: count }, (_, index) => ({
   sha: sha(index + 1),
   parents: index + 1 < count ? [sha(index + 2)] : [],
-  author: { name: index % 3 === 0 ? 'Alice' : index % 3 === 1 ? 'Bob' : 'Chloé', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
+  author: {
+    name: index % 3 === 0 ? 'Alice' : index % 3 === 1 ? 'Bob' : 'Chloé',
+    email:
+      index % 3 === 0
+        ? 'alice@example.com'
+        : index % 3 === 1
+          ? 'bob@example.com'
+          : 'chloe@example.com',
+    timestamp: 1_700_000_000 + index * 60,
+  },
   committer: { name: 'Alice', email: 'a@b.c', timestamp: 1_700_000_000 + index * 60 },
   refs: index === 0 ? ['HEAD -> main', 'origin/main', 'origin/HEAD', 'feature/group', 'origin/feature/deep', 'origin/collision', 'tag: main'] : index === 3 ? ['synced', 'origin/synced'] : index === 6 ? ['behind'] : index === 7 ? ['origin/behind'] : index === 8 ? ['other', 'origin/topic'] : index === 18 ? ['origin/hotfix'] : index === 12 ? ['feature'] : index === 5 ? ['tag: v0.1'] : [],
   subject: `Commit ${index + 1} — ${['fix graph lanes', 'add diff window', 'wire session watcher', 'document benchmarks'][index % 4]}`,
