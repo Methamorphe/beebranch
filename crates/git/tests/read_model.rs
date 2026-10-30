@@ -18,6 +18,12 @@ fn reads_refs_status_and_detects_changes() {
     let fixture = dirty_fixture();
     fixture.branch("feature");
     fixture.run(beebranch_git::GitSubcommand::Tag, &["v1"], &[]);
+    fixture.run(
+        beebranch_git::GitSubcommand::Tag,
+        &["-a", "v2", "-m", "release"],
+        &[],
+    );
+    let head = fixture.rev_parse(&["HEAD"]);
 
     let refs = read_refs(fixture.runner(), fixture.path()).expect("refs");
     assert_eq!(
@@ -32,6 +38,25 @@ fn reads_refs_status_and_detects_changes() {
         .entries
         .iter()
         .any(|entry| entry.kind == RefKind::Tag && entry.name == "v1"));
+
+    // A lightweight tag points at the commit; an annotated one points at a tag
+    // object and carries the commit it peels to, which is what the history view
+    // reveals when the tag is picked.
+    let lightweight = refs
+        .entries
+        .iter()
+        .find(|entry| entry.name == "v1")
+        .expect("lightweight tag");
+    assert_eq!(lightweight.target_oid, head);
+    assert_eq!(lightweight.peeled_oid, None);
+    let annotated = refs
+        .entries
+        .iter()
+        .find(|entry| entry.name == "v2")
+        .expect("annotated tag");
+    assert_eq!(annotated.object_type, "tag");
+    assert_ne!(annotated.target_oid, head);
+    assert_eq!(annotated.peeled_oid.as_deref(), Some(head.as_str()));
 
     fixture.write("a.txt", "changed\n");
     fixture.write("staged.txt", "staged\n");

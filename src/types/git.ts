@@ -109,6 +109,8 @@ export type RefEntry = {
   name: string
   kind: 'branch' | 'remoteBranch' | 'tag' | 'other'
   targetOid: string
+  /** Object an annotated tag peels to; absent for refs that point at their object. */
+  peeledOid?: string
   objectType: string
   upstream?: string
   isHead: boolean

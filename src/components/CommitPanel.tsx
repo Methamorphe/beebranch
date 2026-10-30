@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { commitConfig, commitCreate, statusGet } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
 import { useI18n } from '../i18n'
+import { SUBJECT_LIMIT, subjectRemaining } from '../lib/commitMessage'
 import type { CommitConfigView, CommitOutcome, OperationProgress, StatusReport } from '../types/git'
 import shared from './p1.module.css'
 import styles from './CommitPanel.module.css'
@@ -87,6 +88,9 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
     (allowEmpty || amend || (status?.counts.staged ?? 0) > 0) &&
     (message.trim().length > 0 || (amend && keepMessage))
 
+  // The limit applies to the subject line only; the body is free-form.
+  const remaining = subjectRemaining(message)
+
   const submit = async () => {
     if (!canSubmit) {
       return
@@ -169,6 +173,11 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
             aria-label={t('commit.panel.messageAria')}
             spellCheck
           />
+          <p className={`${shared.counter} ${remaining < 0 ? shared.counterOver : ''}`} data-role="commit-subject-counter" data-over={remaining < 0 ? '' : undefined}>
+            {remaining >= 0
+              ? plural('commit.panel.subjectRemaining.one', 'commit.panel.subjectRemaining.other', remaining, { limit: SUBJECT_LIMIT })
+              : plural('commit.panel.subjectOver.one', 'commit.panel.subjectOver.other', -remaining, { limit: SUBJECT_LIMIT })}
+          </p>
           <details className={styles.options}><summary>{t('commit.panel.options')}{amend ? ` · ${t('commit.panel.optionsAmend')}` : ''}{allowEmpty ? ` · ${t('commit.panel.optionsEmpty')}` : ''}</summary><div className={shared.row}>
             <label className={shared.checkbox}>
               <input

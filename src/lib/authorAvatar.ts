@@ -1,3 +1,7 @@
+// Explicit extension: `scripts/author-avatar-check.ts` imports this module
+// straight from Node, which resolves ESM specifiers literally.
+import { contrastRatio, parseHexColor, readableTextColor } from './contrast.ts'
+
 /** Lane-aligned fills from `src/styles/tokens.css` (--lane-1 … --lane-6). */
 const PALETTE_DARK = [
   '#81a9ef',
@@ -32,8 +36,8 @@ export function hashAuthorEmail(normalized: string): number {
 }
 
 function mixHex(color: string, target: string, ratio: number): string {
-  const from = parseHex(color)
-  const to = parseHex(target)
+  const from = parseHexColor(color)
+  const to = parseHexColor(target)
   if (!from || !to) return color
   const channel = (index: number) =>
     Math.round(from[index]! + (to[index]! - from[index]!) * ratio)
@@ -67,49 +71,13 @@ export function authorInitials(name: string, email: string): string {
   return fallback.toUpperCase() || '?'
 }
 
-function parseHex(value: string): [number, number, number] | null {
-  const hex = value.trim().replace('#', '')
-  const full =
-    hex.length === 3 ? hex.split('').map((digit) => digit + digit).join('') : hex
-  if (!/^[0-9a-f]{6}$/i.test(full)) return null
-  const number = Number.parseInt(full, 16)
-  return [(number >> 16) & 255, (number >> 8) & 255, number & 255]
-}
-
-function relativeLuminance(red: number, green: number, blue: number): number {
-  const channel = (value: number) => {
-    const unit = value / 255
-    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4
-  }
-  return (
-    0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
-  )
-}
-
 /** WCAG contrast ratio between a fill and a text color on top of it. */
 export function authorAvatarContrastRatio(fill: string, label: string): number {
-  const fillRgb = parseHex(fill)
-  const labelRgb = parseHex(label)
-  if (!fillRgb || !labelRgb) return 1
-  const fillLum = relativeLuminance(fillRgb[0], fillRgb[1], fillRgb[2])
-  const labelLum = relativeLuminance(labelRgb[0], labelRgb[1], labelRgb[2])
-  const lighter = Math.max(fillLum, labelLum)
-  const darker = Math.min(fillLum, labelLum)
-  return (lighter + 0.05) / (darker + 0.05)
+  return contrastRatio(fill, label)
 }
 
 export function authorAvatarLabelColor(fill: string): string {
-  const candidates: string[] = ['#171a1f', '#f4f6fa']
-  let best = candidates[0]!
-  let bestRatio = 0
-  for (const label of candidates) {
-    const ratio = authorAvatarContrastRatio(fill, label)
-    if (ratio > bestRatio) {
-      bestRatio = ratio
-      best = label
-    }
-  }
-  return best
+  return readableTextColor(fill, '#171a1f', '#f4f6fa')
 }
 
 function firstGrapheme(value: string): string {

@@ -31,6 +31,7 @@ import {
   type GraphRefKind,
 } from '../lib/graphRefs'
 import { authorAvatarStyle } from '../lib/authorAvatar'
+import { parseHexColor, pillFill, readableTextColor } from '../lib/contrast'
 import styles from './GraphCanvas.module.css'
 
 export type MrBadge = {
@@ -160,18 +161,10 @@ function defaultColumns(
   return clampColumnWidths(width, { refs, graph, author, date })
 }
 
-function hexToRgb(value: string): [number, number, number] | null {
-  const hex = value.trim().replace('#', '')
-  const full = hex.length === 3 ? hex.split('').map((digit) => digit + digit).join('') : hex
-  if (!/^[0-9a-f]{6}$/i.test(full)) return null
-  const number = Number.parseInt(full, 16)
-  return [(number >> 16) & 255, (number >> 8) & 255, number & 255]
-}
-
-/** Linear blend used for branch-tinted pills and rows. */
+/** Linear blend used for branch-tinted rows. */
 function mix(color: string, target: string, ratio: number) {
-  const from = hexToRgb(color)
-  const to = hexToRgb(target)
+  const from = parseHexColor(color)
+  const to = parseHexColor(target)
   if (!from || !to) return color
   const channel = (index: number) => Math.round(from[index]! + (to[index]! - from[index]!) * ratio)
   return `rgb(${channel(0)} ${channel(1)} ${channel(2)})`
@@ -553,12 +546,6 @@ export function GraphCanvas({
     const accentColor = computed.getPropertyValue('--accent').trim() || '#f5bb45'
     const accentTextColor =
       computed.getPropertyValue('--accent-text').trim() || accentColor
-    // Text drawn *on* the accent fill (the HEAD pill) needs the dark accent
-    // contrast color; `--accent-text` is the accent hue meant for dark
-    // backgrounds and would be unreadable on top of it.
-    const accentContrastColor =
-      computed.getPropertyValue('--accent-contrast').trim() || '#171a1f'
-    const surfaceColor = computed.getPropertyValue('--surface').trim() || '#15181e'
     const warningColor = computed.getPropertyValue('--warning').trim() || '#f0a45b'
     const infoColor = computed.getPropertyValue('--info').trim() || '#81a9ef'
     const borderColor = computed.getPropertyValue('--border').trim()
@@ -584,7 +571,6 @@ export function GraphCanvas({
     const messageX = col.refs + col.graph + 14
     const messageRight = width - col.author - col.date
     const stripInset = 3
-    const chipText = light ? '#101216' : '#F4F6FA'
     const avatarNodes = document.documentElement.dataset.density !== 'compact'
 
     const laneX = (lane: number) => graphLeft + lane * pitch
@@ -811,7 +797,11 @@ export function GraphCanvas({
         let cursorX = 12
         let drawn = 0
         for (const ref of refs) {
-          const kindColor =
+          // A pill carries the same hue as the rail it sits on, filled solid so
+          // the label separates from the row; the ink flips to dark or light
+          // whichever contrasts more on that fill. Mid-tone fills are darkened
+          // just enough for one ink to clear WCAG AA (`pillFill`).
+          const fill = pillFill(
             ref.kind === 'head'
               ? accentColor
               : ref.kind === 'tag'
@@ -820,8 +810,9 @@ export function GraphCanvas({
                   ? infoColor
                   : ref.kind === 'local'
                     ? nodeColor
-                    : mutedColor
-          const tone = ref.kind === 'head' ? accentContrastColor : chipText
+                    : raisedColor,
+          )
+          const tone = ref.kind === 'other' ? mutedColor : readableTextColor(fill)
           const iconsWidth = BADGE_ICON_WIDTH + (ref.mirrored ? BADGE_ICON_PITCH : 0)
           const available = col.refs - 10 - cursorX - iconsWidth - 14
           if (available < 20) break
@@ -831,8 +822,7 @@ export function GraphCanvas({
             context.measureText(label).width + iconsWidth + 16,
           )
           if (chipWidth < iconsWidth + 12) break
-          context.fillStyle =
-            ref.kind === 'head' ? accentColor : mix(surfaceColor, kindColor, light ? 0.2 : 0.32)
+          context.fillStyle = fill
           context.beginPath()
           context.roundRect(cursorX, y - 10, chipWidth, 20, 4)
           context.fill()
@@ -1325,7 +1315,7 @@ export function GraphCanvas({
         </div>
       ) : null}
       {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
-      <span className={styles.srOnly} role="status">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
+      <span className={styles.srOnly} role="status" data-role="graph-selection">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )
 }
