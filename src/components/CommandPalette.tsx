@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useModal } from '../hooks/useModal'
 import { useI18n } from '../i18n'
+import { rankCommands } from '../lib/palette'
 import styles from './CommandPalette.module.css'
 
 export type PaletteCommand = {
@@ -11,6 +12,8 @@ export type PaletteCommand = {
   detail?: string
   available?: boolean
   unavailableReason?: string
+  /** Relevant to the active view: ranked first when nothing was typed. */
+  contextual?: boolean
   run: () => void
 }
 
@@ -20,29 +23,18 @@ type Props = {
   onClose: () => void
 }
 
-function score(query: string, label: string): number | null {
-  if (!query) {
-    return 0
+const RECENT_KEY = 'ui.palette.recent'
+const RECENT_LIMIT = 8
+
+function readRecent(): string[] {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(RECENT_KEY) ?? '[]')
+    return Array.isArray(stored)
+      ? stored.filter((value): value is string => typeof value === 'string').slice(0, RECENT_LIMIT)
+      : []
+  } catch {
+    return []
   }
-  const haystack = label.toLowerCase()
-  const needle = query.toLowerCase()
-  const direct = haystack.indexOf(needle)
-  if (direct >= 0) {
-    return direct
-  }
-  let index = 0
-  let gaps = 0
-  for (const character of haystack) {
-    if (character === needle[index]) {
-      index += 1
-      if (index === needle.length) {
-        return 100 + gaps
-      }
-    } else if (index > 0) {
-      gaps += 1
-    }
-  }
-  return null
 }
 
 export function CommandPalette({ open, commands, onClose }: Props) {
@@ -50,18 +42,29 @@ export function CommandPalette({ open, commands, onClose }: Props) {
   const modalRef = useModal(open, onClose)
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
+  const [recent, setRecent] = useState<string[]>(readRecent)
+  const recentRef = useRef(recent)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const filtered = useMemo(() => {
-    const ranked = commands
-      .map((command) => ({
-        command,
-        score: score(query.trim(), command.label),
-      }))
-      .filter((entry): entry is { command: PaletteCommand; score: number } => entry.score !== null)
-      .sort((a, b) => Number(a.command.available === false) - Number(b.command.available === false) || a.score - b.score || a.command.label.localeCompare(b.command.label))
-    return ranked.map((entry) => entry.command)
-  }, [commands, query])
+  /** Move an executed command to the front of the persisted recents. */
+  const remember = useCallback((id: string) => {
+    const next = [id, ...recentRef.current.filter((value) => value !== id)].slice(
+      0,
+      RECENT_LIMIT,
+    )
+    recentRef.current = next
+    setRecent(next)
+    try {
+      window.localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+    } catch {
+      // Storage unavailable: recents stay session-only.
+    }
+  }, [])
+
+  const filtered = useMemo(
+    () => rankCommands(commands, query, recent),
+    [commands, query, recent],
+  )
 
   useEffect(() => {
     if (!open) {
@@ -98,6 +101,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
         const command = filtered[index]
         if (command && command.available !== false) {
           event.preventDefault()
+          remember(command.id)
           onClose()
           command.run()
         }
@@ -105,7 +109,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, filtered, index, onClose])
+  }, [open, filtered, index, onClose, remember])
 
   useEffect(() => {
     const active = listRef.current?.querySelector<HTMLElement>('[data-active="true"]')
@@ -126,7 +130,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
         }
       }}
     >
-      <div ref={modalRef} tabIndex={-1} className={styles.modal} role="dialog" aria-modal="true" aria-label="Palette de commandes">
+      <div ref={modalRef} tabIndex={-1} className={styles.modal} role="dialog" aria-modal="true" aria-label={t('shell.palette.dialogAria')}>
         <input
           value={query}
             data-autofocus
@@ -137,7 +141,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
           aria-label={t('shell.palette.searchAria')}
           spellCheck={false}
         />
-        <div className={styles.commands} ref={listRef} role="listbox" id="palette-results" aria-label="Commandes">
+        <div className={styles.commands} ref={listRef} role="listbox" id="palette-results" aria-label={t('shell.palette.commandsAria')}>
           {filtered.length === 0 ? (
             <p className={styles.empty}>{t('shell.palette.empty')}</p>
           ) : null}
@@ -157,6 +161,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
               title={command.available === false ? command.unavailableReason : undefined}
               onMouseEnter={() => setIndex(position)}
               onClick={() => {
+                remember(command.id)
                 onClose()
                 command.run()
               }}
@@ -164,7 +169,10 @@ export function CommandPalette({ open, commands, onClose }: Props) {
               <span className={styles.group}>{command.group}</span>
               <span className={styles.label}>{command.label}</span>
               {command.available === false ? (
-                <span className={styles.reason}>indisponible</span>
+                <span className={styles.reason}>
+                  {command.unavailableReason ??
+                    t('shell.palette.unavailable.generic')}
+                </span>
               ) : command.shortcut ? (
                 <kbd>{command.shortcut}</kbd>
               ) : null}
@@ -172,7 +180,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
           ))}
         </div>
         <div className={styles.footer}>
-          ↑ ↓ naviguer · ↵ exécuter
+          {t('shell.palette.footer.navigate')}
           <span>{t('shell.palette.escape')}</span>
         </div>
       </div>

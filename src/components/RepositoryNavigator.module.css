@@ -1,0 +1,33 @@
+.navigator { display:flex; flex-direction:column; flex:none; width:var(--sidebar-width,240px); min-width:180px; min-height:0; border-right:1px solid var(--border); background:var(--surface); }
+.heading { padding:12px; font-size:13px; }
+.heading strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.search { min-width:0; margin:0 10px 10px; padding:5px 8px; border:1px solid var(--border); border-radius:3px; color:var(--text); background:var(--bg); font-size:12px; }
+.sections { flex:1; min-height:0; overflow:auto; }
+.section { border-top:1px solid var(--border); }
+.sectionHeading { display:flex; align-items:center; min-height:33px; }
+.sectionHeading > button:first-child { display:flex; align-items:center; flex:1; min-width:0; gap:7px; padding:7px 10px; color:var(--muted-strong); font-size:11px; text-align:left; text-transform:uppercase; }
+.chevron { font-size:17px; line-height:12px; }
+.chevron[data-open='true'] { transform:rotate(90deg); }
+.count { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+.add { padding:3px 10px; color:var(--muted); }
+.sectionBody { padding:0 0 5px; }
+.sectionBody[hidden] { display:none; }
+.row { display:flex; align-items:center; gap:7px; width:100%; min-height:28px; padding:4px 12px 4px 24px; border-radius:0; color:var(--text); text-align:left; font-size:12px; }
+.row[data-current='true'] { color:var(--success); }
+.row[aria-current='true'] { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
+.name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.operations { display:flex; flex-direction:column; }
+.operations button { padding:5px 12px 5px 24px; font-size:12px; text-align:left; }
+/* Embedded tools respond to the explorer width, not the window width. */
+.inlineTool { display:flex; flex-direction:column; min-width:0; container:repository-tool / inline-size; }
+.inlineTool > * { min-width:0; width:100%; }
+@media (max-width:700px) { .navigator { width:165px; min-width:165px; } }
+
+.forges { display:flex; flex:none; gap:4px; padding:8px; border-top:1px solid var(--border); background:var(--surface); }
+.forges button { display:flex; flex:1; align-items:center; gap:6px; min-width:0; padding:6px; color:var(--muted-strong); font-size:11px; border:1px solid transparent; border-radius:4px; }
+.forges button[aria-pressed='true'] { color:var(--text); border-color:var(--border); background:var(--surface-raised); }
+.forgeMark { font-size:9px; font-weight:700; color:var(--text); }
+.forgeMark[data-provider='gitlab'] { color:#ef9b63; }
+.forgeStatus { flex:none; width:5px; height:5px; margin-left:auto; border-radius:50%; background:var(--muted); }
+.forgeStatus[data-connected='true'] { background:var(--success); }
+@media(max-width:700px) { .forges { gap:2px; padding:6px; } .forges button { gap:4px; padding:5px 2px; font-size:10px; } .forgeMark { display:none; } }

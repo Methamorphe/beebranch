@@ -1,4 +1,15 @@
 const messages = {
+  'forge.hub.integrations': 'Intégrations',
+  'forge.hub.disconnected': 'Non connecté',
+  'forge.hub.gitlab.subtitle': 'Projets, merge requests et pipelines.',
+  'forge.hub.github.subtitle': 'Dépôts, pull requests et checks.',
+  'forge.hub.projects': 'Dépôts',
+  'forge.hub.connection': 'Connexion',
+  'forge.hub.connectionGuide': 'Méthodes de connexion et permissions',
+  'forge.hub.connectTitle': 'Connecter {provider}',
+  'forge.hub.connectHint': 'Retrouvez vos dépôts et vos revues directement dans Beebranch.',
+  'forge.hub.manualConnection': 'Token ou instance personnalisée',
+
   // Identity of each forge: the brand stays as-is, the review noun and the
   // list title are translated like any other label.
   'forge.gitlab.noun': 'merge request',

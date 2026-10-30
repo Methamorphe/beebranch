@@ -1,6 +1,6 @@
 .root {
   display: grid;
-  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  grid-template-columns: clamp(150px, 20%, 230px) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
   border: 1px solid var(--border);
@@ -701,4 +701,9 @@
 .modeActive:hover:not(:disabled) {
   background: var(--accent-strong);
   color: var(--accent-contrast);
+}
+
+/* Editing takes the whole panel: no modal, no column to leave behind. */
+.editorMode {
+  grid-template-columns: minmax(0, 1fr);
 }

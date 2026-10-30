@@ -9,6 +9,7 @@ import {
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
 import { formatNumber, useI18n } from '../i18n'
+import type { Favourite } from '../lib/favourites'
 import styles from './Home.module.css'
 
 type CloneInput = {
@@ -29,6 +30,10 @@ type Props = {
   onClone: (input: CloneInput) => Promise<void>
   onCreate?: () => void
   onPickDirectory?: (defaultPath?: string) => Promise<string | null>
+  favourites: Favourite[]
+  onOpenFavourite: (slot: number) => void
+  onToggleFavourite: (entry: Favourite) => void
+  onMoveFavourite: (path: string, direction: -1 | 1) => void
 }
 
 function projectUrl(
@@ -73,6 +78,10 @@ export function Home({
   onClone,
   onCreate,
   onPickDirectory,
+  favourites,
+  onOpenFavourite,
+  onToggleFavourite,
+  onMoveFavourite,
 }: Props) {
   const { t, plural } = useI18n()
   const [mode, setMode] = useState<'idle' | 'clone'>('idle')
@@ -550,6 +559,75 @@ export function Home({
         ) : null}
       </section>
 
+      {favourites.length > 0 ? (
+        <section
+          className={styles.recent}
+          aria-label={t('shell.favourites.title')}
+        >
+          <div className={styles.sectionHeading}>
+            <h2>{t('shell.favourites.title')}</h2>
+            <span>{t('shell.favourites.hint')}</span>
+          </div>
+          <div className={styles.list}>
+            {favourites.map((favourite, slot) => (
+              <div key={favourite.path} className={styles.favouriteRow}>
+                <button
+                  type="button"
+                  className={styles.repo}
+                  onClick={() => onOpenFavourite(slot)}
+                  title={favourite.path}
+                >
+                  <span className={styles.repoIcon} aria-hidden="true">
+                    ★
+                  </span>
+                  <span className={styles.repoText}>
+                    <strong>{favourite.name}</strong>
+                    <span>{favourite.path}</span>
+                  </span>
+                  <kbd>{`⌘⌥${slot + 1}`}</kbd>
+                </button>
+                <span className={styles.favouriteActions}>
+                  <button
+                    type="button"
+                    aria-label={t('shell.favourites.moveUp', {
+                      name: favourite.name,
+                    })}
+                    disabled={slot === 0}
+                    onClick={() => onMoveFavourite(favourite.path, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('shell.favourites.moveDown', {
+                      name: favourite.name,
+                    })}
+                    disabled={slot === favourites.length - 1}
+                    onClick={() => onMoveFavourite(favourite.path, 1)}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('shell.favourites.remove', {
+                      name: favourite.name,
+                    })}
+                    onClick={() =>
+                      onToggleFavourite({
+                        path: favourite.path,
+                        name: favourite.name,
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className={styles.recent} aria-label={t('shell.home.recentRepos')}>
         <div className={styles.sectionHeading}>
           <h2>{t('shell.home.resumeWork')}</h2>
@@ -587,26 +665,48 @@ export function Home({
         ) : null}
         {recent.length ? (
           <div className={styles.list}>
-            {filteredRecent.map((entry) => (
-              <button
-                key={entry.repoId}
-                type="button"
-                className={styles.repo}
-                onClick={() => onOpen(entry.path)}
-                title={entry.path}
-              >
-                <span className={styles.repoIcon} aria-hidden="true">
-                  ⑂
-                </span>
-                <span className={styles.repoText}>
-                  <strong>{entry.name ?? entry.path.split('/').pop()}</strong>
-                  <span>{entry.path}</span>
-                </span>
-                <span className={styles.arrow} aria-hidden="true">
-                  →
-                </span>
-              </button>
-            ))}
+            {filteredRecent.map((entry) => {
+              const name =
+                entry.name ?? entry.path.split(/[\\/]/).filter(Boolean).pop() ?? entry.path
+              const isFavourite = favourites.some(
+                (favourite) => favourite.path === entry.path,
+              )
+              return (
+                <div key={entry.repoId} className={styles.favouriteRow}>
+                  <button
+                    type="button"
+                    className={styles.repo}
+                    onClick={() => onOpen(entry.path)}
+                    title={entry.path}
+                  >
+                    <span className={styles.repoIcon} aria-hidden="true">
+                      ⑂
+                    </span>
+                    <span className={styles.repoText}>
+                      <strong>{name}</strong>
+                      <span>{entry.path}</span>
+                    </span>
+                    <span className={styles.arrow} aria-hidden="true">
+                      →
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.star}
+                    aria-pressed={isFavourite}
+                    aria-label={t(
+                      isFavourite
+                        ? 'shell.favourites.removeAria'
+                        : 'shell.favourites.addAria',
+                      { name },
+                    )}
+                    onClick={() => onToggleFavourite({ path: entry.path, name })}
+                  >
+                    {isFavourite ? '★' : '☆'}
+                  </button>
+                </div>
+              )
+            })}
             {filteredRecent.length === 0 ? (
               <p className={styles.searchEmpty} role="status">
                 {t('shell.home.noRecentMatch', { query: recentQuery.trim() })}

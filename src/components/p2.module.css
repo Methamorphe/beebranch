@@ -1282,3 +1282,30 @@
   flex-direction: column;
   gap: 4px;
 }
+
+/* A repository section can be narrow even in a wide desktop window. */
+@container repository-tool (max-width: 420px) {
+  .screen { flex:none; overflow:visible; }
+  .screenBody { flex:none; flex-direction:column; overflow:visible; }
+  .screenMain, .screenMain[data-fill='true'] { flex:none; overflow:visible; }
+  .screenAside, .inbox { width:auto; min-width:0; max-width:100%; max-height:none; overflow:visible; border-left:0; border-right:0; }
+  .screenAside { padding:10px; border-top:1px solid var(--border); }
+  .detailPane { overflow:visible; }
+  .toolbar { gap:6px; padding:8px; align-items:flex-start; }
+  .toolbar > .spacer { display:none; }
+  .listHeader { flex-wrap:wrap; gap:6px; padding:8px; }
+  .listHeader > * { min-width:0; max-width:100%; overflow-wrap:anywhere; }
+  .fieldInline, .toolbar > .field, .grow { flex:1 1 100%; width:100%; min-width:0; }
+  .field input, .field select, .field textarea,
+  .fieldInline input, .fieldInline select { width:100%; min-width:0; max-width:100%; box-sizing:border-box; }
+  .formRow, .actionRow { grid-template-columns:minmax(0,1fr); }
+  .entry { grid-template-columns:auto minmax(0,1fr); gap:6px; padding:8px; }
+  .entryActions { grid-column:2; min-width:0; justify-content:flex-start; }
+  .entryMeta { flex-wrap:wrap; gap:4px; white-space:normal; }
+  .entryMeta > span, .entryStack .linkButton { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+  .hintBar, .asideHint, .alert, .empty p, .actionRowHint { overflow-wrap:anywhere; }
+  .segmented { display:flex; flex-wrap:wrap; max-width:100%; }
+  .chip { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+  .toolbar button, .entryActions button, .asideSection > button { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+  .actionRowControls { min-width:0; flex-wrap:wrap; justify-content:flex-start; }
+}

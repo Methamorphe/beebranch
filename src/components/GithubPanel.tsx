@@ -18,6 +18,7 @@ import { githubForge, tokenCreateUrl, type ForgeNotice } from '../lib/forge'
 import type { GitlabProject, GitlabSession } from '../types/git'
 import { RichMessage } from './GitlabPanel'
 import { ReviewRequestsPanel } from './ReviewRequestsPanel'
+import { ForgeHubHeader, type ForgeHubTab } from './ForgeHubHeader'
 import styles from './GitlabPanel.module.css'
 
 type Props = {
@@ -40,6 +41,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<ForgeNotice>(null)
   const [editing, setEditing] = useState(false)
+  const [hubTab, setHubTab] = useState<ForgeHubTab>('reviews')
   const [device, setDevice] = useState<{
     userCode: string
     verificationUri: string
@@ -124,6 +126,8 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
         caPem: caPem.trim() || undefined,
       })
       setSession(connected)
+      setHubTab('reviews')
+      onLinked?.()
       setToken('')
       setEditing(false)
       setNotice({ key: 'forge.connect.notice.validated' })
@@ -145,6 +149,8 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
         displayName: displayName || undefined,
       })
       setSession(connected)
+      setHubTab('reviews')
+      onLinked?.()
       setEditing(false)
       setNotice(
         connected.credentialSource
@@ -169,6 +175,8 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
         clearPoll()
         setDevice(null)
         setSession(result.session)
+        setHubTab('reviews')
+        onLinked?.()
         setEditing(false)
         setNotice({ key: 'forge.connect.notice.oauth' })
         await loadProjects()
@@ -225,6 +233,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
     try {
       await githubDisconnect()
       setSession({ connected: false })
+      onLinked?.()
       setEditing(false)
       setProjects([])
       setNextPage(undefined)
@@ -236,12 +245,17 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
     }
   }
 
+  const activeTab = session?.connected ? hubTab : 'connection'
+  const supportsDeviceFlow = !baseUrl.trim() || /^https:\/\/(www\.)?github\.com(\/|$)/i.test(baseUrl.trim())
+
   return (
-    <div className={styles.root}>
-      <div className={styles.top}>
-        <section className={styles.connection}>
+    <div className={styles.root} data-forge="github">
+      <ForgeHubHeader provider="github" session={session} active={activeTab} count={projects.length} onSelect={setHubTab} />
+      <div className={styles.top} hidden={activeTab === 'reviews'}>
+        <section className={styles.connection} role="tabpanel" id="github-panel-connection" aria-labelledby="github-tab-connection" hidden={activeTab !== 'connection'}>
           <header className={styles.header}>
-            <h2>GitHub</h2>
+            <h2>{t('forge.hub.connection')}</h2>
+          <details className={styles.connectionGuide}><summary>{t('forge.hub.connectionGuide')}</summary>
             <p>
               <RichMessage
                 template={t('forge.connect.github.description')}
@@ -255,15 +269,23 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                 }}
               />
             </p>
-          </header>
+          </details>
+        </header>
 
-          {session && !session.connected && session.instance ? (
+          {session?.connected === false && !device && supportsDeviceFlow ? <div className={styles.connectPrompt}>
+          <h3>{t('forge.hub.connectTitle', { provider: 'GitHub' })}</h3>
+          <p>{t('forge.hub.connectHint')}</p>
+          <button type="button" className={styles.primary} disabled={busy} onClick={() => void startDeviceFlow()}>
+            {t('forge.connect.github.deviceButton')}
+          </button>
+        </div> : null}
+        {session && !session.connected && session.instance ? (
             <p className={styles.missingToken}>
               {t('forge.connect.missingToken', { url: session.instance.baseUrl })}
             </p>
           ) : null}
 
-          {session?.connected && !editing ? (
+          {session === null && !error ? <p className={styles.empty} role="status">{t('common.loading')}</p> : session?.connected && !editing ? (
             <div className={styles.identity}>
               <span className={styles.badge}>{t('forge.connect.badge.connected')}</span>
               {session.credentialSource && session.credentialSource !== 'keychain' ? (
@@ -316,6 +338,8 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
               </button>
             </div>
           ) : (
+            <details className={styles.advanced} open={editing || !supportsDeviceFlow}>
+              <summary>{t('forge.hub.manualConnection')}</summary>
             <form className={styles.form} onSubmit={submit}>
               {session?.connected ? (
                 <p className={styles.notice}>
@@ -383,17 +407,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                 >
                   {t('forge.connect.useGitCredentials')}
                 </button>
-                {baseUrl.trim() === '' ||
-                /^https:\/\/(www\.)?github\.com(\/|$)/i.test(baseUrl.trim()) ? (
-                  <button
-                    type="button"
-                    className={styles.secondary}
-                    onClick={() => void startDeviceFlow()}
-                    disabled={busy}
-                  >
-                    {t('forge.connect.github.deviceButton')}
-                  </button>
-                ) : null}
+
                 {session?.connected ? (
                   <button type="button" onClick={() => setEditing(false)} disabled={busy}>
                     {t('common.cancel')}
@@ -401,6 +415,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                 ) : null}
               </span>
             </form>
+            </details>
           )}
 
           {session?.connected &&
@@ -423,7 +438,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
         </section>
 
         {session?.connected ? (
-          <section className={styles.projects}>
+          <section className={styles.projects} role="tabpanel" id="github-panel-projects" aria-labelledby="github-tab-projects" hidden={activeTab !== 'projects'}>
             <header className={styles.projectsHeader}>
               <h3>{t('forge.projects.github.title')}</h3>
               <form
@@ -480,6 +495,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
                               },
                             })
                             onLinked?.()
+                          setHubTab('reviews')
                           })
                           .catch((cause: unknown) => setError(errorMessage(cause)))
                       }}
@@ -504,6 +520,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
         ) : null}
       </div>
       {session?.connected ? (
+        <div className={styles.reviews} role="tabpanel" id="github-panel-reviews" aria-labelledby="github-tab-reviews" hidden={activeTab !== 'reviews'}>
         <ReviewRequestsPanel
           api={githubForge}
           repoId={repoId}
@@ -515,6 +532,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
             }
           }}
         />
+        </div>
       ) : null}
     </div>
   )

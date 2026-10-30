@@ -68,6 +68,28 @@ keeps its height, the panel closes through its button or `Échap`. The status
 bar remains actionable (branch, counters, operations, GitLab), and its
 Operations menu exposes the recent journal without turning feedback into toasts.
 
+### Interaction principles
+
+- With a repository open, the left column is a single repository explorer:
+  local and remote refs, tags, stashes, worktrees, submodules, reviews and patches.
+  These sections expand in place; they are not links to destination pages.
+- Clicking a ref or stash selects and reveals its commit in the graph. A branch
+  double-click checks it out; context actions operate directly on the object.
+  Stashes have no dedicated screen: creation is direct, and apply/pop/drop are
+  available from their graph rows and repository entries.
+- The three regions stay fixed: repository explorer on the left, history or
+  code in the center, selection details and files on the right. Diffs, conflict
+  resolution and rebase editing replace the central graph. Closing the editor
+  restores that same graph and its position. No lower tool dock is added.
+- Content stays in the main pane: editing, diffs, logs, review details and
+  history replace the current panel instead of opening a dialog or another page.
+- A dialog is reserved for a destructive confirmation or a short form the user
+  must answer before continuing. A file is never edited in a modal.
+- Saving does not eject the user: the editor stays open on the saved bytes and
+  the surrounding view refreshes underneath it.
+- An action that can be completed in place must not navigate away from the
+  repository.
+
 ## 5. Tokens
 
 | Token | Dark | Light | Usage |

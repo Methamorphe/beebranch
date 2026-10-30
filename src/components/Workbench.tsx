@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react'
-import type { ViewId } from '../data/navigation'
+import { navigationItems, type ViewId } from '../data/navigation'
 import {
   branchCheckout,
   branchCheckoutAt,
@@ -31,7 +31,11 @@ import {
   preferenceGet,
   preferenceSet,
   refsGet,
+  tagDelete,
+  tagPush,
+  stashList,
   stashApply,
+  stashCreate,
   stashDrop,
   stashPop,
   syncFetchAll,
@@ -47,6 +51,8 @@ import type { MediaSettings } from '../lib/mediaSettings'
 import { projectWebUrl, refWebUrl } from '../lib/refLinks'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import {
+  SIDEBAR_MIN,
+  SIDEBAR_MAX,
   INSPECTOR_MAX,
   INSPECTOR_MIN,
   defaultInspectorWidth,
@@ -63,6 +69,7 @@ import type {
   RefEntry,
   RefsSnapshot,
   RepoView,
+  StashEntry,
   Workspace,
 } from '../types/git'
 import type { ShortcutMap } from '../lib/shortcuts'
@@ -98,11 +105,11 @@ import { DiffViewer, type DocumentReader } from './DiffViewer'
 import { GitlabPanel } from './GitlabPanel'
 import { GithubPanel } from './GithubPanel'
 import { githubForge, gitlabForge } from '../lib/forge'
+import { RepositoryNavigator } from './RepositoryNavigator'
 import { GraphCanvas } from './GraphCanvas'
 import { RecoveryPanel } from './RecoveryPanel'
 import { RepoStatus } from './RepoStatus'
 import { SearchPanel } from './SearchPanel'
-import { StashPanel } from './StashPanel'
 import { SquashDialog } from './SquashDialog'
 import { SyncPanel } from './SyncPanel'
 import { TagDialog } from './TagDialog'
@@ -123,7 +130,8 @@ type Props = {
   onOpenRepo: (path: string) => void
   onMutated: () => void
   onUndo: () => Promise<unknown>
-  onNavigate: (view: ViewId) => void
+  onNavigate: (view: ViewId) => boolean
+  onRegisterNavigationGuard: (guard: (() => boolean) | null) => void
   gitlabConnected: boolean
   githubConnected: boolean
   theme: 'dark' | 'light' | 'system'
@@ -236,6 +244,7 @@ export function Workbench({
   onMutated,
   onUndo,
   onNavigate,
+  onRegisterNavigationGuard,
   gitlabConnected,
   githubConnected,
   theme,
@@ -361,11 +370,28 @@ export function Workbench({
   const hasChanges = Boolean(changes && (changes.staged > 0 || changes.unstaged > 0 || changes.untracked > 0 || changes.conflicted > 0))
   const [worktreeSelected, setWorktreeSelected] = useState(false)
   const showWorktree = worktreeSelected
+  const [stashBusy, setStashBusy] = useState(false)
+  const stashPending = useRef(false)
+  const [stashEntries, setStashEntries] = useState<StashEntry[]>([])
   const [historyTool, setHistoryTool] = useState<'stash' | 'rebase' | 'conflicts' | null>(null)
   /** Unsaved conflict draft or rebase plan owned by the lower dock. */
   const [toolDirty, setToolDirty] = useState(false)
+  useEffect(() => {
+    onRegisterNavigationGuard(() => {
+      if (!toolDirty) return true
+      if (!window.confirm(t('workbench.history.discardDraft'))) return false
+      setToolDirty(false)
+      return true
+    })
+    return () => onRegisterNavigationGuard(null)
+  }, [toolDirty, onRegisterNavigationGuard, t])
+  useEffect(() => {
+    let cancelled = false
+    if (repoId) void stashList(repoId).then((entries) => { if (!cancelled) setStashEntries(entries) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [repoId, generation])
   const [rebaseBase, setRebaseBase] = useState('')
-  const [toolExpanded, setToolExpanded] = useState(false)
+  const [reveal, setReveal] = useState<{ sha: string; serial: number }>()
   const [selected, setSelected] = useState<string | undefined>()
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -472,7 +498,7 @@ export function Workbench({
       .filter((commit): commit is CommitSummary => commit !== undefined)
   }, [comparison, graph.commits])
   /**
-   * The patch that replaces the history region: a local file, or the compared
+   * The patch displayed below the history: a local file, or the compared
    * file picked in the inspector. Memoised so the diff effect only refetches
    * when the request itself changes.
    */
@@ -517,12 +543,11 @@ export function Workbench({
     [documentReader, diffRequest],
   )
   const activeDiff =
-    view === 'graph' || view === 'status' || view === 'commit'
-      ? previewDiff
-      : diffRequest
+    view === 'diff' ? diffRequest : previewDiff
   const [branchTarget, setBranchTarget] = useState<string | null>(null)
   const [branchName, setBranchName] = useState('')
   const [refMenu, setRefMenu] = useState<RefMenuState | null>(null)
+  const [pendingTagDelete, setPendingTagDelete] = useState<RefEntry | null>(null)
   const [pendingDelete, setPendingDelete] = useState<RefEntry | null>(null)
   /** Stash entry awaiting an irreversible drop confirmation. */
   const [pendingStashDrop, setPendingStashDrop] = useState<{ selector: string; sha: string } | null>(null)
@@ -543,12 +568,16 @@ export function Workbench({
     previousHistoryRequest.current = historyRequest.serial
     // A shell shortcut must not silently replace an unsaved draft either.
     if (toolDirty && !window.confirm(t('workbench.history.discardDraft'))) return
+    if (historyRequest.kind === 'stash') {
+      onNavigate('stash')
+      return
+    }
     setHistoryTool(historyRequest.kind)
     setToolDirty(false)
     setLocalDiff(null)
     if (historyRequest.kind === 'rebase') setRebaseBase('')
     setComparePath(null)
-  }, [historyRequest, toolDirty, t])
+  }, [historyRequest, toolDirty, t, onNavigate])
   const operationKey = repo?.state.operation?.kind ?? (repo?.state.conflicts.files.length ? 'conflicts' : null)
   const previousOperation = useRef(operationKey)
   useEffect(() => {
@@ -606,7 +635,7 @@ export function Workbench({
   }, [])
 
   useEffect(() => {
-    if (!repoId || view !== 'graph') {
+    if (!repoId) {
       setBadges({})
       setLinkWebUrl(null)
       setLinkProvider(null)
@@ -681,7 +710,7 @@ export function Workbench({
         window.clearInterval(timer)
       }
     }
-  }, [repoId, generation, view])
+  }, [repoId, generation])
 
   useEffect(() => {
     if (!repoId || !selected) {
@@ -864,6 +893,18 @@ export function Workbench({
     [onMutated, onPushRejected],
   )
 
+  const createQuickStash = async () => {
+    if (!repoId || stashPending.current || !hasChanges || repo?.state.head?.kind === 'unborn' || repo?.state.operation || repo?.state.conflicts.files.length) return
+    stashPending.current = true
+    setStashBusy(true)
+    try {
+      await runAction(t('commit.stash.createdNotice'), () => stashCreate({ repoId, includeUntracked: true }))
+    } finally {
+      stashPending.current = false
+      setStashBusy(false)
+    }
+  }
+
   /**
    * Git rewrites HEAD only, so the action is offered exactly for that commit
    * and never while another operation owns the index.
@@ -920,6 +961,7 @@ export function Workbench({
     if (previousBranchRequest.current === branchRequest) return
     previousBranchRequest.current = branchRequest
     if (view === 'graph') {
+      setLocalDiff(null); setComparePath(null); setHistoryTool(null)
       startBranchCreate()
     }
   }, [branchRequest, startBranchCreate, view])
@@ -1109,79 +1151,302 @@ export function Workbench({
     }
   }
 
-  if (view === 'profiles') {
-    return (
-      <div className={styles.content}>
-        <ProfilesPanel
-          repoId={repoId}
-          connected={gitlabConnected}
-          theme={theme}
-          onThemeChange={onThemeChange}
-          density={density}
-          onDensityChange={onDensityChange}
-          background={background}
-          backgroundError={backgroundError}
-          onBackgroundChange={onBackgroundChange}
-          splash={splash}
-          splashError={splashError}
-          onSplashChange={onSplashChange}
-          onMutated={onMutated}
-          onOpenGitlab={() => onNavigate('gitlab')}
-          shortcuts={shortcuts}
-          shortcutConflict={shortcutConflict}
-          onShortcutsChange={onShortcutsChange}
-        />
-      </div>
-    )
-  }
-
-  if (view === 'recovery') {
-    return (
-      <div className={styles.content}>
-        <RecoveryPanel onOpenRepo={onOpenRepo} />
-      </div>
-    )
-  }
-
-  if (view === 'gitlab') {
-    return (
-      <div className={styles.content}>
-        <GitlabPanel repoId={repoId} generation={generation} onLinked={onMutated} />
-      </div>
-    )
-  }
-
-  if (view === 'github') {
-    return (
-      <div className={styles.content}>
-        <GithubPanel repoId={repoId} generation={generation} onLinked={onMutated} />
-      </div>
-    )
-  }
-
-  if (view === 'workspaces') {
-    return (
-      <div className={styles.content}>
-        <WorkspacesPanel
-          onOpenRepo={onOpenRepo}
-          activeWorkspaceId={activeWorkspaceId}
-          onActivateWorkspace={onActivateWorkspace}
-          onWorkspacesChanged={onWorkspacesChanged}
-        />
-      </div>
-    )
-  }
-
-  if (!repo || !repoId) {
-    return (
-      <div className={styles.content}>
-        <div className={styles.placeholder}>
-          <h2>{t('workbench.empty.noRepo.title')}</h2>
-          <p>{t('workbench.empty.noRepo.body')}</p>
+  // Secondary tools share the workspace; the graph never unmounts.
+  const renderTool = (toolView = view) => {
+    if (toolView === 'profiles') {
+      return (
+        <div className={styles.content}>
+          <ProfilesPanel
+            repoId={repoId}
+            connected={gitlabConnected}
+            theme={theme}
+            onThemeChange={onThemeChange}
+            density={density}
+            onDensityChange={onDensityChange}
+            background={background}
+            backgroundError={backgroundError}
+            onBackgroundChange={onBackgroundChange}
+            splash={splash}
+            splashError={splashError}
+            onSplashChange={onSplashChange}
+            onMutated={onMutated}
+            onOpenGitlab={() => onNavigate('gitlab')}
+            shortcuts={shortcuts}
+            shortcutConflict={shortcutConflict}
+            onShortcutsChange={onShortcutsChange}
+          />
         </div>
-      </div>
-    )
+      )
+    }
+
+    if (toolView === 'recovery') {
+      return (
+        <div className={styles.content}>
+          <RecoveryPanel onOpenRepo={onOpenRepo} />
+        </div>
+      )
+    }
+
+    if (toolView === 'gitlab') {
+      return (
+        <div className={styles.content}>
+          <GitlabPanel repoId={repoId} generation={generation} onLinked={onMutated} />
+        </div>
+      )
+    }
+
+    if (toolView === 'github') {
+      return (
+        <div className={styles.content}>
+          <GithubPanel repoId={repoId} generation={generation} onLinked={onMutated} />
+        </div>
+      )
+    }
+
+    if (toolView === 'workspaces') {
+      return (
+        <div className={styles.content}>
+          <WorkspacesPanel
+            onOpenRepo={onOpenRepo}
+            activeWorkspaceId={activeWorkspaceId}
+            onActivateWorkspace={onActivateWorkspace}
+            onWorkspacesChanged={onWorkspacesChanged}
+          />
+        </div>
+      )
+    }
+
+    if (!repo || !repoId) {
+      return (
+        <div className={styles.content}>
+          <div className={styles.placeholder}>
+            <h2>{t('workbench.empty.noRepo.title')}</h2>
+            <p>{t('workbench.empty.noRepo.body')}</p>
+          </div>
+        </div>
+      )
+    }
+
+    if (toolView === 'sync') {
+      return (
+        <SyncPanel
+          repoId={repoId}
+          generation={generation}
+          onMutated={onMutated}
+          onPushRejected={onPushRejected}
+        />
+      )
+    }
+
+    if (toolView === 'stash') return null
+
+    if (toolView === 'search') {
+      return (
+        <SearchPanel
+          repoId={repoId}
+          onOpenDiff={onOpenDiff}
+          onShowInGraph={(sha) => {
+            setSelected(sha)
+            setWorktreeSelected(false)
+            onNavigate('graph')
+          }}
+          onOpenFile={(path) => {
+            setFilePath(path)
+            onNavigate('fileHistory')
+          }}
+        />
+      )
+    }
+
+    if (toolView === 'tools') {
+      return <ToolsPanel repoId={repoId} />
+    }
+
+    if (toolView === 'conflicts') {
+      return (
+        <ConflictsPanel
+          repoId={repoId}
+          generation={generation}
+          state={repo.state}
+          onMutated={onMutated}
+          onDirtyChange={setToolDirty}
+        />
+      )
+    }
+
+    if (toolView === 'rebase') {
+      return (
+        <RebasePanel
+          key={rebaseBase}
+          initialUpstream={rebaseBase}
+          repoId={repoId}
+          generation={generation}
+          state={repo.state}
+          onMutated={onMutated}
+          onDirtyChange={setToolDirty}
+          onNavigateConflicts={() => onNavigate('conflicts')}
+          onAmendHead={(sha) => setAmendTarget({ sha, subject: '' })}
+        />
+      )
+    }
+
+    if (toolView === 'worktrees') {
+      return (
+        <WorktreesPanel
+          repoId={repoId}
+          generation={generation}
+          onMutated={onMutated}
+          onOpenRepo={onOpenRepo}
+        />
+      )
+    }
+
+    if (toolView === 'tags' || toolView === 'remotes') {
+      return (
+        <RefsAdminPanel
+          repoId={repoId}
+          generation={generation}
+          key={toolView}
+          initialTab={toolView === 'tags' ? 'tags' : 'remotes'}
+          onMutated={onMutated}
+        />
+      )
+    }
+
+    if (toolView === 'submodules') {
+      return (
+        <SubmodulesPanel
+          repoId={repoId}
+          generation={generation}
+          onMutated={onMutated}
+          onOpen={(path) => onOpenRepo(`${repo.repo.worktree}/${path}`)}
+        />
+      )
+    }
+
+    if (toolView === 'patches') {
+      return <PatchesPanel repoId={repoId} onMutated={onMutated} />
+    }
+
+    if (toolView === 'activity') {
+      return <ActivityPanel repoId={repoId} />
+    }
+
+    if (toolView === 'fileHistory') {
+      return (
+        <FileHistoryPanel
+          repoId={repoId}
+          generation={generation}
+          initialPath={filePath || undefined}
+          onShowCommit={(sha) => {
+            setSelected(sha)
+            setWorktreeSelected(false)
+            onNavigate('graph')
+          }}
+          onShowDiff={(path, revision) =>
+            onOpenDiff({ target: 'commit', base: revision, path })
+          }
+        />
+      )
+    }
+
+    if (toolView === 'mrs' || toolView === 'prs') {
+      const api = toolView === 'prs' ? githubForge : gitlabForge
+      return (
+        <div className={shared.root}>
+          <ReviewRequestsPanel
+            api={api}
+            repoId={repoId}
+            generation={generation}
+            connected={toolView === 'prs' ? githubConnected : gitlabConnected}
+            onCheckout={(branch: string) =>
+              void runAction(t('workbench.notice.checkout', { branch }), () =>
+                branchCheckout({ repoId, name: branch }),
+              )
+            }
+          />
+        </div>
+      )
+    }
+
+    if (toolView === 'diff') {
+      const diffCommit =
+        diffRequest?.target === 'commit' && diffRequest.base
+          ? graph.commits.find((entry) => entry.sha === diffRequest.base)
+          : undefined
+      const diffSha = diffRequest?.target === 'commit' ? diffRequest.base : undefined
+      const source = !diffRequest
+        ? t('workbench.diff.source.none')
+        : diffRequest.target === 'commit'
+          ? t('workbench.diff.source.commit', { sha: diffRequest.base?.slice(0, 8) ?? '' })
+          : diffRequest.target === 'range'
+            ? `${shortRevision(diffRequest.base ?? 'HEAD')}…${shortRevision(diffRequest.targetRef ?? 'HEAD')}`
+            : diffRequest.target === 'index'
+              ? t('workbench.diff.source.index')
+              : t('workbench.diff.source.worktree')
+      const staging =
+        diffRequest?.allowActions &&
+        repoId &&
+        !diffRequest.untracked &&
+        (diffRequest.target === 'worktree' || diffRequest.target === 'index')
+          ? {
+              repoId,
+              target: diffRequest.target,
+              onMutated,
+            }
+          : undefined
+      return (
+        <div className={styles.content}>
+          {diffError ? (
+            <div className={styles.error} role="alert">
+              {diffError}
+            </div>
+          ) : null}
+          {diffLoading ? (
+            <div className={styles.placeholder}>{t('workbench.diff.calculating')}</div>
+          ) : report ? (
+            <DiffViewer
+              report={report}
+              source={source}
+              commit={
+                diffCommit
+                  ? {
+                      sha: diffCommit.sha,
+                      subject: diffCommit.subject,
+                      author: diffCommit.author.name,
+                      timestamp: diffCommit.author.timestamp,
+                    }
+                  : undefined
+              }
+              staging={staging}
+              onAmend={
+                diffSha && canAmend(diffSha)
+                  ? () =>
+                      setAmendTarget({
+                        sha: diffSha,
+                        subject: diffCommit?.subject ?? shortRevision(diffSha),
+                      })
+                  : undefined
+              }
+              readDocument={readDiffDocument}
+              onShowHistory={(path) => {
+                setFilePath(path)
+                onNavigate('fileHistory')
+              }}
+            />
+          ) : (
+            <div className={styles.placeholder}>
+              <h2>{t('workbench.diff.empty.title')}</h2>
+              <p>{t('workbench.diff.empty.body')}</p>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    return null
   }
+  if (!repo || !repoId) return renderTool()
 
   // Amend is reachable from the graph menu and the diff view, so the dialog
   // must be mounted by both branches of the render below.
@@ -1197,220 +1462,11 @@ export function Workbench({
     />
   ) : null
 
-  if (view === 'sync') {
-    return (
-      <SyncPanel
-        repoId={repoId}
-        generation={generation}
-        onMutated={onMutated}
-        onPushRejected={onPushRejected}
-      />
-    )
-  }
-
-  if (view === 'stash') {
-    return <StashPanel repoId={repoId} generation={generation} onMutated={onMutated} />
-  }
-
-  if (view === 'search') {
-    return (
-      <SearchPanel
-        repoId={repoId}
-        onOpenDiff={onOpenDiff}
-        onShowInGraph={(sha) => {
-          setSelected(sha)
-          setWorktreeSelected(false)
-          onNavigate('graph')
-        }}
-        onOpenFile={(path) => {
-          setFilePath(path)
-          onNavigate('fileHistory')
-        }}
-      />
-    )
-  }
-
-  if (view === 'tools') {
-    return <ToolsPanel repoId={repoId} />
-  }
-
-  if (view === 'conflicts') {
-    return (
-      <ConflictsPanel
-        repoId={repoId}
-        generation={generation}
-        state={repo.state}
-        onMutated={onMutated}
-      />
-    )
-  }
-
-  if (view === 'rebase') {
-    return (
-      <RebasePanel
-        repoId={repoId}
-        generation={generation}
-        state={repo.state}
-        onMutated={onMutated}
-        onNavigateConflicts={() => onNavigate('conflicts')}
-        onAmendHead={(sha) => setAmendTarget({ sha, subject: '' })}
-      />
-    )
-  }
-
-  if (view === 'worktrees') {
-    return (
-      <WorktreesPanel
-        repoId={repoId}
-        generation={generation}
-        onMutated={onMutated}
-        onOpenRepo={onOpenRepo}
-      />
-    )
-  }
-
-  if (view === 'tags' || view === 'remotes') {
-    return (
-      <RefsAdminPanel
-        repoId={repoId}
-        generation={generation}
-        initialTab={view === 'tags' ? 'tags' : 'remotes'}
-        onMutated={onMutated}
-      />
-    )
-  }
-
-  if (view === 'submodules') {
-    return (
-      <SubmodulesPanel
-        repoId={repoId}
-        generation={generation}
-        onMutated={onMutated}
-        onOpen={(path) => onOpenRepo(`${repo.repo.worktree}/${path}`)}
-      />
-    )
-  }
-
-  if (view === 'patches') {
-    return <PatchesPanel repoId={repoId} onMutated={onMutated} />
-  }
-
-  if (view === 'activity') {
-    return <ActivityPanel repoId={repoId} />
-  }
-
-  if (view === 'fileHistory') {
-    return (
-      <FileHistoryPanel
-        repoId={repoId}
-        generation={generation}
-        initialPath={filePath || undefined}
-        onShowCommit={(sha) => {
-          setSelected(sha)
-          setWorktreeSelected(false)
-          onNavigate('graph')
-        }}
-        onShowDiff={(path, revision) =>
-          onOpenDiff({ target: 'commit', base: revision, path })
-        }
-      />
-    )
-  }
-
-  if (view === 'mrs' || view === 'prs') {
-    const api = view === 'prs' ? githubForge : gitlabForge
-    return (
-      <div className={shared.root}>
-        <ReviewRequestsPanel
-          api={api}
-          repoId={repoId}
-          generation={generation}
-          connected={view === 'prs' ? githubConnected : gitlabConnected}
-          onCheckout={(branch: string) =>
-            void runAction(t('workbench.notice.checkout', { branch }), () =>
-              branchCheckout({ repoId, name: branch }),
-            )
-          }
-        />
-      </div>
-    )
-  }
-
-  if (view === 'diff') {
-    const diffCommit =
-      diffRequest?.target === 'commit' && diffRequest.base
-        ? graph.commits.find((entry) => entry.sha === diffRequest.base)
-        : undefined
-    const diffSha = diffRequest?.target === 'commit' ? diffRequest.base : undefined
-    const source = !diffRequest
-      ? t('workbench.diff.source.none')
-      : diffRequest.target === 'commit'
-        ? t('workbench.diff.source.commit', { sha: diffRequest.base?.slice(0, 8) ?? '' })
-        : diffRequest.target === 'range'
-          ? `${shortRevision(diffRequest.base ?? 'HEAD')}…${shortRevision(diffRequest.targetRef ?? 'HEAD')}`
-          : diffRequest.target === 'index'
-            ? t('workbench.diff.source.index')
-            : t('workbench.diff.source.worktree')
-    const staging =
-      diffRequest?.allowActions &&
-      repoId &&
-      !diffRequest.untracked &&
-      (diffRequest.target === 'worktree' || diffRequest.target === 'index')
-        ? {
-            repoId,
-            target: diffRequest.target,
-            onMutated,
-          }
-        : undefined
-    return (
-      <div className={styles.content}>
-        {diffError ? (
-          <div className={styles.error} role="alert">
-            {diffError}
-          </div>
-        ) : null}
-        {diffLoading ? (
-          <div className={styles.placeholder}>{t('workbench.diff.calculating')}</div>
-        ) : report ? (
-          <DiffViewer
-            report={report}
-            source={source}
-            commit={
-              diffCommit
-                ? {
-                    sha: diffCommit.sha,
-                    subject: diffCommit.subject,
-                    author: diffCommit.author.name,
-                    timestamp: diffCommit.author.timestamp,
-                  }
-                : undefined
-            }
-            staging={staging}
-            onAmend={
-              diffSha && canAmend(diffSha)
-                ? () =>
-                    setAmendTarget({
-                      sha: diffSha,
-                      subject: diffCommit?.subject ?? shortRevision(diffSha),
-                    })
-                : undefined
-            }
-            readDocument={readDiffDocument}
-            onShowHistory={(path) => {
-              setFilePath(path)
-              onNavigate('fileHistory')
-            }}
-          />
-        ) : (
-          <div className={styles.placeholder}>
-            <h2>{t('workbench.diff.empty.title')}</h2>
-            <p>{t('workbench.diff.empty.body')}</p>
-          </div>
-        )}
-        {amendDialog}
-      </div>
-    )
-  }
+  const tool = renderTool()
+  const toolLabel = navigationItems.find((item) => item.id === view)?.labelKey
+  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'recovery'].includes(view) ? tool : null
+  const centerActive = Boolean(previewDiff || centerTool || historyTool)
+  const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
 
   /** References the graph may draw: hidden ones removed, solo respected. */
   const visibleRefs = applyVisibility(
@@ -1460,7 +1516,7 @@ export function Workbench({
             throw new Error(t('workbench.error.localBranchAlreadyTracks', { name }))
           }
           activeBranch = name
-          await branchCreate({ repoId, name, start:entry.fullName, checkout:true })
+          await branchCheckoutAt({ repoId, name, start:entry.fullName })
           await branchUpstream({ repoId, branch:name, upstream:entry.name })
         }
       }
@@ -1477,6 +1533,12 @@ export function Workbench({
   /** A dirty conflict draft or rebase plan only disappears with consent. */
   const discardDockDraft = () => !toolDirty || window.confirm(t('workbench.history.discardDraft'))
   const openHistoryTool = (kind: 'stash' | 'rebase' | 'conflicts', base = '') => {
+    if (kind === 'stash') { onNavigate('stash'); return true }
+    if (view !== 'graph') {
+      if (!onNavigate(kind)) return false
+      if (kind === 'rebase') setRebaseBase(base)
+      return true
+    }
     if (historyTool !== kind && !discardDockDraft()) return false
     setContextMenu(null)
     setRefMenu(null)
@@ -1493,12 +1555,9 @@ export function Workbench({
     setHistoryTool(null)
     setToolDirty(false)
   }
-  const openHistoryDetails = () => {
-    if (!historyTool || !discardDockDraft()) return
-    setToolDirty(false)
-    onNavigate(historyTool)
-  }
   const openWorktree = () => {
+    if ((tool || historyTool) && !onNavigate('graph')) return
+    setHistoryTool(null)
     setSelected(undefined)
     setComparison(null)
     setComparePath(null)
@@ -1513,9 +1572,9 @@ export function Workbench({
       triggerContent={<>{t('workbench.history.gitMenu')}</>}
       triggerClassName={styles.historyMenu}
     >
-      <button type="button" role="menuitem" disabled={operationBlocked}
+      <button type="button" role="menuitem" disabled={operationBlocked || !hasChanges || stashBusy || repo.state.head?.kind === 'unborn'}
         title={operationBlocked ? t('workbench.history.stashBlocked') : undefined}
-        onClick={() => openHistoryTool('stash')}>
+        onClick={() => void createQuickStash()}>
         {t('workbench.history.stash')}
       </button>
       <button type="button" role="menuitem" disabled={rebaseBlocked}
@@ -1580,13 +1639,37 @@ export function Workbench({
       ? t('workbench.history.stash')
       : t('workbench.history.operation')
 
+  const worktreeStats = [
+    { kind: 'staged', count: repo.state.worktree.staged, label: plural('workbench.graph.staged.one', 'workbench.graph.staged.other', repo.state.worktree.staged, { count: formatNumber(repo.state.worktree.staged) }), icon: 'm4 8 4 4 8-8' },
+    { kind: 'modified', count: repo.state.worktree.unstaged, label: plural('workbench.graph.unstaged.one', 'workbench.graph.unstaged.other', repo.state.worktree.unstaged, { count: formatNumber(repo.state.worktree.unstaged) }), icon: 'm12 3 3 3-8 8-4 1 1-4zM10 5l3 3' },
+    { kind: 'new', count: repo.state.worktree.untracked, label: plural('workbench.graph.untracked.one', 'workbench.graph.untracked.other', repo.state.worktree.untracked, { count: formatNumber(repo.state.worktree.untracked) }), icon: 'M8 3v10M3 8h10' },
+    ...(repo.state.worktree.conflicted > 0 ? [{ kind: 'conflicted', count: repo.state.worktree.conflicted, label: plural('shell.statusBar.conflicts.one', 'shell.statusBar.conflicts.other', repo.state.worktree.conflicted, { count: formatNumber(repo.state.worktree.conflicted) }), icon: 'm8 2 7 12H1zM8 6v3M8 11v.1' }] : []),
+  ]
+  const worktreeSummary = `${t('workbench.graph.worktreeTitle')} · ${worktreeStats.map((stat) => stat.label).join(' · ')}`
   const worktreeRow = hasChanges ? (
     <button type="button" className={styles.worktreeRow} data-role="worktree" data-active={showWorktree} aria-pressed={showWorktree}
-            onClick={() => { setSelected(undefined); setComparison(null); setComparePath(null); setLocalDiff(null); setWorktreeSelected((current) => !current) }}>
-            <span className={styles.wipRef}>{t('workbench.graph.worktreeStatus')}</span>
-            <span className={styles.wipMarker} aria-hidden="true">◌</span>
-            <span className={styles.wipMessage}><strong>{t('workbench.graph.worktreeTitle')}</strong><span>{plural('workbench.graph.staged.one', 'workbench.graph.staged.other', repo.state.worktree.staged, { count: formatNumber(repo.state.worktree.staged) })} · {plural('workbench.graph.unstaged.one', 'workbench.graph.unstaged.other', repo.state.worktree.unstaged, { count: formatNumber(repo.state.worktree.unstaged) })} · {plural('workbench.graph.untracked.one', 'workbench.graph.untracked.other', repo.state.worktree.untracked, { count: formatNumber(repo.state.worktree.untracked) })}</span></span>
-          </button>
+      aria-label={worktreeSummary} title={worktreeSummary}
+      onClick={() => {
+        if ((tool || historyTool) && !onNavigate('graph')) return
+        setHistoryTool(null)
+        setSelected(undefined); setComparison(null); setComparePath(null); setLocalDiff(null)
+        setWorktreeSelected((current) => !current || Boolean(tool || historyTool))
+      }}>
+      <span className={styles.wipRef} aria-hidden="true"><span>// WIP</span></span>
+      <span className={styles.wipMarker} aria-hidden="true" />
+      <span className={styles.wipMessage} aria-hidden="true">
+        <strong>{t('workbench.graph.worktreeTitle')}</strong>
+        <span className={styles.wipStats}>
+          {worktreeStats.map((stat) => (
+            <span key={stat.kind} className={styles.wipStat} data-kind={stat.kind} data-empty={stat.count === 0} title={stat.label}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={stat.icon} /></svg>
+              <span className={styles.wipStatLabel}>{stat.label}</span>
+              <span className={styles.wipStatCount}>{formatNumber(stat.count)}</span>
+            </span>
+          ))}
+        </span>
+      </span>
+    </button>
   ) : null
 
   const openContextMenu = (
@@ -1880,9 +1963,35 @@ export function Workbench({
         </div>
       ) : null}
       <div className={styles.graphLayout} style={{ '--inspector-width': `${layout.inspector}px` } as CSSProperties}>
+        <RepositoryNavigator name={repo.repo.name} entries={refs?.entries ?? []} stashes={stashEntries}
+          current={currentBranch} selected={selected} active={view} tools={navigatorTools}
+          busy={checkoutBusy} onNavigate={onNavigate} gitlabConnected={gitlabConnected} githubConnected={githubConnected}
+          onSelect={(sha) => {
+            if (!onNavigate('graph')) return
+            setHistoryTool(null); setSelected(sha); setReveal((previous) => ({ sha, serial: (previous?.serial ?? 0) + 1 })); setWorktreeSelected(false)
+            setComparison(null); setComparePath(null); setLocalDiff(null)
+            if (!graph.commits.some((commit) => commit.sha === sha)) setRevision(sha)
+          }}
+          onCheckout={(entry) => void checkoutGraphRef(entry.fullName)} onRefMenu={openRefMenu}
+          onStashMenu={(entry, x, y) => {
+            const commit = graph.commits.find((item) => item.sha === entry.sha)
+            if (commit) openContextMenu(commit, entry.selector, x, y)
+            else void commitGet(repoId, entry.sha).then((result) => openContextMenu(result.data.summary, entry.selector, x, y)).catch((cause) => setActionError(errorMessage(cause)))
+          }}
+          onCreateBranch={() => {
+            if (!onNavigate('graph')) return
+            setLocalDiff(null); setComparePath(null); setHistoryTool(null)
+            startBranchCreate()
+          }}
+          onCreateTag={() => setTagTarget({ sha: selected ?? headSha ?? 'HEAD', annotated: false })}
+          onCreateStash={() => void createQuickStash()} canStash={!operationBlocked && hasChanges && !stashBusy}
+        />
+        <Resizer className={styles.navigatorResizer} label={t('shell.resizer.navigation')} side="right"
+          value={layout.sidebar} min={SIDEBAR_MIN} max={SIDEBAR_MAX}
+          onChange={(sidebar) => onLayoutChange({ sidebar })} onReset={() => onLayoutChange({ sidebar: 210 })} />
         <div className={styles.historyMain}>
-          {localDiff ? worktreeRow : null}
-          <div className={styles.graphRegion} hidden={Boolean(previewDiff)}>
+
+          <div className={styles.graphRegion} hidden={centerActive}>
         {graph.commits.length === 0 && !graph.loading ? (
           <div className={styles.emptyHistory}>
             {worktreeRow}
@@ -1898,6 +2007,7 @@ export function Workbench({
             commits={graph.commits}
             rows={graph.rows}
             selected={selected}
+            reveal={reveal}
             mrBadges={badges}
             refEntries={visibleRefs}
             pin={graphPin}
@@ -1905,6 +2015,8 @@ export function Workbench({
             onCheckoutRef={(raw) => void checkoutGraphRef(raw)}
             picked={picked}
             onSelect={(sha, modifiers) => {
+              if ((tool || historyTool) && !onNavigate('graph')) return
+              setHistoryTool(null)
               setSelected(sha)
               setWorktreeSelected(false)
               setLocalDiff(null)
@@ -1971,34 +2083,36 @@ export function Workbench({
           />
         )}
           </div>
-          {previewDiff ? <>
-        <div className={styles.diffPreview} aria-label={t('workbench.preview.ariaLabel')} aria-busy={diffLoading}>
-          <div className={styles.previewHeading}>
-            <span>{previewDiff.target === 'index'
-              ? t('workbench.preview.index')
-              : previewDiff.target === 'range'
-                ? t('workbench.preview.comparison', {
-                    base: shortRevision(previewDiff.base ?? 'HEAD'),
-                    target: shortRevision(previewDiff.targetRef ?? 'HEAD'),
-                  })
-                : t('workbench.preview.worktree')}</span>
-            <code title={previewDiff.path}>{previewDiff.path}</code>
-            <button
-              type="button"
-              onClick={() => { setLocalDiff(null); setComparePath(null) }}
-              aria-label={t('workbench.preview.closeAriaLabel')}
-            >
-              ×
-            </button>
-          </div>
-          {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
-          {diffLoading ? <div className={styles.placeholder} role="status">{t('workbench.preview.loading')}</div> : report ?
-            <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument} onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }} staging={localDiff && localDiff.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index') ? { repoId, target: localDiff.target, onMutated } : undefined} /> :
-            <div className={styles.placeholder}><h2>{t('workbench.preview.emptyTitle')}</h2><p>{t('workbench.preview.emptyBodyBeforeBreak')}<br />{t('workbench.preview.emptyBodyAfterBreak')}</p></div>}
+          {centerActive ? <div className={styles.centralEditor} data-central-editor={view}>
+            <div className={styles.previewHeading}>
+              <span>{centerTool && toolLabel ? t(toolLabel) : historyTool ? toolTitle : t('workbench.preview.ariaLabel')}</span>
+              <code>{previewDiff?.path}</code>
+              <button type="button" aria-label={t(previewDiff ? 'workbench.preview.closeAriaLabel' : 'workbench.workspace.closeTool')}
+                onClick={() => {
+                  if (centerTool) onNavigate('graph')
+                  else if (historyTool) closeHistoryTool()
+                  else { setLocalDiff(null); setComparePath(null) }
+                }}>×</button>
+            </div>
+            <div className={styles.toolBody}>
+              {centerTool ?? (historyTool === 'rebase' ? <RebasePanel key={rebaseBase} repoId={repoId} generation={generation}
+                state={repo.state} initialUpstream={rebaseBase} onMutated={onMutated} onDirtyChange={setToolDirty}
+                onAmendHead={(sha) => setAmendTarget({ sha, subject: '' })}
+                onNavigateConflicts={() => openHistoryTool('conflicts')} /> :
+              historyTool === 'conflicts' ? <ConflictsPanel repoId={repoId} generation={generation} state={repo.state}
+                onMutated={onMutated} onDirtyChange={setToolDirty} /> : previewDiff ? <div className={styles.diffPreview}
+                  aria-label={t('workbench.preview.ariaLabel')} aria-busy={diffLoading}>
+                {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
+                {diffLoading ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
+                  <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument}
+                    onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }}
+                    staging={localDiff?.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index')
+                      ? { repoId, target: localDiff.target, onMutated } : undefined} /> : null}
+              </div> : null)}
+            </div>
+          </div> : null}
         </div>
-          </> : null}
-        </div>
-        {comparison || selected || showWorktree ? (
+        {!['gitlab', 'github', 'workspaces', 'profiles', 'recovery'].includes(view) && (comparison || selected || showWorktree) ? (
           <div className={styles.inspectorDock}>
             <Resizer
               className={styles.inspectorResizer}
@@ -2050,31 +2164,6 @@ export function Workbench({
           </div>
         ) : null}
       </div>
-      {historyTool ? (
-        <section className={styles.historyTool} data-expanded={toolExpanded} aria-label={toolTitle}>
-          <div className={styles.toolHeading}>
-            <strong>{toolTitle}</strong>
-            <button type="button" onClick={() => setToolExpanded((current) => !current)}
-              aria-label={t(toolExpanded ? 'workbench.history.reduce' : 'workbench.history.expand')}>
-              {t(toolExpanded ? 'workbench.history.reduce' : 'workbench.history.expand')}
-            </button>
-            <button type="button" onClick={openHistoryDetails}>
-              {t('workbench.history.details')}
-            </button>
-            <button type="button" aria-label={t('workbench.history.close')} onClick={closeHistoryTool}>×</button>
-          </div>
-          <div className={styles.toolBody}>
-            {historyTool === 'rebase' ? <RebasePanel key={rebaseBase} repoId={repoId} generation={generation}
-              state={repo.state} initialUpstream={rebaseBase} onMutated={onMutated} onDirtyChange={setToolDirty}
-              onAmendHead={(sha) => setAmendTarget({ sha, subject: '' })}
-              onNavigateConflicts={() => openHistoryTool('conflicts')} /> :
-            historyTool === 'conflicts' ? <ConflictsPanel repoId={repoId} generation={generation}
-              state={repo.state} onMutated={onMutated} onDirtyChange={setToolDirty} /> :
-            <StashPanel repoId={repoId} generation={generation} onMutated={onMutated} />}
-          </div>
-        </section>
-      ) : null}
-
       {contextMenu ? (
         <ContextMenu x={contextMenu.x} y={contextMenu.y} title={contextMenu.stash ?? contextMenu.commit.sha.slice(0, 10)} subtitle={contextMenu.commit.subject} onClose={closeMenu}>
           <div className={styles.contextActions}>
@@ -2851,6 +2940,16 @@ export function Workbench({
                 ) : null}
               </>
             ) : null}
+            {refMenu.entry.kind === 'tag' ? <>
+              {action('tag-push', 'sync', t('workbench.repository.pushTag'), () => {
+                const name = refMenu.entry.name
+                setRefMenu(null)
+                void runAction(t('workbench.repository.pushTag'), () => tagPush({ repoId, remote: refs?.remotes[0] ?? 'origin', name, confirmation: { acknowledged: true } }))
+              })}
+              {action('tag-delete', 'diff', t('workbench.repository.deleteTag'), () => {
+                setPendingTagDelete(refMenu.entry); setRefMenu(null)
+              })}
+            </> : null}
             {separator('tags')}
             {action('tag', 'tags', t('workbench.menu.createTagHere'), () => {
               const sha = refMenu.entry.targetOid
@@ -2909,6 +3008,14 @@ export function Workbench({
           )
         }}
       />
+      <ConfirmDialog open={pendingTagDelete !== null}
+        title={t('workbench.repository.deleteTag')}
+        consequence={pendingTagDelete?.name ?? ''} typed={pendingTagDelete?.name} irreversible
+        confirmLabel={t('common.delete')} onCancel={() => setPendingTagDelete(null)}
+        onConfirm={(typed) => {
+          const entry = pendingTagDelete; setPendingTagDelete(null)
+          if (entry) void runAction(t('workbench.repository.deleteTag'), () => tagDelete({ repoId, name: entry.name, confirmation: { acknowledged: true, typed } }))
+        }} />
       <ConfirmDialog
         open={pendingDelete !== null}
         title={t('workbench.deleteLocal.title', { name: pendingDelete?.name ?? '' })}

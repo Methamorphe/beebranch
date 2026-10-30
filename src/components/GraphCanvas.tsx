@@ -55,6 +55,7 @@ type Props = {
   commits: CommitSummary[]
   rows: GraphRow[]
   selected?: string
+  reveal?: { sha: string; serial: number }
   mrBadges?: Record<string, MrBadge>
   refEntries?: RefEntry[]
   checkoutDisabled?: boolean
@@ -331,6 +332,7 @@ export function GraphCanvas({
   commits,
   rows,
   selected,
+  reveal,
   mrBadges,
   onSelect,
   refEntries = [],
@@ -429,6 +431,18 @@ export function GraphCanvas({
   }
   const hoveredRef = useRef<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const revealed = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!reveal || revealed.current === reveal.serial) return
+    const index = commits.findIndex((commit) => commit.sha === reveal.sha)
+    const container = containerRef.current
+    if (index < 0 || !container) return
+    revealed.current = reveal.serial
+    const top = index * ROW_HEIGHT
+    if (top < container.scrollTop || top + ROW_HEIGHT > container.scrollTop + container.clientHeight) {
+      container.scrollTop = Math.max(0, top - container.clientHeight / 3)
+    }
+  }, [reveal, commits])
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scrollTopRef = useRef(0)
   const drawRef = useRef<() => void>(() => {})

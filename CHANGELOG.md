@@ -14,6 +14,28 @@
 
 ### Added
 
+- **Automatic stash on checkout**: switching to a local branch, remote branch
+  or detached commit saves staged, unstaged and untracked work in a named stash.
+  A failed switch restores the local work; Undo switches back and restores it
+  with its staged state. The stash stays available for manual reapplication
+  after a successful switch.
+- **Favourite repositories**: a dedicated section on the start screen lists up
+  to nine favourites, reorderable with explicit up/down actions, each openable
+  by click or with `Ctrl/⌘+Alt+1…9`; a star on every recent repository adds or
+  removes it. Favourites are also palette entries, and an empty or missing slot
+  is reported without opening anything else.
+- **Command palette completion**: executed commands are remembered and ranked
+  first, an empty palette opens on the most recently used ones, the commands of
+  the current view come before the rest, and an unavailable command now states
+  why inline. `Fetch every remote` joins the list, so every repository action
+  the shell can perform is reachable from the palette.
+- **Branch panel**: the history view gains a left-hand list of local and remote
+  branches with a search field, so a branch is one click away instead of a
+  scroll through the graph. It is toggled from the graph toolbar and starts
+  docked only on windows wide enough to keep a readable commit column. The
+  current branch is pinned on top, symbolic `origin/HEAD` entries are dropped, a
+  local click checks it out and a remote click creates the local branch tracking
+  it.
 - **Request filters and checkout**: the review list accepts
   `author:`, `label:`, `reviewer:` and `state:`, prefixed with `-` to exclude,
   with completion taken from the loaded requests and an explicit report for an
@@ -91,13 +113,20 @@
   an optional signing key and format (OpenPGP, SSH, X.509) applied to the
   commits created in the application only. The commit panel shows Git's
   verification code (`G`, `B`, `U`, `N`, …) instead of guessing.
-- **In-app file editing**: a file opened from a working-tree diff can be edited
-  and written back, saved alone or saved and staged in one action. The write is
-  atomic, keeps the configured encoding (UTF-8, UTF-16 LE, Windows-1252 — an
-  unrepresentable character is refused rather than mangled), and carries the
-  SHA-256 of the bytes the editor started from so a file modified outside the
-  application is refused instead of overwritten. Markdown files get a preview
-  toggle; binary and truncated files are read-only.
+- **In-app file editing**: editing a file opened from a working-tree diff
+  switches the diff viewer itself into a full-pane editor — no dialog, no page
+  change. The editor is **CodeMirror 6**: syntax highlighting for
+  TypeScript/JavaScript (JSX/TSX), Python, Rust, JSON, Markdown, shell and YAML
+  (plain text otherwise), line numbers, active line, bracket matching, search,
+  tab indentation and a local undo history, themed from the application palette.
+  Saving keeps the editor open (the saved bytes become the new baseline) and the
+  file's original line endings are re-applied, so a CRLF file stays CRLF. The
+  write is atomic, keeps the configured encoding (UTF-8, UTF-16 LE,
+  Windows-1252 — an unrepresentable character is refused rather than mangled),
+  and carries the SHA-256 of the bytes the editor started from so a file
+  modified outside the application is refused instead of overwritten. Markdown
+  files get a preview toggle; binary and truncated files are read-only.
+  CodeMirror lives in its own chunk, loaded on the first edit.
 - **Workspaces**: pick the repositories a batch acts on, choose the pull
   strategy applied to the batch, open the selection in the configured editor,
   export the workspace as a `.code-workspace` document, and import one — invalid

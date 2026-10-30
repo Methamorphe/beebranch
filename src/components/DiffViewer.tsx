@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -12,9 +14,16 @@ import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
 import { dateFromSeconds, formatDate, formatNumber, useI18n, type MessageKey } from '../i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Markdown } from './Markdown'
-import { FileEditorDialog } from './FileEditorDialog'
 import shared from './p1.module.css'
 import styles from './DiffViewer.module.css'
+
+// CodeMirror and the language modes are only needed once a file is edited:
+// keeping them in a separate chunk leaves startup untouched.
+const FileEditorPane = lazy(() =>
+  import('./FileEditorPane').then((module) => ({
+    default: module.FileEditorPane,
+  })),
+)
 
 type Mode = 'hunk' | 'inline' | 'split'
 
@@ -517,6 +526,29 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     return () => observer.disconnect()
   }, [])
 
+  // Editing replaces the whole viewer: no modal, no navigation away from the
+  // repository, and the file list cannot silently drop the draft.
+  if (editingPath && staging) {
+    return (
+      <div className={`${styles.root} ${styles.editorMode}`}>
+        <Suspense
+          fallback={<p className={styles.empty}>{t('common.loading')}</p>}
+        >
+          <FileEditorPane
+            key={editingPath}
+            repoId={staging.repoId}
+            path={editingPath}
+            onClose={() => setEditingPath(null)}
+            onSaved={() => {
+              staging.onMutated()
+              setRendered(false)
+            }}
+          />
+        </Suspense>
+      </div>
+    )
+  }
+
   if (report.files.length === 0) {
     return <p className={styles.empty}>{t('diff.empty.noChanges')}</p>
   }
@@ -868,8 +900,8 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
   }
 
   return (
-    <div className={`${styles.root} ${embedded && report.files.length === 1 ? styles.singleFile : ''}`}>
-      {(!embedded || report.files.length > 1) ? <aside className={styles.files} aria-label={t('diff.files.aria')}>
+    <div className={`${styles.root} ${report.files.length === 1 ? styles.singleFile : ''}`}>
+      {report.files.length > 1 ? <aside className={styles.files} aria-label={t('diff.files.aria')}>
         {report.files.map((entry, index) => (
           <button
             key={`${entry.oldPath}->${entry.newPath}`}
@@ -1323,17 +1355,6 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
         onCancel={() => setPendingDiscard(null)}
         onConfirm={() => void confirmDiscard()}
       />
-      {staging ? (
-        <FileEditorDialog
-          repoId={staging.repoId}
-          path={editingPath}
-          onClose={() => setEditingPath(null)}
-          onSaved={() => {
-            staging.onMutated()
-            setRendered(false)
-          }}
-        />
-      ) : null}
     </div>
   )
 }

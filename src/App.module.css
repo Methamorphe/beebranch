@@ -178,3 +178,5 @@
   .compactViewbar { padding: 0; }
   .crumb { display: none; }
 }
+
+.body[data-repository='true'] { grid-template-columns:minmax(0,1fr); }

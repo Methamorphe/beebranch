@@ -743,7 +743,7 @@ try {
   })()`)
   await waitFor(
     client,
-    `document.body.innerText.includes('2 préparé(s) · 1 modifié(s) · 0 nouveau(x)')`,
+    `document.querySelector('[data-role="worktree"]')?.getAttribute('aria-label').includes('2 préparé(s) · 1 modifié(s) · 0 nouveau(x)')`,
     'worktree summary refresh without fetch',
   )
   const afterStateCalls = await evaluate(client, `(window.__stateCalls ?? []).length`)
@@ -762,11 +762,17 @@ try {
   })()`)
   await waitFor(
     client,
-    `document.body.innerText.includes('8 préparé(s) · 16 modifié(s) · 5 nouveau(x)')`,
+    `document.querySelector('[data-role="worktree"]')?.getAttribute('aria-label').includes('8 préparé(s) · 16 modifié(s) · 5 nouveau(x)')`,
     'worktree summary restored',
   )
   const repoChangeRefresh = { beforeStateCalls, afterStateCalls }
   await evaluate(client, `document.fonts.ready.then(() => true)`)
+  // The current repository workspace has its own interaction checks. The
+  // previous destination-page checks are retained for historical comparison.
+  if (!process.argv.includes('--legacy-navigation')) {
+    const { runRepositoryWorkspaceSmoke } = await import('./workspace-smoke.mjs')
+    await runRepositoryWorkspaceSmoke({ client, evaluate, screenshot: (name) => screenshot(client, name), waitFor, delay, outDir })
+  } else {
   const typography = await evaluate(client, `({
     body: getComputedStyle(document.body).fontFamily,
     size: getComputedStyle(document.body).fontSize,
@@ -2161,6 +2167,28 @@ try {
       return original(command, args)
     }
   })()`)
+  assertUI('toolbar-stash-disabled-when-clean', await evaluate(client, `[...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Stash').disabled`))
+  await evaluate(client, `(() => {
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__quickStashCalls = []
+    window.__beforeQuickStashInvoke = original
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'stash_create') {
+        window.__quickStashCalls.push(args.request)
+        return { data:'Saved working directory', generation:1 }
+      }
+      const result = await original(command, args)
+      if (['repo_open', 'repo_refresh', 'repo_get_state'].includes(command)) return { ...result, state:{ ...result.state, operation:null, conflicts:{ files:[] } } }
+      return result
+    }
+    window.__scenarioDirty = true;
+    [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Rafraîchir l')).click()
+  })()`)
+  await waitFor(client, `![...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Stash').disabled`, 'stash enabled for changes')
+  await evaluate(client, `[...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Stash').click()`)
+  await waitFor(client, `window.__quickStashCalls.length === 1`, 'direct stash IPC')
+  assertUI('toolbar-stash-direct-with-default-name', await evaluate(client, `window.__quickStashCalls[0].repoId === 'repo_demo' && window.__quickStashCalls[0].includeUntracked === true && window.__quickStashCalls[0].message === undefined && !document.querySelector('[role="dialog"], [role="alertdialog"]') && !document.querySelector('input[aria-label="Message du stash"]') && Boolean(document.querySelector('canvas'))`))
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__beforeQuickStashInvoke; window.__scenarioDirty = false; [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Rafraîchir l')).click() })()`)
   assertUI('toolbar-no-empty-stash-pop', await evaluate(client, `[...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Pop').disabled`))
   for (const label of ['Fetch', 'Pull', 'Push', 'Terminal']) {
     await evaluate(client, `(() => { const button = [...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}); button.click() })()`)
@@ -2254,14 +2282,14 @@ try {
   await directDoubleClick(topicPoint)
   assertUI('graph-remote-badge-below-first-ref-checkout', await evaluate(client, `(() => {
     const calls = window.__toolbarCalls.slice(${beforeTopic})
-    return calls.some(([command, args]) => command === 'branch_create' && args.request.name === 'topic' && args.request.start === 'refs/remotes/origin/topic' && args.request.checkout === true)
+    return calls.some(([command, args]) => command === 'branch_checkout_at' && args.request.name === 'topic' && args.request.start === 'refs/remotes/origin/topic')
       && !calls.some(([command, args]) => command === 'branch_checkout' && args.request.name === 'other')
   })()`))
   await hoverRef()
   const beforeRemote = await evaluate(client, 'window.__toolbarCalls.length')
   await evaluate(client, `document.querySelector('[data-ref="origin/feature/deep"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
   await delay(120)
-  assertUI('graph-remote-creates-correct-local-branch', await evaluate(client, `window.__toolbarCalls.slice(${beforeRemote}).some(([command, args]) => command === 'branch_create' && args.request.name === 'feature/deep' && args.request.start === 'refs/remotes/origin/feature/deep' && args.request.checkout === true)`))
+  assertUI('graph-remote-creates-correct-local-branch', await evaluate(client, `window.__toolbarCalls.slice(${beforeRemote}).some(([command, args]) => command === 'branch_checkout_at' && args.request.name === 'feature/deep' && args.request.start === 'refs/remotes/origin/feature/deep')`))
   assertUI('graph-remote-preserves-upstream', await evaluate(client, `window.__toolbarCalls.slice(${beforeRemote}).some(([command, args]) => command === 'branch_upstream' && args.request.branch === 'feature/deep' && args.request.upstream === 'origin/feature/deep')`))
   await hoverRef()
   const beforeTag = await evaluate(client, 'window.__toolbarCalls.length')
@@ -3448,6 +3476,7 @@ try {
     p1: { stagedLine, calls: p1Calls.slice(0, 2), viewChecks },
     screenshots: [graphPath, diffPath],
   }, null, 2))
+  }
   client.close()
 } finally {
   browser.kill('SIGTERM')

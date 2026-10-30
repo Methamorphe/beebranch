@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
+import { normalizeRepoPath } from '../lib/workspace'
 import { t, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
 import {
@@ -21,6 +23,8 @@ import type {
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './ui/Dialog'
 import shared from './p1.module.css'
+import styles from './WorkspacesPanel.module.css'
+import { ViewIcon } from './ViewIcon'
 
 type Props = {
   onOpenRepo: (path: string) => void
@@ -76,12 +80,15 @@ export function WorkspacesPanel({
   onActivateWorkspace,
   onWorkspacesChanged,
 }: Props) {
-  const { t } = useI18n()
+  const { t, plural } = useI18n()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [statuses, setStatuses] = useState<WorkspaceRepoStatus[]>([])
   const [results, setResults] = useState<WorkspaceSyncResult[]>([])
   const [name, setName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [draftPaths, setDraftPaths] = useState<string[]>([])
+  const [picking, setPicking] = useState(false)
   const [rename, setRename] = useState('')
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -103,14 +110,12 @@ export function WorkspacesPanel({
       const next = await workspaceList()
       setWorkspaces(next)
       onWorkspacesChanged(next)
-      setSelectedId((current) => current ?? next[0]?.id ?? null)
-      if (next[0] && !currentExists(next, selectedId)) {
-        setSelectedId(next[0].id)
-      }
+      setSelectedId((current) => currentExists(next, current)
+        ? current : next.find((workspace) => workspace.id === activeWorkspaceId)?.id ?? next[0]?.id ?? null)
     } catch (cause) {
       setError(errorMessage(cause))
     }
-  }, [selectedId, onWorkspacesChanged])
+  }, [activeWorkspaceId, onWorkspacesChanged])
 
   const statusRequest = useRef(0)
 
@@ -141,6 +146,8 @@ export function WorkspacesPanel({
   useEffect(() => {
     setStatuses([])
     setResults([])
+    setSelectedPaths([])
+    setRename('')
     if (selectedId) {
       void loadStatus(selectedId)
     }
@@ -190,11 +197,72 @@ export function WorkspacesPanel({
     }
   }
 
+  const pickRepositories = async (forDraft: boolean) => {
+    const target = selected
+    if (!forDraft && !target) return
+    setPicking(true)
+    setError(null)
+    try {
+      const chosen = await openNativeDialog({
+        directory: true, multiple: true,
+        title: t('workspaces.panel.pickTitle'),
+      })
+      if (!chosen) return
+      const existing = forDraft ? draftPaths : target!.repos.map((repo) => repo.path)
+      const known = new Set(existing.map(normalizeRepoPath))
+      const paths = (Array.isArray(chosen) ? chosen : [chosen]).filter((path) => {
+        const normalized = normalizeRepoPath(path)
+        if (known.has(normalized)) return false
+        known.add(normalized)
+        return true
+      })
+      if (known.size > REPO_LIMIT) {
+        setError(t('workspaces.panel.limitReached', { limit: REPO_LIMIT }))
+        return
+      }
+      if (forDraft) setDraftPaths((current) => [...current, ...paths])
+      else if (paths.length) await run(t('workspaces.panel.repoAdded'), async () => {
+        const failures: string[] = []
+        for (const path of paths) {
+          try { await workspaceAddRepo(target!.id, path) }
+          catch (cause) { failures.push(errorMessage(cause)) }
+        }
+        await reload()
+        await loadStatus(target!.id)
+        if (failures.length) setError(failures.join(' · '))
+      })
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setPicking(false)
+    }
+  }
+
+  const createWorkspace = () => void run(t('workspaces.panel.created', { name: name.trim() }), async () => {
+    const created = await workspaceCreate(name.trim())
+    const failures: string[] = []
+    for (const path of draftPaths) {
+      try { await workspaceAddRepo(created.id, path) }
+      catch (cause) { failures.push(errorMessage(cause)) }
+    }
+    await reload()
+    setSelectedId(created.id)
+    setName(''); setDraftPaths([]); setCreating(false)
+    if (failures.length) setError(failures.join(' · '))
+  })
+
   return (
-    <div className={shared.root}>
-      <section className={shared.card} aria-labelledby="workspace-list-title">
+    <div className={styles.root}>
+      <header className={styles.header}>
+        <div><span className={styles.eyebrow}>Beebranch</span><h2>{t('workspaces.panel.title')}</h2><p>{t('workspaces.panel.intro')}</p></div>
+        <button type="button" className={shared.primary} disabled={busy || picking} onClick={() => {
+          setCreating(true); setName(''); setDraftPaths([]); setError(null); setNotice(null)
+        }}>+ {t('workspaces.panel.new')}</button>
+      </header>
+      <div className={styles.body}>
+      <section className={styles.workspaceList} aria-labelledby="workspace-list-title">
         <div className={shared.row}>
-          <h2 id="workspace-list-title">{t('workspaces.panel.title')}</h2>
+          <h2 id="workspace-list-title">{t('workspaces.panel.yours')}</h2>
           <span className={shared.badge}>{workspaces.length}</span>
           <button type="button" className={shared.secondary} onClick={() => void reload()}>
             {t('common.reload')}
@@ -206,9 +274,10 @@ export function WorkspacesPanel({
               key={workspace.id}
               type="button"
               role="listitem"
-              aria-current={workspace.id === selectedId ? 'true' : undefined}
-              className={`${shared.item} ${workspace.id === selectedId ? shared.itemSelected : ''}`}
-              onClick={() => setSelectedId(workspace.id)}
+              disabled={busy || picking}
+              aria-current={!creating && workspace.id === selectedId ? 'true' : undefined}
+              className={`${shared.item} ${!creating && workspace.id === selectedId ? shared.itemSelected : ''}`}
+              onClick={() => { setSelectedId(workspace.id); setCreating(false); setError(null); setNotice(null) }}
             >
               <span>
                 {workspace.name}
@@ -218,44 +287,40 @@ export function WorkspacesPanel({
                   </span>
                 ) : null}
               </span>
-              <span className={shared.mono}>{t('workspaces.panel.repoCount', { count: workspace.repos.length })}</span>
+              <span className={shared.mono}>{plural('workspaces.panel.repoCount.one', 'workspaces.panel.repoCount.other', workspace.repos.length, { count: workspace.repos.length })}</span>
             </button>
           ))}
           {workspaces.length === 0 ? (
             <p className={shared.notice}>{t('workspaces.panel.empty')}</p>
           ) : null}
         </div>
-        <div className={shared.row} style={{ marginTop: 12, marginBottom: 0 }}>
-          <label className={shared.field}>
-            {t('workspaces.panel.nameLabel')}
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={t('workspaces.panel.namePlaceholder')}
-              aria-label={t('workspaces.panel.nameAria')}
-            />
-          </label>
-          <button
-            type="button"
-            className={shared.primary}
-            disabled={busy || !name.trim()}
-            onClick={() =>
-              void run(t('workspaces.panel.created', { name }), async () => {
-                const created = await workspaceCreate(name.trim())
-                setName('')
-                await reload()
-                setSelectedId(created.id)
-              })
-            }
-          >
-            {t('common.create')}
-          </button>
-        </div>
       </section>
-
-      {selected ? (
+      <div className={styles.main}>
+        {error ? <p className={styles.error} role="alert">{error}</p> : null}
+        {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
+        {creating || !selected ? <form className={styles.creation} onSubmit={(event) => { event.preventDefault(); if (name.trim() && !busy && !picking) createWorkspace() }}>
+          <div className={styles.creationTitle}><ViewIcon view="workspaces" /><h3>{t('workspaces.panel.new')}</h3><p>{t('workspaces.panel.createIntro')}</p></div>
+          <label className={shared.field}>{t('workspaces.panel.nameLabel')}
+            <input value={name} onChange={(event) => setName(event.target.value)} autoFocus
+              placeholder={t('workspaces.panel.namePlaceholder')} aria-label={t('workspaces.panel.nameAria')} disabled={busy} />
+          </label>
+          <button type="button" className={styles.folderPicker} disabled={busy || picking || draftPaths.length >= REPO_LIMIT} onClick={() => void pickRepositories(true)}>
+            <ViewIcon view="worktrees" /><span><strong>{t('workspaces.panel.pickRepos')}</strong><small>{t('workspaces.panel.pickHint')}</small></span><span aria-hidden="true">+</span>
+          </button>
+          <div className={styles.draftList}>
+            {draftPaths.map((path) => <div key={path} className={styles.draftRepo}>
+              <ViewIcon view="graph" /><div><strong>{path.split(/[\\/]/).filter(Boolean).at(-1)}</strong><span title={path}>{path}</span></div>
+              <button type="button" disabled={busy} aria-label={t('workspaces.panel.removeDraft', { path })} onClick={() => setDraftPaths((current) => current.filter((value) => value !== path))}>×</button>
+            </div>)}
+          </div>
+          <div className={styles.createActions}><button type="submit" className={shared.primary} disabled={busy || picking || !name.trim()}>{busy ? t('common.loading') : t('workspaces.panel.create')}</button>
+            {selected ? <button type="button" className={shared.secondary} disabled={busy} onClick={() => setCreating(false)}>{t('common.cancel')}</button> : null}
+            <span>{t('workspaces.panel.repoLimit', { count: draftPaths.length, limit: REPO_LIMIT })}</span>
+          </div>
+        </form> : null}
+      {selected && !creating ? (
         <>
-          <section className={shared.card} aria-labelledby="workspace-detail-title">
+          <section className={styles.workspaceDetail} aria-labelledby="workspace-detail-title">
             <div className={shared.row}>
               <h2 id="workspace-detail-title">{selected.name}</h2>
               <span className={shared.notice}>
@@ -286,6 +351,9 @@ export function WorkspacesPanel({
                 {t('common.delete')}
               </button>
             </div>
+            <button type="button" className={shared.primary} disabled={busy || picking || selected.repos.length >= REPO_LIMIT} onClick={() => void pickRepositories(false)}>
+              + {t('workspaces.panel.pickRepos')}
+            </button>
             {rename ? (
               <div className={shared.row}>
                 <input
@@ -313,6 +381,7 @@ export function WorkspacesPanel({
                 </button>
               </div>
             ) : null}
+            <details className={styles.manualPath}><summary>{t('workspaces.panel.manualPath')}</summary>
             <div className={shared.row}>
               <label className={shared.field}>
                 {t('workspaces.panel.pathLabel')}
@@ -339,6 +408,8 @@ export function WorkspacesPanel({
                 {t('common.add')}
               </button>
             </div>
+            </details>
+            <details className={styles.batchActions}><summary>{t('workspaces.panel.batchActions')}</summary>
             <div className={shared.row}>
               <label className={shared.field}>
                 {t('workspaces.panel.strategyLabel')}
@@ -466,23 +537,14 @@ export function WorkspacesPanel({
                 {t('workspaces.panel.refreshStatus')}
               </button>
             </div>
-            {error ? (
-              <p className={shared.danger} role="alert">
-                {error}
-              </p>
-            ) : null}
-            {notice ? (
-              <p className={shared.notice} role="status">
-                {notice}
-              </p>
-            ) : null}
+            </details>
           </section>
 
-          <section className={shared.card} aria-labelledby="workspace-status-title">
+          <section className={styles.repoSection} aria-labelledby="workspace-status-title">
             <h2 id="workspace-status-title">{t('workspaces.panel.statusTitle')}</h2>
             <div className={shared.list}>
               {statuses.map((status) => (
-                <div key={status.path} className={shared.item}>
+                <div key={status.path} className={styles.repoRow}>
                   <label className={shared.checkbox}>
                     <input
                       type="checkbox"
@@ -572,6 +634,8 @@ export function WorkspacesPanel({
         </>
       ) : null}
 
+      </div>
+      </div>
       <ConfirmDialog
         open={pendingDelete}
         title={t('workspaces.panel.deleteTitle', { name: selected?.name ?? '' })}

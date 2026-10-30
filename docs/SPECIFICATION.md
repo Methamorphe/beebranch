@@ -34,6 +34,7 @@ to commercial Git clients:
 | GitLab | REST v4, PAT + OS keychain, non-deprecated endpoints, offline degradation | [ADR-0004](adr/0004-gitlab-rest-v4.md) |
 | Concurrency / IPC | Mutations serialized per repository, streaming for long operations, no large IPC payloads | [ADR-0005](adr/0005-per-repo-serialization-and-ipc.md) |
 | Frontend | **React 19.3** + TypeScript + Vite | [ADR-0006](adr/0006-react-frontend.md) |
+| Editor | **CodeMirror 6**, lazily loaded, theme mapped onto the app CSS variables | [ADR-0009](adr/0009-codemirror-in-app-editor.md) |
 | Versions | Stable React, Git ≥ 2.34 (distro LTS floor), GitLab's 3 latest maintained versions | [ADR-0007](adr/0007-version-baseline.md) |
 | Visual identity | Ergonomics inspired by established desktop Git clients, **amber palette** (accent `#FED100`, variant `#F5BB45` in the P2 mockup), original assets | [10-design-direction](10-design-direction.md) |
 | Worktrees | Repository identity and sessions **worktree-aware from P0**, full interface delivered in P2 | [01-product-scope](01-product-scope.md) |

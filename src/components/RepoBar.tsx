@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { RepoView, StashEntry, UndoEntry } from '../types/git'
 import { errorMessage } from '../ipc/client'
-import { branchCheckout, refsGet, stashList, stashPop, syncFetch, syncPull, syncPush, toolOpen } from '../ipc/commands'
+import { branchCheckout, refsGet, stashCreate, stashList, stashPop, syncFetch, syncPull, syncPush, toolOpen } from '../ipc/commands'
 import { pullNotice } from '../lib/syncNotice'
 import { undoButtonLabel } from '../lib/undoLabel'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
@@ -59,6 +59,8 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const upstream = head?.kind === 'branch' ? head.upstream : undefined
   const [remote, ...parts] = upstream?.split('/') ?? ['origin']
   const remoteBranch = parts.join('/')
+  const changes = repo?.state.worktree
+  const stashBlocked = !changes || !(changes.staged || changes.unstaged || changes.untracked) || head?.kind === 'unborn' || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)
   const disabled = !repoId || busy || pending !== null
   const run = async <T,>(label: string, action: () => Promise<T>, describe?: (result: T) => string, pushTarget?: PushRejection) => {
     if (!repoId) return
@@ -108,7 +110,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={t('shell.repoBar.pullTitle')} onClick={() => sync('pull')}><ToolbarIcon name="pull" /><span>Pull</span></button>
       <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={t('shell.repoBar.pushTitle')} onClick={() => sync('push')}><ToolbarIcon name="push" /><span>Push</span></button>
       <button type="button" className={styles.action} disabled={!repoId || busy} onClick={onNewBranch} title={t('shell.repoBar.branchTitle')}><ToolbarIcon name="branch" /><span>{t('common.branch')}</span></button>
-      <button type="button" className={styles.action} disabled={disabled} onClick={() => onNavigate('stash')} title={t('shell.repoBar.stashTitle')}><ToolbarIcon name="stash" /><span>Stash</span></button>
+      <button type="button" className={styles.action} disabled={disabled || stashBlocked} onClick={() => repoId && void run('Stash', () => stashCreate({ repoId, includeUntracked: true }), () => t('commit.stash.createdNotice'))} title={t('shell.repoBar.stashTitle')}><ToolbarIcon name="stash" /><span>Stash</span></button>
       <button type="button" className={styles.action} disabled={disabled || !latestStash || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} title={latestStash ? t('shell.repoBar.popTitle', { message: latestStash.message }) : t('shell.repoBar.noStash')} onClick={() => repoId && latestStash && void run('Pop', () => stashPop(repoId, latestStash.selector))}><ToolbarIcon name="pop" /><span>Pop</span></button>
       <span className={styles.divider} aria-hidden="true" />
       <button
