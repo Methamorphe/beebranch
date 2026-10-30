@@ -4,6 +4,7 @@ import { errorMessage } from '../ipc/client'
 import { branchCheckout, refsGet, stashList, stashPop, syncFetch, syncPull, syncPush, toolOpen } from '../ipc/commands'
 import { pullNotice } from '../lib/syncNotice'
 import { undoButtonLabel } from '../lib/undoLabel'
+import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
@@ -21,6 +22,8 @@ type Props = {
   onNavigate: (view: ViewId) => void
   onNewBranch: () => void
   onError: (message: string) => void
+  /** A push Git refused: the dialog decides between pull and force. */
+  onPushRejected: (rejection: PushRejection) => void
   undo: UndoEntry | null
   redo: UndoEntry | null
   onUndo: () => Promise<unknown>
@@ -34,7 +37,7 @@ function branchLabel(repo: RepoView | null, t: I18n['t']) {
   return head?.kind === 'unborn' ? head.branch ?? t('shell.repoBar.newBranch') : t('shell.repoBar.noBranch')
 }
 
-export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, undo, redo, onUndo, onRedo }: Props) {
+export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo }: Props) {
   const { t } = useI18n()
   const [pending, setPending] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ repoId: string; text: string } | null>(null)
@@ -57,7 +60,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const [remote, ...parts] = upstream?.split('/') ?? ['origin']
   const remoteBranch = parts.join('/')
   const disabled = !repoId || busy || pending !== null
-  const run = async <T,>(label: string, action: () => Promise<T>, describe?: (result: T) => string) => {
+  const run = async <T,>(label: string, action: () => Promise<T>, describe?: (result: T) => string, pushTarget?: PushRejection) => {
     if (!repoId) return
     setPending(label); setNotice(null)
     try {
@@ -67,14 +70,19 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       setNotice({ repoId, text: describe ? describe(result) : t('shell.repoBar.actionDone', { action: label }) })
       onRefresh()
     }
-    catch (cause) { onError(errorMessage(cause)) }
+    catch (cause) {
+      // A refused push is a decision, not an error: the recovery dialog owns
+      // the fetch, the pull and the typed force confirmation.
+      if (pushTarget && isPushRejection(cause)) onPushRejected(pushTarget)
+      else onError(errorMessage(cause))
+    }
     finally { setPending(null) }
   }
   const sync = (kind: 'pull' | 'push') => {
     if (!repoId) return
     if (!upstream || !remoteBranch) { onNavigate('sync'); return }
     if (kind === 'push') {
-      void run('Push', () => syncPush({ repoId, remote, branch:remoteBranch }))
+      void run('Push', () => syncPush({ repoId, remote, branch:remoteBranch }), undefined, { repoId, remote, branch: remoteBranch })
       return
     }
     void run(

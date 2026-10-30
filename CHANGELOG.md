@@ -14,6 +14,36 @@
 
 ### Added
 
+- **Request filters and checkout**: the review list accepts
+  `author:`, `label:`, `reviewer:` and `state:`, prefixed with `-` to exclude,
+  with completion taken from the loaded requests and an explicit report for an
+  unknown token instead of a silently ignored one. Checking out a request
+  fetches its branch first — a local switch when it exists, the remote-tracking
+  branch promoted to a named local branch otherwise, or a dialog to add the
+  fork remote — and can create a new worktree for it.
+- **GitLab job control and approval notes**: retry a failed job or cancel a
+  running one after confirmation, choose which pipeline the jobs tab shows,
+  and attach an optional note to an approval (the approval is kept when the
+  note fails).
+- **GitHub check badges and run control**: one GraphQL request fills the check
+  badge of the whole list page, the run detail lists its jobs and steps with a
+  per-step log slice, and a finished run can re-run its failed jobs or cancel a
+  running one — refused with a stable code when the run state does not allow it.
+- **Review diff and suggestions**: the request detail gains a Diff tab rendered
+  by the same viewer as local diffs, so a pull or merge request is read without
+  leaving the app. A gutter button on every line composes an inline comment
+  anchored on the displayed line number (renames keep the right path on each
+  side), GitHub added lines start with a ```` ```suggestion ```` fence, and
+  comments queue locally before being published one by one — a failed send stays
+  in the queue with its reason instead of disappearing.
+- **Refused push recovery**: a push Git rejects no longer stops at an error.
+  BeeBranch fetches the target, states how many commits each side is missing,
+  then offers the decision Git cannot make — pull (`--rebase`, `--merge` or
+  `--ff-only`) immediately followed by the push, a plain retry when nothing is
+  missing remotely, or a `--force-with-lease` push behind a typed confirmation
+  of the branch name. The expected remote SHA is read right before every send,
+  and a lease lost mid-flight is reported as its own error instead of a
+  generic non-fast-forward.
 - **Squash a selection**: the graph selection bar combines a contiguous range
   into one commit, with the combined messages editable before confirmation.
   Merge commits, gaps and non-descendant ranges are refused with an explicit
@@ -90,8 +120,16 @@
   `main` for a tag of that branch.
 - Pull strategy `pull.rebase=merges` is honoured as `--rebase=merges` instead
   of falling back to a merge.
+- Graph: a local branch whose remote-tracking ref sits on the same commit is
+  still one pill, and that pill now carries both glyphs (fork and cloud) with a
+  tooltip naming the pair — the sync is visible without a second badge.
 
 ### Fixed
+
+- **HTTPS synchronization (#8)**: fetch, pull, push and remote SHA checks reuse
+  connected GitLab/GitHub credentials when native Git helpers have none. Tokens
+  are restricted to their HTTPS host and port, kept in private temporary files,
+  and removed after the operation. GitLab OAuth tokens are also reused.
 
 - Interactive rebase: the replacement messages are written inside the Git
   directory and kept until the operation ends, so a paused rebase (conflict,
@@ -310,7 +348,7 @@
   keychain). Limitations accepted from the REST API: thread resolution,
   auto-merge and branch deletion on merge stay in the GitHub interface.
 - **Repository opening screen**: the `+` button of the tabs opens an "Open a
-  repository" tab that reuses the home screen as in GitKraken — recent
+  repository" tab that reuses the home screen as in the benchmark client — recent
   repositories, opening a local folder, creating a repository and cloning. The
   clone form is displayed in that tab (the separate clone dialog disappears);
   Escape or the cross close the tab and focus returns to the `+` button.
@@ -333,7 +371,7 @@
   the commit preparation are displayed as an overlay without compressing or
   stacking the graph. Escape closes the drawer.
 - **Stashes in the graph**: each stash is a node at the top of the history,
-  drawn as in GitKraken (rounded dotted square medallion with a chest) and
+  drawn like the benchmark client (rounded dotted square medallion with a chest) and
   labeled with the entered message; its `index` and `untracked` snapshots no
   longer pollute the tree.
 - **Full right-click menu on the graph**: the menu of a commit and that of a
@@ -361,7 +399,7 @@
 - **Graph rounding direction**: a branch that joins its parent keeps its column
   up to the parent line and curves above the median, instead of leaving its
   column on the starting commit line. Only a secondary parent opens a column
-  under the commit. The drawing takes the direction of GitKraken junctions.
+  under the commit. The drawing takes the direction of the benchmark client's junctions.
 - **Progressive toolbar**: Fetch, Pull and Push keep their labels; secondary
   actions switch to icons then into the Actions menu. The "Search" button
   becomes "Commands" to distinguish it from Git search.
@@ -463,7 +501,7 @@
 
 ### Changed
 
-- **Comparison panel readable as in GitKraken**: the header announces the
+- **Comparison panel readable like the benchmark client**: the header announces the
   number of selected commits and "Diff of N commits", then lists each compared
   commit (subject, date, author, SHA) from newest to oldest. Files go from a
   flat list to a collapsible tree, single-child directories compacted
@@ -495,7 +533,7 @@
 
 ### Changed
 
-- **Graph at GitKraken level**: constant 22 px spacing and a column widened
+- **Graph at benchmark level**: constant 22 px spacing and a column widened
   with the history (up to 420 px) instead of squeezing eighteen lanes into
   150 px. Parent edges leave the dot horizontally and join their lane through
   a 7 px rounded elbow, instead of an S curve crossing the whole row. Each lane
@@ -607,7 +645,7 @@
   reapplied immediately. If the merge or the reapplication conflicts, the stash
   is kept and its picker is displayed; undo reapplies the stash instead of
   losing the modifications. Rebase stays refused on a dirty worktree.
-- **Graph and branches as close as possible to GitKraken**: each commit is a
+- **Graph and branches as close as possible to the benchmark client**: each commit is a
   band tinted with its branch color, references become pills colored by type
   (local branch, remote, tag, HEAD), several references are displayed side by
   side with a `+N` for the rest, nodes have a ring that detaches them from the

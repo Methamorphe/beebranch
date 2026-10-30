@@ -2276,7 +2276,29 @@ try {
   // A branch and its own remote mirror share a commit: no menu to disambiguate.
   await moveToBadge(3)
   assertUI('graph-upstream-mirror-has-no-menu', await evaluate(client, `!document.querySelector('[aria-label="Branches et tags de ce commit"]')`))
-  assertUI('graph-upstream-mirror-shows-name-and-kind', await evaluate(client, `document.querySelector('canvas').title === 'synced · locale'`))
+  assertUI('graph-upstream-mirror-shows-name-and-kind', await evaluate(client, `document.querySelector('canvas').title === 'synced · locale et distante'`))
+  assertUI('graph-upstream-mirror-draws-both-glyphs', await evaluate(client, `(() => {
+    // The pill's second glyph sits 13 px after the first: the sync marker must
+    // leave ink where a local-only badge stays empty.
+    const canvas = document.querySelector('canvas')
+    const context = canvas.getContext('2d')
+    const scale = canvas.width / canvas.getBoundingClientRect().width
+    const ink = (row) => {
+      const x = Math.round(26 * scale)
+      const y = Math.round((row * 30 + 10) * scale)
+      const width = Math.round(12 * scale)
+      const height = Math.round(10 * scale)
+      const data = context.getImageData(x, y, width, height).data
+      const background = [data[0], data[1], data[2]]
+      let count = 0
+      for (let index = 0; index < data.length; index += 4) {
+        const delta = Math.abs(data[index] - background[0]) + Math.abs(data[index + 1] - background[1]) + Math.abs(data[index + 2] - background[2])
+        if (delta > 40) count += 1
+      }
+      return count
+    }
+    return ink(3) >= 6 && ink(9) === 0
+  })()`))
   await screenshot(client, 'ux-branch-synced.png')
   // Any other multi-ref commit keeps the menu, and its rows carry the ref kind.
   await hoverRef()
@@ -2304,6 +2326,74 @@ try {
   await delay(120)
   assertUI('branch-menu-upstream-connected', await evaluate(client, `window.__toolbarCalls.some(([command, args]) => command === 'branch_upstream' && args.request.branch === 'feature' && args.request.upstream === 'origin/main')`))
   await screenshot(client, 'ux-branch-menu.png')
+  // A refused push must not be a dead end: the recovery dialog fetches the
+  // remote, states the divergence, and offers the two outcomes Git cannot
+  // choose — pull-then-push, or a force push with a typed confirmation.
+  await evaluate(client, `(() => {
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__pushCalls = []
+    window.__pulled = false
+    window.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === 'sync_fetch') {
+        window.__pushCalls.push([command, args])
+        return Promise.resolve({ data: { kind: 'fetch', output: '', cancelled: false }, generation: 1 })
+      }
+      if (command === 'branch_compare') {
+        window.__pushCalls.push([command, args])
+        return Promise.resolve({ ahead: 2, behind: 3 })
+      }
+      if (command === 'sync_pull') {
+        window.__pushCalls.push([command, args])
+        window.__pulled = true
+        return Promise.resolve({ data: { kind: 'pull', output: 'rebase ok', cancelled: false }, generation: 1 })
+      }
+      if (command === 'sync_push') {
+        window.__pushCalls.push([command, args])
+        if (args.request.force || window.__pulled) return Promise.resolve({ data: { kind: 'push', output: 'ok', cancelled: false }, generation: 1 })
+        return Promise.reject({ code: 'git.non_fast_forward', category: 'gitState', message: "Le push n'est pas un fast-forward.", retryable: false })
+      }
+      return original(command, args)
+    }
+  })()`)
+  const clickToolbar = (label) => evaluate(client, `(() => {
+    const button = [...document.querySelectorAll('[aria-label="Actions Git"] button')].find((entry) => entry.textContent.trim() === ${JSON.stringify(label)})
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  const dialogButtons = `[...document.querySelector('[role="alertdialog"]').querySelectorAll('button')]`
+  await clickToolbar('Push')
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') !== null`, 'push rejection dialog')
+  await waitFor(client, `document.querySelector('[role="alertdialog"]').innerText.includes('Pull --rebase puis push')`, 'push rejection options')
+  assertUI('push-rejection-states-divergence', await evaluate(client, `(() => { const text = document.querySelector('[role="alertdialog"]').innerText; return text.includes('Push refusé') && text.includes('main') && /Local : 2 commit/.test(text) && /Distant : 3 commit/.test(text) })()`))
+  assertUI('push-rejection-dialog-fits-viewport', await evaluate(client, `(() => {
+    const dialog = document.querySelector('[role="alertdialog"]')
+    const box = dialog.getBoundingClientRect()
+    const buttons = [...dialog.querySelectorAll('button')]
+    return box.top >= 0 && box.left >= 0 && box.bottom <= innerHeight && box.right <= innerWidth
+      && buttons.length >= 3 && buttons.every((button) => button.getBoundingClientRect().width > 0)
+  })()`))
+  assertUI('push-rejection-fetches-before-deciding', await evaluate(client, `window.__pushCalls.some(([command]) => command === 'sync_fetch') && window.__pushCalls.some(([command, args]) => command === 'branch_compare' && args.base === 'origin/main' && args.target === 'main')`))
+  await screenshot(client, 'push-rejection.png')
+  await evaluate(client, `${dialogButtons}.find((entry) => entry.textContent.includes('Force push')).click()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"] input') !== null`, 'typed force confirmation')
+  assertUI('push-force-needs-typed-confirmation', await evaluate(client, `(() => { const button = ${dialogButtons}.find((entry) => entry.textContent.trim() === 'Force push'); return Boolean(button) && button.disabled })()`))
+  await fill('[role="alertdialog"] input', 'main')
+  await evaluate(client, `${dialogButtons}.find((entry) => entry.textContent.trim() === 'Force push').click()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'force push sent')
+  assertUI('push-force-sends-lease-confirmation', await evaluate(client, `window.__pushCalls.some(([command, args]) => command === 'sync_push' && args.request.force === true && args.request.confirmation.typed === 'main' && args.request.branch === 'main')`))
+  // The recommended path integrates the remote commits instead of rewriting them.
+  await clickToolbar('Push')
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Pull --rebase puis push') === true`, 'push rejection dialog again')
+  await evaluate(client, `window.__recoveryStart = window.__pushCalls.length`)
+  await evaluate(client, `${dialogButtons}.find((entry) => entry.textContent.includes('Pull --rebase puis push')).click()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'pull then push finished')
+  assertUI('push-recovery-pulls-then-pushes', await evaluate(client, `(() => {
+    const calls = window.__pushCalls.slice(window.__recoveryStart)
+    const pull = calls.findIndex(([command, args]) => command === 'sync_pull' && args.request.strategy === 'rebase')
+    const push = calls.findIndex(([command, args]) => command === 'sync_push' && !args.request.force)
+    return pull >= 0 && push > pull && calls[push][1].request.confirmation === undefined
+  })()`))
   // Badge glyphs are canvas pixels: compare the ink signature of a local
   // branch, a tag and a remote-only branch, and require readable ink in each.
   await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)

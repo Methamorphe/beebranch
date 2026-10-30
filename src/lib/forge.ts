@@ -13,15 +13,19 @@ import {
   gitlabDiscussionCreate,
   gitlabDiscussionReply,
   gitlabDiscussionResolve,
+  gitlabJobCancel,
   gitlabJobLog,
+  gitlabJobRetry,
   gitlabMergeMr,
   gitlabMrCreate,
+  gitlabMrDiff,
   gitlabMrDiffRefs,
   gitlabMrDiscussions,
   gitlabMrGet,
   gitlabMrJobs,
   gitlabMrPage,
   gitlabMrPipelines,
+  gitlabPipelineJobs,
   gitlabProjectsPage,
   gitlabRepoLink,
   gitlabRepoLinkGet,
@@ -34,13 +38,16 @@ import {
   gitlabMrUpdate,
   githubApprove,
   githubApprovals,
+  githubCancelRun,
   githubDiscussionCreate,
   githubDiscussionReply,
   githubDiscussionResolve,
   githubJobLog,
   githubMergePr,
   githubPrChecks,
+  githubPrChecksRollup,
   githubPrCreate,
+  githubPrDiff,
   githubPrDiffRefs,
   githubPrDiscussions,
   githubPrGet,
@@ -50,6 +57,8 @@ import {
   githubRepoLink,
   githubRepoLinkGet,
   githubRepoLinkManual,
+  githubRerunFailed,
+  githubRunJobs,
   githubStatus,
   githubUnapprove,
   githubRequestChanges,
@@ -60,6 +69,7 @@ import {
 import type { MessageKey, TranslationParams } from '../i18n'
 import type {
   ApprovalsDto,
+  DiffReport,
   GitlabDiscussion,
   GitlabJob,
   GitlabMergeRequest,
@@ -110,6 +120,8 @@ export type ForgeCapabilities = {
   createMergeOptions: boolean
   /** Inline comments can be anchored to a diff position. */
   inlineComments: boolean
+  /** A comment may carry a ```suggestion``` block applied by the provider. */
+  suggestions: boolean
   /** The API exposes required/remaining approval counts. */
   approvalQuota: boolean
   /** A review can ask for changes, with a body. */
@@ -120,6 +132,16 @@ export type ForgeCapabilities = {
   editMetadata: boolean
   /** The draft state can be toggled on an existing request. */
   draftToggle: boolean
+  /** An approval can carry an optional note. */
+  approvalNote: boolean
+  /** Jobs can be retried and cancelled from the request detail. */
+  jobControl: boolean
+  /** Jobs can be loaded for a chosen pipeline, not only the latest one. */
+  pipelineSelection: boolean
+  /** List badges can be filled without one request per row. */
+  listChecks: boolean
+  /** A whole run can be re-run or cancelled. */
+  runControl: boolean
 }
 
 export type ForgeApi = {
@@ -197,7 +219,11 @@ export type ForgeApi = {
     resolved: boolean
   }) => Promise<GitlabDiscussion>
   approvals: (input: { projectId: number; iid: number }) => Promise<ApprovalsDto>
-  approve: (input: { projectId: number; iid: number }) => Promise<ApprovalsDto>
+  approve: (input: {
+    projectId: number
+    iid: number
+    note?: string
+  }) => Promise<ApprovalsDto>
   unapprove: (input: { projectId: number; iid: number }) => Promise<ApprovalsDto>
   requestChanges: (input: {
     projectId: number
@@ -233,9 +259,24 @@ export type ForgeApi = {
   jobs: (input: {
     projectId: number
     iid: number
+    /** Load the jobs of this pipeline instead of the latest one. */
+    pipelineId?: number
     page?: number
     perPage?: number
   }) => Promise<{ pipelineId?: number; items: GitlabJob[]; nextPage?: number }>
+  /** Present when the provider lets a job be retried. */
+  retryJob?: (input: { projectId: number; jobId: number }) => Promise<void>
+  /** Present when the provider lets a running job be cancelled. */
+  cancelJob?: (input: { projectId: number; jobId: number }) => Promise<void>
+  /** Present when list badges can be batched instead of fanned out. */
+  checkRollups?: (
+    projectId: number,
+    numbers: number[],
+  ) => Promise<Array<{ iid: number; status?: string }>>
+  /** Present when a finished run can re-run its failed jobs. */
+  rerunFailed?: (input: { projectId: number; runId: number }) => Promise<void>
+  /** Present when a running run can be cancelled. */
+  cancelRun?: (input: { projectId: number; runId: number }) => Promise<void>
   jobLog: (input: {
     projectId: number
     jobId: number
@@ -246,6 +287,8 @@ export type ForgeApi = {
     projectId: number
     iid: number
   }) => Promise<{ baseSha: string; startSha: string; headSha: string }>
+  /** File patches of the request, rebuilt into the local diff report. */
+  diff: (projectId: number, iid: number) => Promise<DiffReport>
 }
 
 /** GitLab scopes use `all` for the project listing. */
@@ -271,11 +314,17 @@ export const gitlabForge: ForgeApi = {
     removeSourceBranchOnMerge: true,
     createMergeOptions: true,
     inlineComments: true,
+    suggestions: false,
     approvalQuota: true,
     requestChanges: false,
     closeReopen: true,
     editMetadata: true,
     draftToggle: true,
+    approvalNote: true,
+    jobControl: true,
+    pipelineSelection: true,
+    listChecks: false,
+    runControl: false,
   },
   status: gitlabStatus,
   projectsPage: gitlabProjectsPage,
@@ -311,9 +360,32 @@ export const gitlabForge: ForgeApi = {
   setOpen: gitlabMrSetState,
   setDraft: gitlabMrSetDraft,
   merge: gitlabMergeMr,
-  jobs: gitlabMrJobs,
+  jobs: (input) =>
+    input.pipelineId !== undefined
+      ? gitlabPipelineJobs(
+          {
+            projectId: input.projectId,
+            iid: input.iid,
+            page: input.page,
+            perPage: input.perPage,
+          },
+          input.pipelineId,
+        )
+      : gitlabMrJobs({
+          projectId: input.projectId,
+          iid: input.iid,
+          page: input.page,
+          perPage: input.perPage,
+        }),
+  retryJob: async ({ projectId, jobId }) => {
+    await gitlabJobRetry({ projectId, jobId })
+  },
+  cancelJob: async ({ projectId, jobId }) => {
+    await gitlabJobCancel({ projectId, jobId })
+  },
   jobLog: gitlabJobLog,
   diffRefs: gitlabMrDiffRefs,
+  diff: (projectId, iid) => gitlabMrDiff({ projectId, iid }),
 }
 
 export const githubForge: ForgeApi = {
@@ -334,11 +406,17 @@ export const githubForge: ForgeApi = {
     removeSourceBranchOnMerge: false,
     createMergeOptions: false,
     inlineComments: true,
+    suggestions: true,
     approvalQuota: false,
     requestChanges: true,
     closeReopen: true,
     editMetadata: true,
     draftToggle: true,
+    approvalNote: true,
+    jobControl: false,
+    pipelineSelection: false,
+    listChecks: true,
+    runControl: true,
   },
   status: githubStatus,
   projectsPage: githubProjectsPage,
@@ -374,9 +452,31 @@ export const githubForge: ForgeApi = {
   setOpen: githubPrSetState,
   setDraft: githubPrSetDraft,
   merge: githubMergePr,
-  jobs: githubPrJobs,
+  jobs: (input) =>
+    input.pipelineId !== undefined
+      ? githubRunJobs({
+          projectId: input.projectId,
+          runId: input.pipelineId,
+          page: input.page,
+          perPage: input.perPage,
+        })
+      : githubPrJobs({
+          projectId: input.projectId,
+          iid: input.iid,
+          page: input.page,
+          perPage: input.perPage,
+        }),
+  checkRollups: (projectId, numbers) =>
+    githubPrChecksRollup({ projectId, numbers }),
+  rerunFailed: async ({ projectId, runId }) => {
+    await githubRerunFailed({ projectId, runId })
+  },
+  cancelRun: async ({ projectId, runId }) => {
+    await githubCancelRun({ projectId, runId })
+  },
   jobLog: githubJobLog,
   diffRefs: githubPrDiffRefs,
+  diff: (projectId, iid) => githubPrDiff({ projectId, iid }),
 }
 
 export const forges: Record<ForgeId, ForgeApi> = {

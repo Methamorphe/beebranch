@@ -769,6 +769,28 @@ async fn pipeline_jobs_are_paged() {
 }
 
 #[tokio::test]
+async fn retries_and_cancels_a_job() {
+    let server = MockServer::start().await;
+    for (action, status) in [("retry", "pending"), ("cancel", "canceled")] {
+        Mock::given(method("POST"))
+            .and(path(format!("/api/v4/projects/7/jobs/9/{action}")))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": 9,
+                "name": "build",
+                "stage": "build",
+                "status": status
+            })))
+            .mount(&server)
+            .await;
+    }
+
+    let retried = client(&server).retry_job(7, 9).await.expect("retry");
+    assert_eq!(retried.status, "pending");
+    let cancelled = client(&server).cancel_job(7, 9).await.expect("cancel");
+    assert_eq!(cancelled.status, "canceled");
+}
+
+#[tokio::test]
 async fn reads_diff_refs_from_the_changes_endpoint() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -789,6 +811,59 @@ async fn reads_diff_refs_from_the_changes_endpoint() {
         .await
         .expect("diff refs");
     assert_eq!(refs.head_sha, "c".repeat(40));
+}
+
+#[tokio::test]
+async fn reads_merge_request_changes_with_their_patches() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/7/merge_requests/9/changes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "diff_refs": {
+                "base_sha": "a".repeat(40),
+                "start_sha": "b".repeat(40),
+                "head_sha": "c".repeat(40)
+            },
+            "changes": [
+                {
+                    "old_path": "src/a.rs",
+                    "new_path": "src/a.rs",
+                    "new_file": false,
+                    "deleted_file": false,
+                    "renamed_file": false,
+                    "patch": "@@ -1,2 +1,3 @@\n one\n+two\n three"
+                },
+                {
+                    "old_path": "old.rs",
+                    "new_path": "new.rs",
+                    "new_file": false,
+                    "deleted_file": false,
+                    "renamed_file": true,
+                    "patch": "@@ -1 +1 @@\n-a\n+b"
+                },
+                {
+                    "old_path": "logo.png",
+                    "new_path": "logo.png",
+                    "new_file": false,
+                    "deleted_file": false,
+                    "renamed_file": false,
+                    "patch": ""
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let files = client(&server)
+        .merge_request_changes(7, 9)
+        .await
+        .expect("changes");
+    assert_eq!(files.len(), 3);
+    assert_eq!(files[0].new_path, "src/a.rs");
+    assert!(files[0].patch.contains("+two"));
+    assert!(files[1].renamed_file);
+    assert_eq!(files[1].old_path, "old.rs");
+    assert_eq!(files[2].patch, "");
 }
 
 #[tokio::test]
@@ -856,7 +931,9 @@ async fn updates_the_title_and_description_of_a_merge_request() {
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
         .and(path("/api/v4/projects/7/merge_requests/12"))
-        .and(body_json(json!({"title": "Nouveau titre", "description": ""})))
+        .and(body_json(
+            json!({"title": "Nouveau titre", "description": ""}),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")))
         .mount(&server)
         .await;
@@ -897,9 +974,7 @@ async fn toggles_draft_through_the_title_prefix_without_doubling_it() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/v4/projects/7/merge_requests/12"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(merge_request_json(12, "feature")))
         .mount(&server)
         .await;
     Mock::given(method("PUT"))

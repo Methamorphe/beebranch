@@ -225,6 +225,17 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
             stderr,
         );
     }
+    // `--force-with-lease` also prints "failed to push some refs"; the
+    // rejection reason, not the summary line, decides the recovery.
+    if haystack.contains("stale info") {
+        return git_error(
+            "git.push_lease_stale",
+            ErrorCategory::GitState,
+            "Le remote a changé pendant l'envoi.",
+            "Relancez le push : le SHA distant attendu est relu juste avant chaque envoi.",
+            stderr,
+        );
+    }
     if haystack.contains("non-fast-forward")
         || haystack.contains("fetch first")
         || haystack.contains("failed to push some refs")
@@ -415,6 +426,10 @@ mod tests {
             (
                 "! [rejected] main -> main (non-fast-forward)",
                 "git.non_fast_forward",
+            ),
+            (
+                " ! [rejected] main -> main (stale info)\nerror: failed to push some refs",
+                "git.push_lease_stale",
             ),
             (
                 "fatal: Not possible to fast-forward, aborting.",

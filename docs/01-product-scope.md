@@ -2,7 +2,7 @@
 
 ## 1. Objective
 
-Build **BeeBranch**, a professional, local-first desktop Git client for the company's developers, replacing GitKraken for daily use and integrated with the self-hosted GitLab instance.
+Build **BeeBranch**, a professional, local-first desktop Git client for the company's developers, replacing the incumbent desktop client for daily use and integrated with the self-hosted GitLab instance.
 
 The product must be:
 
@@ -33,12 +33,12 @@ The product must be:
 6. **No false promises.** A feature only exists if its behavior is real, tested, and verified.
 7. **Native contextual integration.** GitLab is a first-class citizen, not a plugin.
 8. **No vendor dependency.** No AI, no proprietary cloud, no intrusive telemetry, no required login.
-9. **Distinct identity.** Ergonomics and density inspired by GitKraken, but no GitKraken assets, icons, logos, exact palette, or brand elements are copied.
+9. **Distinct identity.** Ergonomics and density inspired by established desktop Git clients, but no vendor assets, icons, logos, exact palette, or brand elements are copied.
 
 ## 4. Non-goals
 
-- Exhaustive reproduction of GitKraken.
-- Copying GitKraken's assets, icons, logos, fonts, or exact palette.
+- Exhaustive reproduction of a benchmark client.
+- Copying any vendor's assets, icons, logos, fonts, or exact palette.
 - Integrated code editor.
 - Locally executed CI/CD.
 - Multi-provider account management (GitHub, Bitbucket, Azure) in the MVP.
@@ -88,7 +88,7 @@ Objective: demonstrate the riskiest components and set budgets.
 
 ### P1 — First usable replacement
 
-Objective: a developer completes their daily workflow without returning to GitKraken.
+Objective: a developer completes their daily workflow without returning to the incumbent desktop client.
 
 | ID | Feature | Acceptance criteria | Depends on |
 |---|---|---|---|
@@ -97,7 +97,7 @@ Objective: a developer completes their daily workflow without returning to GitKr
 | P1-03 | File/hunk/line staging | Stage/unstage/discard by file, hunk, and line; handle CRLF, missing final newline, renames; confirmed discard; consistent index after every action | P1-02 |
 | P1-04 | Commit and amend | Message, amend, hook execution, output display, refusal if a hook fails, signing respected; no silent bypass | P1-03 |
 | P1-05 | Local and remote branches | Create, checkout, rename, delete with preflight, upstream, comparison; unmerged branch → strong confirmation | P1-01 |
-| P1-06 | Fetch / pull / push | Streamed progress; cancellation; `force-with-lease` only with confirmation; actionable auth/SSH/non-fast-forward errors | P1-05 |
+| P1-06 | Fetch / pull / push | Streamed progress; cancellation; `force-with-lease` only with confirmation; actionable auth/SSH/non-fast-forward errors, with a refused push turned into a pull-or-force decision | P1-05 |
 | P1-07 | Standard merge and rebase | Preflight; merge/rebase with and without conflicts; `--abort`/`--continue`; visible intermediate state; never lose local work | P1-05 |
 | P1-08 | Conflicts — basic level | Conflicted file list; open in external editor; mark resolved; abort/continue; consistent status after restart | P1-07 |
 | P1-09 | Stash | Create, list, apply, pop, drop; stash visible in the graph; pop conflicts reported | P1-02 |
@@ -109,7 +109,7 @@ Objective: a developer completes their daily workflow without returning to GitKr
 | P1-15 | External tools | Open configured editor, terminal, diff/merge tool; explicit failure if missing | P0-01 |
 | P1-16 | Local repository creation | `git init` on an absolute directory, new or existing and unversioned; optional initial branch; refuse an existing repository (including bare); open immediately; existing files preserved and untracked | P0-03 |
 
-**P1 exit criterion:** a volunteer developer completes a full workday (branch, partial staging, commit, push, MR, simple review, merge) without GitKraken or a terminal, except for explicitly P2 operations.
+**P1 exit criterion:** a volunteer developer completes a full workday (branch, partial staging, commit, push, MR, simple review, merge) without the incumbent client or a terminal, except for explicitly P2 operations.
 
 ### P2 — Daily feature parity
 
@@ -145,7 +145,7 @@ Evidence: [reviews/p3-review.md](reviews/p3-review.md).
 | P3-06 | Accessibility and ergonomics | Keyboard navigation, focus, contrast, screen readers on main views | P2-07 |
 | P3-07 | Distribution | Signed updates, per-OS packaging, no telemetry | P0-01 |
 
-## 7. GitKraken parity: keep, improve, drop
+## 7. Desktop parity: keep, improve, drop
 
 ### Keep
 
@@ -174,7 +174,7 @@ Evidence: [reviews/p3-review.md](reviews/p3-review.md).
 - Proprietary cloud, vendor accounts, Insights, Automations, Codemaps, cloud Launchpad.
 - Intrusive telemetry.
 - Features requiring a third-party server.
-- Reproduction of GitKraken's visual identity and assets.
+- Reproduction of a vendor's visual identity and assets.
 
 ## 8. Explicitly out of scope
 

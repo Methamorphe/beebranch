@@ -35,7 +35,7 @@ to commercial Git clients:
 | Concurrency / IPC | Mutations serialized per repository, streaming for long operations, no large IPC payloads | [ADR-0005](adr/0005-per-repo-serialization-and-ipc.md) |
 | Frontend | **React 19.3** + TypeScript + Vite | [ADR-0006](adr/0006-react-frontend.md) |
 | Versions | Stable React, Git ≥ 2.34 (distro LTS floor), GitLab's 3 latest maintained versions | [ADR-0007](adr/0007-version-baseline.md) |
-| Visual identity | Ergonomics inspired by GitKraken, **amber palette** (accent `#FED100`, variant `#F5BB45` in the P2 mockup), original assets | [10-design-direction](10-design-direction.md) |
+| Visual identity | Ergonomics inspired by established desktop Git clients, **amber palette** (accent `#FED100`, variant `#F5BB45` in the P2 mockup), original assets | [10-design-direction](10-design-direction.md) |
 | Worktrees | Repository identity and sessions **worktree-aware from P0**, full interface delivered in P2 | [01-product-scope](01-product-scope.md) |
 | GitLab in the MVP | Required integration in P0/P1, not P2 | [01-product-scope](01-product-scope.md) |
 
@@ -75,7 +75,7 @@ Revision 1 decisions **retained**: local-first, Tauri 2, virtualized canvas rend
 | [docs/07-reliability-security.md](07-reliability-security.md) | Preflight, confirmations, crash recovery, threat model, secrets, TLS |
 | [docs/08-roadmap.md](08-roadmap.md) | Phases, tasks, dependencies, Definition of Done, test strategy |
 | [docs/09-risks-and-prototypes.md](09-risks-and-prototypes.md) | Risk register, required prototypes, open decisions |
-| [docs/10-design-direction.md](10-design-direction.md) | Visual direction, density, GitKraken inspiration, IP safeguards |
+| [docs/10-design-direction.md](10-design-direction.md) | Visual direction, density, benchmark-client inspiration, IP safeguards |
 | [docs/tasks/](tasks/) | Task briefs ready to be assigned to an agent |
 | [docs/releases/](releases/) | Release notes used by the update manifest |
 | [docs/adr/](adr/) | Key decisions |

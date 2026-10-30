@@ -381,6 +381,29 @@ const messages = {
   'ops.sync.forcePush': 'Force push',
   'ops.sync.forcePushConsequence':
     'The history of {remote}/{branch} will be rewritten. Remote commits that are missing locally will no longer be easily reachable. The old SHA is recorded in the journal.',
+  'ops.sync.recovery.title': 'Push rejected',
+  'ops.sync.recovery.lead':
+    'Git refused to publish {branch} on {remote}: the local and remote histories diverged. Integrate the remote commits, or replace them deliberately.',
+  'ops.sync.recovery.loading': 'Fetching and comparing with the remote…',
+  'ops.sync.recovery.unavailable':
+    'The comparison with the remote is unavailable; the actions below stay available.',
+  'ops.sync.recovery.fetchFailed': 'The fresh fetch failed: {message}',
+  'ops.sync.recovery.aheadOnly':
+    'The local branch is {ahead} commit(s) ahead and nothing is missing remotely: a plain retry publishes it.',
+  'ops.sync.recovery.behindOnly':
+    '{remote}/{branch} holds {behind} commit(s) the local branch does not have. A fast-forward pull integrates them.',
+  'ops.sync.recovery.diverged':
+    'Local: {ahead} commit(s) absent remotely. Remote: {behind} commit(s) absent locally. A rebase or an amend produces the same shape, so read the counts before rewriting anything.',
+  'ops.sync.recovery.pullRebase': 'Pull --rebase then push',
+  'ops.sync.recovery.pullMerge': 'Pull --merge then push',
+  'ops.sync.recovery.pullFastForward': 'Pull --ff-only then push',
+  'ops.sync.recovery.pullAuto': 'Pull then push',
+  'ops.sync.recovery.retry': 'Retry the push',
+  'ops.sync.recovery.forcePush': 'Force push…',
+  'ops.sync.recovery.forceWarning':
+    'A force push replaces {remote}/{branch} with the local branch: remote commits missing locally become unreachable. The expected remote SHA is read right before sending (--force-with-lease) and recorded in the journal.',
+  'ops.sync.recovery.back': 'Back',
+  'ops.sync.recovery.confirmForce': 'Force push',
 
   // Recovery after an interruption
   'ops.recovery.noOperation': 'no Git operation in progress',

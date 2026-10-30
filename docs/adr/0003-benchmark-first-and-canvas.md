@@ -6,7 +6,7 @@
 
 ## Context
 
-Performance is a central reason for replacing GitKraken. Revision 1 proposed targets (1 M commits, opening < 1 s, 60 fps) without a corpus or methodology. These figures are not guarantees and do not necessarily represent real usage.
+Performance is a central reason for replacing the incumbent desktop client. Revision 1 proposed targets (1 M commits, opening < 1 s, 60 fps) without a corpus or methodology. These figures are not guarantees and do not necessarily represent real usage.
 
 Tauri does not make an interface fast on its own: graph rendering, IPC volume, and loading policy determine the experience.
 

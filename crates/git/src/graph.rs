@@ -8,7 +8,7 @@
 //! has a second parent, that parent opens (or reuses) a lane *below* the commit
 //! and the corner is rounded under the row's centerline. When a commit's first
 //! parent is already expected by another lane, both lanes carry the line down
-//! and the join is rounded *on the parent's row*, which is the shape GitKraken
+//! and the join is rounded *on the parent's row*, which is the shape the benchmark client
 //! draws: the branch curves into the commit it lands on instead of leaving the
 //! commit sideways.
 

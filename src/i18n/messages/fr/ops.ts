@@ -383,6 +383,29 @@ const messages = {
   'ops.sync.forcePush': 'Force push',
   'ops.sync.forcePushConsequence':
     'L’historique de {remote}/{branch} sera réécrit. Les commits distants absents localement ne seront plus accessibles facilement. L’ancien SHA est enregistré dans le journal.',
+  'ops.sync.recovery.title': 'Push refusé',
+  'ops.sync.recovery.lead':
+    'Git a refusé de publier {branch} sur {remote} : les historiques local et distant ont divergé. Intégrez les commits distants, ou remplacez-les explicitement.',
+  'ops.sync.recovery.loading': 'Fetch et comparaison avec le remote…',
+  'ops.sync.recovery.unavailable':
+    'La comparaison avec le remote est indisponible ; les actions ci-dessous restent disponibles.',
+  'ops.sync.recovery.fetchFailed': 'Le fetch de vérification a échoué : {message}',
+  'ops.sync.recovery.aheadOnly':
+    'La branche locale a {ahead} commit(s) d’avance et rien ne manque côté distant : un simple nouvel envoi la publie.',
+  'ops.sync.recovery.behindOnly':
+    '{remote}/{branch} contient {behind} commit(s) absents de la branche locale. Un pull en avance rapide les intègre.',
+  'ops.sync.recovery.diverged':
+    'Local : {ahead} commit(s) absent(s) du remote. Distant : {behind} commit(s) absent(s) localement. Un rebase ou un amend produit la même forme : lisez les compteurs avant de réécrire quoi que ce soit.',
+  'ops.sync.recovery.pullRebase': 'Pull --rebase puis push',
+  'ops.sync.recovery.pullMerge': 'Pull --merge puis push',
+  'ops.sync.recovery.pullFastForward': 'Pull --ff-only puis push',
+  'ops.sync.recovery.pullAuto': 'Pull puis push',
+  'ops.sync.recovery.retry': 'Relancer le push',
+  'ops.sync.recovery.forcePush': 'Force push…',
+  'ops.sync.recovery.forceWarning':
+    'Un force push remplace {remote}/{branch} par la branche locale : les commits distants absents localement deviennent inaccessibles. Le SHA distant attendu est relu juste avant l’envoi (--force-with-lease) et consigné dans le journal.',
+  'ops.sync.recovery.back': 'Retour',
+  'ops.sync.recovery.confirmForce': 'Force push',
 
   // Reprise après interruption
   'ops.recovery.noOperation': 'aucune opération Git en cours',

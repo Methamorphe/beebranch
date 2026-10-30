@@ -45,6 +45,7 @@ import { formatNumber, useI18n } from '../i18n'
 import { isCheckoutableRef, resolveGraphRef, shortRevision } from '../lib/graphRefs'
 import type { MediaSettings } from '../lib/mediaSettings'
 import { projectWebUrl, refWebUrl } from '../lib/refLinks'
+import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import {
   INSPECTOR_MAX,
   INSPECTOR_MIN,
@@ -144,6 +145,8 @@ type Props = {
   activeWorkspaceId: string | null
   onActivateWorkspace: (workspaceId: string) => void
   onWorkspacesChanged: (workspaces: Workspace[]) => void
+  /** A push Git refused, handed to the recovery dialog. */
+  onPushRejected: (rejection: PushRejection) => void
 }
 
 /** The two revisions of an A→B comparison, as git revspecs. */
@@ -253,6 +256,7 @@ export function Workbench({
   activeWorkspaceId,
   onActivateWorkspace,
   onWorkspacesChanged,
+  onPushRejected,
 }: Props) {
   const { t, plural } = useI18n()
 
@@ -844,7 +848,7 @@ export function Workbench({
   )
 
   const runAction = useCallback(
-    async (label: string, action: () => Promise<unknown>) => {
+    async (label: string, action: () => Promise<unknown>, pushTarget?: PushRejection) => {
       setActionError(null)
       setActionNotice(null)
       try {
@@ -852,10 +856,12 @@ export function Workbench({
         setActionNotice(label)
         onMutated()
       } catch (cause) {
-        setActionError(errorMessage(cause))
+        // A refused push carries a decision the user still has to make.
+        if (pushTarget && isPushRejection(cause)) onPushRejected(pushTarget)
+        else setActionError(errorMessage(cause))
       }
     },
-    [onMutated],
+    [onMutated, onPushRejected],
   )
 
   /**
@@ -960,8 +966,10 @@ export function Workbench({
     if (!repoId) return
     const { remote } = pushTarget(entry)
     setRefMenu(null)
-    void runAction(t('workbench.notice.branchPushed', { branch: entry.name, remote }), () =>
-      syncPush({ repoId, remote, branch: entry.name }),
+    void runAction(
+      t('workbench.notice.branchPushed', { branch: entry.name, remote }),
+      () => syncPush({ repoId, remote, branch: entry.name }),
+      { repoId, remote, branch: entry.name },
     )
   }
 
@@ -1190,7 +1198,14 @@ export function Workbench({
   ) : null
 
   if (view === 'sync') {
-    return <SyncPanel repoId={repoId} generation={generation} onMutated={onMutated} />
+    return (
+      <SyncPanel
+        repoId={repoId}
+        generation={generation}
+        onMutated={onMutated}
+        onPushRejected={onPushRejected}
+      />
+    )
   }
 
   if (view === 'stash') {
@@ -1621,7 +1636,7 @@ export function Workbench({
   }
 
   /**
-   * GitKraken's Cloud Patch has no server here: the patch is generated locally
+   * The vendor's Cloud Patch has no server here: the patch is generated locally
    * and either saved to a file or copied, never uploaded.
    */
   const exportPatch = async (sha: string, saveFile: boolean) => {

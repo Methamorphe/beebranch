@@ -205,7 +205,7 @@ impl GitlabMergeRequest {
 /// `patch` holds hunk text only; it is empty for binary files and for diffs
 /// GitLab considers too large.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
 pub struct GitlabFilePatch {
     pub old_path: String,
     pub new_path: String,

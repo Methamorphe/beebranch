@@ -75,6 +75,9 @@ export function graphRefKind(raw: string, entry?: RefEntry): GraphRefKind {
 export type FoldedCommitRefs = {
   visible: GraphRefDecoration[]
   hidden: number
+  /** Keys of the local branches whose remote mirror folded away: they are in
+   * sync with their upstream, so their badge carries both glyphs. */
+  mirrored: string[]
 }
 
 function mirrorsUpstream(upstream: string, remote: RefEntry): boolean {
@@ -84,16 +87,26 @@ function mirrorsUpstream(upstream: string, remote: RefEntry): boolean {
 /**
  * `main` and `origin/main` on the same commit describe one branch. A
  * remote-tracking ref that only mirrors a local branch present on the commit
- * adds nothing to the badge, and nothing to disambiguate in a hover menu.
- * Ahead/behind branches sit on different commits, so they never fold.
+ * needs no pill of its own, and nothing to disambiguate in a hover menu; the
+ * local badge reports the sync instead. Ahead/behind branches sit on different
+ * commits, so they never fold.
  */
 export function foldUpstreamRefs(decorated: GraphRefDecoration[]): FoldedCommitRefs {
   const upstreams = decorated.flatMap(({ entry }) =>
     entry?.kind === 'branch' && entry.upstream ? [entry.upstream] : [],
   )
-  const visible = decorated.filter(
-    ({ entry }) =>
-      !(entry?.kind === 'remoteBranch' && upstreams.some((upstream) => mirrorsUpstream(upstream, entry))),
+  const mirrors = decorated.flatMap(({ entry, key }) =>
+    entry?.kind === 'remoteBranch' && upstreams.some((upstream) => mirrorsUpstream(upstream, entry))
+      ? [{ entry, key }]
+      : [],
   )
-  return { visible, hidden: decorated.length - visible.length }
+  const mirroredKeys = new Set(mirrors.map(({ key }) => key))
+  const visible = decorated.filter(({ key }) => !mirroredKeys.has(key))
+  const mirrored = decorated.flatMap(({ entry, key }) => {
+    const upstream = entry?.kind === 'branch' ? entry.upstream : undefined
+    return upstream && mirrors.some(({ entry: remote }) => mirrorsUpstream(upstream, remote))
+      ? [key]
+      : []
+  })
+  return { visible, hidden: decorated.length - visible.length, mirrored }
 }

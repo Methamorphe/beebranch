@@ -5,6 +5,7 @@ import { CommandPalette, type PaletteCommand } from './components/CommandPalette
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { Home } from './components/Home'
 import { InitRepoDialog } from './components/InitRepoDialog'
+import { PushRejectedDialog } from './components/PushRejectedDialog'
 import { RepoBar } from './components/RepoBar'
 import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
@@ -52,6 +53,7 @@ import {
   type LayoutPreferences,
 } from './lib/layout'
 import { applyBackground } from './lib/background'
+import { isPushRejection, type PushRejection } from './lib/pushRejection'
 import {
   BACKGROUND_KEY,
   SPLASH_KEY,
@@ -134,6 +136,8 @@ export default function App() {
   const [launcherFocus, setLauncherFocus] = useState(0)
   const [initDialogOpen, setInitDialogOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  /** Push target whose update Git refused, awaiting the user's decision. */
+  const [pushRejected, setPushRejected] = useState<PushRejection | null>(null)
   const [previousView, setPreviousView] = useState<ViewId>('graph')
   const pickingRepository = useRef(false)
   const [gitlabConnected, setGitlabConnected] = useState(false)
@@ -1051,7 +1055,7 @@ export default function App() {
     void reloadRecent()
   }, [reloadRecent])
 
-  // The launcher behaves like a tab: Escape closes it, as in GitKraken.
+  // The launcher behaves like a tab: Escape closes it, as in the benchmark client.
   useEffect(() => {
     if (!launcherOpen) return
     const onKey = (event: KeyboardEvent) => {
@@ -1198,9 +1202,16 @@ export default function App() {
             return
           }
           const [remote, ...rest] = repo.state.head.upstream.split('/')
-          void syncPush({ repoId, remote, branch: rest.join('/') })
+          const branch = rest.join('/')
+          void syncPush({ repoId, remote, branch })
             .then(() => refresh())
-            .catch((cause) => setError(errorMessage(cause)))
+            .catch((cause) => {
+              if (isPushRejection(cause)) {
+                setPushRejected({ repoId, remote, branch })
+                return
+              }
+              setError(errorMessage(cause))
+            })
         },
       },
       {
@@ -1344,6 +1355,7 @@ export default function App() {
         }}
         onNewBranch={newBranch}
         onError={setError}
+        onPushRejected={setPushRejected}
         undo={undoState?.undo ?? null}
         redo={undoState?.redo ?? null}
         onUndo={() => performUndo('undo')}
@@ -1480,6 +1492,7 @@ export default function App() {
                 activeWorkspaceId={activeWorkspaceId}
                 onActivateWorkspace={(workspaceId) => void switchWorkspace(workspaceId)}
                 onWorkspacesChanged={setWorkspaces}
+                onPushRejected={setPushRejected}
               />
             )}
           </div>
@@ -1505,6 +1518,11 @@ export default function App() {
         onCreate={initRepo}
         onPickParent={pickInitParent}
       /> : null}
+      <PushRejectedDialog
+        rejection={pushRejected}
+        onClose={() => setPushRejected(null)}
+        onDone={() => void refresh()}
+      />
       <CommandPalette
         open={paletteOpen}
         commands={commands}

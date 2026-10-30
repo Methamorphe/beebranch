@@ -26,10 +26,9 @@ use tracing::debug;
 
 use crate::error::GithubError;
 use crate::models::{
-    GithubApprovals, GithubDiffRefs, GithubDiscussion, GithubJob, GithubNote, GithubPipeline,
-    GithubFilePatch, GithubPosition, GithubProject, GithubPullRequest, GithubUser, GithubUserRef,
-    JobLog, Paged,
-    PullRequestMerge, PullUpdate,
+    GithubApprovals, GithubDiffRefs, GithubDiscussion, GithubJob, GithubJobStep, GithubNote,
+    GithubPipeline, GithubFilePatch, GithubPosition, GithubProject, GithubPullRequest, GithubUser,
+    GithubUserRef, GithubWorkflowRun, JobLog, Paged, PullRequestMerge, PullUpdate,
 };
 use crate::pipeline::normalize_status;
 use crate::url::{normalize_url, NormalizedUrl};
@@ -38,6 +37,8 @@ use crate::url::{normalize_url, NormalizedUrl};
 pub const DEFAULT_MAX_PAGES: u32 = 20;
 /// Upper bound accepted by [`GithubClient::with_max_pages`].
 pub const MAX_PAGES_LIMIT: u32 = 100;
+/// Pull requests aggregated into one check-rollup GraphQL query.
+const MAX_ROLLUP_PULLS: usize = 50;
 /// Default lifetime of a cached response before it is fetched again.
 pub const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 /// GitHub maximum page size.
@@ -794,10 +795,14 @@ impl GithubClient {
         &self,
         repo: &RepoRef,
         number: u64,
+        body: Option<&str>,
     ) -> Result<GithubApprovals, GithubError> {
         let number_text = number.to_string();
         let url = self.repo_endpoint(repo, &["pulls", &number_text, "reviews"])?;
-        let payload = serde_json::json!({ "event": "APPROVE" });
+        let mut payload = serde_json::json!({ "event": "APPROVE" });
+        if let Some(body) = body.map(str::trim).filter(|body| !body.is_empty()) {
+            payload["body"] = serde_json::Value::String(body.to_owned());
+        }
         let _: WireReview = self.send_json(Method::POST, &url, &payload).await?;
         self.invalidate_pull(repo, number);
         self.approvals(repo, number).await
@@ -1059,12 +1064,29 @@ impl GithubClient {
                     GithubJob {
                         id: job.id,
                         name: job.name,
-                        stage: run.name.clone(),
+                        stage: job
+                            .workflow_name
+                            .clone()
+                            .unwrap_or_else(|| run.name.clone()),
                         status: normalize_status(&job.status, job.conclusion.as_deref()).to_owned(),
                         web_url: job.html_url,
                         duration,
                         created_at: job.started_at,
                         finished_at: job.completed_at,
+                        steps: job
+                            .steps
+                            .into_iter()
+                            .map(|step| GithubJobStep {
+                                number: step.number,
+                                name: step.name,
+                                status: normalize_status(
+                                    &step.status,
+                                    step.conclusion.as_deref(),
+                                )
+                                .to_owned(),
+                                conclusion: step.conclusion,
+                            })
+                            .collect(),
                     }
                 })
                 .collect(),
@@ -1075,6 +1097,168 @@ impl GithubClient {
             not_modified: fetched_runs.not_modified && jobs.not_modified,
             from_cache: fetched_runs.from_cache && jobs.from_cache,
         })
+    }
+
+    /// One Actions run by id.
+    pub async fn workflow_run(
+        &self,
+        repo: &RepoRef,
+        run_id: u64,
+    ) -> Result<GithubWorkflowRun, GithubError> {
+        let id = run_id.to_string();
+        let url = self.repo_endpoint(repo, &["actions", "runs", &id])?;
+        let fetched = self.fetch(&url).await?;
+        let wire: WireWorkflowRun = decode(&fetched.body)?;
+        Ok(wire.into_public())
+    }
+
+    /// Jobs of one Actions run, steps included. Unlike
+    /// [`Self::workflow_jobs`] the run is addressed directly, so the detail
+    /// view keeps showing the run the user opened.
+    pub async fn run_jobs(
+        &self,
+        repo: &RepoRef,
+        run_id: u64,
+        page: u32,
+        per_page: u32,
+    ) -> Result<JobsPage, GithubError> {
+        let per_page = per_page.clamp(1, MAX_PER_PAGE);
+        let page = page.max(1);
+        let id = run_id.to_string();
+        let mut url = self.repo_endpoint(repo, &["actions", "runs", &id, "jobs"])?;
+        url.query_pairs_mut()
+            .append_pair("per_page", &per_page.to_string())
+            .append_pair("page", &page.to_string());
+        let fetched = self.fetch(&url).await?;
+        let result: WireWorkflowJobs = decode(&fetched.body)?;
+        Ok(JobsPage {
+            run_id: Some(run_id),
+            items: result
+                .jobs
+                .into_iter()
+                .map(|job| {
+                    let duration = job.duration_seconds();
+                    GithubJob {
+                        id: job.id,
+                        name: job.name,
+                        stage: job.workflow_name.clone().unwrap_or_default(),
+                        status: normalize_status(&job.status, job.conclusion.as_deref())
+                            .to_owned(),
+                        web_url: job.html_url,
+                        duration,
+                        created_at: job.started_at,
+                        finished_at: job.completed_at,
+                        steps: job
+                            .steps
+                            .into_iter()
+                            .map(|step| GithubJobStep {
+                                number: step.number,
+                                name: step.name,
+                                status: normalize_status(
+                                    &step.status,
+                                    step.conclusion.as_deref(),
+                                )
+                                .to_owned(),
+                                conclusion: step.conclusion,
+                            })
+                            .collect(),
+                    }
+                })
+                .collect(),
+            page,
+            per_page,
+            next_page: fetched.next_page,
+            total: Some(result.total_count),
+            not_modified: fetched.not_modified,
+            from_cache: fetched.from_cache,
+        })
+    }
+
+    /// Re-run the failed jobs of a finished run.
+    ///
+    /// A run still queued or running is refused before anything is sent, so the
+    /// caller gets a stable code instead of GitHub's 409.
+    pub async fn rerun_failed_jobs(
+        &self,
+        repo: &RepoRef,
+        run_id: u64,
+    ) -> Result<(), GithubError> {
+        let run = self.workflow_run(repo, run_id).await?;
+        if matches!(run.status.as_str(), "pending" | "running") {
+            return Err(GithubError::new(
+                "github.run_not_finished",
+                "L’exécution n’est pas terminée : relance impossible.".to_owned(),
+            ));
+        }
+        let id = run_id.to_string();
+        let url = self.repo_endpoint(repo, &["actions", "runs", &id, "rerun-failed-jobs"])?;
+        self.post_empty(&url).await
+    }
+
+    /// Cancel a queued or running run.
+    pub async fn cancel_run(&self, repo: &RepoRef, run_id: u64) -> Result<(), GithubError> {
+        let run = self.workflow_run(repo, run_id).await?;
+        if !matches!(run.status.as_str(), "pending" | "running") {
+            return Err(GithubError::new(
+                "github.run_finished",
+                "L’exécution est déjà terminée : annulation impossible.".to_owned(),
+            ));
+        }
+        let id = run_id.to_string();
+        let url = self.repo_endpoint(repo, &["actions", "runs", &id, "cancel"])?;
+        self.post_empty(&url).await
+    }
+
+    /// Worst check state of many requests, in a single GraphQL round trip.
+    ///
+    /// The list badge must not fan out one request per request: aliases group
+    /// up to [`MAX_ROLLUP_PULLS`] pull requests into one query, and GitHub
+    /// computes the rollup itself (a failing check wins).
+    pub async fn pull_check_rollups(
+        &self,
+        repo: &RepoRef,
+        numbers: &[u64],
+    ) -> Result<Vec<(u64, Option<String>)>, GithubError> {
+        let numbers: Vec<u64> = numbers.iter().copied().take(MAX_ROLLUP_PULLS).collect();
+        if numbers.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut selections = String::new();
+        for (index, number) in numbers.iter().enumerate() {
+            selections.push_str(&format!(
+                "  r{index}: pullRequest(number: {number}) {{ commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }}\n"
+            ));
+        }
+        let query = format!(
+            "query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{\n{selections}}} }}"
+        );
+        let data = self
+            .graphql(
+                &query,
+                serde_json::json!({ "owner": repo.owner, "name": repo.name }),
+            )
+            .await?;
+        let mut result = Vec::with_capacity(numbers.len());
+        for (index, number) in numbers.iter().enumerate() {
+            let state = data
+                .get("repository")
+                .and_then(|repository| repository.get(format!("r{index}")))
+                .and_then(|pull| {
+                    pull.pointer("/commits/nodes/0/commit/statusCheckRollup/state")
+                })
+                .and_then(serde_json::Value::as_str);
+            result.push((
+                *number,
+                state.map(|state| match state {
+                    "SUCCESS" => "success",
+                    "FAILURE" | "ERROR" => "failed",
+                    "PENDING" | "EXPECTED" => "pending",
+                    _ => "unknown",
+                }
+                .to_owned()),
+            ));
+        }
+        Ok(result)
     }
 
     /// Fetch one page of a GitHub Actions job log.
@@ -1304,6 +1488,35 @@ impl GithubClient {
             ));
         }
         decode(&bytes)
+    }
+
+    /// POST that accepts an empty 2xx body (Actions re-run and cancel).
+    async fn post_empty(&self, url: &Url) -> Result<(), GithubError> {
+        let response = self
+            .http
+            .post(url.clone())
+            .header(
+                ACCEPT,
+                HeaderValue::from_static("application/vnd.github+json"),
+            )
+            .header(AUTHORIZATION, self.token.bearer())
+            .header("X-GitHub-Api-Version", API_VERSION)
+            .body(Vec::new())
+            .send()
+            .await
+            .map_err(|error| self.transport_error(&error))?;
+        let status = response.status();
+        let rate_limited = is_rate_limited_headers(response.headers());
+        let bytes = self.read_body(response).await?;
+        if !status.is_success() {
+            let text = String::from_utf8_lossy(&bytes);
+            return Err(GithubError::from_status(
+                status.as_u16(),
+                &text,
+                rate_limited,
+            ));
+        }
+        Ok(())
     }
 
     fn endpoint(&self, segments: &[&str]) -> Result<Url, GithubError> {
@@ -2324,6 +2537,26 @@ struct WireWorkflowRuns {
 struct WireWorkflowRun {
     id: u64,
     name: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    conclusion: Option<String>,
+    #[serde(default)]
+    head_sha: Option<String>,
+    #[serde(default)]
+    html_url: Option<String>,
+}
+
+impl WireWorkflowRun {
+    fn into_public(self) -> GithubWorkflowRun {
+        GithubWorkflowRun {
+            id: self.id,
+            name: self.name,
+            status: normalize_status(&self.status, self.conclusion.as_deref()).to_owned(),
+            head_sha: self.head_sha,
+            web_url: self.html_url,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2342,11 +2575,24 @@ struct WireWorkflowJob {
     #[serde(default)]
     conclusion: Option<String>,
     #[serde(default)]
+    workflow_name: Option<String>,
+    #[serde(default)]
     html_url: Option<String>,
     #[serde(default)]
     started_at: Option<String>,
     #[serde(default)]
     completed_at: Option<String>,
+    #[serde(default)]
+    steps: Vec<WireWorkflowStep>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct WireWorkflowStep {
+    number: u64,
+    name: String,
+    status: String,
+    #[serde(default)]
+    conclusion: Option<String>,
 }
 
 impl WireWorkflowJob {

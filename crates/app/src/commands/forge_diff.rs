@@ -9,6 +9,7 @@
 
 use beebranch_core::AppError;
 use beebranch_git::diff::{parse_diff, DiffLimits, DiffReport};
+use beebranch_gitlab::GitlabFilePatch;
 use serde::{Deserialize, Serialize};
 
 /// One file as a provider reports it.
@@ -53,6 +54,32 @@ pub fn unified_diff(files: &[PatchInput]) -> String {
     text
 }
 
+/// Map one merge request's file list onto the shared patch shape.
+///
+/// GitLab reports the change kind as three booleans; `patch` is empty for
+/// binary files and for diffs it considers too large, which the synthesis
+/// below turns into a `Binary files …` entry.
+pub fn patches_from_gitlab(files: Vec<GitlabFilePatch>) -> Vec<PatchInput> {
+    files
+        .into_iter()
+        .map(|file| PatchInput {
+            status: if file.new_file {
+                "added"
+            } else if file.deleted_file {
+                "removed"
+            } else if file.renamed_file {
+                "renamed"
+            } else {
+                "modified"
+            }
+            .to_owned(),
+            old_path: file.old_path,
+            new_path: file.new_path,
+            patch: Some(file.patch),
+        })
+        .collect()
+}
+
 /// Parse provider patches into the report the diff viewer renders.
 pub fn report_from_patches(files: Vec<PatchInput>) -> Result<DiffReport, AppError> {
     let truncated = files.len() > MAX_PROVIDER_FILES;
@@ -65,9 +92,8 @@ pub fn report_from_patches(files: Vec<PatchInput>) -> Result<DiffReport, AppErro
         max_files: MAX_PROVIDER_FILES,
         ..DiffLimits::default()
     };
-    let mut report = parse_diff(&text, limits).map_err(|error| {
-        AppError::internal(format!("diff du fournisseur illisible : {error}"))
-    })?;
+    let mut report = parse_diff(&text, limits)
+        .map_err(|error| AppError::internal(format!("diff du fournisseur illisible : {error}")))?;
     report.truncated |= truncated;
     Ok(report)
 }
@@ -123,20 +149,79 @@ mod tests {
     fn marks_renames_and_additions() {
         let report = report_from_patches(vec![
             file("old.rs", "new.rs", "renamed", Some("@@ -1 +1 @@\n-a\n+b")),
-            file("new_file.rs", "new_file.rs", "added", Some("@@ -0,0 +1 @@\n+hello")),
+            file(
+                "new_file.rs",
+                "new_file.rs",
+                "added",
+                Some("@@ -0,0 +1 @@\n+hello"),
+            ),
             file("gone.rs", "gone.rs", "removed", Some("@@ -1 +0,0 @@\n-bye")),
         ])
         .expect("report");
 
         assert_eq!(report.files[0].old_path, "old.rs");
         assert_eq!(report.files[0].new_path, "new.rs");
-        assert_eq!(report.files[2].kind, beebranch_git::diff::FileChangeKind::Deleted);
+        assert_eq!(
+            report.files[2].kind,
+            beebranch_git::diff::FileChangeKind::Deleted
+        );
+    }
+
+    #[test]
+    fn maps_gitlab_changes_into_the_shared_report() {
+        let report = report_from_patches(patches_from_gitlab(vec![
+            GitlabFilePatch {
+                old_path: "src/a.rs".to_owned(),
+                new_path: "src/a.rs".to_owned(),
+                new_file: false,
+                deleted_file: false,
+                renamed_file: false,
+                patch: "@@ -1,2 +1,3 @@\n one\n+two\n three".to_owned(),
+            },
+            GitlabFilePatch {
+                old_path: "logo.png".to_owned(),
+                new_path: "logo.png".to_owned(),
+                new_file: false,
+                deleted_file: false,
+                renamed_file: false,
+                patch: String::new(),
+            },
+            GitlabFilePatch {
+                old_path: "old.rs".to_owned(),
+                new_path: "new.rs".to_owned(),
+                new_file: false,
+                deleted_file: false,
+                renamed_file: true,
+                patch: "@@ -1 +1 @@\n-a\n+b".to_owned(),
+            },
+        ]))
+        .expect("report");
+
+        assert_eq!(report.files.len(), 3);
+        let added = report.files[0].hunks[0]
+            .lines
+            .iter()
+            .find(|line| line.kind == beebranch_git::diff::DiffLineKind::Added)
+            .expect("added line");
+        // Same contract as the local diff: a comment anchors on this number.
+        assert_eq!(added.new_lineno, Some(2));
+        // An empty patch is a binary file, never an invented hunk.
+        assert!(report.files[1].binary);
+        assert_eq!(report.files[2].old_path, "old.rs");
+        assert_eq!(report.files[2].new_path, "new.rs");
     }
 
     #[test]
     fn reports_truncation_past_the_file_ceiling() {
         let files = (0..MAX_PROVIDER_FILES + 5)
-            .map(|index| file(&format!("f{index}.txt"), &format!("f{index}.txt"), "modified", None))
+            .map(|index| {
+                file(
+                    &format!("f{index}.txt"),
+                    &format!("f{index}.txt"),
+                    "modified",
+                    None,
+                )
+            })
             .collect::<Vec<_>>();
         let report = report_from_patches(files).expect("report");
         assert!(report.truncated);

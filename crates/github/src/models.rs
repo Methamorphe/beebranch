@@ -182,6 +182,31 @@ pub struct GithubJob {
     pub duration: Option<f64>,
     pub created_at: Option<String>,
     pub finished_at: Option<String>,
+    /// Steps reported by the Actions API, empty on GitLab.
+    #[serde(default)]
+    pub steps: Vec<GithubJobStep>,
+}
+
+/// One Actions run, the unit a re-run or a cancel applies to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubWorkflowRun {
+    pub id: u64,
+    pub name: String,
+    /// Normalized status (`running`, `pending`, `success`, `failed`, …).
+    pub status: String,
+    pub head_sha: Option<String>,
+    pub web_url: Option<String>,
+}
+
+/// One step of an Actions job.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubJobStep {
+    pub number: u64,
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
 }
 
 /// Fields an author may edit on an existing request.

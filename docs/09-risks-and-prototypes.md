@@ -96,7 +96,7 @@ Each prototype answers a question and produces evidence. It is not a product: it
 | D-03 | Minimum Git version | **2.34** (distro LTS floor), tests on 2.56.0 | 2026-10-27 | [ADR-0007](adr/0007-version-baseline.md) |
 | D-04 | GitLab versions | **3 latest maintained** (19.3–19.5), no LTS | 2026-10-27 | [ADR-0007](adr/0007-version-baseline.md) |
 | D-05 | Undo backups | **No application backups** | 2026-10-27 | [ADR-0008](adr/0008-no-application-backups.md) |
-| D-13 | Visual identity | **Amber palette, `#FED100` accent, GitKraken-inspired ergonomics** | 2026-10-27 | [10-design-direction](10-design-direction.md) |
+| D-13 | Visual identity | **Amber palette, `#FED100` accent, ergonomics inspired by established desktop Git clients** | 2026-10-27 | [10-design-direction](10-design-direction.md) |
 
 ### 4.2 Open decisions
 

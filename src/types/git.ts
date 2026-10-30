@@ -935,6 +935,13 @@ export type ApprovalsDto = {
   reason?: string
 }
 
+export type JobStep = {
+  number: number
+  name: string
+  status: string
+  conclusion: string | null
+}
+
 export type GitlabJob = {
   id: number
   name: string
@@ -944,6 +951,8 @@ export type GitlabJob = {
   duration?: number
   createdAt?: string
   finishedAt?: string
+  /** Actions steps; empty or absent on GitLab. */
+  steps?: JobStep[]
 }
 
 export type JobsDto = {

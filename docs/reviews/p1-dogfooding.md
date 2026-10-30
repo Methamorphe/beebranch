@@ -5,7 +5,7 @@
 
 ## 1. Objective
 
-Verify that a full workday is possible without GitKraken or the
+Verify that a full workday is possible without the incumbent client or the
 terminal for P1 operations:
 
 branch → partial staging → commit → push → MR → simple review → merge →

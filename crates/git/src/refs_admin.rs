@@ -376,7 +376,7 @@ pub fn push_tag(
 }
 
 /// Delete a tag on the remote only. The local tag is left in place, mirroring
-/// GitKraken's separate "delete from <remote>" action.
+/// The benchmark client's separate "delete from <remote>" action.
 pub fn delete_tag_remote(
     runner: &GitRunner,
     worktree: &Path,

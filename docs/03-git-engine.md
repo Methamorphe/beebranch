@@ -178,6 +178,22 @@ Every mutation goes through the repository queue and a **preflight**.
 | Worktree remove | `git worktree remove <path>` | no uncommitted changes |
 | Tag | `git tag -a <name> -m <msg> <ref>` | valid name, no collision |
 
+### Refused push recovery
+
+A refused push is never a dead end. The refusal (`git.non_fast_forward`, or
+`git.push_lease_stale` when the lease went stale) opens a recovery decision:
+
+1. `git fetch <remote>` refreshes the remote-tracking refs;
+2. `git rev-list --left-right --count <remote>/<branch>...<branch>` gives the
+   two counts shown to the user (missing locally / missing remotely);
+3. the user integrates (`git pull --rebase|--merge|--ff-only <remote> <branch>`,
+   immediately followed by the push), retries when nothing is missing
+   remotely, or replaces the remote tip (`--force-with-lease`, behind a typed
+   confirmation of the branch name).
+
+The expected SHA of a force push is read with `git ls-remote` right before the
+send, never taken from the UI or an older fetch.
+
 ### Branch→branch integration
 
 Dropping branch `source` onto `target` checks out `target` then merges or rebases
@@ -339,10 +355,10 @@ git -c sequence.editor=<helper> rebase -i --autosquash <base>
 
 ### HTTPS credential helper
 
-- Fetch, pull, push and remote SHA reads add a temporary helper after the user's Git helpers.
-- The helper answers `get` only, for HTTPS and the exact host and port of a GitLab/GitHub connection. Other protocols, hosts and operations receive no credentials.
-- GitLab PAT/OAuth and GitHub tokens come from the keychain, with discovered Git credentials as fallback. Secrets stay in private temporary files (0600 on Unix) and never appear in arguments, URLs or environment values.
-- The process keeps the files until it exits or is cancelled, then deletes them. The stored remote is not modified.
+- Fetch, pull, push (including remote SHA checks) append a temporary credential helper after the user's configured helpers.
+- The helper answers only `get`, only for HTTPS and an exact connected host and port. Other protocols, hosts, `store` and `erase` receive no credentials.
+- GitLab PAT/OAuth and GitHub tokens come from the OS keychain, with discovered Git credentials as a fallback. Tokens are written to private temporary files (0600 on Unix), never argv, URLs or environment values. The running process retains the files until completion or cancellation, then removes them.
+- The stored remote remains `https://host/group/project.git`.
 
 ## 12. Error mapping
 
@@ -353,6 +369,7 @@ git -c sequence.editor=<helper> rebase -i --autosquash <base>
 | `Permission denied (publickey)` | `auth.ssh_key` | check the agent and key |
 | `Host key verification failed` | `auth.host_key` | check `known_hosts` |
 | `non-fast-forward`, `fetch first` | `git.non_fast_forward` | fetch then merge/rebase |
+| `stale info` (push) | `git.push_lease_stale` | retry; the expected remote SHA is re-read before each send |
 | `Not possible to fast-forward` (pull) | `git.pull_not_fast_forward` | rebase/merge or relax `pull.ff` |
 | `Need to specify how to reconcile divergent branches` | `git.pull_strategy_missing` | configure `pull.rebase`/`pull.ff` or choose a strategy |
 | `CONFLICT`, exit 1 on merge/rebase | `git.conflict` | resolve then continue |

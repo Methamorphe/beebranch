@@ -162,6 +162,13 @@ const messages = {
   'diff.blame.hint':
     'Load a file then show the blame to find the commit and author of each line.',
 
+  'diff.comment.gutterTitle': 'Comment on this line',
+  'diff.comment.gutterAria': 'Comment on {path} line {line} ({side})',
+  'diff.comment.anchor': '{path} · line {line}',
+  'diff.comment.aria': 'Inline comment',
+  'diff.comment.suggestion': 'suggestion block inserted',
+  'diff.comment.send': 'Queue comment',
+
   'diff.markdown.relativeLink': 'Relative link: cannot be opened from the app',
   'diff.markdown.blockedImage': 'Blocked image',
 }

@@ -5,10 +5,10 @@
 | Phase | Objective | Exit criterion |
 |---|---|---|
 | **P0** | Reduce technical risks | Measured demo on real repositories + corpus; graph, diff, GitLab, recovery validated |
-| **P1** | Replace GitKraken for daily use | A developer works a full day without GitKraken or a terminal |
+| **P1** | Replace the incumbent client for daily use | A developer works a full day without the incumbent client or a terminal |
 | **P2** | Feature parity | Interactive rebase, 3-panel conflicts, worktrees, blame, advanced GitLab |
 | **P3** | Polish — shipped | Complete undo, drag & drop, design system, large repositories, workspaces, accessibility, distribution |
-| **P4** | Desktop parity — backlog | Every in-scope GitKraken Desktop feature at 100%, DoD met ([tasks/p4.md](tasks/p4.md)) |
+| **P4** | Desktop parity — backlog | Every in-scope benchmark desktop feature at 100%, DoD met ([tasks/p4.md](tasks/p4.md)) |
 
 Performance, reliability, and security are not phases: they are verified for every task.
 
@@ -126,7 +126,7 @@ Details: [tasks/p1.md](tasks/p1.md).
 | P1-T13 | External tools | P0-T01 |
 | P1-T14 | Dogfooding and stabilization | all |
 
-**Exit criterion:** three volunteer developers work a full day without GitKraken; remaining blockers are documented and scheduled.
+**Exit criterion:** three volunteer developers work a full day without the incumbent client; remaining blockers are documented and scheduled.
 
 ## 6. P2 — Parity
 
@@ -170,9 +170,9 @@ Status: **shipped and verified** — evidence in
 
 **Status:** backlog — not started. Details: [tasks/p4.md](tasks/p4.md).
 
-Scope: the GitKraken **Desktop** documentation only, minus everything that
-depends on the vendor cloud or AI (Cloud Workspaces, Cloud Patches, Code
-Suggest, AI, MCP, Agent Sessions, Team View, Insights, SSO, on-premise
+Scope: the benchmark desktop client's own documentation, minus everything that
+depends on the vendor cloud or AI (cloud workspaces, cloud patches, code
+suggestions, AI, MCP, agent sessions, team view, insights, SSO, on-premise
 deployment). Cards are either **Finish** (behaviour exists but stops short) or
 **Add** (behaviour absent). Sizes: S ≤ 2 d, M 3–5 d, L 1–2 w, XL > 2 w.
 

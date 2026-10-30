@@ -29,6 +29,42 @@ pub struct GithubMrRefInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GithubApproveInput {
+    pub project_id: u64,
+    pub iid: u64,
+    /// Optional body carried by the approving review.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubRunRefInput {
+    pub project_id: u64,
+    pub run_id: u64,
+    #[serde(default)]
+    pub page: Option<u32>,
+    #[serde(default)]
+    pub per_page: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubRollupInput {
+    pub project_id: u64,
+    /// Pull request numbers of the visible page.
+    pub numbers: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubCheckRollupDto {
+    pub iid: u64,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GithubDiscussionInput {
     pub project_id: u64,
     pub iid: u64,
@@ -318,12 +354,12 @@ pub async fn github_approvals(
 pub async fn github_approve(
     app: AppHandle,
     state: State<'_, AppState>,
-    input: GithubMrRefInput,
+    input: GithubApproveInput,
 ) -> Result<GithubApprovalsDto, AppError> {
     let client = client(&state)?;
     let instance = instance_id(&state)?;
     let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
-    match client.approve(&repo, input.iid).await {
+    match client.approve(&repo, input.iid, input.note.as_deref()).await {
         Ok(value) => Ok(GithubApprovalsDto {
             available: true,
             state: Some(value),
@@ -581,6 +617,97 @@ pub async fn github_merge_pr(
                 _ => github_error(error),
             }
         })
+}
+
+#[tauri::command]
+pub async fn github_run_jobs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubRunRefInput,
+) -> Result<GithubJobsDto, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    let page = client
+        .run_jobs(
+            &repo,
+            input.run_id,
+            input.page.unwrap_or(1),
+            input.per_page.unwrap_or(50),
+        )
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            github_error(error)
+        })?;
+    Ok(GithubJobsDto {
+        pipeline_id: page.run_id,
+        items: page.items,
+        next_page: page.next_page,
+        per_page: page.per_page,
+        total: page.total,
+    })
+}
+
+#[tauri::command]
+pub async fn github_rerun_failed(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubRunRefInput,
+) -> Result<bool, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    client
+        .rerun_failed_jobs(&repo, input.run_id)
+        .await
+        .map(|()| true)
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            github_error(error)
+        })
+}
+
+#[tauri::command]
+pub async fn github_cancel_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubRunRefInput,
+) -> Result<bool, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    client
+        .cancel_run(&repo, input.run_id)
+        .await
+        .map(|()| true)
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            github_error(error)
+        })
+}
+
+/// Check badges for a whole list page, in one GraphQL request.
+#[tauri::command]
+pub async fn github_pr_checks_rollup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GithubRollupInput,
+) -> Result<Vec<GithubCheckRollupDto>, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    let repo = resolve_repo_ref(&state, &client, &instance, input.project_id).await?;
+    let rollups = client
+        .pull_check_rollups(&repo, &input.numbers)
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            github_error(error)
+        })?;
+    Ok(rollups
+        .into_iter()
+        .map(|(iid, status)| GithubCheckRollupDto { iid, status })
+        .collect())
 }
 
 #[tauri::command]

@@ -184,7 +184,10 @@ pub async fn sync_fetch_all(
             }),
         }
     }
-    let failed = outcomes.iter().filter(|entry| entry.error.is_some()).count();
+    let failed = outcomes
+        .iter()
+        .filter(|entry| entry.error.is_some())
+        .count();
     if failed == outcomes.len() {
         return Err(AppError::new(
             "sync.fetch_all_failed",
@@ -225,6 +228,7 @@ async fn fetch_remote(
     repo_id: &str,
     remote: &str,
 ) -> Result<SyncOutcome, AppError> {
+    let runner = authenticated_runner(state, session.runner())?;
     let operation_id = new_operation_id("fetch");
     begin_operation(
         state,
@@ -241,7 +245,8 @@ async fn fetch_remote(
     let result = run_mutation(session.clone(), {
         let app = app_handle;
         let repo_id = owned_repo.clone();
-        move |runner, discovery| {
+        move |_, discovery| {
+            let runner = &runner;
             let worktree = discovery.worktree()?;
             let context = beebranch_git::OperationContext::new(&owned_id, "fetch");
             let command = sync::spawn_fetch(
@@ -252,10 +257,7 @@ async fn fetch_remote(
                 operation_progress(&app, &owned_id, &repo_id),
             )?;
             if let Ok(mut flags) = operations.lock() {
-                flags.insert(
-                    owned_id.clone(),
-                    (repo_id.clone(), command.cancel_flag()),
-                );
+                flags.insert(owned_id.clone(), (repo_id.clone(), command.cancel_flag()));
             }
             emit_operation(
                 &app,

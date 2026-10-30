@@ -8,6 +8,7 @@ import type {
   FileContent,
   FileWriteReport,
   Generation,
+  GitlabJob,
   GitlabProject,
   GitlabSession,
   GithubProject,
@@ -1268,6 +1269,7 @@ export function gitlabApprovals(input: {
 export function gitlabApprove(input: {
   projectId: number
   iid: number
+  note?: string
 }): Promise<ApprovalsDto> {
   return call<ApprovalsDto>('gitlab_approve', { input })
 }
@@ -1341,6 +1343,20 @@ export function gitlabPipelineJobs(
   return call<JobsDto>('gitlab_pipeline_jobs', { input, pipelineId })
 }
 
+export function gitlabJobCancel(input: {
+  projectId: number
+  jobId: number
+}): Promise<GitlabJob> {
+  return call<GitlabJob>('gitlab_job_cancel', { input })
+}
+
+export function gitlabJobRetry(input: {
+  projectId: number
+  jobId: number
+}): Promise<GitlabJob> {
+  return call<GitlabJob>('gitlab_job_retry', { input })
+}
+
 export function gitlabJobLog(input: {
   projectId: number
   jobId: number
@@ -1355,6 +1371,14 @@ export function gitlabMrDiffRefs(input: {
   iid: number
 }): Promise<GitlabDiffRefs> {
   return call<GitlabDiffRefs>('gitlab_mr_diff_refs', { input })
+}
+
+/** File patches of a merge request, rebuilt into the local diff report. */
+export function gitlabMrDiff(input: {
+  projectId: number
+  iid: number
+}): Promise<DiffReport> {
+  return call<DiffReport>('gitlab_mr_diff', { input })
 }
 
 // --- GitHub ---------------------------------------------------------------
@@ -1517,6 +1541,7 @@ export function githubApprovals(input: {
 export function githubApprove(input: {
   projectId: number
   iid: number
+  note?: string
 }): Promise<ApprovalsDto> {
   return call<ApprovalsDto>('github_approve', { input })
 }
@@ -1592,9 +1617,47 @@ export function githubJobLog(input: {
   return call<JobLog>('github_job_log', { input })
 }
 
+export function githubPrChecksRollup(input: {
+  projectId: number
+  numbers: number[]
+}): Promise<Array<{ iid: number; status?: string }>> {
+  return call('github_pr_checks_rollup', { input })
+}
+
+export function githubRunJobs(input: {
+  projectId: number
+  runId: number
+  page?: number
+  perPage?: number
+}): Promise<JobsDto> {
+  return call<JobsDto>('github_run_jobs', { input })
+}
+
+export function githubRerunFailed(input: {
+  projectId: number
+  runId: number
+}): Promise<boolean> {
+  return call<boolean>('github_rerun_failed', { input })
+}
+
+export function githubCancelRun(input: {
+  projectId: number
+  runId: number
+}): Promise<boolean> {
+  return call<boolean>('github_cancel_run', { input })
+}
+
 export function githubPrDiffRefs(input: {
   projectId: number
   iid: number
 }): Promise<GithubDiffRefs> {
   return call<GithubDiffRefs>('github_pr_diff_refs', { input })
+}
+
+/** File patches of a pull request, rebuilt into the local diff report. */
+export function githubPrDiff(input: {
+  projectId: number
+  iid: number
+}): Promise<DiffReport> {
+  return call<DiffReport>('github_pr_diff', { input })
 }

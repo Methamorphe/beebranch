@@ -268,6 +268,24 @@ type CommitContext = {
 /** Loads one file at the revision the current diff was computed for. */
 export type DocumentReader = (path: string) => Promise<FileContent>
 
+/** One comment anchored on a diff line, ready for the provider. */
+export type LineCommentRequest = {
+  /** Path on the old side; a rename differs from {@link newPath}. */
+  oldPath: string
+  /** Path on the new side; a deletion keeps the old path here. */
+  newPath: string
+  side: 'new' | 'old'
+  /** Number printed in the gutter, never a hunk offset. */
+  line: number
+  content: string
+}
+
+type LineComment = {
+  onComment: (request: LineCommentRequest) => void
+  /** The provider accepts ```suggestion blocks inside inline comments. */
+  suggestions: boolean
+}
+
 type Props = {
   report: DiffReport
   source: string
@@ -280,6 +298,8 @@ type Props = {
   readDocument?: DocumentReader
   /** Opens the file history for the visible file. */
   onShowHistory?: (path: string) => void
+  /** Present when the diff is a review request accepting line comments. */
+  lineComment?: LineComment
 }
 
 const MARKDOWN_PATH = /\.(md|markdown|mdown|mkd|mdx)$/i
@@ -307,6 +327,42 @@ const TONE_CLASS = (tone: 'context' | 'added' | 'removed' | 'mixed') => {
     default:
       return styles.toneContext
   }
+}
+
+/**
+ * Where a comment on this row anchors.
+ *
+ * The new side wins when the line exists there, otherwise the old side. The
+ * number is the one the viewer prints for that line (`oldLineno`/`newLineno`),
+ * so the provider's inline comment lands on the displayed line.
+ */
+function commentAnchor(
+  row: Extract<Row, { kind: 'line' }>,
+  file: FileDiff,
+): LineCommentRequest | null {
+  // `/dev/null` is never a position the provider accepts: an added file keeps
+  // the new path on both sides, a deleted one keeps the old path.
+  const oldPath = file.oldPath === '/dev/null' ? file.newPath : file.oldPath
+  const newPath = file.newPath === '/dev/null' ? file.oldPath : file.newPath
+  if (row.right && row.right.newLineno !== undefined) {
+    return {
+      oldPath,
+      newPath,
+      side: 'new',
+      line: row.right.newLineno,
+      content: row.right.content,
+    }
+  }
+  if (row.left && row.left.oldLineno !== undefined) {
+    return {
+      oldPath,
+      newPath,
+      side: 'old',
+      line: row.left.oldLineno,
+      content: row.left.content,
+    }
+  }
+  return null
 }
 
 type WordDiff = {
@@ -346,7 +402,7 @@ function PathParts({ path }: { path: string }) {
   )
 }
 
-export function DiffViewer({ report, source, commit, staging, embedded = false, onAmend, readDocument, onShowHistory }: Props) {
+export function DiffViewer({ report, source, commit, staging, embedded = false, onAmend, readDocument, onShowHistory, lineComment }: Props) {
   const { t, plural } = useI18n()
   const [mode, setMode] = useState<Mode>('inline')
   const [wrap, setWrap] = useState(() => {
@@ -380,6 +436,14 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     path: string
     sha256?: string
   } | null>(null)
+  /** Row the composer is anchored to, or `null` when it is closed. */
+  const [commentTarget, setCommentTarget] = useState<{
+    oldPath: string
+    newPath: string
+    side: 'new' | 'old'
+    line: number
+  } | null>(null)
+  const [commentBody, setCommentBody] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const file = report.files[active]
   const rows = useMemo(
@@ -434,6 +498,8 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     setPendingDiscard(null)
     setActionError(null)
     setActionNotice(null)
+    setCommentTarget(null)
+    setCommentBody('')
   }, [report])
 
   useEffect(() => {
@@ -461,6 +527,13 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
   const hunkRows = rows
     .map((row, index) => (row.kind === 'hunk' ? index : -1))
     .filter((index) => index >= 0)
+
+  /** Switch file and drop a composer still anchored on the previous one. */
+  const selectFile = (index: number) => {
+    setActive(index)
+    setCommentTarget(null)
+    setCommentBody('')
+  }
 
   const jump = (direction: -1 | 1) => {
     const scroll = scrollRef.current
@@ -676,13 +749,46 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
         </div>
       )
     }
+    const anchor = lineComment ? commentAnchor(row, file) : null
     return (
       <div
         key={absolute}
         className={styles.lineRow}
         data-split={mode === 'split' ? 'true' : undefined}
+        data-comment={lineComment ? 'true' : undefined}
         style={rowStyle}
       >
+        {lineComment ? (
+          anchor ? (
+            <button
+              type="button"
+              className={styles.commentGutter}
+              title={t('diff.comment.gutterTitle')}
+              aria-label={t('diff.comment.gutterAria', {
+                path: anchor.side === 'new' ? anchor.newPath : anchor.oldPath,
+                line: anchor.line,
+                side: anchor.side,
+              })}
+              onClick={() => {
+                setCommentTarget({
+                  oldPath: anchor.oldPath,
+                  newPath: anchor.newPath,
+                  side: anchor.side,
+                  line: anchor.line,
+                })
+                setCommentBody(
+                  lineComment.suggestions && anchor.side === 'new'
+                    ? ['```suggestion', anchor.content, '```'].join('\n')
+                    : '',
+                )
+              }}
+            >
+              +
+            </button>
+          ) : (
+            <span className={styles.commentGutter} aria-hidden="true" />
+          )
+        ) : null}
         {staging && row.tone !== 'context' ? (
           <label className={shared.checkbox}>
             <input
@@ -771,7 +877,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
             className={index === active ? styles.fileActive : styles.file}
             aria-current={index === active ? 'true' : undefined}
             onClick={() => {
-              setActive(index)
+              selectFile(index)
               setLineSelection({})
               setHunkSelection([])
               setActionError(null)
@@ -946,7 +1052,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                       title={t('diff.file.previous')}
                       aria-label={t('diff.file.previous')}
                       onClick={() => {
-                        setActive((current) => Math.max(0, current - 1))
+                        selectFile(Math.max(0, active - 1))
                         scrollRef.current?.scrollTo({ top: 0 })
                         setScrollTop(0)
                       }}
@@ -960,8 +1066,8 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
                       title={t('diff.file.next')}
                       aria-label={t('diff.file.next')}
                       onClick={() => {
-                        setActive((current) =>
-                          Math.min(report.files.length - 1, current + 1),
+                        selectFile(
+                          Math.min(report.files.length - 1, active + 1),
                         )
                         scrollRef.current?.scrollTo({ top: 0 })
                         setScrollTop(0)
@@ -975,6 +1081,64 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
             ) : null}
           </div>
         </header>
+        {commentTarget && lineComment ? (
+          <div
+            className={styles.commentBar}
+            role="group"
+            aria-label={t('diff.comment.aria')}
+          >
+            <div className={styles.commentHead}>
+              <span className={styles.commentAnchor}>
+                {t('diff.comment.anchor', {
+                  path:
+                    commentTarget.side === 'new'
+                      ? commentTarget.newPath
+                      : commentTarget.oldPath,
+                  line: commentTarget.line,
+                })}
+              </span>
+              {lineComment.suggestions && commentTarget.side === 'new' ? (
+                <span className={styles.commentHint}>
+                  {t('diff.comment.suggestion')}
+                </span>
+              ) : null}
+            </div>
+            <textarea
+              className={styles.commentBody}
+              value={commentBody}
+              aria-label={t('diff.comment.aria')}
+              onChange={(event) => setCommentBody(event.target.value)}
+              autoFocus
+            />
+            <div className={styles.commentActions}>
+              <button
+                type="button"
+                className={styles.mode}
+                onClick={() => {
+                  setCommentTarget(null)
+                  setCommentBody('')
+                }}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className={styles.commentSend}
+                disabled={!commentBody.trim()}
+                onClick={() => {
+                  lineComment.onComment({
+                    ...commentTarget,
+                    content: commentBody.trim(),
+                  })
+                  setCommentTarget(null)
+                  setCommentBody('')
+                }}
+              >
+                {t('diff.comment.send')}
+              </button>
+            </div>
+          </div>
+        ) : null}
         {!embedded ? (
         <div className={styles.fileBar}>
           <span className={styles.fileStatus} data-kind={file.kind} aria-hidden="true">

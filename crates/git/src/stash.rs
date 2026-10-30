@@ -35,7 +35,7 @@ pub struct StashEntry {
 
 impl StashEntry {
     /// The stash as a single-parent commit pointing at its base: what the graph
-    /// draws, so a stash is one node like in GitKraken instead of three (the
+    /// draws, so a stash is one node like in the benchmark client instead of three (the
     /// index and untracked snapshots stay out of the history).
     pub fn summary(&self) -> CommitSummary {
         CommitSummary {
@@ -305,7 +305,7 @@ fn parse_list(input: &str) -> Result<Vec<StashEntry>, String> {
 }
 
 /// `git stash list` reports the reflog subject, which prefixes the entry with
-/// the branch it was taken on. GitKraken labels the node with the message the
+/// the branch it was taken on. The benchmark client labels the node with the message the
 /// user typed, so the prefix is dropped; the default `WIP on` message also
 /// carries the base SHA, which is not part of that message.
 fn stash_subject(reflog: &str) -> String {

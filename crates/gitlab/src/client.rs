@@ -850,6 +850,33 @@ impl GitlabClient {
         })
     }
 
+    /// Retry one failed job (`POST /projects/:id/jobs/:job_id/retry`).
+    ///
+    /// GitLab answers with the new job; a token without the maintainer right
+    /// gets a 403 that the command layer surfaces as the provider message.
+    pub async fn retry_job(&self, project_id: u64, job_id: u64) -> Result<GitlabJob, GitlabError> {
+        let project = project_id.to_string();
+        let job = job_id.to_string();
+        let url = self.endpoint(&["projects", &project, "jobs", &job, "retry"])?;
+        let value: GitlabJob = self
+            .send_json(Method::POST, &url, &serde_json::json!({}))
+            .await?;
+        self.invalidate_jobs(project_id);
+        Ok(value)
+    }
+
+    /// Cancel one running job (`POST /projects/:id/jobs/:job_id/cancel`).
+    pub async fn cancel_job(&self, project_id: u64, job_id: u64) -> Result<GitlabJob, GitlabError> {
+        let project = project_id.to_string();
+        let job = job_id.to_string();
+        let url = self.endpoint(&["projects", &project, "jobs", &job, "cancel"])?;
+        let value: GitlabJob = self
+            .send_json(Method::POST, &url, &serde_json::json!({}))
+            .await?;
+        self.invalidate_jobs(project_id);
+        Ok(value)
+    }
+
     /// Fetch one page of a job trace. GitLab honours `Range` on traces; when
     /// it returns the full body instead, the client skips `offset` bytes.
     pub async fn job_log(
@@ -965,6 +992,15 @@ impl GitlabClient {
                 "{base}/projects/{project_id}/merge_requests/{iid}"
             ));
             cache.remove_prefix(&format!("{base}/projects/{project_id}/merge_requests"));
+        }
+    }
+
+    /// Pipeline and job listings change when a job is retried or cancelled.
+    fn invalidate_jobs(&self, project_id: u64) {
+        if let Some(cache) = &self.cache {
+            let base = self.url.api_url.trim_end_matches('/');
+            cache.remove_prefix(&format!("{base}/projects/{project_id}/pipelines"));
+            cache.remove_prefix(&format!("{base}/projects/{project_id}/jobs"));
         }
     }
 

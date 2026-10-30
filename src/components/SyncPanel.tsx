@@ -12,6 +12,7 @@ import {
   syncPush,
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
+import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import { useI18n, type MessageKey } from '../i18n'
 import type {
   OperationProgress,
@@ -28,6 +29,8 @@ type Props = {
   repoId: string
   generation: number
   onMutated: () => void
+  /** A push Git refused, handed to the recovery dialog. */
+  onPushRejected: (rejection: PushRejection) => void
 }
 
 const STRATEGIES: { value: PullStrategy; labelKey: MessageKey }[] = [
@@ -49,7 +52,7 @@ const AUTO_FETCH: { value: string; labelKey: MessageKey }[] = [
 const PULL_STRATEGY_PREFERENCE = 'git.pullStrategy'
 const AUTO_FETCH_PREFERENCE = 'git.autoFetchMinutes'
 
-export function SyncPanel({ repoId, generation, onMutated }: Props) {
+export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Props) {
   const { t } = useI18n()
   const [status, setStatus] = useState<StatusReport | null>(null)
   const [refs, setRefs] = useState<RefsSnapshot | null>(null)
@@ -180,8 +183,19 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
       setForce(false)
       onMutated()
     } catch (cause) {
-      setError(errorMessage(cause))
-      setErrorOutput(errorDetail(cause))
+      // A refused push is not a dead end: the recovery dialog fetches, then
+      // offers pull-then-push or a typed force push. The Git output stays in
+      // the console so the reason is still visible.
+      if (kind === 'push' && isPushRejection(cause)) {
+        const detail = errorDetail(cause)
+        if (detail) {
+          setLog((current) => [...current, detail])
+        }
+        onPushRejected({ repoId, remote, branch })
+      } else {
+        setError(errorMessage(cause))
+        setErrorOutput(errorDetail(cause))
+      }
     } finally {
       setBusy(false)
       setOperationId(null)

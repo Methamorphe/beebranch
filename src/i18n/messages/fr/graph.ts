@@ -22,6 +22,7 @@ const messages = {
   'graph.ref.kind.active': 'active',
   'graph.ref.kind.local': 'locale',
   'graph.ref.kind.remote': 'distante',
+  'graph.ref.kind.synced': 'locale et distante',
   'graph.ref.kind.tag': 'tag',
 
   'graph.popover.aria': 'Branches et tags de ce commit',

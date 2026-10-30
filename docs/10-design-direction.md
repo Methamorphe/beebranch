@@ -2,11 +2,11 @@
 
 ## 1. Intent
 
-BeeBranch must feel **immediately familiar** to a GitKraken user: the same visual landmarks, the same density, the same way of reading history. It must also have **its own identity**: original name, logo, palette, and iconography.
+BeeBranch must feel **immediately familiar** to a developer coming from an established desktop Git client: the same visual landmarks, the same density, the same way of reading history. It must also have **its own identity**: original name, logo, palette, and iconography.
 
 The reference is **ergonomics**, not assets.
 
-## 2. What is adopted from the GitKraken experience
+## 2. What is adopted from the benchmark experience
 
 - Central history graph, colored lanes, visible refs, readable merges.
 - Left reference panel (branches, remotes, tags, stashes, worktrees).
@@ -23,7 +23,7 @@ The reference is **ergonomics**, not assets.
 | Element | Direction |
 |---|---|
 | Name | **BeeBranch** |
-| Symbol | Bee / honeycomb / branch, to be designed; never the GitKraken logo |
+| Symbol | Bee / honeycomb / branch, to be designed; never the benchmark vendor's logo |
 | Accent | **Amber yellow `#FED100`**, adapted to `#F5BB45` on a dark background in the reference mockup; reserved for primary actions, selection, and focus |
 | Base | Background `#101216`, panels `#15181E`, raised surfaces `#1C2028`, borders `#282D36`, text `#E1E5EC`, secondary `#8992A2` (reference mockup) |
 | Lane palette | 6 derived functional colors, readable on a black background; the accent yellow is not used as a lane |
@@ -35,8 +35,8 @@ The base palette uses `#0A0A0A`, `#191919`, `#F6F6F6`, `#EDEDED`, and `#FED100`.
 
 **Legal and ethical guardrails**
 
-- Do not copy GitKraken's assets, icons, screenshots, fonts, logos, or exact palette.
-- Do not use “GitKraken” in the name, logo, domain, or product communications.
+- Do not copy the benchmark client's assets, icons, screenshots, fonts, logos, or exact palette.
+- Do not use any benchmark vendor's trademark in the name, logo, domain, or product communications.
 - Do not reproduce identifiable trade dress; drawing inspiration from common interface conventions (graph, panels, tabs) is acceptable.
 - Check the license of every third-party icon or font before integration.
 
@@ -152,9 +152,9 @@ Profiles and settings; duplicates are rejected.
 
 Every visual change must respect the guardrails in section 3.
 
-### Graph rendering (GitKraken reference)
+### Graph rendering (benchmark reference)
 
-The graph follows GitKraken's reading conventions without reusing its assets:
+The graph follows the benchmark client's reading conventions without reusing its assets:
 
 - each commit row is a **band tinted** with the branch color
   (6% in dark, 5% in light), with 3 px top/bottom insets and
@@ -168,7 +168,7 @@ The graph follows GitKraken's reading conventions without reusing its assets:
 - nodes are lane-colored disks, outlined with `--surface` to
   stand out from the lines; HEAD receives an accent halo;
 - **lane junctions** are rounded on the destination commit's row,
-  as in GitKraken: a branch joining its parent keeps its column
+  as in the benchmark client: a branch joining its parent keeps its column
   until the parent's row, then curves **above** the midline; only a
   secondary parent opens a column **below** the commit, with a curve below
   the midline. A commit whose parent is already taken by another column

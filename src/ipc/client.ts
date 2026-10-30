@@ -134,3 +134,14 @@ export function errorDetail(cause: unknown): string | null {
   const error = cause instanceof IpcError ? cause.app : normalizeError(cause)
   return error.detail ?? null
 }
+
+/**
+ * Stable error code of any failure `call` produced or rejected with.
+ *
+ * `call` throws an `IpcError`: unwrapping it here keeps callers from
+ * re-implementing that distinction and reading `ipc.unavailable` instead.
+ */
+export function errorCode(cause: unknown): string {
+  const error = cause instanceof IpcError ? cause.app : normalizeError(cause)
+  return error.code
+}

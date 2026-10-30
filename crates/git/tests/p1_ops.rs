@@ -386,8 +386,16 @@ fn commit_honours_a_hooks_path_override() {
         },
     )
     .expect("commit with custom hooks path");
-    assert!(outcome.output.contains("custom hook ran"), "{}", outcome.output);
+    assert!(
+        outcome.output.contains("custom hook ran"),
+        "{}",
+        outcome.output
+    );
 
+    // `commit.empty` answers before the option checks: stage a change so the
+    // refusal below is the one under test.
+    fixture.write("a.txt", "after custom hooks\n");
+    fixture.add_all();
     let invalid = commit::create(
         fixture.runner(),
         fixture.path(),

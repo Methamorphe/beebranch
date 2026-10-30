@@ -2,19 +2,36 @@
 //! and bounded job logs (P2-T08, P2-T09, P2-T10).
 
 use beebranch_core::{AppError, Confirmation, ErrorCategory};
+use beebranch_git::diff::DiffReport;
 use beebranch_gitlab::{
     GitlabApprovals, GitlabClient, GitlabDiscussion, GitlabJob, GitlabMergeRequest, GitlabNote,
     GitlabPosition, JobLog, MergeRequestMerge, MergeRequestUpdate, Paged,
 };
-use beebranch_git::diff::DiffReport;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::commands::forge_diff::{report_from_patches, PatchInput};
+use crate::commands::forge_diff::{patches_from_gitlab, report_from_patches};
 
 use crate::commands::gitlab::not_configured_public as not_configured;
 use crate::error::gitlab_error;
 use crate::state::AppState;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitlabJobRefInput {
+    pub project_id: u64,
+    pub job_id: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitlabApproveInput {
+    pub project_id: u64,
+    pub iid: u64,
+    /// Optional note published as a plain discussion after the approval.
+    #[serde(default)]
+    pub note: Option<String>,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -348,16 +365,39 @@ pub async fn gitlab_approvals(
 pub async fn gitlab_approve(
     app: AppHandle,
     state: State<'_, AppState>,
-    input: MrRefInput,
+    input: GitlabApproveInput,
 ) -> Result<ApprovalsDto, AppError> {
     let client = client(&state)?;
     let instance = instance_id(&state)?;
     match client.approve(input.project_id, input.iid).await {
-        Ok(value) => Ok(ApprovalsDto {
-            available: true,
-            state: Some(value),
-            reason: None,
-        }),
+        Ok(value) => {
+            // GitLab has no approval-body field: the documented "approve with
+            // a comment" posts the approval, then a plain discussion.
+            let note = input
+                .note
+                .as_deref()
+                .map(str::trim)
+                .filter(|note| !note.is_empty());
+            let reason = match note {
+                Some(note) => client
+                    .create_discussion(input.project_id, input.iid, note, None)
+                    .await
+                    .err()
+                    .map(|error| {
+                        auth_event(&app, &error, &instance);
+                        format!(
+                            "Approbation enregistrée, mais le commentaire a échoué : {}",
+                            gitlab_error(error).message
+                        )
+                    }),
+                None => None,
+            };
+            Ok(ApprovalsDto {
+                available: true,
+                state: Some(value),
+                reason,
+            })
+        }
         Err(error) if error.status() == Some(404) => Ok(ApprovalsDto {
             available: false,
             state: None,
@@ -368,6 +408,40 @@ pub async fn gitlab_approve(
             Err(gitlab_error(error))
         }
     }
+}
+
+#[tauri::command]
+pub async fn gitlab_job_retry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GitlabJobRefInput,
+) -> Result<GitlabJob, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    client
+        .retry_job(input.project_id, input.job_id)
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            gitlab_error(error)
+        })
+}
+
+#[tauri::command]
+pub async fn gitlab_job_cancel(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GitlabJobRefInput,
+) -> Result<GitlabJob, AppError> {
+    let client = client(&state)?;
+    let instance = instance_id(&state)?;
+    client
+        .cancel_job(input.project_id, input.job_id)
+        .await
+        .map_err(|error| {
+            auth_event(&app, &error, &instance);
+            gitlab_error(error)
+        })
 }
 
 #[tauri::command]
@@ -385,23 +459,7 @@ pub async fn gitlab_mr_diff(
             auth_event(&app, &error, &instance);
             gitlab_error(error)
         })?;
-    let patches = files
-        .into_iter()
-        .map(|file| PatchInput {
-            status: if file.new_file {
-                "added".to_owned()
-            } else if file.deleted_file {
-                "removed".to_owned()
-            } else if file.renamed_file {
-                "renamed".to_owned()
-            } else {
-                "modified".to_owned()
-            },
-            old_path: file.old_path,
-            new_path: file.new_path,
-            patch: Some(file.patch),
-        })
-        .collect();
+    let patches = patches_from_gitlab(files);
     report_from_patches(patches)
 }
 
@@ -419,9 +477,7 @@ pub async fn gitlab_request_changes(
         ErrorCategory::Input,
         "GitLab ne prend pas en charge la demande de modifications.",
     )
-    .with_remediation(
-        "Commentez la merge request ou retirez votre approbation.",
-    ))
+    .with_remediation("Commentez la merge request ou retirez votre approbation."))
 }
 
 #[tauri::command]
@@ -435,7 +491,9 @@ pub async fn gitlab_mr_update(
         description: input.description.clone(),
     };
     if update.is_empty() {
-        return Err(AppError::invalid_input("Aucun champ à modifier.".to_owned()));
+        return Err(AppError::invalid_input(
+            "Aucun champ à modifier.".to_owned(),
+        ));
     }
     if let Some(title) = update.title.as_ref() {
         if title.trim().is_empty() {

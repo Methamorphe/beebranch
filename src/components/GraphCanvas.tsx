@@ -93,10 +93,10 @@ function commitDateLabel(timestamp: number) {
  * count instead of squeezing every lane into a fixed width, which used to turn
  * a branched history into an unreadable ladder. */
 const LANE_PITCH = 22
-/** Commit dot radius, measured from GitKraken: 11 px across on a 28 px row. */
+/** Commit dot radius, measured from the benchmark client: 11 px across on a 28 px row. */
 const NODE_RADIUS = 5.5
 /** Half of the stash medallion: a dashed rounded square the width of a lane,
- * the node GitKraken draws for a stash entry. */
+ * the node the benchmark client draws for a stash entry. */
 const STASH_RADIUS = 10
 /** Radius of the corner that turns a parent edge into its lane. */
 const ELBOW_RADIUS = 7
@@ -194,9 +194,13 @@ type BadgeRef = {
   raw: string
   label: string
   kind: GraphRefKind
+  /** Local branch whose upstream points at the same commit: draw both glyphs. */
+  mirrored: boolean
 }
 
 const BADGE_ICON_WIDTH = 12
+/** Horizontal pitch between two glyphs inside one pill. */
+const BADGE_ICON_PITCH = 13
 
 /** Drawn on every badge: fork for a local branch, cloud for a remote-tracking
  * ref, tag for a tag. Shapes match the sidebar icon set so the two agree. */
@@ -242,7 +246,7 @@ function drawRefIcon(context: CanvasRenderingContext2D, kind: GraphRefKind, x: n
   context.restore()
 }
 
-/** A stash entry is not a commit dot: GitKraken draws a dashed medallion with
+/** A stash entry is not a commit dot: the benchmark client draws a dashed medallion with
  * a chest inside, so the row reads as a stash at a glance. The medallion owns
  * its lane, hence the background fill that knocks the rail out. */
 function drawStashNode(
@@ -352,18 +356,20 @@ export function GraphCanvas({
   const { locale, t } = useI18n()
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
   // Every visible ref of a commit, in draw order. A remote-tracking mirror of
-  // a local branch is folded out: `main` and `origin/main` on the same commit
-  // are one branch, not two.
+  // a local branch on the same commit is folded out: `main` and `origin/main`
+  // are one branch, shown by a single pill carrying both glyphs.
   const decorations = useMemo(() => {
     const map = new Map<string, BadgeRef[]>()
     for (const commit of commits) {
       if (commit.refs.length === 0) continue
       const decorated = graphCommitRefs(commit, refEntries)
-      const { visible } = foldUpstreamRefs(decorated)
+      const { visible, mirrored } = foldUpstreamRefs(decorated)
+      const mirroredKeys = new Set(mirrored)
       const refs = visible.map((decoration) => ({
         raw: decoration.raw,
         label: graphRefLabel(decoration.raw),
         kind: graphRefKind(decoration.raw, decoration.entry),
+        mirrored: mirroredKeys.has(decoration.key),
       }))
       if (refs.length > 0) map.set(commit.sha, refs)
     }
@@ -371,10 +377,14 @@ export function GraphCanvas({
   }, [commits, refEntries])
   const refsWidth = useMemo(() => {
     let longest = 0
+    let mirrored = false
     for (const refs of decorations.values()) {
-      for (const ref of refs) longest = Math.max(longest, ref.label.length)
+      for (const ref of refs) {
+        longest = Math.max(longest, ref.label.length)
+        mirrored ||= ref.mirrored
+      }
     }
-    return Math.min(220, Math.max(140, Math.round(longest * 7.1 + 58)))
+    return Math.min(220, Math.max(140, Math.round(longest * 7.1 + 58 + (mirrored ? BADGE_ICON_PITCH : 0))))
   }, [decorations])
   const layout = useMemo(
     () =>
@@ -613,7 +623,7 @@ export function GraphCanvas({
 
     // 3. Lane joins. The horizontal run sits on the commit's centerline: a
     // lane arriving from above curves in with its corner above the centerline,
-    // an extra parent curves away below it. GitKraken anchors the join on the
+    // an extra parent curves away below it. The benchmark client anchors the join on the
     // commit the line lands on, not on the commit it leaves, so a branch folds
     // into the parent instead of dropping into the parent's lane early.
     for (let index = first; index <= last; index += 1) {
@@ -731,22 +741,24 @@ export function GraphCanvas({
                     ? nodeColor
                     : mutedColor
           const tone = ref.kind === 'head' ? accentContrastColor : chipText
-          const available = col.refs - 10 - cursorX - BADGE_ICON_WIDTH - 14
+          const iconsWidth = BADGE_ICON_WIDTH + (ref.mirrored ? BADGE_ICON_PITCH : 0)
+          const available = col.refs - 10 - cursorX - iconsWidth - 14
           if (available < 20) break
           const label = fitText(context, ref.label, available)
           const chipWidth = Math.min(
             col.refs - 8 - cursorX,
-            context.measureText(label).width + BADGE_ICON_WIDTH + 16,
+            context.measureText(label).width + iconsWidth + 16,
           )
-          if (chipWidth < 24) break
+          if (chipWidth < iconsWidth + 12) break
           context.fillStyle =
             ref.kind === 'head' ? accentColor : mix(surfaceColor, kindColor, light ? 0.2 : 0.32)
           context.beginPath()
           context.roundRect(cursorX, y - 10, chipWidth, 20, 4)
           context.fill()
           drawRefIcon(context, ref.kind, cursorX + 5, y, tone)
+          if (ref.mirrored) drawRefIcon(context, 'remote', cursorX + 5 + BADGE_ICON_PITCH, y, tone)
           context.fillStyle = tone
-          context.fillText(label, cursorX + 5 + BADGE_ICON_WIDTH + 4, y)
+          context.fillText(label, cursorX + 5 + iconsWidth + 4, y)
           refRects.current.push({ commit, raw: ref.raw, x: cursorX, y: y - 10, width: chipWidth, height: 20 })
           cursorX += chipWidth + 4
           drawn += 1
@@ -1000,7 +1012,7 @@ export function GraphCanvas({
         if (refHover) closeRefSoon()
         const ref = refs?.[0]
         event.currentTarget.title = ref
-          ? `${ref.label} · ${t(ref.kind === 'remote' ? 'graph.ref.kind.remote' : ref.kind === 'tag' ? 'graph.ref.kind.tag' : 'graph.ref.kind.local')}`
+          ? `${ref.label} · ${t(ref.mirrored ? 'graph.ref.kind.synced' : ref.kind === 'remote' ? 'graph.ref.kind.remote' : ref.kind === 'tag' ? 'graph.ref.kind.tag' : 'graph.ref.kind.local')}`
           : ''
       } else {
         cancelRefClose()

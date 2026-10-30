@@ -390,7 +390,7 @@ Integration tests and benchmarks run on all three OSes in CI before every releas
 
 - **Greenfield**: no existing code or application data to migrate.
 - **Git repositories**: never migrated, never rewritten, never moved without explicit action.
-- **GitKraken**: no preference or history import in the MVP; users reconfigure their identity and remotes.
+- **Historical incumbent client**: no preference or history import in the MVP; users reconfigure their identity and remotes.
 - **Application database**: versioned, reversible SQLite migrations, refuse to start on a schema newer than the binary.
 - **Git**: minimum 2.34 + feature detection; blocking message if insufficient.
 - **GitLab**: latest three maintained versions tested + feature detection; no GitLab data migration.

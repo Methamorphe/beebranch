@@ -162,6 +162,13 @@ const messages = {
   'diff.blame.hint':
     'Chargez un fichier puis affichez le blame pour retrouver le commit et l’auteur de chaque ligne.',
 
+  'diff.comment.gutterTitle': 'Commenter cette ligne',
+  'diff.comment.gutterAria': 'Commenter {path} ligne {line} ({side})',
+  'diff.comment.anchor': '{path} · ligne {line}',
+  'diff.comment.aria': 'Commentaire en ligne',
+  'diff.comment.suggestion': 'bloc de suggestion inséré',
+  'diff.comment.send': 'Mettre en attente',
+
   'diff.markdown.relativeLink': 'Lien relatif : non ouvrable depuis l’application',
   'diff.markdown.blockedImage': 'Image bloquée',
 }
