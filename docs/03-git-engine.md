@@ -100,10 +100,10 @@ Full status can be expensive; it runs in the background, with watcher-based inva
 ### Refs
 
 ```text
-git -C <repo> for-each-ref --format='%(refname)%09%(objectname)%09%(objecttype)%09%(upstream)%09%(HEAD)%09%(symref)'
+git -C <repo> for-each-ref --format='%(refname)%09%(objectname)%09%(objecttype)%09%(upstream)%09%(HEAD)%09%(symref)%09%(*objectname)'
 ```
 
-Ref names cannot contain tabs or control characters; field-based parsing. Remote refs are grouped by remote.
+Ref names cannot contain tabs or control characters; field-based parsing. Remote refs are grouped by remote. `%(*objectname)` is the peeled target of an annotated tag: the ref itself stores a tag object, and only the commit it points at exists as a row of the history, so the repository tree navigates a tag by that oid.
 
 ### Log (graph page)
 

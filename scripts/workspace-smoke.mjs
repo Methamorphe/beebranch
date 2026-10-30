@@ -71,6 +71,25 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await screenshot('workspace-graph-compact.png')
   await evaluate(client, `document.documentElement.dataset.density = 'comfortable'`)
 
+  // A tag row reveals the commit the tag points at: an annotated tag stores a
+  // tag object, which is never a row of the history. The reveal runs in an
+  // effect after the click, and the mock tag targets a commit below the fold.
+  await click('[data-repository-section="tags"] button[aria-expanded]')
+  await click('[data-ref="refs/tags/v0.1"]')
+  await waitFor(client, `document.querySelector('[data-role="graph-selection"]').textContent === 'Commit 301 — fix graph lanes'`, 'tag reveals its commit')
+  await check('tag-row-reveals-commit', `(() => {
+    const row = document.querySelector('[data-ref="refs/tags/v0.1"]')
+    const selection = document.querySelector('[data-role="graph-selection"]').textContent
+    const canvas = document.querySelector('canvas')
+    let scroller = canvas && canvas.parentElement
+    while (scroller && !(scroller.scrollHeight > scroller.clientHeight)) scroller = scroller.parentElement
+    return row.getAttribute('aria-current') === 'true'
+      && selection === 'Commit 301 — fix graph lanes'
+      && Boolean(scroller) && scroller.scrollTop > 0
+      && Boolean(document.querySelector('aside[aria-label="Détail du commit"]'))
+  })()`)
+  await click('[data-repository-section="tags"] button[aria-expanded]')
+
   for (const id of ['remotes', 'tags', 'stash', 'worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search', 'operations']) {
     await click(`[data-repository-section="${id}"] button[aria-expanded]`)
     await check(id + '-expands-in-place', `document.querySelector('#repository-${id}').hidden === false && document.querySelector('canvas') === window.__workspaceCanvas && document.querySelector('canvas').getBoundingClientRect().height > 600 && !document.querySelector('[data-central-editor]')`)
@@ -161,6 +180,36 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await screenshot('workspace-diff.png')
   await click('button[aria-label="Fermer l’aperçu"]')
   await check('closing-diff-restores-same-graph', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('canvas').closest('[hidden]')`)
+
+  // The subject counter watches the first line only and warns past 72 chars.
+  const setCommitMessage = (value) => evaluate(client, `(() => {
+    const editor = document.querySelector('textarea[aria-label="Message de commit"]')
+    if (!editor) return false
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(editor, ${JSON.stringify(value)})
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  const readCounter = () => evaluate(client, `(() => {
+    const counter = document.querySelector('[data-role="commit-subject-counter"]')
+    return counter ? { text: counter.textContent.trim(), over: counter.dataset.over !== undefined, color: getComputedStyle(counter).color } : null
+  })()`)
+  if (!(await setCommitMessage('x'.repeat(43) + '\n\nCorps libre, sans limite de longueur.'))) {
+    throw new Error('commit composer missing for the subject counter')
+  }
+  const assertCounter = (name, value, detail) => {
+    results[name] = Boolean(value)
+    if (!value) throw new Error('Repository workspace: ' + name + ' — ' + JSON.stringify(detail))
+  }
+  await delay(40)
+  const counterUnder = await readCounter()
+  assertCounter('commit-counter-counts-subject-only',
+    counterUnder?.text === '29 caractères restants' && !counterUnder.over, counterUnder)
+  await setCommitMessage('x'.repeat(80))
+  await delay(40)
+  const counterOver = await readCounter()
+  assertCounter('commit-counter-warns-over-limit',
+    counterOver?.text === '8 caractères au-delà de la limite (72)' && counterOver.over && counterOver.color !== counterUnder.color, counterOver)
+  await setCommitMessage('')
 
   await evaluate(client, `(() => {
     window.__operationOverride = { kind:'merge' }; window.__conflictsOverride = { files:['src/main.rs'] }

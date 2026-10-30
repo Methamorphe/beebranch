@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { commitCreate, commitGet, refsGet } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
 import { useI18n } from '../i18n'
+import { SUBJECT_LIMIT, subjectRemaining } from '../lib/commitMessage'
 import type { CommitDetail } from '../types/git'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
@@ -76,6 +77,8 @@ export function AmendDialog({
   const canSubmit =
     detail !== null && !loading && !busy && changes && (keepMessage || trimmed.length > 0)
 
+  const remaining = subjectRemaining(message)
+
   const submit = async () => {
     setBusy(true)
     setError(null)
@@ -124,17 +127,24 @@ export function AmendDialog({
           {t('commit.amend.truncatedNotice')}
         </p>
       ) : (
-        <label className={shared.field}>
-          {t('commit.amend.messageLabel')}
-          <textarea
-            className={shared.textarea}
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            aria-label={t('commit.amend.messageAria')}
-            spellCheck
-            disabled={busy}
-          />
-        </label>
+        <>
+          <label className={shared.field}>
+            {t('commit.amend.messageLabel')}
+            <textarea
+              className={shared.textarea}
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              aria-label={t('commit.amend.messageAria')}
+              spellCheck
+              disabled={busy}
+            />
+          </label>
+          <p className={`${shared.counter} ${remaining < 0 ? shared.counterOver : ''}`} data-role="commit-subject-counter" data-over={remaining < 0 ? '' : undefined}>
+            {remaining >= 0
+              ? plural('commit.panel.subjectRemaining.one', 'commit.panel.subjectRemaining.other', remaining, { limit: SUBJECT_LIMIT })
+              : plural('commit.panel.subjectOver.one', 'commit.panel.subjectOver.other', -remaining, { limit: SUBJECT_LIMIT })}
+          </p>
+        </>
       )}
 
       <p className={shared.notice}>

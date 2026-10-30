@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.2.2] — 2026-10-30
+
+### Added
+
+- **Summary character counter**: the commit panel — and the amend dialog — now
+  show how many characters remain for the first line of the message, capped at
+  the conventional 72-character Git subject. The count turns into a warning once
+  the limit is exceeded; the body stays free-form.
+
+### Changed
+
+- **Reference pills (graph)**: branch, remote and tag pills keep the hue of the
+  rail they sit on but are filled solid instead of a 20–32 % tint, with the
+  label and glyph in whichever ink — near-black or near-white — has the higher
+  WCAG ratio on that fill. Two light-theme lanes sat between the two inks, so
+  those pills are darkened just enough to clear AA: the floor is 4.65:1 in the
+  light palette and 6.0:1 in the dark one (locked by
+  `scripts/reference-pill-check.ts`). A branch badge now reads as the same
+  colour as its line in the history, instead of a near-background wash that was
+  hard to pick out.
+
+### Fixed
+
+- **Tag rows in the repository tree**: picking a tag now focuses — and scrolls
+  to — the commit it points at. An annotated tag stores a tag object, and that
+  oid is not a row of the graph, so the selection landed nowhere and the
+  inspector stayed empty. `for-each-ref` now also reports the peeled commit
+  (`%(*objectname)`), and a tag row selects that oid; lightweight tags keep
+  pointing at their commit directly.
+
 ## [1.2.1] — 2026-10-30
 
 ### Fixed

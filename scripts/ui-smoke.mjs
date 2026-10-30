@@ -83,10 +83,11 @@ function mockScript(commits, rows, diffLines) {
       { fullName:'refs/remotes/origin/collision', name:'origin/collision', kind:'remoteBranch', remote:'origin', targetOid:commits[0].sha, objectType:'commit', isHead:false },
       { fullName:'refs/tags/main', name:'main', kind:'tag', targetOid:commits[0].sha, objectType:'commit', isHead:false },
       // Annotated tag: the ref stores a tag object, and only the commit it
-      // peels to exists as a history row.
+      // peels to exists as a history row. It targets a commit far below the
+      // fold so the reveal has to scroll the history, not just select.
       { fullName: 'refs/tags/v0.1', name: 'v0.1', kind: 'tag',
         targetOid: '2fd0c0de2fd0c0de2fd0c0de2fd0c0de2fd0c0de',
-        peeledOid: commits[5].sha, objectType: 'tag', isHead: false },
+        peeledOid: commits[300].sha, objectType: 'tag', isHead: false },
       // Local branch and its remote mirror on the same commit: one branch.
       { fullName: 'refs/heads/synced', name: 'synced', kind: 'branch', targetOid: commits[3].sha,
         objectType: 'commit', upstream: 'refs/remotes/origin/synced', isHead: false },
