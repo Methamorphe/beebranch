@@ -1,25 +1,25 @@
-# 03 — Moteur Git CLI
+# 03 — Git CLI engine
 
 ## 1. Invariants
 
-1. **Un seul point d'entrée** : `crates/git::process`. Aucun autre code ne lance `git`.
-2. **Jamais de shell.** `std::process::Command` / `tokio::process::Command` avec `arg()`.
-3. **Formats machine-readable** partout où c'est possible.
-4. **Aucune supposition sur la configuration utilisateur.** On lit `git config` et on respecte hooks, LFS, signatures, credential helpers, `core.autocrlf`, `core.fsmonitor`, `pull.rebase`.
-5. **Aucune mutation non sérialisée** par dépôt.
-6. **Aucune erreur avalée**, aucun `stderr` tronqué sans le signaler.
-7. **Aucune écriture dans le dépôt** hors commande Git demandée.
-8. **Aucun contournement de hook** sans action explicite de l'utilisateur.
-9. **Aucune sauvegarde applicative.** Les actions destructives sont irréversibles, confirmées, et ne suppriment jamais de fichier non suivi.
+1. **A single entry point**: `crates/git::process`. No other code launches `git`.
+2. **Never use a shell.** `std::process::Command` / `tokio::process::Command` with `arg()`.
+3. **Machine-readable formats** wherever possible.
+4. **No assumptions about user configuration.** Read `git config` and respect hooks, LFS, signatures, credential helpers, `core.autocrlf`, `core.fsmonitor`, `pull.rebase`.
+5. **No unserialized mutations** per repository.
+6. **No swallowed errors**, no truncated `stderr` without reporting it.
+7. **No writes to the repository** outside the requested Git command.
+8. **No bypassing hooks** without explicit user action.
+9. **No application backups.** Destructive actions are irreversible, confirmed, and never delete untracked files.
 
-## 2. Construction de processus
+## 2. Process construction
 
 ```rust
 struct CommandSpec {
     repo: RepoPath,
-    program: GitProgram,          // résolu une fois (PATH ou override)
+    program: GitProgram,          // resolved once (PATH or override)
     subcommand: GitSubcommand,    // allowlist
-    args: Vec<OsString>,          // jamais interprétés par un shell
+    args: Vec<OsString>,          // never interpreted by a shell
     env: Vec<(OsString, OsString)>,
     stdin: StdinMode,             // null | pipe | file
     timeout: Option<Duration>,
@@ -28,56 +28,56 @@ struct CommandSpec {
 }
 ```
 
-Règles :
+Rules:
 
 - `git -C <worktree> [global opts] <subcommand> [args] -- <paths>`.
-- Options globales fixes : `--no-pager`, `-c color.ui=false`, `-c core.quotepath=false` (chemins), `--no-optional-locks` pour les lectures.
-- `GIT_TERMINAL_PROMPT=0` pour échouer au lieu de bloquer sur une saisie.
+- Fixed global options: `--no-pager`, `-c color.ui=false`, `-c core.quotepath=false` (paths), `--no-optional-locks` for reads.
+- `GIT_TERMINAL_PROMPT=0` to fail rather than block on input.
 - `GIT_PAGER=cat`, `PAGER=cat`.
-- `stdout`/`stderr` bornés (valeur configurable, 16 Kio par défaut pour les erreurs, streaming non borné pour les opérations longues).
-- `stdin` fermé sauf besoin explicite (credential helper, éditeur).
-- Timeout : 30 s pour les lectures/écritures locales ; aucun timeout par défaut pour fetch/push/clone (heartbeat de progression à la place).
-- Windows : `CREATE_NO_WINDOW`.
-- Le programme `git` est résolu au démarrage (`git --version`), avec override dans les réglages.
+- Bounded `stdout`/`stderr` (configurable value, 16 KiB by default for errors, unbounded streaming for long-running operations).
+- `stdin` closed unless explicitly needed (credential helper, editor).
+- Timeout: 30 s for local reads/writes; no default timeout for fetch/push/clone (progress heartbeat instead).
+- Windows: `CREATE_NO_WINDOW`.
+- The `git` program is resolved at startup (`git --version`), with an override in settings.
 
-### Environnement
+### Environment
 
-| Variable | Politique |
+| Variable | Policy |
 |---|---|
-| `PATH`, `HOME`, `USERPROFILE` | héritées |
-| `SSH_AUTH_SOCK`, `GIT_SSH_COMMAND` | héritées (respect de la config SSH utilisateur) |
-| `GIT_TERMINAL_PROMPT` | forcée à `0` |
-| `GIT_PAGER`, `PAGER` | forcées à `cat` |
-| `LC_ALL` | non forcée ; les formats parsés sont indépendants de la locale |
-| `GIT_CONFIG_*` | non héritées si elles permettent d'injecter une configuration arbitraire ; liste blanche stricte |
-| Secrets | jamais en argument ; voir §13 |
+| `PATH`, `HOME`, `USERPROFILE` | inherited |
+| `SSH_AUTH_SOCK`, `GIT_SSH_COMMAND` | inherited (respect the user's SSH configuration) |
+| `GIT_TERMINAL_PROMPT` | forced to `0` |
+| `GIT_PAGER`, `PAGER` | forced to `cat` |
+| `LC_ALL` | not forced; parsed formats are locale-independent |
+| `GIT_CONFIG_*` | not inherited if they allow arbitrary configuration injection; strict allowlist |
+| Secrets | never in arguments; see §13 |
 
-## 3. Détection de capacité
+## 3. Capability detection
 
-Au premier usage :
+On first use:
 
-- `git --version` → version parsée.
-- `git lfs version` → disponibilité LFS.
-- Options critiques vérifiées par version documentée, avec tests :
-  - `status --porcelain=v2` (≥ 2.11) ;
-  - `switch` / `restore` (≥ 2.23) ;
-  - `worktree list --porcelain` (≥ 2.7) ;
-  - `rebase --update-refs` (≥ 2.38, optionnel).
+- `git --version` → parsed version.
+- `git lfs version` → LFS availability.
+- Critical options checked against documented versions, with tests:
+  - `status --porcelain=v2` (≥ 2.11);
+  - `switch` / `restore` (≥ 2.23);
+  - `worktree list --porcelain` (≥ 2.7);
+  - `rebase --update-refs` (≥ 2.38, optional).
 
-Version minimale décidée : **Git ≥ 2.34**, cible et tests sur **2.56.0** ([ADR-0007](adr/0007-version-baseline.md)). En dessous : message bloquant avec version détectée. Les fonctionnalités optionnelles sont désactivées par capacité, pas par version codée en dur.
+Chosen minimum version: **Git ≥ 2.34**, target and tests on **2.56.0** ([ADR-0007](adr/0007-version-baseline.md)). Below this: blocking message with the detected version. Optional features are disabled by capability, not by a hard-coded version.
 
-## 4. Commandes de lecture
+## 4. Read commands
 
-Toutes les commandes de cette section utilisent `--no-optional-locks` et n'écrivent pas dans le dépôt.
+All commands in this section use `--no-optional-locks` and do not write to the repository.
 
-### Découverte
+### Discovery
 
 ```text
 git -C <path> rev-parse --show-toplevel --absolute-git-dir --git-common-dir
                         --is-bare-repository --is-inside-work-tree
 ```
 
-Résultat : worktree, git dir, common dir, bare, inside-worktree. Le common dir permet de rattacher les worktrees à la même session logique.
+Result: worktree, git dir, common dir, bare, inside-worktree. The common dir links worktrees to the same logical session.
 
 ### Status
 
@@ -86,16 +86,16 @@ git -C <repo> --no-optional-locks status --porcelain=v2 -z --branch
     --untracked-files=all --ignore-submodules=none --find-renames
 ```
 
-Parsing :
+Parsing:
 
 - `# branch.oid`, `# branch.head`, `# branch.upstream`, `# branch.ab`.
-- `1` : changement ordinaire (XY, submodule, modes, path).
-- `2` : renommage/copie (deux chemins séparés par NUL).
-- `u` : conflit (XY, modes, stages, path).
-- `?` : non suivi ; `!` : ignoré (seulement si demandé).
-- `-z` : aucun échappement de chemin, tout est NUL-terminé.
+- `1`: ordinary change (XY, submodule, modes, path).
+- `2`: rename/copy (two NUL-separated paths).
+- `u`: conflict (XY, modes, stages, path).
+- `?`: untracked; `!`: ignored (only if requested).
+- `-z`: no path escaping, everything is NUL-terminated.
 
-Le status complet peut être coûteux ; il est exécuté en tâche de fond, avec invalidation par watcher, jamais à chaque frame.
+Full status can be expensive; it runs in the background, with watcher-based invalidation, never on every frame.
 
 ### Refs
 
@@ -103,9 +103,9 @@ Le status complet peut être coûteux ; il est exécuté en tâche de fond, avec
 git -C <repo> for-each-ref --format='%(refname)%09%(objectname)%09%(objecttype)%09%(upstream)%09%(HEAD)%09%(symref)'
 ```
 
-Les noms de refs ne peuvent pas contenir de tabulation ni de contrôle ; parsing par champs. Les refs distantes sont regroupées par remote.
+Ref names cannot contain tabs or control characters; field-based parsing. Remote refs are grouped by remote.
 
-### Log (page de graphe)
+### Log (graph page)
 
 ```text
 git -C <repo> --no-optional-locks log <order> --parents
@@ -113,13 +113,13 @@ git -C <repo> --no-optional-locks log <order> --parents
     --max-count=<N> [<cursor>]
 ```
 
-- `<order>` : `--date-order` par défaut (activité récente, parents après enfants) ; `--topo-order` disponible si la lisibilité des lanes le justifie. Le choix est mesuré (stabilité des lanes, coût sur gros historiques).
-- `%s` est le sujet (une ligne) ; le corps n'est chargé qu'à la demande.
-- Les champs sont séparés par `0x1F` (unit separator), les enregistrements par `\n`.
-- Pagination par **fenêtre croissante** : `N = 500`, puis 1 000, 2 000, 4 000… avec cache. Les sauts profonds utilisent `--skip` et sont mesurés ; aucun chargement complet implicite.
-- Topologie (parents) calculée côté Rust à partir de `%P` ; les lanes sont attribuées dans `git::log`.
+- `<order>`: `--date-order` by default (recent activity, parents after children); `--topo-order` available if lane readability warrants it. The choice is measured (lane stability, cost on large histories).
+- `%s` is the subject (one line); the body is loaded only on demand.
+- Fields are separated by `0x1F` (unit separator), records by `\n`.
+- Pagination with a **growing window**: `N = 500`, then 1,000, 2,000, 4,000… with caching. Deep jumps use `--skip` and are measured; no implicit full load.
+- Topology (parents) computed on the Rust side from `%P`; lanes are assigned in `git::log`.
 
-### Détail de commit
+### Commit details
 
 ```text
 git show -s --format='%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%D%x1f%B' <sha>
@@ -127,7 +127,7 @@ git diff-tree --no-commit-id --name-status -r -z <sha>
 git diff-tree --no-commit-id --numstat -z <sha>
 ```
 
-Le corps est borné ; les fichiers sont paginés. Pour un commit de merge, le diff par défaut est celui du premier parent, avec possibilité de choisir le parent.
+The body is bounded; files are paginated. For a merge commit, the default diff is against the first parent, with an option to choose the parent.
 
 ### Diff
 
@@ -136,281 +136,298 @@ git -C <repo> diff --no-color --no-ext-diff --no-textconv --unified=<n>
     [--cached] <base> [<target>] -- <path>
 ```
 
-- `--no-ext-diff` et `--no-textconv` pour un rendu déterministe ; les diff tools externes sont une action séparée.
-- Parseur unifié Rust : hunks, lignes, absence de newline final, binaire (`Binary files ... differ`).
-- Plafond par fichier (taille et nombre de lignes) ; au-delà, message explicite et ouverture externe possible.
-- Untracked : lecture directe du fichier avec plafond, jamais via un diff synthétique fragile.
+- `--no-ext-diff` and `--no-textconv` for deterministic rendering; external diff tools are a separate action.
+- Rust unified diff parser: hunks, lines, missing final newline, binary (`Binary files ... differ`).
+- Per-file limit (size and line count); beyond it, an explicit message and an option to open externally.
+- Untracked: read the file directly with a limit, never through a fragile synthetic diff.
 
-### Blame et historique de fichier
+### Blame and file history
 
 ```text
 git blame --line-porcelain -- <path>
 git log --follow --name-status --format='...' -- <path>
 ```
 
-`--follow` ne fonctionne que pour un seul chemin ; le documenter dans l'UI.
+`--follow` only works for a single path; document this in the UI.
 
-## 5. Commandes de mutation
+## 5. Mutation commands
 
-Toute mutation passe par la file du dépôt et un **préflight**.
+Every mutation goes through the repository queue and a **preflight**.
 
-| Action | Commande | Préflight |
+| Action | Command | Preflight |
 |---|---|---|
-| Stage chemins | `git add -A -- <paths>` | chemins valides, pas de `.git` |
-| Unstage | `git restore --staged -- <paths>` | index non vide |
-| Discard worktree | `git restore --worktree -- <paths>` | confirmation explicite ; action irréversible |
-| Commit | `git commit -F <tmp> [--amend] [--cleanup=strip]` | identité configurée, index non vide, hooks |
-| Switch | `git switch <branch>` / `git switch -c <branch> [<start>]` | worktree compatible, pas d'opération en cours |
-| Delete branch | `git branch -d/-D <branch>` | non courante, mergée ou confirmation forte |
-| Rename branch | `git branch -m <old> <new>` | nom valide, pas de collision |
-| Fetch | `git fetch --prune --progress <remote>` | remote existe |
-| Pull | `git pull --progress [--ff-only\|--rebase\|--no-rebase] <remote> <branch>` | worktree propre, upstream ; stratégie lue dans `branch.<nom>.rebase`, puis `pull.rebase`, puis `pull.ff` ; code de sortie non nul = échec remonté |
-| Push | `git push --progress <remote> <ref>` | upstream, non-fast-forward détecté |
-| Force push | `git push --force-with-lease=<ref>:<expected>` | confirmation explicite, ancien SHA enregistré |
-| Merge | `git merge --no-edit [--ff\|--ff-only\|--no-ff] <ref>` | stratégie explicite : `--ff` par défaut, `--ff-only` pour l'avance rapide demandée, `--no-ff` pour le commit de fusion ; worktree propre, pas d'opération (l'intégration branche→branche stashe les changements suivis) |
-| Rebase | `git rebase <upstream>` | worktree propre, pas de merge commits non gérés |
-| Cherry-pick | `git cherry-pick <sha>...` | worktree propre |
-| Revert | `git revert --no-edit <sha>...` | worktree propre |
-| Reset | `git reset --soft\|--mixed\|--hard <ref>` | confirmation forte ; `--hard` irréversible |
+| Stage paths | `git add -A -- <paths>` | valid paths, no `.git` |
+| Unstage | `git restore --staged -- <paths>` | nonempty index |
+| Discard worktree | `git restore --worktree -- <paths>` | explicit confirmation; irreversible action |
+| Commit | `git commit -F <tmp> [--amend] [--cleanup=strip]` | configured identity, nonempty index, hooks |
+| Switch | `git switch <branch>` / `git switch -c <branch> [<start>]` | compatible worktree, no operation in progress |
+| Delete branch | `git branch -d/-D <branch>` | not current, merged or strong confirmation |
+| Rename branch | `git branch -m <old> <new>` | valid name, no collision |
+| Fetch | `git fetch --prune --progress <remote>` | remote exists |
+| Pull | `git pull --progress [--ff-only\|--rebase\|--no-rebase] <remote> <branch>` | clean worktree, upstream; strategy read from `branch.<name>.rebase`, then `pull.rebase`, then `pull.ff`; nonzero exit code = reported failure |
+| Push | `git push --progress <remote> <ref>` | upstream, non-fast-forward detected |
+| Force push | `git push --force-with-lease=<ref>:<expected>` | explicit confirmation, old SHA recorded |
+| Merge | `git merge --no-edit [--ff\|--ff-only\|--no-ff] <ref>` | explicit strategy: `--ff` by default, `--ff-only` for a requested fast-forward, `--no-ff` for a merge commit; clean worktree, no operation (branch→branch integration stashes tracked changes) |
+| Rebase | `git rebase <upstream>` | clean worktree, no unhandled merge commits |
+| Cherry-pick | `git cherry-pick <sha>...` | clean worktree |
+| Revert | `git revert --no-edit <sha>...` | clean worktree |
+| Reset | `git reset --soft\|--mixed\|--hard <ref>` | strong confirmation; `--hard` irreversible |
 | Stash push | `git stash push -m <msg> [-- <paths>]` | — |
-| Stash apply/pop | `git stash apply\|pop <ref>` | conflits possibles |
-| Worktree add | `git worktree add <path> <ref>` | chemin absent |
-| Worktree remove | `git worktree remove <path>` | pas de modifications non commitées |
-| Tag | `git tag -a <name> -m <msg> <ref>` | nom valide, pas de collision |
+| Stash apply/pop | `git stash apply\|pop <ref>` | possible conflicts |
+| Worktree add | `git worktree add <path> <ref>` | path absent |
+| Worktree remove | `git worktree remove <path>` | no uncommitted changes |
+| Tag | `git tag -a <name> -m <msg> <ref>` | valid name, no collision |
 
-### Intégration branche→branche
+### Refused push recovery
 
-Un drop de branche `source` sur `target` extrait `target` puis merge ou rebase
-`source` dans `target`. Si le worktree contient des changements suivis, un merge
-les protège automatiquement :
+A refused push is never a dead end. The refusal (`git.non_fast_forward`, or
+`git.push_lease_stale` when the lease went stale) opens a recovery decision:
 
-1. `git stash push -m "BeeBranch auto-stash …"` (fichiers suivis uniquement) ;
-2. extraction de `target`, puis `git merge --no-edit [--ff|--ff-only|--no-ff] <source>` ;
-3. `git stash pop` immédiatement après.
+1. `git fetch <remote>` refreshes the remote-tracking refs;
+2. `git rev-list --left-right --count <remote>/<branch>...<branch>` gives the
+   two counts shown to the user (missing locally / missing remotely);
+3. the user integrates (`git pull --rebase|--merge|--ff-only <remote> <branch>`,
+   immediately followed by the push), retries when nothing is missing
+   remotely, or replaces the remote tip (`--force-with-lease`, behind a typed
+   confirmation of the branch name).
 
-Une fusion demandée en avance rapide (`--ff-only`) est refusée avant toute
-extraction lorsque `target` possède des commits absents de `source` : l'erreur
-`git.merge_not_fast_forward` annonce le nombre de commits en cause et propose un
-commit de fusion ou un rebase. Une fusion `--ff` avance `target` quand c'est
-possible et crée un commit de fusion sinon ; `--no-ff` force le commit de
-fusion. Le drapeau est toujours passé explicitement, donc `merge.ff` dans la
-configuration du dépôt ne change jamais le résultat demandé.
+The expected SHA of a force push is read with `git ls-remote` right before the
+send, never taken from the UI or an older fetch.
 
-Si le merge s'arrête sur des conflits, ou si le pop entre lui-même en conflit, le
-stash n'est pas supprimé : son sélecteur et son SHA sont renvoyés dans le
-résultat et affichés dans l'interface. Un échec d'extraction ou de merge restaure
-également le stash. Les fichiers non suivis ne sont ni stashés ni déplacés ; un
-checkout que Git refuse pour cette raison échoue explicitement. Un rebase reste
-refusé dès qu'un fichier suivi est modifié ; les fichiers non suivis ne le
-bloquent pas.
+### Branch→branch integration
 
-### Staging partiel
+Dropping branch `source` onto `target` checks out `target` then merges or rebases
+`source` into `target`. If the worktree contains tracked changes, a merge
+automatically protects them:
 
-Le staging par hunk/ligne repose sur la génération d'un patch unifié puis :
+1. `git stash push -m "BeeBranch auto-stash …"` (tracked files only);
+2. check out `target`, then `git merge --no-edit [--ff|--ff-only|--no-ff] <source>`;
+3. `git stash pop` immediately afterward.
+
+A requested fast-forward merge (`--ff-only`) is refused before any
+checkout when `target` has commits absent from `source`: the error
+`git.merge_not_fast_forward` reports the number of commits involved and offers a
+merge commit or a rebase. An `--ff` merge advances `target` when
+possible and creates a merge commit otherwise; `--no-ff` forces the merge
+commit. The flag is always passed explicitly, so `merge.ff` in the
+repository configuration never changes the requested result.
+
+If the merge stops on conflicts, or if the pop itself conflicts, the
+stash is not deleted: its selector and SHA are returned in the
+result and displayed in the interface. A checkout or merge failure
+also restores the stash. Untracked files are neither stashed nor moved; a
+checkout that Git refuses for this reason fails explicitly. A rebase remains
+refused whenever a tracked file is modified; untracked files do not
+block it.
+
+### Partial staging
+
+Staging by hunk/line relies on generating a unified patch, then:
 
 ```text
 git apply --cached [--reverse] --recount --whitespace=nowarn <patch>
 ```
 
-- Le patch est généré depuis `git diff` (working tree) ou `git diff --cached` (index) avec le contexte exact.
-- Un patch de ligne est construit en réduisant les hunks sélectionnés ; les numéros de ligne sont recalculés.
-- `--recount` tolère les en-têtes de comptage ; il ne doit pas masquer une erreur de contexte.
-- Tests obligatoires : CRLF, absence de newline final, fichier renommé, mode `100755`, chemin Unicode, contexte ambigu, patch vide.
-- En cas d'échec : aucune modification partielle acceptée ; l'index est relu et l'erreur remontée.
+- The patch is generated from `git diff` (working tree) or `git diff --cached` (index) with the exact context.
+- A line patch is built by reducing the selected hunks; line numbers are recalculated.
+- `--recount` tolerates count headers; it must not hide a context error.
+- Required tests: CRLF, missing final newline, renamed file, mode `100755`, Unicode path, ambiguous context, empty patch.
+- On failure: no partial modification accepted; the index is reread and the error reported.
 
 ### Discard
 
-- Action **irréversible** : aucune copie applicative n'est conservée.
-- Confirmation explicite avec le diff exact et le nombre de fichiers concernés.
-- Fichier suivi : vérification d'empreinte, puis `git restore --worktree`.
-- Fichier stagé + worktree : restore des zones choisies, après confirmation.
-- Fichier non suivi : **jamais supprimé par l'application** ; proposer d'ouvrir le dossier ou de l'ajouter au `.gitignore`.
-- Hunk : reverse-apply du patch sélectionné sur le worktree, avec vérification d'empreinte avant/après.
-- Un discard n'est jamais exécuté si le fichier a changé depuis l'affichage du diff (empreinte).
+- **Irreversible** action: no application copy is kept.
+- Explicit confirmation with the exact diff and the number of files affected.
+- Tracked file: fingerprint check, then `git restore --worktree`.
+- Staged file + worktree: restore the selected areas, after confirmation.
+- Untracked file: **never deleted by the application**; offer to open the directory or add it to `.gitignore`.
+- Hunk: reverse-apply the selected patch to the worktree, with a fingerprint check before/after.
+- A discard is never performed if the file has changed since the diff was displayed (fingerprint).
 
-### Rebase interactif (P2)
+### Interactive rebase (P2)
 
-- Le plan est validé contre `git rev-list --reverse --no-merges <upstream>..HEAD` :
-  mêmes commits, unicité, ordre libre, `drop` explicite.
-- Le todo est écrit dans un répertoire temporaire ; `GIT_SEQUENCE_EDITOR` est
-  réglé sur `cp '<todo>'`, donc Git installe notre plan sans éditeur interactif.
-- `reword` et `squash` utilisent `exec git commit --amend -F <message>`, ce qui
-  évite `GIT_EDITOR` et rend les messages déterministes.
-- Un conflit est un état, pas une erreur opaque ; `--continue`, `--skip` et
-  `--abort` restent explicites.
+- The plan is validated against `git rev-list --reverse --no-merges <upstream>..HEAD`:
+  same commits, uniqueness, arbitrary order, explicit `drop`.
+- The todo is written to a temporary directory; `GIT_SEQUENCE_EDITOR` is
+  set to `cp '<todo>'`, so Git installs our plan without an interactive editor.
+- `reword` and `squash` use `exec git commit --amend -F <message>`, which
+  avoids `GIT_EDITOR` and makes messages deterministic.
+- A conflict is a status, not an opaque error; `--continue`, `--skip` and
+  `--abort` remain explicit.
 
-### Résolution de conflits 3 panneaux (P2)
+### 3-panel conflict resolution (P2)
 
-- `git show :1:path`, `:2:path`, `:3:path` fournissent base/ours/theirs.
-- Le fichier de travail est lu et écrit de façon atomique (fichier temporaire
-  puis `rename`), en préservant LF/CRLF détectés.
-- Les binaires et fichiers > 8 Mio ne sont jamais décodés ; l'UI l'explique.
-- Les marqueurs restants sont refusés sauf édition brute explicite.
-- `git add -- path` marque le conflit résolu.
+- `git show :1:path`, `:2:path`, `:3:path` provide base/ours/theirs.
+- The working file is read and written atomically (temporary file
+  then `rename`), preserving the detected LF/CRLF.
+- Binaries and files > 8 MiB are never decoded; the UI explains this.
+- Remaining markers are rejected unless explicitly editing raw content.
+- `git add -- path` marks the conflict as resolved.
 
 ### Patches (P2)
 
-- Création depuis worktree, index, commit (`git show --format= --patch`) ou
-  plage de commits.
-- Les patchs binaires sont refusés explicitement.
-- Application en deux phases : `git apply --check` puis `git apply` ; un
-  conflit de vérification laisse le worktree intact.
+- Create from the worktree, index, commit (`git show --format= --patch`) or
+  commit range.
+- Binary patches are explicitly rejected.
+- Two-phase application: `git apply --check` then `git apply`; a
+  check conflict leaves the worktree intact.
 
-## 6. Opérations longues, streaming et annulation
+## 6. Long-running operations, streaming and cancellation
 
-| Opération | Streaming | Annulation |
+| Operation | Streaming | Cancellation |
 |---|---|---|
-| `clone` | stderr (progress) | SIGTERM, puis kill après 5 s ; répertoire partiel marqué |
-| `fetch` | stderr (progress) | SIGTERM ; état distant revalidé après |
-| `push` | stderr (progress) | SIGTERM ; **le push peut avoir abouti** → `ls-remote` pour vérifier |
-| `pull` | stderr | SIGTERM ; état local revalidé |
-| `merge`/`rebase`/`cherry-pick` | stdout/stderr | Pas d'annulation à mi-commande ; proposer abort après état stable |
+| `clone` | stderr (progress) | SIGTERM, then kill after 5 s; partial directory marked |
+| `fetch` | stderr (progress) | SIGTERM; remote status revalidated afterward |
+| `push` | stderr (progress) | SIGTERM; **the push may have succeeded** → `ls-remote` to check |
+| `pull` | stderr | SIGTERM; local status revalidated |
+| `merge`/`rebase`/`cherry-pick` | stdout/stderr | No mid-command cancellation; offer abort after stable status |
 
-Règles :
+Rules:
 
-- Aucun `kill -9` immédiat : arrêt gracieux, puis forcé.
-- Sur Windows, `Child::kill()` ; sur Unix, signal au groupe de processus si un helper est lancé.
-- Toute annulation produit un `AppError { code: "op.cancelled" }` et un rafraîchissement d'état.
-- Les hooks peuvent lancer des processus enfants ; le timeout et l'annulation doivent les couvrir.
+- No immediate `kill -9`: graceful shutdown, then forced.
+- On Windows, `Child::kill()`; on Unix, signal the process group if a helper is launched.
+- Every cancellation produces an `AppError { code: "op.cancelled" }` and a status refresh.
+- Hooks can launch child processes; timeouts and cancellation must cover them.
 
-## 7. États intermédiaires et reprise
+## 7. Intermediate statuses and recovery
 
-Chemins résolus via `git rev-parse --git-path <name>` (indispensable pour les worktrees).
+Paths resolved via `git rev-parse --git-path <name>` (essential for worktrees).
 
-| État | Détection | Actions proposées |
+| Status | Detection | Offered actions |
 |---|---|---|
-| Merge | `MERGE_HEAD` | continue, abort, résoudre |
+| Merge | `MERGE_HEAD` | continue, abort, resolve |
 | Rebase (merge) | `rebase-merge/` | continue, skip, abort |
 | Rebase (apply) | `rebase-apply/` | continue, skip, abort |
 | Cherry-pick | `CHERRY_PICK_HEAD` | continue, skip, abort |
 | Revert | `REVERT_HEAD` | continue, skip, abort |
-| Sequencer | `sequencer/todo` | continuer la séquence |
-| Bisect | `BISECT_LOG`, `BISECT_START` | reset, terminer |
-| Conflits | `status` entrées `u` | ouvrir, marquer résolu |
-| Verrous | `index.lock`, `HEAD.lock` | expliquer, proposer de vérifier l'absence d'un autre processus |
+| Sequencer | `sequencer/todo` | continue the sequence |
+| Bisect | `BISECT_LOG`, `BISECT_START` | reset, finish |
+| Conflicts | `status` entries `u` | open, mark resolved |
+| Locks | `index.lock`, `HEAD.lock` | explain, offer to check for another process |
 
-Au démarrage d'une session, l'état est calculé et affiché **avant** toute action. Aucune action destructive n'est permise tant qu'un état intermédiaire n'est pas compris.
+When a session starts, the status is computed and displayed **before** any action. No destructive action is allowed until an intermediate status is understood.
 
-## 8. Conflits
+## 8. Conflicts
 
-- `git status --porcelain=v2 -z` fournit les chemins en conflit.
-- Les versions sont lues via `git cat-file` / `git show :1:path`, `:2:path`, `:3:path` (base, ours, theirs) — uniquement pour l'éditeur 3 panneaux (P2).
-- Résolution : écriture du fichier de travail, puis `git add -- <path>`.
-- `continue` : `git merge --continue`, `git rebase --continue`, `git cherry-pick --continue`.
-- `abort` : commande correspondante, avec vérification qu'aucune modification utilisateur non sauvegardée ne sera perdue.
-- En P1, l'édition se fait dans l'éditeur externe ; l'app suit l'état et permet `add`, `continue`, `abort`.
+- `git status --porcelain=v2 -z` provides conflicting paths.
+- Versions are read via `git cat-file` / `git show :1:path`, `:2:path`, `:3:path` (base, ours, theirs) — only for the 3-panel editor (P2).
+- Resolution: write the working file, then `git add -- <path>`.
+- `continue`: `git merge --continue`, `git rebase --continue`, `git cherry-pick --continue`.
+- `abort`: corresponding command, with a check that no unsaved user changes will be lost.
+- In P1, editing takes place in the external editor; the app tracks status and allows `add`, `continue`, `abort`.
 
-## 9. Rebase interactif
+## 9. Interactive rebase
 
-Le todo est généré par l'application, jamais édité à la main dans un éditeur interactif.
+The todo is generated by the application, never edited manually in an interactive editor.
 
 ```text
 GIT_SEQUENCE_EDITOR=<helper> GIT_EDITOR=<helper> \
 git -c sequence.editor=<helper> rebase -i --autosquash <base>
 ```
 
-- Le helper (`beebranch-editor`) reçoit le chemin du fichier todo et un mode (`sequence` ou `message`).
-- Il lit un plan JSON depuis un fichier temporaire créé par l'application (permissions 0600) et écrit le todo.
-- Pour `reword`, le helper écrit le message préparé ; pour `squash`, le message est composé par l'application.
-- Le plan est validé avant lancement : pas de `drop` du commit de base, pas de todo vide, pas de référence inconnue.
-- En cas de conflit : état `Rebase`, résolution, `--continue`/`--abort`.
-- Aucun parsing du todo généré par Git n'est utilisé comme source de vérité ; l'application conserve son plan.
+- The helper (`beebranch-editor`) receives the todo file path and a mode (`sequence` or `message`).
+- It reads a JSON plan from a temporary file created by the application (permissions 0600) and writes the todo.
+- For `reword`, the helper writes the prepared message; for `squash`, the message is composed by the application.
+- The plan is validated before launch: no `drop` of the base commit, no empty todo, no unknown reference.
+- On conflict: `Rebase` status, resolution, `--continue`/`--abort`.
+- No parsing of the todo generated by Git is used as a source of truth; the application keeps its plan.
 
 ## 10. Worktrees
 
-- `git worktree list --porcelain` liste les worktrees (chemin, HEAD, branche, bare, locked, prunable).
-- Une session est identifiée par le **worktree**, mais partage le common dir.
-- Les opérations de refs sont communes ; les opérations d'index/worktree sont locales au worktree.
-- Création : `git worktree add <path> <ref>` ; refus si le chemin existe ou est déjà enregistré.
-- Suppression : préflight (modifications non commitées), puis `git worktree remove` ; `--force` seulement avec confirmation.
-- Lock/unlock : `git worktree lock/unlock`.
-- Les caches de status et d'index sont indexés par `(worktree, generation)`.
+- `git worktree list --porcelain` lists worktrees (path, HEAD, branch, bare, locked, prunable).
+- A session is identified by the **worktree**, but shares the common dir.
+- Ref operations are shared; index/worktree operations are local to the worktree.
+- Creation: `git worktree add <path> <ref>`; refused if the path exists or is already registered.
+- Removal: preflight (uncommitted changes), then `git worktree remove`; `--force` only with confirmation.
+- Lock/unlock: `git worktree lock/unlock`.
+- Status and index caches are keyed by `(worktree, generation)`.
 
 ## 11. Submodules, LFS, signatures, SSH
 
-| Sujet | Politique |
+| Topic | Policy |
 |---|---|
-| Submodules | Déléguer à `git submodule` ; statuts via `git submodule status --recursive` ; ne pas parser `.gitmodules` comme source de vérité |
-| LFS | Détecter `git lfs` ; les filtres sont appliqués par Git ; ne jamais lire un pointer file comme un fichier normal sans signaler LFS |
-| Signature | Respecter `commit.gpgsign`, `user.signingkey`, `gpg.format` ; ne jamais forcer |
-| SSH | Utiliser l'agent, `~/.ssh/config`, `GIT_SSH_COMMAND` si défini ; ne pas générer de clés au MVP |
-| HTTPS | Credential helper fourni par l'application, token lu dans le keychain ; jamais dans l'URL |
-| Hooks | Exécutés par Git ; sortie affichée ; échec bloquant sauf action explicite |
+| Submodules | Delegate to `git submodule`; statuses via `git submodule status --recursive`; do not parse `.gitmodules` as a source of truth |
+| LFS | Detect `git lfs`; filters are applied by Git; never read a pointer file as a normal file without indicating LFS |
+| Signature | Respect `commit.gpgsign`, `user.signingkey`, `gpg.format`; never force |
+| SSH | Use the agent, `~/.ssh/config`, `GIT_SSH_COMMAND` if set; do not generate keys in the MVP |
+| HTTPS | Credential helper provided by the application, token read from the OS keychain; never in the URL |
+| Hooks | Executed by Git; output displayed; blocking failure unless explicit action |
 
-### Credential helper HTTPS
+### HTTPS credential helper
 
-- Fetch, pull, push et la lecture du SHA distant ajoutent un helper temporaire après les helpers Git de l’utilisateur.
-- Le helper répond uniquement à `get`, pour HTTPS et l’hôte et le port exacts d’une connexion GitLab/GitHub. Les autres protocoles, hôtes et opérations ne reçoivent aucun identifiant.
-- Les tokens GitLab PAT/OAuth et GitHub proviennent du keychain, avec les identifiants Git découverts en repli. Les secrets restent dans des fichiers temporaires privés (0600 sous Unix), jamais dans les arguments, les URL ou les valeurs d’environnement.
-- Le processus conserve les fichiers jusqu’à sa fin ou son annulation, puis les supprime. Le remote enregistré n’est pas modifié.
+- Fetch, pull, push (including remote SHA checks) append a temporary credential helper after the user's configured helpers.
+- The helper answers only `get`, only for HTTPS and an exact connected host and port. Other protocols, hosts, `store` and `erase` receive no credentials.
+- GitLab PAT/OAuth and GitHub tokens come from the OS keychain, with discovered Git credentials as a fallback. Tokens are written to private temporary files (0600 on Unix), never argv, URLs or environment values. The running process retains the files until completion or cancellation, then removes them.
+- The stored remote remains `https://host/group/project.git`.
 
-## 12. Mapping des erreurs
+## 12. Error mapping
 
-| Motif / code | Code applicatif | Remédiation |
+| Pattern / code | Application code | Remediation |
 |---|---|---|
-| `not a git repository` | `repo.not_git` | vérifier le chemin |
-| `Authentication failed`, `could not read Username` | `auth.failed` | vérifier le token / le helper |
-| `Permission denied (publickey)` | `auth.ssh_key` | vérifier l'agent et la clé |
-| `Host key verification failed` | `auth.host_key` | vérifier `known_hosts` |
-| `non-fast-forward`, `fetch first` | `git.non_fast_forward` | fetch puis merge/rebase |
-| `Not possible to fast-forward` (pull) | `git.pull_not_fast_forward` | rebaser/fusionner ou relâcher `pull.ff` |
-| `Need to specify how to reconcile divergent branches` | `git.pull_strategy_missing` | configurer `pull.rebase`/`pull.ff` ou choisir une stratégie |
-| `CONFLICT`, exit 1 sur merge/rebase | `git.conflict` | résoudre puis continue |
+| `not a git repository` | `repo.not_git` | check the path |
+| `Authentication failed`, `could not read Username` | `auth.failed` | check the token / helper |
+| `Permission denied (publickey)` | `auth.ssh_key` | check the agent and key |
+| `Host key verification failed` | `auth.host_key` | check `known_hosts` |
+| `non-fast-forward`, `fetch first` | `git.non_fast_forward` | fetch then merge/rebase |
+| `stale info` (push) | `git.push_lease_stale` | retry; the expected remote SHA is re-read before each send |
+| `Not possible to fast-forward` (pull) | `git.pull_not_fast_forward` | rebase/merge or relax `pull.ff` |
+| `Need to specify how to reconcile divergent branches` | `git.pull_strategy_missing` | configure `pull.rebase`/`pull.ff` or choose a strategy |
+| `CONFLICT`, exit 1 on merge/rebase | `git.conflict` | resolve then continue |
 | `Your local changes would be overwritten` | `git.dirty_worktree` | stash/commit |
-| `index.lock` | `repo.busy` | vérifier un autre processus |
-| `detected dubious ownership` | `repo.safe_directory` | ajouter `safe.directory` explicitement |
-| `unable to auto-detect email address` | `git.identity_missing` | configurer `user.name`/`user.email` |
-| `gpg failed to sign` | `git.signing_failed` | vérifier la clé/agent |
-| `this operation must be run in a work tree` | `repo.bare` | ouvrir un worktree |
-| `no such remote` | `git.remote_missing` | vérifier la configuration |
-| `pathspec ... did not match` | `git.pathspec` | vérifier le chemin |
-| `untracked working tree files would be overwritten` | `git.untracked_collision` | déplacer manuellement les fichiers concernés |
-| `refusing to merge unrelated histories` | `git.unrelated_histories` | décision explicite |
-| `You are not currently on a branch` | `git.detached` | créer une branche |
-| `unmerged files` | `git.unresolved_conflicts` | résoudre |
-| `bad object`, `invalid reference` | `git.bad_ref` | vérifier la ref |
-| `shallow` + opération non supportée | `git.shallow_unsupported` | fetch/unshallow |
-| inconnu | `git.exit_unknown` | détail brut |
+| `index.lock` | `repo.busy` | check for another process |
+| `detected dubious ownership` | `repo.safe_directory` | add `safe.directory` explicitly |
+| `unable to auto-detect email address` | `git.identity_missing` | configure `user.name`/`user.email` |
+| `gpg failed to sign` | `git.signing_failed` | check the key/agent |
+| `this operation must be run in a work tree` | `repo.bare` | open a worktree |
+| `no such remote` | `git.remote_missing` | check the configuration |
+| `pathspec ... did not match` | `git.pathspec` | check the path |
+| `untracked working tree files would be overwritten` | `git.untracked_collision` | manually move the affected files |
+| `refusing to merge unrelated histories` | `git.unrelated_histories` | explicit decision |
+| `You are not currently on a branch` | `git.detached` | create a branch |
+| `unmerged files` | `git.unresolved_conflicts` | resolve |
+| `bad object`, `invalid reference` | `git.bad_ref` | check the ref |
+| `shallow` + unsupported operation | `git.shallow_unsupported` | fetch/unshallow |
+| unknown | `git.exit_unknown` | raw details |
 
-Le mapping est testé avec des dépôts fixtures reproduisant chaque cas.
+The mapping is tested with fixture repositories reproducing each case.
 
-## 13. Sécurité du moteur
+## 13. Engine security
 
-- Allowlist de sous-commandes et d'options ; aucune option arbitraire venue du frontend.
-- Les chemins passent après `--` et sont validés (pas de `..` hors dépôt, pas de `.git` interne).
-- Les messages de commit et les noms de branches ne sont jamais injectés dans une ligne de commande : ils passent par fichier ou argv.
-- Les tokens ne transitent jamais par argv, URL ou variable d'environnement lisible par un autre processus.
-- Les sorties sont redactées avant log.
-- Les commandes Git sont exécutées avec le répertoire de travail du dépôt, pas avec un `cwd` arbitraire.
+- Allowlist of subcommands and options; no arbitrary options from the frontend.
+- Paths go after `--` and are validated (no `..` outside the repository, no internal `.git`).
+- Commit messages and branch names are never injected into a command line: they are passed through a file or argv.
+- Tokens never pass through argv, URLs or environment variables readable by another process.
+- Output is redacted before logging.
+- Git commands are executed with the repository's working directory, not an arbitrary `cwd`.
 
 ## 14. Tests
 
-### Fixtures générées
+### Generated fixtures
 
-Un script versionné crée, pour chaque test :
+A version-controlled script creates, for each test:
 
-- dépôt linéaire ;
-- dépôt avec merges (dont merge de merge) ;
-- dépôt avec branches multiples et refs distantes simulées ;
-- dépôt avec conflit de merge, de rebase et de cherry-pick ;
-- dépôt avec renommage, suppression, mode exécutable, symlink ;
-- dépôt avec CRLF, absence de newline final, chemins Unicode ;
-- dépôt avec fichiers volumineux et binaires ;
-- dépôt avec submodule local ;
-- dépôt avec worktrees multiples ;
-- dépôt shallow ;
-- dépôt avec hooks qui échouent ;
-- dépôt avec `index.lock` simulé.
+- a linear repository;
+- a repository with merges (including a merge of a merge);
+- a repository with multiple branches and simulated remote refs;
+- a repository with merge, rebase and cherry-pick conflicts;
+- a repository with a rename, deletion, executable mode, symlink;
+- a repository with CRLF, missing final newline, Unicode paths;
+- a repository with large and binary files;
+- a repository with a local submodule;
+- a repository with multiple worktrees;
+- a shallow repository;
+- a repository with failing hooks;
+- a repository with a simulated `index.lock`.
 
-### Niveaux
+### Levels
 
-| Niveau | Contenu |
+| Level | Content |
 |---|---|
-| Unitaire | parseurs (status, log, diff, refs), construction argv, mapping d'erreurs |
-| Intégration | commandes réelles sur fixtures, assertions sur l'état Git résultant |
-| Contrat | chaque commande renvoie le type attendu et un code d'erreur stable |
-| Plateforme | mêmes tests sur Windows/macOS/Linux |
-| Fault injection | permissions, disque plein, interruption, verrou, hook en échec |
-| Performance | voir [06-performance](06-performance.md) |
+| Unit | parsers (status, log, diff, refs), argv construction, error mapping |
+| Integration | real commands on fixtures, assertions on the resulting Git status |
+| Contract | each command returns the expected type and a stable error code |
+| Platform | same tests on Windows/macOS/Linux |
+| Fault injection | permissions, full disk, interruption, lock, failing hook |
+| Performance | see [06-performance](06-performance.md) |
 
-Aucun test ne se contente de vérifier qu'une commande « ne plante pas » : il vérifie l'état du dépôt après l'opération.
+No test merely checks that a command “does not crash”: it checks the repository status after the operation.

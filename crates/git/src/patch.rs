@@ -249,7 +249,9 @@ pub fn apply(
     Ok(PatchApplyReport {
         files,
         three_way,
-        staged: stage,
+        // `git apply --3way` implies `--index`, so the change always lands in
+        // the index even when the caller only asked for the worktree.
+        staged: stage || three_way,
         stderr: outcome.stderr.redacted(),
     })
 }

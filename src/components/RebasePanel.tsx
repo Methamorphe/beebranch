@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { formatNumber, useI18n, type MessageKey } from '../i18n'
 import { rebaseCandidates, rebaseInteractive, refsGet } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
@@ -17,7 +17,12 @@ type Props = {
   generation: number
   state: RepoState
   onMutated: () => void
+  initialUpstream?: string
+  onCompleted?: () => void
+  onDirtyChange?: (dirty: boolean) => void
   onNavigateConflicts: () => void
+  /** Opens the amend dialog on the commit stopped by `edit`. */
+  onAmendHead?: (sha: string) => void
 }
 
 const ACTIONS: { value: RebaseAction; labelKey: MessageKey }[] = [
@@ -40,16 +45,24 @@ function defaultUpstream(branches: RefEntry[], state: RepoState): string {
   return candidate?.name ?? branches.find((branch) => !branch.isHead)?.name ?? ''
 }
 
-export function RebasePanel({
+export function RebasePanel(props: Props) {
+  return <RebaseWorkspace key={`${props.repoId}:${props.initialUpstream ?? ''}`} {...props} />
+}
+
+function RebaseWorkspace({
   repoId,
   generation,
   state,
   onMutated,
   onNavigateConflicts,
+  initialUpstream,
+  onCompleted,
+  onDirtyChange,
+  onAmendHead,
 }: Props) {
   const { t } = useI18n()
   const [branches, setBranches] = useState<RefEntry[]>([])
-  const [upstream, setUpstream] = useState('')
+  const [upstream, setUpstream] = useState(initialUpstream ?? '')
   const [plan, setPlan] = useState<RebaseStep[]>([])
   const [commits, setCommits] = useState<CommitSummary[]>([])
   const [busy, setBusy] = useState(false)
@@ -58,6 +71,44 @@ export function RebasePanel({
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [loadedPlan, setLoadedPlan] = useState<{ generation: number; upstream: string } | null>(null)
+  const request = useRef(0)
+  const pending = useRef(false)
+  const mutating = useRef(false)
+  const mounted = useRef(true)
+  const basesId = useId()
+  const blocked = Boolean(state.operation) || state.conflicts.files.length > 0
+  const dirtyWorktree = state.worktree.staged > 0 || state.worktree.unstaged > 0
+  const validPlan = loadedPlan?.generation === generation && loadedPlan.upstream === upstream.trim()
+
+  useEffect(() => {
+    onDirtyChange?.(plan.length > 0)
+  }, [plan.length, onDirtyChange])
+
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      request.current += 1
+    }
+  }, [])
+
+  useEffect(() => {
+    request.current += 1
+    if (!mutating.current) {
+      pending.current = false
+      setBusy(false)
+    }
+    setPlan([])
+    setCommits([])
+    setLoadedPlan(null)
+    setConfirmOpen(false)
+    return () => {
+      request.current += 1
+    }
+  }, [generation, upstream, blocked])
 
   useEffect(() => {
     let cancelled = false
@@ -70,22 +121,36 @@ export function RebasePanel({
         setBranches(items)
         setUpstream((current) => current || defaultUpstream(items, state))
       })
-      .catch(() => undefined)
+      .catch((cause) => {
+        if (!cancelled) setError(errorMessage(cause))
+      })
     return () => {
       cancelled = true
     }
   }, [repoId, generation, state])
 
   const loadPlan = async () => {
+    if (pending.current) return
+    if (blocked) {
+      setError(t('ops.rebase.error.operationActive'))
+      return
+    }
     if (!upstream.trim()) {
       setError(t('ops.rebase.error.noBase'))
       return
     }
+    const token = ++request.current
+    pending.current = true
+    setPlan([])
+    setCommits([])
+    setLoadedPlan(null)
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
       const result = await rebaseCandidates(repoId, upstream.trim())
+      if (token !== request.current) return
+      setLoadedPlan({ generation, upstream: upstream.trim() })
       setCommits(result.candidates)
       setPlan(
         result.candidates.map((commit) => ({
@@ -97,14 +162,19 @@ export function RebasePanel({
         setNotice(t('ops.rebase.notice.noCommits'))
       }
     } catch (cause) {
+      if (token !== request.current) return
       setError(errorMessage(cause))
       setPlan([])
     } finally {
-      setBusy(false)
+      if (token === request.current) {
+        pending.current = false
+        setBusy(false)
+      }
     }
   }
 
   const update = (index: number, patch: Partial<RebaseStep>) => {
+    if (busy || blocked || !validPlan) return
     setPlan((current) =>
       current.map((step, position) =>
         position === index ? { ...step, ...patch } : step,
@@ -113,6 +183,7 @@ export function RebasePanel({
   }
 
   const move = (index: number, delta: number) => {
+    if (busy || blocked || !validPlan) return
     setPlan((current) => {
       const target = index + delta
       if (target < 0 || target >= current.length) {
@@ -128,6 +199,7 @@ export function RebasePanel({
   }
 
   const reorder = (from: number, to: number) => {
+    if (busy || blocked || !validPlan) return
     if (from === to) return
     setPlan((current) => {
       const next = [...current]
@@ -138,6 +210,17 @@ export function RebasePanel({
   }
 
   const start = async () => {
+    if (pending.current) return
+    if (blocked || dirtyWorktree || !validPlan || plan.length === 0) {
+      setError(t(blocked
+        ? 'ops.rebase.error.operationActive'
+        : dirtyWorktree
+          ? 'ops.rebase.error.dirtyWorktree'
+          : 'ops.rebase.error.stalePlan'))
+      return
+    }
+    mutating.current = true
+    pending.current = true
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -147,21 +230,36 @@ export function RebasePanel({
         upstream: upstream.trim(),
         steps: plan,
       })
+      if (!mounted.current) return
+      setPlan([])
+      setCommits([])
+      setLoadedPlan(null)
       onMutated()
-      if (result.data.conflicted) {
-        setNotice(t('ops.rebase.notice.paused'))
+      if (result.data.state.operation) {
+        setNotice(t(result.data.conflicted
+          ? 'ops.rebase.notice.paused'
+          : 'ops.rebase.notice.editPaused'))
         onNavigateConflicts()
       } else {
         setNotice(t('ops.rebase.notice.done'))
+        onCompleted?.()
       }
     } catch (cause) {
+      if (!mounted.current) return
       setError(errorMessage(cause))
     } finally {
-      setBusy(false)
+      mutating.current = false
+      pending.current = false
+      if (mounted.current) setBusy(false)
     }
   }
 
   const active = state.operation?.kind === 'rebase'
+  /** Commit stopped by `edit`: amendable, unless a conflict is unresolved. */
+  const amendableSha =
+    active && state.conflicts.files.length === 0 && state.head?.kind === 'detached'
+      ? state.head.sha
+      : null
   const head =
     state.head?.kind === 'branch' ? state.head.name : t('ops.rebase.detachedHead')
   const summary = ACTIONS.map((action) => ({
@@ -176,14 +274,15 @@ export function RebasePanel({
           <span className={p2.toolbarLabel}>{t('ops.rebase.baseLabel')}</span>
           <input
             value={upstream}
+            disabled={busy || blocked}
             onChange={(event) => setUpstream(event.target.value)}
             placeholder={t('ops.rebase.basePlaceholder')}
             aria-label={t('ops.rebase.baseLabel')}
-            list="rebase-bases"
+            list={basesId}
             spellCheck={false}
           />
         </label>
-        <datalist id="rebase-bases">
+        <datalist id={basesId}>
           {branches.map((branch) => (
             <option key={branch.fullName} value={branch.name} />
           ))}
@@ -191,7 +290,7 @@ export function RebasePanel({
         <button
           type="button"
           className={p2.secondary}
-          disabled={busy}
+          disabled={busy || blocked || !upstream.trim()}
           onClick={() => void loadPlan()}
         >
           {t('ops.rebase.loadPlan')}
@@ -206,10 +305,24 @@ export function RebasePanel({
       {active ? (
         <div className={`${p2.banner} ${p2.bannerInfo}`}>
           <span>{t('ops.rebase.inProgress')}</span>
+          {onAmendHead && amendableSha ? (
+            <button
+              type="button"
+              className={p2.ghost}
+              onClick={() => onAmendHead(amendableSha)}
+            >
+              {t('ops.rebase.amendHead')}
+            </button>
+          ) : null}
           <button type="button" className={p2.ghost} onClick={onNavigateConflicts}>
             {t('ops.rebase.openConflicts')}
           </button>
         </div>
+      ) : null}
+      {blocked && !active ? (
+        <div className={p2.banner}>{t('ops.rebase.error.operationActive')}</div>
+      ) : dirtyWorktree && !blocked ? (
+        <div className={p2.banner}>{t('ops.rebase.error.dirtyWorktree')}</div>
       ) : null}
       {error ? (
         <p className={p2.alert} role="alert">
@@ -247,7 +360,7 @@ export function RebasePanel({
                       <li
                         key={step.sha}
                         className={[p2.planRow, rowState].filter(Boolean).join(' ')}
-                        draggable={!busy}
+                        draggable={!busy && !blocked && validPlan}
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = 'move'
                           event.dataTransfer.setData('text/plain', String(index))
@@ -274,6 +387,7 @@ export function RebasePanel({
                         </span>
                         <select
                           value={step.action}
+                          disabled={busy || blocked || !validPlan}
                           aria-label={t('ops.rebase.commitActionAria', {
                             sha: step.sha.slice(0, 8),
                           })}
@@ -293,6 +407,7 @@ export function RebasePanel({
                         {step.action === 'reword' ? (
                           <input
                             value={step.message ?? ''}
+                            disabled={busy || blocked || !validPlan}
                             placeholder={t('ops.rebase.newMessagePlaceholder')}
                             aria-label={t('ops.rebase.rewordAria', {
                               sha: step.sha.slice(0, 8),
@@ -304,6 +419,7 @@ export function RebasePanel({
                         ) : step.action === 'squash' ? (
                           <input
                             value={step.message ?? ''}
+                            disabled={busy || blocked || !validPlan}
                             placeholder={t('ops.rebase.squashPlaceholder')}
                             aria-label={t('ops.rebase.squashAria', {
                               sha: step.sha.slice(0, 8),
@@ -362,7 +478,7 @@ export function RebasePanel({
                 <button
                   type="button"
                   className={p2.primary}
-                  disabled={busy || plan.length === 0 || active}
+                  disabled={busy || plan.length === 0 || blocked || dirtyWorktree || !validPlan}
                   onClick={() => setConfirmOpen(true)}
                 >
                   {t('ops.rebase.start')}
@@ -379,7 +495,7 @@ export function RebasePanel({
       </div>
 
       <ConfirmDialog
-        open={confirmOpen}
+        open={confirmOpen && validPlan && !blocked && !dirtyWorktree}
         title={t('ops.rebase.confirmTitle')}
         consequence={t('ops.rebase.consequence', {
           count: formatNumber(plan.length),

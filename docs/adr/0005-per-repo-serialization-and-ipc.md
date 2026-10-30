@@ -1,44 +1,44 @@
-# ADR-0005 — Sérialisation par dépôt et IPC borné
+# ADR-0005 — Per-repository serialization and bounded IPC
 
-- **Statut :** accepté
-- **Date :** 2026-10-27
-- **Nouveau :** précise l'architecture de la révision 1
+- **Status:** accepted
+- **Date:** 2026-10-27
+- **New:** clarifies the revision 1 architecture
 
-## Contexte
+## Context
 
-Git n'est pas concurrency-safe sur un même dépôt : deux mutations simultanées peuvent corrompre l'index ou produire des états incohérents. Les opérations longues (fetch, push, clone) doivent rester annulables et observables. Les gros payloads IPC (historique complet, diffs massifs) dégradent l'UI et la mémoire.
+Git is not concurrency-safe within a single repository: two simultaneous mutations can corrupt the index or produce inconsistent states. Long operations (fetch, push, clone) must remain cancellable and observable. Large IPC payloads (full history, massive diffs) degrade the UI and memory usage.
 
-## Décision
+## Decision
 
-1. **Une session par dépôt** identifiée par son chemin de worktree ; les worktrees partageant un common dir sont connus de la même session.
-2. **Mutations sérialisées** par dépôt via un acteur/queue unique. Les lectures peuvent être concurrentes, mais sont bloquées pendant une mutation destructive.
-3. Toute opération longue retourne un `operation_id` immédiatement et streame :
-   - `progress`, `stdout`, `stderr`, `done`, `error` ;
-   - annulation via `cancel_operation`.
-4. Aucun gros payload IPC :
-   - commits par pages (taille adaptative, 500 par défaut) ;
-   - diffs par hunks/fichiers, avec plafond et pagination ;
-   - listes de fichiers paginées.
-5. Le frontend ne voit jamais un token, un chemin de credential ou une commande shell.
-6. Les commandes Tauri sont typées, versionnées et renvoient une erreur structurée.
-7. Le processus Git est lancé avec un environnement contrôlé mais respectueux de la configuration utilisateur (SSH agent, credential helpers, PATH, HOME).
+1. **One session per repository** identified by its worktree path; worktrees sharing a common dir are known to the same session.
+2. **Serialized mutations** per repository via a single actor/queue. Reads may be concurrent, but are blocked during a destructive mutation.
+3. Every long operation returns an `operation_id` immediately and streams:
+   - `progress`, `stdout`, `stderr`, `done`, `error`;
+   - cancellation via `cancel_operation`.
+4. No large IPC payloads:
+   - commits in pages (adaptive size, 500 by default);
+   - diffs by hunks/files, with a cap and pagination;
+   - paginated file lists.
+5. The frontend never sees a token, credential path, or shell command.
+6. Tauri commands are typed, versioned, and return a structured error.
+7. The Git process is launched with a controlled environment that respects user configuration (SSH agent, credential helpers, PATH, HOME).
 
-## Conséquences
+## Consequences
 
-- Les mutations concurrentes sont refusées ou mises en file, avec feedback UI.
-- Une opération annulée peut laisser un état intermédiaire : il est détecté et présenté.
-- Le format IPC peut évoluer sans casser le frontend grâce au versionnage des commandes.
-- Les tests doivent couvrir l'annulation en cours de fetch/push et la détection de `index.lock`.
+- Concurrent mutations are refused or queued, with UI feedback.
+- A canceled operation can leave an intermediate state: it is detected and presented.
+- The IPC format can evolve without breaking the frontend thanks to command versioning.
+- Tests must cover cancellation during fetch/push and detection of `index.lock`.
 
-## Alternatives rejetées
+## Rejected alternatives
 
-| Alternative | Raison |
-|---|---|
-| Mutations parallèles | Corruption d'index et états incohérents. |
-| Un `git` par clic sans registre d'opérations | Impossible d'annuler, de suivre ou de corréler les erreurs. |
-| Payload complet de l'historique | Mémoire et latence inacceptables. |
-| Lecture directe de `.git` par le frontend | Fuit la logique et la sécurité hors du backend. |
+| Alternative | Reason |
+|---|---|---|
+| Parallel mutations | Index corruption and inconsistent states. |
+| One `git` per click without an operation registry | Impossible to cancel, track, or correlate errors. |
+| Full history payload | Unacceptable memory and latency. |
+| Direct reading of `.git` by the frontend | Leaks logic and security outside the backend. |
 
-## Critères de révision
+## Revision criteria
 
-Réexaminer si un besoin de lecture concurrente forte pendant les mutations apparaît, ou si le volume IPC mesuré impose un format binaire (MessagePack) — décision prise sur mesure, pas par anticipation.
+Revisit if a need for highly concurrent reads during mutations arises, or if measured IPC volume requires a binary format (MessagePack) — a decision based on measurement, not anticipation.

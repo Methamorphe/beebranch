@@ -94,6 +94,23 @@ pub(crate) fn prepare(
     build(std::env::vars_os(), extra)
 }
 
+/// Variables a per-command override may still not set.
+///
+/// `GIT_CONFIG_*` is how the commit path hands configuration to Git (one entry
+/// per key); the inherited environment cannot smuggle those in — `is_blocked`
+/// drops them there — but a spec built by this crate may set them. The
+/// variables that would redirect Git to another file stay forbidden.
+fn is_blocked_override(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    if upper == "GIT_CONFIG_COUNT"
+        || upper.starts_with("GIT_CONFIG_KEY_")
+        || upper.starts_with("GIT_CONFIG_VALUE_")
+    {
+        return false;
+    }
+    is_blocked(name)
+}
+
 /// Validate per-command environment overrides before building the map.
 pub(crate) fn validate_extra(extra: &[(OsString, OsString)]) -> Result<(), GitError> {
     for (name, _) in extra {
@@ -107,7 +124,7 @@ pub(crate) fn validate_extra(extra: &[(OsString, OsString)]) -> Result<(), GitEr
                 "nom de variable invalide : {text:?}"
             )));
         }
-        if is_blocked(text) {
+        if is_blocked_override(text) {
             return Err(GitError::invalid_environment(format!(
                 "variable interdite : {text}"
             )));
@@ -322,10 +339,36 @@ mod tests {
 
     #[test]
     fn blocked_per_command_variables_are_rejected() {
-        let error =
-            build(pairs(&[]), &pairs(&[("GIT_CONFIG_COUNT", "1")])).expect_err("must reject");
+        let error = build(pairs(&[]), &pairs(&[("GIT_DIR", "/evil")])).expect_err("must reject");
         assert_eq!(error.code(), crate::GitErrorCode::InvalidEnvironment);
         assert!(error.detail().is_some());
+    }
+
+    #[test]
+    fn per_command_config_overrides_reach_git() {
+        let environment = build(
+            pairs(&[("GIT_CONFIG_COUNT", "7")]),
+            &pairs(&[
+                ("GIT_CONFIG_COUNT", "1"),
+                ("GIT_CONFIG_KEY_0", "core.hooksPath"),
+                ("GIT_CONFIG_VALUE_0", "/tmp/hooks"),
+            ]),
+        )
+        .expect("build");
+
+        // The spec wins over an inherited value, which is dropped instead.
+        assert_eq!(
+            find(&environment, "GIT_CONFIG_COUNT").and_then(|v| v.to_str()),
+            Some("1")
+        );
+        assert_eq!(
+            find(&environment, "GIT_CONFIG_KEY_0").and_then(|v| v.to_str()),
+            Some("core.hooksPath")
+        );
+        assert_eq!(
+            find(&environment, "GIT_CONFIG_VALUE_0").and_then(|v| v.to_str()),
+            Some("/tmp/hooks")
+        );
     }
 
     #[test]

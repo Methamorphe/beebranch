@@ -10,6 +10,8 @@ import {
   profileGitlabActivate,
   profileSetActive,
   profileUpdate,
+  preferenceGet,
+  preferenceSet,
   profilesList,
   updateCheck,
   updateInstall,
@@ -61,6 +63,8 @@ type Props = {
   onMutated: () => void
   onOpenGitlab: () => void
   shortcuts: ShortcutMap
+  /** Labels of the actions reverted to their default because of a conflict. */
+  shortcutConflict?: string[]
   onShortcutsChange: (next: ShortcutMap) => void
 }
 
@@ -213,6 +217,7 @@ export function ProfilesPanel({
   onMutated,
   onOpenGitlab,
   shortcuts,
+  shortcutConflict,
   onShortcutsChange,
 }: Props) {
   const { t, locale, changeLocale } = useI18n()
@@ -229,6 +234,11 @@ export function ProfilesPanel({
   const [notice, setNotice] = useState<string | null>(null)
   const [shortcutDraft, setShortcutDraft] = useState<ShortcutMap>(shortcuts)
   const [shortcutError, setShortcutError] = useState<string | null>(null)
+  const [encoding, setEncoding] = useState('utf8')
+  const [hooksPath, setHooksPath] = useState('')
+  const [signMode, setSignMode] = useState('')
+  const [signingKey, setSigningKey] = useState('')
+  const [signingFormat, setSigningFormat] = useState('openpgp')
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
   const [available, setAvailable] = useState<UpdateInfo | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
@@ -253,6 +263,35 @@ export function ProfilesPanel({
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      preferenceGet('ui.encoding'),
+      preferenceGet('git.hooksPath'),
+      preferenceGet('git.signCommits'),
+      preferenceGet('git.signingKey'),
+      preferenceGet('git.signingFormat'),
+    ])
+      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat]) => {
+        if (cancelled) {
+          return
+        }
+        if (savedEncoding) {
+          setEncoding(savedEncoding)
+        }
+        setHooksPath(savedHooks ?? '')
+        setSignMode(savedSign ?? '')
+        setSigningKey(savedKey ?? '')
+        if (savedFormat) {
+          setSigningFormat(savedFormat)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     void updateStatus()
@@ -494,10 +533,127 @@ export function ProfilesPanel({
           </div>
         </div>
 
+        <h2 className={p2.sectionTitle}>{t('settings.files.title')}</h2>
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.files.encoding')}</strong>
+            <p>{t('settings.files.encodingHint')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={encoding}
+              aria-label={t('settings.files.encodingAria')}
+              onChange={(event) => {
+                const next = event.target.value
+                setEncoding(next)
+                void preferenceSet('ui.encoding', next).catch((cause: unknown) =>
+                  setError(errorMessage(cause)),
+                )
+              }}
+            >
+              <option value="utf8">{t('settings.files.encoding.utf8')}</option>
+              <option value="utf16le">{t('settings.files.encoding.utf16le')}</option>
+              <option value="windows1252">{t('settings.files.encoding.windows1252')}</option>
+              <option value="guess">{t('settings.files.encoding.guess')}</option>
+            </select>
+          </div>
+        </div>
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.files.hooksPath')}</strong>
+            <p>{t('settings.files.hooksPathHint')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <input
+              value={hooksPath}
+              placeholder=".git/hooks"
+              aria-label={t('settings.files.hooksPathAria')}
+              onChange={(event) => setHooksPath(event.target.value)}
+            />
+            <button
+              type="button"
+              className={p2.secondary}
+              onClick={() =>
+                void preferenceSet('git.hooksPath', hooksPath.trim())
+                  .then(() => setNotice(t('settings.files.hooksPathSaved')))
+                  .catch((cause: unknown) => setError(errorMessage(cause)))
+              }
+            >
+              {t('common.save')}
+            </button>
+          </div>
+        </div>
+
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.signing.title')}</strong>
+            <p>{t('settings.signing.hint')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={signMode}
+              aria-label={t('settings.signing.modeAria')}
+              onChange={(event) => {
+                const next = event.target.value
+                setSignMode(next)
+                void preferenceSet('git.signCommits', next).catch((cause: unknown) =>
+                  setError(errorMessage(cause)),
+                )
+              }}
+            >
+              <option value="">{t('settings.signing.mode.inherit')}</option>
+              <option value="true">{t('settings.signing.mode.always')}</option>
+              <option value="false">{t('settings.signing.mode.never')}</option>
+            </select>
+            <input
+              value={signingKey}
+              placeholder={t('settings.signing.keyPlaceholder')}
+              aria-label={t('settings.signing.keyAria')}
+              onChange={(event) => setSigningKey(event.target.value)}
+            />
+            <select
+              value={signingFormat}
+              aria-label={t('settings.signing.formatAria')}
+              onChange={(event) => {
+                const next = event.target.value
+                setSigningFormat(next)
+                void preferenceSet('git.signingFormat', next).catch((cause: unknown) =>
+                  setError(errorMessage(cause)),
+                )
+              }}
+            >
+              <option value="openpgp">OpenPGP</option>
+              <option value="ssh">SSH</option>
+              <option value="x509">X.509</option>
+            </select>
+            <button
+              type="button"
+              className={p2.secondary}
+              onClick={() =>
+                void Promise.all([
+                  preferenceSet('git.signingKey', signingKey.trim()),
+                  preferenceSet('git.signingFormat', signingFormat),
+                ])
+                  .then(() => setNotice(t('settings.signing.saved')))
+                  .catch((cause: unknown) => setError(errorMessage(cause)))
+              }
+            >
+              {t('common.save')}
+            </button>
+          </div>
+        </div>
+
         <h2 className={p2.sectionTitle}>{t('settings.shortcuts.title')}</h2>
         <p className={p2.notice}>
           {t('settings.shortcuts.notice')}
         </p>
+        {shortcutConflict && shortcutConflict.length > 0 ? (
+          <p className={p2.alert} role="alert">
+            {t('settings.shortcuts.conflictOnLoad', {
+              actions: shortcutConflict.join(', '),
+            })}
+          </p>
+        ) : null}
         {(Object.keys(SHORTCUT_LABELS) as ShortcutAction[]).map((action) => (
           <div key={action} className={p2.setting}>
             <div>

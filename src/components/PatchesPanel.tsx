@@ -296,9 +296,10 @@ export function PatchesPanel({ repoId, onMutated }: Props) {
           source: report?.source
             ? t('ops.patch.sourceGenerated', { source: report.source })
             : t('ops.patch.sourcePasted'),
-          destination: stage
-            ? t('ops.patch.destIndex')
-            : t('ops.patch.destWorktree'),
+          // `--3way` implies `--index`: the change is staged even without the
+          // “apply to index” option, so the confirmation says so.
+          destination:
+            stage || threeWay ? t('ops.patch.destIndex') : t('ops.patch.destWorktree'),
         })}
         confirmLabel={t('common.apply')}
         busy={busy}

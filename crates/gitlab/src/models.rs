@@ -159,6 +159,9 @@ pub struct GitlabMergeRequest {
     pub project_id: Option<u64>,
     pub iid: u64,
     pub title: String,
+    /// Markdown description; GitLab always returns it (possibly empty).
+    #[serde(default)]
+    pub description: String,
     pub state: String,
     #[serde(default)]
     pub draft: bool,
@@ -195,6 +198,21 @@ impl GitlabMergeRequest {
     pub fn is_draft(&self) -> bool {
         self.draft || self.work_in_progress || self.title.starts_with("Draft:")
     }
+}
+
+/// One file of a merge request, as the changes endpoint reports it.
+///
+/// `patch` holds hunk text only; it is empty for binary files and for diffs
+/// GitLab considers too large.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
+pub struct GitlabFilePatch {
+    pub old_path: String,
+    pub new_path: String,
+    pub new_file: bool,
+    pub deleted_file: bool,
+    pub renamed_file: bool,
+    pub patch: String,
 }
 
 /// Merge request list scope.
@@ -276,6 +294,32 @@ pub struct CreateMergeRequest {
     pub squash: bool,
     #[serde(default)]
     pub allow_collaboration: bool,
+    /// Reviewer user ids resolved by the caller.
+    #[serde(default, skip_serializing)]
+    pub reviewer_ids: Vec<u64>,
+    /// Assignee user ids resolved by the caller.
+    #[serde(default, skip_serializing)]
+    pub assignee_ids: Vec<u64>,
+    /// Label names; serialized as the comma-separated parameter GitLab expects.
+    #[serde(default, skip_serializing)]
+    pub labels: Vec<String>,
+}
+
+/// Fields an author may edit on an existing merge request.
+///
+/// `None` leaves a field unchanged; an empty description is meaningful.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeRequestUpdate {
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+impl MergeRequestUpdate {
+    /// Whether the update carries no change at all.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none() && self.description.is_none()
+    }
 }
 
 #[cfg(test)]
@@ -340,6 +384,9 @@ mod merge_request_tests {
             remove_source_branch: true,
             squash: false,
             allow_collaboration: false,
+            reviewer_ids: Vec::new(),
+            assignee_ids: Vec::new(),
+            labels: Vec::new(),
         };
         let json = serde_json::to_value(payload).expect("serialize");
         assert_eq!(json["source_branch"], "feature");
@@ -349,20 +396,28 @@ mod merge_request_tests {
 }
 
 /// Position of an inline discussion note, anchored on MR `diff_refs` SHAs.
+///
+/// GitLab answers in `snake_case` while the frontend builds the inline-comment
+/// payload in `camelCase`: deserialization accepts both spellings so the note
+/// response and the Tauri command input share one type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
 pub struct GitlabPosition {
+    #[serde(alias = "baseSha")]
     pub base_sha: String,
+    #[serde(alias = "startSha")]
     pub start_sha: String,
+    #[serde(alias = "headSha")]
     pub head_sha: String,
+    #[serde(alias = "positionType")]
     pub position_type: String,
-    #[serde(default)]
+    #[serde(default, alias = "newPath")]
     pub new_path: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "oldPath")]
     pub old_path: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "newLine")]
     pub new_line: Option<u32>,
-    #[serde(default)]
+    #[serde(default, alias = "oldLine")]
     pub old_line: Option<u32>,
 }
 
@@ -471,4 +526,65 @@ pub struct GitlabDiffRefs {
     pub base_sha: String,
     pub start_sha: String,
     pub head_sha: String,
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_the_frontend_camel_case_payload() {
+        let position: GitlabPosition = serde_json::from_str(
+            r#"{
+                "baseSha": "a",
+                "startSha": "b",
+                "headSha": "c",
+                "positionType": "text",
+                "newPath": "src/lib.rs",
+                "oldPath": "src/lib.rs",
+                "newLine": 12
+            }"#,
+        )
+        .expect("deserialize position");
+        assert_eq!(position.base_sha, "a");
+        assert_eq!(position.position_type, "text");
+        assert_eq!(position.new_path.as_deref(), Some("src/lib.rs"));
+        assert_eq!(position.new_line, Some(12));
+        assert_eq!(position.old_line, None);
+    }
+
+    #[test]
+    fn still_accepts_the_gitlab_snake_case_note_position() {
+        let position: GitlabPosition = serde_json::from_str(
+            r#"{
+                "base_sha": "a",
+                "start_sha": "b",
+                "head_sha": "c",
+                "position_type": "text",
+                "new_path": "src/lib.rs",
+                "old_line": 4
+            }"#,
+        )
+        .expect("deserialize position");
+        assert_eq!(position.new_path.as_deref(), Some("src/lib.rs"));
+        assert_eq!(position.old_line, Some(4));
+    }
+
+    #[test]
+    fn serializes_camel_case_for_the_frontend() {
+        let position = GitlabPosition {
+            base_sha: "a".into(),
+            start_sha: "b".into(),
+            head_sha: "c".into(),
+            position_type: "text".into(),
+            new_path: Some("src/lib.rs".into()),
+            old_path: None,
+            new_line: Some(12),
+            old_line: None,
+        };
+        let json = serde_json::to_value(position).expect("serialize");
+        assert_eq!(json["newPath"], "src/lib.rs");
+        assert_eq!(json["newLine"], 12);
+        assert!(json.get("new_path").is_none());
+    }
 }

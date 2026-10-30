@@ -1,6 +1,6 @@
 .root {
   display: grid;
-  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  grid-template-columns: clamp(150px, 20%, 230px) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
   border: 1px solid var(--border);
@@ -137,6 +137,71 @@
   gap: 12px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--border);
+}
+
+/* Comment composer opened from a diff row. */
+.commentBar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.commentHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.commentAnchor {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commentHint {
+  flex: none;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.commentBody {
+  min-height: 64px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.commentActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.commentSend {
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--bg);
+  background: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.commentSend:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .headerText {
@@ -301,6 +366,51 @@
   tab-size: 4;
 }
 
+/* Positions the mini-map over the scrollport without entering the flow. */
+.diffPane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.minimap {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  cursor: pointer;
+}
+
+.minimapWindow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+/* Word wrap renders rows in the flow: their height is no longer fixed. */
+.wrapped {
+  width: 100%;
+  min-width: 0;
+}
+
+.wrapped .lineRow {
+  width: 100%;
+  min-width: 0;
+}
+
+.wrapped .code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .document {
   flex: 1;
   min-height: 0;
@@ -359,6 +469,44 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   width: 100cqw;
   min-width: 0;
+}
+
+/* The comment gutter is its own column so split rows stay aligned. */
+.lineRow[data-comment='true'][data-split='true'] {
+  grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* Inline rows span the scrollport; the gutter takes its 18px out of that. */
+.lineRow[data-comment='true'] .inlineLine {
+  min-width: calc(100cqw - 18px);
+}
+
+.commentGutter {
+  display: grid;
+  place-items: center;
+  flex: none;
+  align-self: stretch;
+  width: 18px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.lineRow:hover .commentGutter,
+.commentGutter:focus-visible {
+  opacity: 1;
+}
+
+.commentGutter:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .lineRow[data-split='true'] .line {
@@ -553,4 +701,9 @@
 .modeActive:hover:not(:disabled) {
   background: var(--accent-strong);
   color: var(--accent-contrast);
+}
+
+/* Editing takes the whole panel: no modal, no column to leave behind. */
+.editorMode {
+  grid-template-columns: minmax(0, 1fr);
 }

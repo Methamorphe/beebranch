@@ -187,6 +187,8 @@ export type CommitDetail = {
   messageTruncated: boolean
   /** Set when the commit is a stash entry. */
   stash?: { selector: string; untracked?: string }
+  /** Signature verification code from Git (`G`, `B`, `U`, `N`, …). */
+  signature?: string
 }
 
 export type DiffLineKind = 'context' | 'added' | 'removed'
@@ -233,6 +235,14 @@ export type FileContent = {
   bytes: number
   truncated: boolean
   binary: boolean
+  /** SHA-256 of the returned bytes; the editor sends it back to detect external edits. */
+  sha256?: string
+}
+
+export type FileWriteReport = {
+  path: string
+  bytes: number
+  sha256: string
 }
 
 export type OperationRecord = {
@@ -517,6 +527,12 @@ export type SyncOutcome = {
   behindUpstream?: number | null
 }
 
+export type RemoteFetchOutcome = {
+  remote: string
+  outcome?: SyncOutcome
+  error?: { code: string; message: string }
+}
+
 export type HistoryOutcome = {
   state: RepoState
   output: string
@@ -585,6 +601,8 @@ export type GitlabMergeRequest = {
   projectId?: number
   iid: number
   title: string
+  /** Markdown description: GitLab `description`, GitHub `body`. */
+  description?: string
   state: string
   draft: boolean
   workInProgress: boolean
@@ -654,6 +672,17 @@ export type WorktreeEntry = {
 export type WorktreeReport = {
   mainWorktree: string
   entries: WorktreeEntry[]
+}
+
+export type WorktreePruneEntry = {
+  path: string
+  reason: string
+}
+
+export type WorktreePruneReport = {
+  dryRun: boolean
+  removed: WorktreePruneEntry[]
+  report: WorktreeReport
 }
 
 export type BlameLine = {
@@ -801,6 +830,14 @@ export type RebaseCandidates = {
   candidates: CommitSummary[]
 }
 
+export type SquashPreview = {
+  commits: CommitSummary[]
+  /** Commit the squashed range is replayed onto. */
+  upstream: string
+  /** Combined messages, oldest first. */
+  message: string
+}
+
 export type LineEnding = 'lf' | 'crlf' | 'mixed' | 'none'
 
 export type ConflictSide = {
@@ -888,12 +925,21 @@ export type GitlabApprovals = {
   approvalsRequired: number
   approvalsLeft: number
   approvedBy: { user: GitlabUserRef }[]
+  /** Reviewers whose latest decisive review asks for changes (GitHub). */
+  changesRequestedBy?: { user: GitlabUserRef }[]
 }
 
 export type ApprovalsDto = {
   available: boolean
   state?: GitlabApprovals
   reason?: string
+}
+
+export type JobStep = {
+  number: number
+  name: string
+  status: string
+  conclusion: string | null
 }
 
 export type GitlabJob = {
@@ -905,6 +951,8 @@ export type GitlabJob = {
   duration?: number
   createdAt?: string
   finishedAt?: string
+  /** Actions steps; empty or absent on GitLab. */
+  steps?: JobStep[]
 }
 
 export type JobsDto = {

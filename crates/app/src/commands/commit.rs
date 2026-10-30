@@ -24,6 +24,9 @@ pub struct CommitRequest {
     pub keep_message: bool,
     #[serde(default)]
     pub allow_empty: bool,
+    /// Skip every commit hook for this commit only.
+    #[serde(default)]
+    pub skip_hooks: bool,
 }
 
 #[tauri::command]
@@ -54,11 +57,46 @@ pub async fn commit_create(
         &request.repo_id,
         &session.worktree().display().to_string(),
     )?;
+    let hooks_path = state
+        .store
+        .preference("git.hooksPath")
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let sign = state
+        .store
+        .preference("git.signCommits")
+        .ok()
+        .flatten()
+        .and_then(|value| match value.as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        });
+    let signing_key = state
+        .store
+        .preference("git.signingKey")
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let signing_format = state
+        .store
+        .preference("git.signingFormat")
+        .ok()
+        .flatten()
+        .filter(|value| matches!(value.as_str(), "openpgp" | "ssh" | "x509"));
     let options = CommitOptions {
         message: request.message,
         amend: request.amend,
         keep_message: request.keep_message,
         allow_empty: request.allow_empty,
+        skip_hooks: request.skip_hooks,
+        sign,
+        hooks_path,
+        signing_key,
+        signing_format,
     };
     let amend = options.amend;
     let store = state.store.clone();

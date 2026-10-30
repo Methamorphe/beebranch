@@ -113,7 +113,7 @@ pub async fn tag_create(
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeleteTagRequest {
     pub repo_id: String,
     pub name: String,
@@ -203,6 +203,78 @@ pub async fn tag_push(
     run_mutation(session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = refs_admin::push_tag(runner, worktree, &request.remote, &request.name)?;
+        Ok((report, vec![InvalidationArea::Refs]))
+    })
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotateTagRequest {
+    pub repo_id: String,
+    pub name: String,
+    pub message: String,
+}
+
+/// Turn a lightweight tag into an annotated one, keeping its commit.
+#[tauri::command]
+pub async fn tag_annotate(
+    state: State<'_, AppState>,
+    request: AnnotateTagRequest,
+) -> Result<MutationResult<refs_admin::TagInfo>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    run_mutation(session, move |runner, discovery| {
+        let worktree = discovery.worktree()?;
+        let tag = refs_admin::annotate_tag(runner, worktree, &request.name, &request.message)?;
+        Ok((tag, vec![InvalidationArea::Refs]))
+    })
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveTagRequest {
+    pub repo_id: String,
+    pub name: String,
+    /// Revision the tag moves to; must be a descendant of its current commit.
+    pub target: String,
+}
+
+#[tauri::command]
+pub async fn tag_move(
+    state: State<'_, AppState>,
+    request: MoveTagRequest,
+) -> Result<MutationResult<refs_admin::TagInfo>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    run_mutation(session, move |runner, discovery| {
+        let worktree = discovery.worktree()?;
+        let tag = refs_admin::move_tag(runner, worktree, &request.name, &request.target)?;
+        Ok((tag, vec![InvalidationArea::Refs]))
+    })
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRemoteTagRequest {
+    pub repo_id: String,
+    pub remote: String,
+    pub name: String,
+    pub confirmation: Confirmation,
+}
+
+/// Delete a tag on a remote without touching the local tag.
+#[tauri::command]
+pub async fn tag_delete_remote(
+    state: State<'_, AppState>,
+    request: DeleteRemoteTagRequest,
+) -> Result<MutationResult<refs_admin::PushReport>, AppError> {
+    require_explicit(&request.confirmation, "la suppression du tag sur le remote")?;
+    let session = state.session(&request.repo_id)?;
+    run_mutation(session, move |runner, discovery| {
+        let worktree = discovery.worktree()?;
+        let report =
+            refs_admin::delete_tag_remote(runner, worktree, &request.remote, &request.name)?;
         Ok((report, vec![InvalidationArea::Refs]))
     })
     .await
@@ -410,6 +482,9 @@ pub struct SubmoduleAddRequest {
     pub url: String,
     pub path: String,
     pub branch: Option<String>,
+    /// Overwrite an existing path; never implied.
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[tauri::command]
@@ -426,6 +501,7 @@ pub async fn submodule_add(
             &request.url,
             &request.path,
             request.branch.as_deref(),
+            request.force,
         )?;
         Ok((
             report,
@@ -499,6 +575,40 @@ pub async fn submodule_sync(
         let worktree = discovery.worktree()?;
         let report = submodule::sync(runner, worktree, request.recursive, request.path.as_deref())?;
         Ok((report, vec![InvalidationArea::State]))
+    })
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmoduleRemoveRequest {
+    pub repo_id: String,
+    pub path: String,
+    pub confirmation: Confirmation,
+}
+
+/// Remove a submodule and its working tree. Destructive: the typed
+/// confirmation names the path.
+#[tauri::command]
+pub async fn submodule_remove(
+    state: State<'_, AppState>,
+    request: SubmoduleRemoveRequest,
+) -> Result<MutationResult<SubmoduleReport>, AppError> {
+    request
+        .confirmation
+        .verify(DestructiveAction::SubmoduleRemove, Some(&request.path))?;
+    let session = state.session(&request.repo_id)?;
+    run_mutation(session, move |runner, discovery| {
+        let worktree = discovery.worktree()?;
+        let report = submodule::remove(runner, worktree, &request.path)?;
+        Ok((
+            report,
+            vec![
+                InvalidationArea::Index,
+                InvalidationArea::Worktree,
+                InvalidationArea::State,
+            ],
+        ))
     })
     .await
 }

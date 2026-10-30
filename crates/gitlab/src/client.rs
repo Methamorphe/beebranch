@@ -25,9 +25,10 @@ use tracing::debug;
 use crate::cache::{CachedResponse, ResponseCache};
 use crate::error::GitlabError;
 use crate::models::{
-    CreateMergeRequest, GitlabApprovals, GitlabDiffRefs, GitlabDiscussion, GitlabJob,
-    GitlabMergeRequest, GitlabNote, GitlabPipeline, GitlabPosition, GitlabProject, GitlabUser,
-    JobLog, MergeRequestMerge, MergeRequestScope, MergeRequestsQuery, Paged,
+    CreateMergeRequest, GitlabApprovals, GitlabDiffRefs, GitlabDiscussion, GitlabFilePatch,
+    GitlabJob, GitlabMergeRequest, GitlabNote, GitlabPipeline, GitlabPosition, GitlabProject,
+    GitlabUser, JobLog, MergeRequestMerge, MergeRequestScope, MergeRequestUpdate,
+    MergeRequestsQuery, Paged,
 };
 use crate::url::{normalize_url, NormalizedUrl};
 
@@ -415,6 +416,16 @@ impl GitlabClient {
         if input.draft && !input.title.starts_with("Draft:") {
             payload["title"] = serde_json::Value::String(format!("Draft: {}", input.title.trim()));
         }
+        if !input.reviewer_ids.is_empty() {
+            payload["reviewer_ids"] = serde_json::json!(input.reviewer_ids);
+        }
+        if !input.assignee_ids.is_empty() {
+            payload["assignee_ids"] = serde_json::json!(input.assignee_ids);
+        }
+        if !input.labels.is_empty() {
+            // The REST parameter is a comma-separated string, not an array.
+            payload["labels"] = serde_json::Value::String(input.labels.join(","));
+        }
         let created: GitlabMergeRequest = self.post_json(&url, &payload).await?;
         if let Some(cache) = &self.cache {
             cache.remove_prefix(&format!(
@@ -459,6 +470,25 @@ impl GitlabClient {
         }
         let changes: Changes = decode(&fetched.body)?;
         Ok(changes.diff_refs)
+    }
+
+    /// Files of a merge request with their hunk patches.
+    pub async fn merge_request_changes(
+        &self,
+        project_id: u64,
+        iid: u64,
+    ) -> Result<Vec<GitlabFilePatch>, GitlabError> {
+        let project = project_id.to_string();
+        let iid_text = iid.to_string();
+        let url = self.endpoint(&["projects", &project, "merge_requests", &iid_text, "changes"])?;
+        let fetched = self.fetch(&url).await?;
+        #[derive(Deserialize)]
+        struct Changes {
+            #[serde(default)]
+            changes: Vec<GitlabFilePatch>,
+        }
+        let changes: Changes = decode(&fetched.body)?;
+        Ok(changes.changes)
     }
 
     /// Discussions (including inline notes) of one merge request.
@@ -654,6 +684,114 @@ impl GitlabClient {
         Ok(value)
     }
 
+    /// Numeric id of a user by exact username.
+    ///
+    /// Merge request creation takes user ids, while the UI collects names: a
+    /// single bounded lookup per name resolves them, and an unknown name is
+    /// reported instead of being dropped.
+    pub async fn user_id(&self, username: &str) -> Result<Option<u64>, GitlabError> {
+        let name = username.trim();
+        if name.is_empty() {
+            return Ok(None);
+        }
+        let mut url = self.endpoint(&["users"])?;
+        url.query_pairs_mut().append_pair("username", name);
+        let fetched = self.fetch(&url).await?;
+        let users: Vec<GitlabUser> = decode(&fetched.body)?;
+        Ok(users
+            .into_iter()
+            .find(|user| user.username.eq_ignore_ascii_case(name))
+            .map(|user| user.id))
+    }
+
+    /// Edit the title and/or the description of a merge request.
+    pub async fn update_merge_request(
+        &self,
+        project_id: u64,
+        iid: u64,
+        update: &MergeRequestUpdate,
+    ) -> Result<GitlabMergeRequest, GitlabError> {
+        if update.is_empty() {
+            return Err(GitlabError::configuration("aucun champ à modifier"));
+        }
+        let mut payload = serde_json::Map::new();
+        if let Some(title) = update.title.as_ref() {
+            let trimmed = title.trim();
+            if trimmed.is_empty() {
+                return Err(GitlabError::configuration(
+                    "le titre de la merge request ne peut pas être vide",
+                ));
+            }
+            payload.insert(
+                "title".to_owned(),
+                serde_json::Value::String(trimmed.to_owned()),
+            );
+        }
+        if let Some(description) = update.description.as_ref() {
+            payload.insert(
+                "description".to_owned(),
+                serde_json::Value::String(description.clone()),
+            );
+        }
+        let project = project_id.to_string();
+        let iid_text = iid.to_string();
+        let url = self.endpoint(&["projects", &project, "merge_requests", &iid_text])?;
+        let value: GitlabMergeRequest = self
+            .send_json(Method::PUT, &url, &serde_json::Value::Object(payload))
+            .await?;
+        self.invalidate_mr(project_id, iid);
+        Ok(value)
+    }
+
+    /// Close (`open = false`) or reopen a merge request.
+    pub async fn set_merge_request_open(
+        &self,
+        project_id: u64,
+        iid: u64,
+        open: bool,
+    ) -> Result<GitlabMergeRequest, GitlabError> {
+        let project = project_id.to_string();
+        let iid_text = iid.to_string();
+        let url = self.endpoint(&["projects", &project, "merge_requests", &iid_text])?;
+        let payload = serde_json::json!({
+            "state_event": if open { "reopen" } else { "close" }
+        });
+        let value: GitlabMergeRequest = self.send_json(Method::PUT, &url, &payload).await?;
+        self.invalidate_mr(project_id, iid);
+        Ok(value)
+    }
+
+    /// Convert a merge request to draft, or mark it ready.
+    ///
+    /// GitLab models the draft state as a `Draft:` title prefix: the toggle
+    /// rewrites the title and keeps the original wording.
+    pub async fn set_merge_request_draft(
+        &self,
+        project_id: u64,
+        iid: u64,
+        draft: bool,
+    ) -> Result<GitlabMergeRequest, GitlabError> {
+        let current = self.merge_request(project_id, iid).await?;
+        if current.is_draft() == draft {
+            return Ok(current);
+        }
+        let stripped = strip_draft_prefix(&current.title);
+        let title = if draft {
+            format!("Draft: {stripped}")
+        } else {
+            stripped.to_owned()
+        };
+        self.update_merge_request(
+            project_id,
+            iid,
+            &MergeRequestUpdate {
+                title: Some(title),
+                description: None,
+            },
+        )
+        .await
+    }
+
     /// Merge with an optional SHA guard.
     pub async fn merge_merge_request(
         &self,
@@ -710,6 +848,33 @@ impl GitlabClient {
             not_modified: fetched.not_modified,
             from_cache: fetched.from_cache,
         })
+    }
+
+    /// Retry one failed job (`POST /projects/:id/jobs/:job_id/retry`).
+    ///
+    /// GitLab answers with the new job; a token without the maintainer right
+    /// gets a 403 that the command layer surfaces as the provider message.
+    pub async fn retry_job(&self, project_id: u64, job_id: u64) -> Result<GitlabJob, GitlabError> {
+        let project = project_id.to_string();
+        let job = job_id.to_string();
+        let url = self.endpoint(&["projects", &project, "jobs", &job, "retry"])?;
+        let value: GitlabJob = self
+            .send_json(Method::POST, &url, &serde_json::json!({}))
+            .await?;
+        self.invalidate_jobs(project_id);
+        Ok(value)
+    }
+
+    /// Cancel one running job (`POST /projects/:id/jobs/:job_id/cancel`).
+    pub async fn cancel_job(&self, project_id: u64, job_id: u64) -> Result<GitlabJob, GitlabError> {
+        let project = project_id.to_string();
+        let job = job_id.to_string();
+        let url = self.endpoint(&["projects", &project, "jobs", &job, "cancel"])?;
+        let value: GitlabJob = self
+            .send_json(Method::POST, &url, &serde_json::json!({}))
+            .await?;
+        self.invalidate_jobs(project_id);
+        Ok(value)
     }
 
     /// Fetch one page of a job trace. GitLab honours `Range` on traces; when
@@ -827,6 +992,15 @@ impl GitlabClient {
                 "{base}/projects/{project_id}/merge_requests/{iid}"
             ));
             cache.remove_prefix(&format!("{base}/projects/{project_id}/merge_requests"));
+        }
+    }
+
+    /// Pipeline and job listings change when a job is retried or cancelled.
+    fn invalidate_jobs(&self, project_id: u64) {
+        if let Some(cache) = &self.cache {
+            let base = self.url.api_url.trim_end_matches('/');
+            cache.remove_prefix(&format!("{base}/projects/{project_id}/pipelines"));
+            cache.remove_prefix(&format!("{base}/projects/{project_id}/jobs"));
         }
     }
 
@@ -1217,6 +1391,21 @@ pub(crate) fn looks_like_tls(detail: &str) -> bool {
     ]
     .iter()
     .any(|needle| detail.contains(needle))
+}
+
+/// Title without a leading `Draft:` or `WIP:` marker.
+///
+/// GitLab stores the draft state in the title, so toggling it must not
+/// accumulate prefixes: the marker is stripped whatever its casing.
+fn strip_draft_prefix(title: &str) -> &str {
+    let trimmed = title.trim_start();
+    let lowered = trimmed.to_ascii_lowercase();
+    for prefix in ["draft:", "wip:"] {
+        if lowered.starts_with(prefix) {
+            return trimmed[prefix.len()..].trim_start();
+        }
+    }
+    trimmed
 }
 
 fn decode<T: DeserializeOwned>(body: &[u8]) -> Result<T, GitlabError> {

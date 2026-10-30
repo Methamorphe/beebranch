@@ -21,6 +21,7 @@ export type ViewId =
   | 'sync'
   | 'diff'
   | 'tools'
+  | 'activity'
   | 'recovery'
   | 'profiles'
   | 'workspaces'
@@ -90,6 +91,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { id: 'profiles', labelKey: 'nav.profiles', icon: '⚙', requiresRepo: false },
       { id: 'tools', labelKey: 'nav.tools', icon: '⌘', requiresRepo: true },
+      { id: 'activity', labelKey: 'nav.activity', icon: '◷', requiresRepo: true },
       { id: 'recovery', labelKey: 'nav.recovery', icon: '⟲', requiresRepo: false },
     ],
   },

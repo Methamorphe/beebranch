@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   operationCancel,
+  preferenceGet,
+  preferenceSet,
   searchCommits,
   searchContent,
   searchPaths,
@@ -41,6 +43,59 @@ const PLACEHOLDERS: Record<Mode, MessageKey> = {
   content: 'search.placeholder.content',
 }
 
+/** One search configuration kept per repository. */
+type SavedSearch = {
+  id: string
+  label: string
+  mode: Mode
+  text: string
+  depth: number
+  allRefs: boolean
+  revision: string
+  path: string
+  author: string
+  since: string
+  until: string
+}
+
+const SAVED_SEARCHES_KEY = 'ui.savedSearches'
+const SAVED_SEARCHES_LIMIT = 20
+
+/** Read the per-repository saved searches; a corrupt entry is dropped. */
+function parseSaved(raw: string | null, repoId: string): SavedSearch[] {
+  if (!raw) {
+    return []
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') {
+      return []
+    }
+    const byRepo = parsed as Record<string, unknown>
+    const list = byRepo[repoId]
+    if (!Array.isArray(list)) {
+      return []
+    }
+    return list
+      .filter((entry): entry is SavedSearch => {
+        if (!entry || typeof entry !== 'object') {
+          return false
+        }
+        const candidate = entry as Partial<SavedSearch>
+        return (
+          typeof candidate.id === 'string' &&
+          typeof candidate.label === 'string' &&
+          typeof candidate.text === 'string' &&
+          typeof candidate.mode === 'string' &&
+          typeof candidate.depth === 'number'
+        )
+      })
+      .slice(0, SAVED_SEARCHES_LIMIT)
+  } catch {
+    return []
+  }
+}
+
 export function SearchPanel({
   repoId,
   onShowInGraph,
@@ -64,10 +119,21 @@ export function SearchPanel({
   const [error, setError] = useState<string | null>(null)
   const running = useRef(false)
   const requestRef = useRef(0)
+  const [saved, setSaved] = useState<SavedSearch[]>([])
+  const runRef = useRef<(after?: string, offset?: number) => Promise<void>>(async () => {})
 
   const run = async (after?: string, offset = 0) => {
-    if (!text.trim() || running.current) {
+    if (!text.trim()) {
       return
+    }
+    if (running.current) {
+      // A newer query supersedes the one in flight: invalidate its result and
+      // abort the process instead of queueing behind it.
+      requestRef.current += 1
+      if (operationId) {
+        void operationCancel(operationId).catch(() => undefined)
+      }
+      running.current = false
     }
     running.current = true
     const token = ++requestRef.current
@@ -145,6 +211,84 @@ export function SearchPanel({
   }
 
   const commitMode = mode === 'message' || mode === 'author' || mode === 'sha'
+
+  runRef.current = run
+
+  // Live search: a short debounce for each keystroke; a new query cancels the
+  // previous one, and one-character queries wait for an explicit submit.
+  useEffect(() => {
+    if (text.trim().length < 2) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void runRef.current()
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [text, mode, revision, allRefs, depth, since, until, author, pathScope])
+
+  useEffect(() => {
+    let cancelled = false
+    void preferenceGet(SAVED_SEARCHES_KEY)
+      .then((raw) => {
+        if (!cancelled) {
+          setSaved(parseSaved(raw, repoId))
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [repoId])
+
+  const persistSaved = async (next: SavedSearch[]) => {
+    setSaved(next)
+    try {
+      const raw = await preferenceGet(SAVED_SEARCHES_KEY)
+      const all = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+      all[repoId] = next
+      await preferenceSet(SAVED_SEARCHES_KEY, JSON.stringify(all))
+    } catch (cause) {
+      setError(errorMessage(cause))
+    }
+  }
+
+  const saveCurrent = () => {
+    const label = text.trim()
+    if (!label) {
+      return
+    }
+    const entry: SavedSearch = {
+      id: crypto.randomUUID(),
+      label,
+      mode,
+      text: label,
+      depth,
+      allRefs,
+      revision,
+      path: pathScope,
+      author,
+      since,
+      until,
+    }
+    const next = [entry, ...saved.filter((item) => item.label !== label)].slice(
+      0,
+      SAVED_SEARCHES_LIMIT,
+    )
+    void persistSaved(next)
+  }
+
+  const applySaved = (entry: SavedSearch) => {
+    setMode(entry.mode)
+    setText(entry.text)
+    setDepth(entry.depth)
+    setAllRefs(entry.allRefs)
+    setRevision(entry.revision)
+    setPathScope(entry.path)
+    setAuthor(entry.author)
+    setSince(entry.since)
+    setUntil(entry.until)
+  }
+
   const scope = [
     allRefs ? t('search.scope.allRefs') : revision.trim() || 'HEAD',
     commitMode ? t('search.scope.depth', { depth }) : null,
@@ -214,11 +358,47 @@ export function SearchPanel({
             {t('common.cancel')}
           </button>
         ) : null}
+        <button
+          type="button"
+          className={p2.ghost}
+          disabled={!text.trim()}
+          title={t('search.saveHint')}
+          onClick={saveCurrent}
+        >
+          {t('search.save')}
+        </button>
         <span className={p2.spacer} />
         <span className={p2.chip} title={t('search.scopeTitle')}>
           {scope}
         </span>
       </div>
+
+      {saved.length > 0 ? (
+        <div className={p2.toolbar} aria-label={t('search.savedAria')}>
+          <span className={p2.toolbarLabel}>{t('search.savedLabel')}</span>
+          {saved.map((entry) => (
+            <span key={entry.id} className={p2.chip}>
+              <button
+                type="button"
+                className={p2.linkButton}
+                onClick={() => applySaved(entry)}
+              >
+                {entry.label}
+              </button>
+              <button
+                type="button"
+                className={p2.ghost}
+                aria-label={t('search.savedRemove', { label: entry.label })}
+                onClick={() =>
+                  void persistSaved(saved.filter((item) => item.id !== entry.id))
+                }
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className={p2.toolbar}>
         {commitMode ? (
@@ -401,6 +581,21 @@ export function SearchPanel({
                 className={p2.secondary}
                 disabled={busy}
                 onClick={() => void run(result.next)}
+              >
+                {t('search.nextPage')}
+              </button>
+            </div>
+          ) : null}
+
+          {!commitMode && (paths?.next != null || content?.next != null) ? (
+            <div className={p2.footerBar}>
+              <span className={p2.count}>{t('search.nextPageAvailable')}</span>
+              <span className={p2.spacer} />
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={busy}
+                onClick={() => void run(undefined, paths?.next ?? content?.next ?? 0)}
               >
                 {t('search.nextPage')}
               </button>

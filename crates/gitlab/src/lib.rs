@@ -20,9 +20,9 @@ pub use client::{
 pub use error::{GitlabError, MAX_DETAIL_CHARS};
 pub use models::{
     CreateMergeRequest, GitlabApproval, GitlabApprovals, GitlabDiffRefs, GitlabDiscussion,
-    GitlabJob, GitlabMergeRequest, GitlabNote, GitlabPipeline, GitlabPosition, GitlabProject,
-    GitlabUser, GitlabUserRef, JobLog, MergeRequestMerge, MergeRequestScope, MergeRequestsQuery,
-    Paged,
+    GitlabFilePatch, GitlabJob, GitlabMergeRequest, GitlabNote, GitlabPipeline, GitlabPosition,
+    GitlabProject, GitlabUser, GitlabUserRef, JobLog, MergeRequestMerge, MergeRequestScope,
+    MergeRequestUpdate, MergeRequestsQuery, Paged,
 };
 pub use pipeline::PipelineState;
 pub use remote::{matches_project, normalize_remote, RemoteInfo};

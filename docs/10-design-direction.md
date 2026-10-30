@@ -1,138 +1,160 @@
-# 10 — Direction visuelle
+# 10 — Visual direction
 
-## 1. Intention
+## 1. Intent
 
-BeeBranch doit être **immédiatement familier** à un utilisateur de GitKraken : mêmes repères visuels, même densité, même lecture de l'historique. Il doit aussi avoir **sa propre identité** : nom, logo, palette et iconographie originales.
+BeeBranch must feel **immediately familiar** to a developer coming from an established desktop Git client: the same visual landmarks, the same density, the same way of reading history. It must also have **its own identity**: original name, logo, palette, and iconography.
 
-La référence est l'**ergonomie**, pas les assets.
+The reference is **ergonomics**, not assets.
 
-## 2. Ce qui est repris de l'expérience GitKraken
+## 2. What is adopted from the benchmark experience
 
-- Graphe d'historique central, lanes colorées, refs visibles, merges lisibles.
-- Panneau gauche de références (branches, remotes, tags, stashes, worktrees).
-- Panneau droit de détail (commit, fichiers, diff, métadonnées).
-- Onglets de dépôts et navigation rapide.
-- Barre d'état discrète : branche courante, ahead/behind, état de synchronisation.
-- Densité élevée : lignes compactes, peu d'espace perdu.
-- Actions contextuelles au clic droit.
-- Command palette et raccourcis clavier.
-- Thème sombre par défaut, thème clair disponible.
+- Central history graph, colored lanes, visible refs, readable merges.
+- Left reference panel (branches, remotes, tags, stashes, worktrees).
+- Right detail panel (commit, files, diff, metadata).
+- Repository tabs and quick navigation.
+- Discreet status bar: current branch, ahead/behind, synchronization status.
+- High density: compact rows, little wasted space.
+- Right-click context actions.
+- Command palette and keyboard shortcuts.
+- Dark theme by default, light theme available.
 
-## 3. Identité propre
+## 3. Distinct identity
 
-| Élément | Direction |
+| Element | Direction |
 |---|---|
-| Nom | **BeeBranch** |
-| Symbole | Abeille / rayon / branche, à faire dessiner ; jamais le logo GitKraken |
-| Accent | **Jaune ambre `#FED100`**, décliné en `#F5BB45` sur fond sombre dans la maquette de référence ; réservé aux actions primaires, à la sélection et au focus |
-| Base | Fond `#101216`, panneaux `#15181E`, surfaces élevées `#1C2028`, bordures `#282D36`, texte `#E1E5EC`, secondaire `#8992A2` (maquette de référence) |
-| Palette de lanes | 6 couleurs fonctionnelles dérivées, lisibles sur fond noir ; le jaune d'accent n'est pas utilisé comme lane |
-| Iconographie | Jeu d'icônes original ou bibliothèque sous licence compatible |
-| Typographie | **Geist** pour l'UI, **Geist Mono** pour les diffs et SHA, embarquées via Fontsource (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`) |
-| Ton | Technique, calme, précis ; pas de marketing dans l'application |
+| Name | **BeeBranch** |
+| Symbol | Bee / honeycomb / branch, to be designed; never the benchmark vendor's logo |
+| Accent | **Amber yellow `#FED100`**, adapted to `#F5BB45` on a dark background in the reference mockup; reserved for primary actions, selection, and focus |
+| Base | Background `#101216`, panels `#15181E`, raised surfaces `#1C2028`, borders `#282D36`, text `#E1E5EC`, secondary `#8992A2` (reference mockup) |
+| Lane palette | 6 derived functional colors, readable on a black background; the accent yellow is not used as a lane |
+| Iconography | Original icon set or library under a compatible license |
+| Typography | **Geist** for the UI, **Geist Mono** for diffs and SHAs, bundled through Fontsource (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`) |
+| Tone | Technical, calm, precise; no marketing in the application |
 
-La palette de base retient `#0A0A0A`, `#191919`, `#F6F6F6`, `#EDEDED` et `#FED100`. La maquette de référence P2 (non versionnée) fixe les valeurs implémentées : `#101216`, `#15181E`, `#1C2028`, `#282D36`, `#E1E5EC`, `#8992A2`, accent `#F5BB45`. Les valeurs d'état et de lanes sont dérivées pour l'application.
+The base palette uses `#0A0A0A`, `#191919`, `#F6F6F6`, `#EDEDED`, and `#FED100`. The P2 reference mockup (not versioned) sets the implemented values: `#101216`, `#15181E`, `#1C2028`, `#282D36`, `#E1E5EC`, `#8992A2`, accent `#F5BB45`. Status and lane values are derived for the application.
 
-**Garde-fous juridiques et éthiques**
+**Legal and ethical guardrails**
 
-- Ne pas copier les assets, icônes, captures, polices, logos ou la palette exacte de GitKraken.
-- Ne pas utiliser « GitKraken » dans le nom, le logo, le domaine ou la communication produit.
-- Ne pas reproduire le trade dress de façon identifiable ; s'inspirer de conventions d'interface courantes (graphe, panneaux, onglets) est acceptable.
-- Vérifier la licence de toute icône ou police tierce avant intégration.
+- Do not copy the benchmark client's assets, icons, screenshots, fonts, logos, or exact palette.
+- Do not use any benchmark vendor's trademark in the name, logo, domain, or product communications.
+- Do not reproduce identifiable trade dress; drawing inspiration from common interface conventions (graph, panels, tabs) is acceptable.
+- Check the license of every third-party icon or font before integration.
 
-## 4. Structure de l'écran principal
+## 4. Main screen structure
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ Barre supérieure : dépôt, branche, fetch/pull/push, recherche │
+│ Top bar: repository, branch, fetch/pull/push, search        │
 ├──────────────┬──────────────────────────────┬───────────────┤
-│ Références   │ Graphe + liste des commits   │ Détail commit │
-│ branches     │ lanes, refs, auteurs, dates  │ fichiers      │
+│ References   │ Graph + commit list          │ Commit detail │
+│ branches     │ lanes, refs, authors, dates  │ files         │
 │ remotes      │                              │ diff          │
-│ tags         │                              │ métadonnées   │
+│ tags         │                              │ metadata      │
 │ stashes      │                              │               │
 │ worktrees    │                              │               │
 ├──────────────┴──────────────────────────────┴───────────────┤
-│ Barre d'état : état Git, sync, index, opérations             │
+│ Status bar: Git state, sync, index, operations              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- Trois colonnes redimensionnables, mémorisées par dépôt.
-- Le graphe reste la zone dominante.
-- Les panneaux peuvent être masqués, jamais au détriment de l'état Git visible.
-- Les actions destructives ou les états intermédiaires occupent une zone persistante, pas un toast éphémère.
+- Three resizable columns, remembered per repository.
+- The graph remains the dominant area.
+- Panels may be hidden, never at the expense of visible Git status.
+- Destructive actions or intermediate states occupy a persistent area, not a transient toast.
 
-Sous `1120px`, le détail du commit, la comparaison et la préparation du commit
-deviennent un **drawer superposé** au graphe au lieu d'être empilés : le graphe
-conserve sa hauteur, le panneau se ferme par son bouton ou `Échap`. La barre
-d'état reste actionnable (branche, compteurs, opérations, GitLab) et son menu
-Opérations expose le journal récent sans transformer les retours en toasts.
+Below `1120px`, commit details, comparison, and commit preparation
+become a **drawer overlaid** on the graph instead of being stacked: the graph
+keeps its height, the panel closes through its button or `Échap`. The status
+bar remains actionable (branch, counters, operations, GitLab), and its
+Operations menu exposes the recent journal without turning feedback into toasts.
+
+### Interaction principles
+
+- With a repository open, the left column is a single repository explorer:
+  local and remote refs, tags, stashes, worktrees, submodules, reviews and patches.
+  These sections expand in place; they are not links to destination pages.
+- Clicking a ref or stash selects and reveals its commit in the graph. A branch
+  double-click checks it out; context actions operate directly on the object.
+  Stashes have no dedicated screen: creation is direct, and apply/pop/drop are
+  available from their graph rows and repository entries.
+- The three regions stay fixed: repository explorer on the left, history or
+  code in the center, selection details and files on the right. Diffs, conflict
+  resolution and rebase editing replace the central graph. Closing the editor
+  restores that same graph and its position. No lower tool dock is added.
+- Content stays in the main pane: editing, diffs, logs, review details and
+  history replace the current panel instead of opening a dialog or another page.
+- A dialog is reserved for a destructive confirmation or a short form the user
+  must answer before continuing. A file is never edited in a modal.
+- Saving does not eject the user: the editor stays open on the saved bytes and
+  the surrounding view refreshes underneath it.
+- An action that can be completed in place must not navigate away from the
+  repository.
 
 ## 5. Tokens
 
-| Token | Sombre | Clair | Usage |
+| Token | Dark | Light | Usage |
 |---|---|---|---|
-| `--bg` | `#0A0A0A` | `#F6F6F6` | fond principal |
-| `--surface` | `#191919` | `#FFFFFF` | panneaux |
-| `--surface-raised` | `#242424` | `#FFFFFF` | dialogues, menus |
-| `--border` | `#2E2E2E` | `#E6E6E6` | séparateurs |
-| `--text` | `#EDEDED` | `#191919` | texte principal |
-| `--muted` | `#A3A3A3` | `#616161` | métadonnées |
-| `--accent` | `#FED100` | `#FED100` | actions primaires, sélection |
-| `--accent-contrast` | `#191919` | `#191919` | texte sur accent |
-| `--accent-soft` | `#FED10026` | `#FED10033` | fond de sélection |
-| `--success` | `#07BC0C` | `#078A0B` | succès CI |
-| `--warning` | `#F97316` | `#C2410C` | avertissement |
-| `--error` | `#E74D3C` | `#C0392B` | erreur |
-| `--lane-1` | `#4EA8DE` | `#2B7CB3` | bleu |
-| `--lane-2` | `#9B5DE5` | `#7B3FC4` | violet |
+| `--bg` | `#0A0A0A` | `#F6F6F6` | main background |
+| `--surface` | `#191919` | `#FFFFFF` | panels |
+| `--surface-raised` | `#242424` | `#FFFFFF` | dialogs, menus |
+| `--border` | `#2E2E2E` | `#E6E6E6` | separators |
+| `--text` | `#EDEDED` | `#191919` | main text |
+| `--muted` | `#A3A3A3` | `#616161` | metadata |
+| `--accent` | `#FED100` | `#FED100` | primary actions, selection |
+| `--accent-contrast` | `#191919` | `#191919` | text on accent |
+| `--accent-soft` | `#FED10026` | `#FED10033` | selection background |
+| `--success` | `#07BC0C` | `#078A0B` | CI success |
+| `--warning` | `#F97316` | `#C2410C` | warning |
+| `--error` | `#E74D3C` | `#C0392B` | error |
+| `--lane-1` | `#4EA8DE` | `#2B7CB3` | blue |
+| `--lane-2` | `#9B5DE5` | `#7B3FC4` | purple |
 | `--lane-3` | `#00A6A6` | `#007A7A` | teal |
-| `--lane-4` | `#E85D9E` | `#C23A78` | rose |
+| `--lane-4` | `#E85D9E` | `#C23A78` | pink |
 | `--lane-5` | `#F97316` | `#C2410C` | orange |
-| `--lane-6` | `#7CB518` | `#557D0F` | vert |
+| `--lane-6` | `#7CB518` | `#557D0F` | green |
 
-- `#FED100` est la couleur d'accent de l'application et ne doit pas être utilisée comme couleur de lane.
-- Les valeurs sombres respectent le fond `#0A0A0A` / `#191919`.
-- Les valeurs claires sont des variantes assombries pour préserver le contraste.
-- Sur fond clair, `#FED100` ne porte jamais de texte clair : utiliser `--accent-contrast` (`#191919`).
-- Contrastes vérifiés : `#EDEDED`/`#191919` = 15,0:1 ; `#191919`/`#FED100` = 12,0:1 ; `#A3A3A3`/`#191919` = 7,0:1. Les lanes sont validées au minimum graphique 3:1.
+- `#FED100` is the application's accent color and must not be used as a lane color.
+- Dark values respect the `#0A0A0A` / `#191919` background.
+- Light values are darkened variants to preserve contrast.
+- On a light background, `#FED100` never carries light text: use `--accent-contrast` (`#191919`).
+- Verified contrast ratios: `#EDEDED`/`#191919` = 15.0:1; `#191919`/`#FED100` = 12.0:1; `#A3A3A3`/`#191919` = 7.0:1. Lanes are validated against the 3:1 graphical minimum.
 
-## 6. Densité et mouvement
+## 6. Density and motion
 
-- Mode compact par défaut : lignes de 28–32 px, pas de padding décoratif.
-- Mode confortable disponible.
-- Animations courtes (120–160 ms), jamais bloquantes, désactivées avec `prefers-reduced-motion`.
-- Pas d'animation sur le scroll du graphe.
-- Les transitions servent la compréhension (ouverture de panneau, changement d'onglet), pas la décoration.
+- Compact mode by default: 28–32 px rows, no decorative padding.
+- Comfortable mode available.
+- Short animations (120–160 ms), never blocking, disabled with `prefers-reduced-motion`.
+- No animation on graph scrolling.
+- Transitions aid understanding (panel opening, tab change), not decoration.
 
-## 7. Accessibilité
+## 7. Accessibility
 
-- Contraste conforme au niveau décidé (AA proposé).
-- Focus visible, navigation clavier complète.
-- Les couleurs de lanes ne sont jamais le seul porteur d'information (forme, label, position).
-- Les états CI ont un libellé, pas seulement une couleur.
-- Les messages d'erreur sont annoncés et persistants.
+- Contrast compliant with the chosen level (AA proposed).
+- Visible focus, full keyboard navigation.
+- Lane colors are never the sole information carrier (shape, label, position).
+- CI statuses have a label, not just a color.
+- Error messages are announced and persistent.
 
-## 8. Mise en œuvre
+## 8. Implementation
 
-- P0 : tokens neutres et structure de panneaux, sans polish.
-- P1 : composants de base, cohérence des états, densité.
-- P2 : shell et écrans alignés sur la maquette de référence — barre supérieure
-  avec onglets de dépôts, barre d'outils (branche, ahead/behind, fetch/pull/
-  push), navigation groupée, barre d'état ; écrans Conflits (3 panneaux),
-  Rebase interactif, Worktrees, Tags, Remotes, Submodules, Patches, Blame,
-  Recherche approfondie, Merge requests (discussions/approbations/jobs),
-  Profils et réglages ; palette de commandes, raccourcis configurables et
-  thème sombre/clair.
-- P3 : design system complet, animations avancées, audit visuel et
-  accessibilité — livré : tokens espacement/typage/profondeur, densité
-  compacte/confortable, primitives `Button` et `Dialog`, animations
-  120–220 ms, audit contraste (texte ≥ 7:1, muted ≥ 4,5:1, lanes ≥ 3:1) et
-  audit a11y automatisé.
+- P0: neutral tokens and panel structure, no polish.
+- P1: basic components, consistent states, density.
+- P2: shell and screens aligned with the reference mockup — top bar
+  with repository tabs, toolbar (branch, ahead/behind, fetch/pull/
+  push), grouped navigation, status bar; Conflicts (3 panels),
+  Interactive rebase, Worktrees, Tags, Remotes, Submodules, Patches, Blame,
+  Advanced search, Merge requests (discussions/approvals/jobs),
+  Profiles and settings screens; command palette, configurable shortcuts, and
+  dark/light theme.
+- P3: complete design system, advanced animations, visual and
+  accessibility audit — shipped: spacing/typography/depth tokens, compact/
+  comfortable density, `Button` and `Dialog` primitives, animations of
+  120–220 ms, contrast audit (text ≥ 7:1, muted ≥ 4.5:1, lanes ≥ 3:1), and
+  automated a11y audit.
 
-### Implémentation P2 (tokens réels)
+### P2 implementation (actual tokens)
 
-| Token | Sombre | Clair |
+| Token | Dark | Light |
 |---|---|---|
 | `--bg` | `#101216` | `#F5F6F8` |
 | `--surface` | `#15181E` | `#ECEEF2` |
@@ -146,114 +168,114 @@ Opérations expose le journal récent sans transformer les retours en toasts.
 | `--error` | `#E66B75` | `#B93B48` |
 | `--info` | `#81A9EF` | `#2B6CB0` |
 
-Les animations sont limitées à 120–160 ms et désactivées avec
-`prefers-reduced-motion`. Les raccourcis clavier sont configurables dans
-Profils et réglages ; les doublons sont refusés.
+Animations are limited to 120–160 ms and disabled with
+`prefers-reduced-motion`. Keyboard shortcuts are configurable in
+Profiles and settings; duplicates are rejected.
 
-Toute évolution visuelle doit respecter les garde-fous de la section 3.
+Every visual change must respect the guardrails in section 3.
 
-### Rendu du graphe (référence GitKraken)
+### Graph rendering (benchmark reference)
 
-Le graphe suit les conventions de lecture GitKraken sans reprendre ses assets :
+The graph follows the benchmark client's reading conventions without reusing its assets:
 
-- chaque ligne de commit est une **bande teintée** par la couleur de la branche
-  (6 % en sombre, 5 % en clair), avec 3 px de retrait haut/bas et des angles de
-  4 px ; la sélection et la multi-sélection renforcent la teinte et ajoutent une
-  barre d'accent à gauche ;
-- les références sont des **pastilles colorées par type** — accent pour HEAD,
-  couleur de lane pour une branche locale, `--info` pour une branche distante,
-  `--warning` pour un tag — avec l'icône correspondante (fourche, nuage,
-  étiquette) ; toutes les références visibles sont dessinées, le surplus devient
-  `+N` et ouvre le menu des références ;
-- les nœuds sont des disques de la couleur de lane, cerclés de `--surface` pour
-  se détacher des lignes ; HEAD reçoit un halo d'accent ;
-- les **jonctions de lane** sont arrondies sur la ligne du commit d'arrivée,
-  comme dans GitKraken : une branche qui rejoint son parent garde sa colonne
-  jusqu'à la ligne du parent puis courbe **au-dessus** de la médiane ; seul un
-  parent secondaire ouvre une colonne **sous** le commit, avec un arrondi sous
-  la médiane. Un commit dont le parent est déjà pris par une autre colonne
-  n'abandonne donc plus sa colonne prématurément ;
-- un **stash** est un nœud à part, inséré à sa date dans l'historique (un stash
-  ancien ne remonte pas au-dessus des commits récents) : médaillon carré arrondi
-  en pointillés avec un coffre, dans la couleur de lane, et libellé par le
-  message saisi (sans le préfixe `On <branche>:`). Son instantané `index` reste
-  hors du graphe, et les fichiers de l'instantané `untracked` apparaissent dans
-  le détail du stash : un stash = une ligne ;
-- **épingler à gauche** ancre une branche en première colonne à partir de son
-  sommet : les colonnes 0 et n échangent leur place à la ligne du sommet, qui
-  dessine la bascule, sans déplacer les nœuds au-dessus. **Solo** réduit le
-  graphe à une branche via le filtre, sans modifier le dépôt ;
-- l'espacement des lanes est fixe (22 px) et la colonne des branches suit le
-  libellé le plus long (96 à 220 px), en réservant 520 px au message et 90 px à
-  l'auteur pour ne jamais tronquer le sujet.
+- each commit row is a **band tinted** with the branch color
+  (6% in dark, 5% in light), with 3 px top/bottom insets and
+  4 px corners; selection and multi-selection strengthen the tint and add an
+  accent bar on the left;
+- references are **pills colored by type** — accent for HEAD,
+  lane color for a local branch, `--info` for a remote branch,
+  `--warning` for a tag — with the corresponding icon (fork, cloud,
+  label); all visible references are drawn, the overflow becomes
+  `+N` and opens the reference menu;
+- nodes are lane-colored disks, outlined with `--surface` to
+  stand out from the lines; HEAD receives an accent halo;
+- **lane junctions** are rounded on the destination commit's row,
+  as in the benchmark client: a branch joining its parent keeps its column
+  until the parent's row, then curves **above** the midline; only a
+  secondary parent opens a column **below** the commit, with a curve below
+  the midline. A commit whose parent is already taken by another column
+  therefore no longer abandons its column prematurely;
+- a **stash** is a separate node, inserted at its date in history (an old stash
+  does not rise above recent commits): a dotted rounded-square badge
+  with a chest, in the lane color, and labeled with the
+  entered message (without the `On <branch>:` prefix). Its `index` snapshot stays
+  out of the graph, and files from the `untracked` snapshot appear in
+  the stash details: one stash = one row;
+- **pin left** anchors a branch in the first column starting at its
+  tip: columns 0 and n swap places at the tip's row, which
+  draws the switch, without moving the nodes above. **Solo** reduces the
+  graph to one branch through the filter, without modifying the repository;
+- lane spacing is fixed (22 px), and the branch column follows the
+  longest label (96 to 220 px), reserving 520 px for the message and 90 px for
+  the author so the subject is never truncated.
 
-Les contrastes texte/fond des pastilles restent ≥ 4,5:1 (mesuré ≥ 7:1 en sombre).
+Pill text/background contrast ratios remain ≥ 4.5:1 (measured ≥ 7:1 in dark).
 
-### Implémentation P3 (tokens complémentaires)
+### P3 implementation (additional tokens)
 
-| Famille | Tokens |
+| Family | Tokens |
 |---|---|
-| Espacement | `--space-1` … `--space-12` (base 4 px) |
-| Typographie | `--text-xs` … `--text-2xl`, `--line-tight`, `--line-normal` |
-| Densité | `--row-height`, `--control-height` ; `data-density="compact"` (13 px / 26 px) ou `"comfortable"` (15 px / 34 px) |
-| Profondeur | `--z-base` … `--z-toast`, `--shadow-sm`, `--shadow-md`, `--focus-ring` |
-| Mouvement | `--duration-fast` 120 ms, `--duration-normal` 160 ms, `--duration-slow` 220 ms |
+| Spacing | `--space-1` … `--space-12` (4 px base) |
+| Typography | `--text-xs` … `--text-2xl`, `--line-tight`, `--line-normal` |
+| Density | `--row-height`, `--control-height`; `data-density="compact"` (13 px / 26 px) or `"comfortable"` (15 px / 34 px) |
+| Depth | `--z-base` … `--z-toast`, `--shadow-sm`, `--shadow-md`, `--focus-ring` |
+| Motion | `--duration-fast` 120 ms, `--duration-normal` 160 ms, `--duration-slow` 220 ms |
 
-Les couleurs de lanes claires sont assombries pour rester ≥ 3:1 sur le fond
-clair ; le jaune d'accent n'est jamais une lane. Les animations de vue,
-dialogues et overlays sont désactivées intégralement avec
+Light lane colors are darkened to stay ≥ 3:1 on the light
+background; the accent yellow is never a lane. View, dialog,
+and overlay animations are disabled entirely with
 `prefers-reduced-motion`.
 
-### Fond d'écran personnalisé
+### Custom background
 
-Préférences → Général accepte une image ou un GIF animé (png, jpg, gif, webp,
-avif, bmp · 32 Mo). Le chemin est la seule donnée persistée
-(`ui.background`) ; le backend relit le fichier au démarrage et le renvoie en
-URL `data:`, ce qui évite d'ouvrir l'accès au système de fichiers au webview et
-laisse le webview animer le GIF. Les variables `--app-bg-image`,
-`--app-bg-size`, `--app-bg-repeat`, `--app-bg-dim` et `--app-bg-blur` pilotent
-la couche fixe rendue sous le shell, en `z-index: -1`.
+Preferences → General accepts an image or animated GIF (png, jpg, gif, webp,
+avif, bmp · 32 MB). The path is the only persisted data
+(`ui.background`); the backend rereads the file at startup and returns it as a
+`data:` URL, avoiding opening filesystem access to the webview and
+letting the webview animate the GIF. The `--app-bg-image`,
+`--app-bg-size`, `--app-bg-repeat`, `--app-bg-dim`, and `--app-bg-blur` variables control
+the fixed layer rendered beneath the shell, at `z-index: -1`.
 
-Quand une image est active, `data-background="image"` sur `:root` remplace
-`--bg`, `--surface`, `--surface-raised`, `--border` et `--selection-bg` par des
-variantes translucides (56–92 % d'opacité), déclinées pour le thème sombre, le
-thème clair explicite et la préférence système. L'atténuation (0–90 %, 45 % par
-défaut) applique un voile `--bg-scrim` sur l'image : elle seule dégrade le
-contraste, donc le texte reste lisible par défaut même sur une photo claire.
-La couche est masquée dès que la lecture échoue (fichier déplacé) et l'erreur
-est affichée dans les réglages ; le shell redevient opaque plutôt que de laisser
-un fond vide.
+When an image is active, `data-background="image"` on `:root` replaces
+`--bg`, `--surface`, `--surface-raised`, `--border`, and `--selection-bg` with
+translucent variants (56–92% opacity), adapted for the dark theme, the
+explicit light theme, and the system preference. Dimming (0–90%, 45% by
+default) applies a `--bg-scrim` veil over the image: only the veil degrades
+contrast, so text remains readable by default even on a light photo.
+The layer is hidden as soon as reading fails (file moved), and the error
+is displayed in settings; the shell becomes opaque again rather than leaving
+an empty background.
 
-L'écran de démarrage suit le même schéma (`ui.splash`, mêmes formats, 32 Mo) et
-les mêmes contrôles. La fenêtre splash n'utilise pas la feuille de style de
-l'application : la page reste en `data-splash="pending"` (rien d'autre que la
-couleur de la fenêtre) jusqu'à ce que `src/splash.ts` ait lu la préférence par
-IPC et obtenu l'image en URL `data:` ; elle passe alors en `data-splash="image"`
-et pose `--splash-image`, `--splash-size`, `--splash-repeat`, `--splash-dim` et
-`--splash-blur`. Le logo hexagonal est masqué, la marque et la barre de
-progression restent au-dessus du voile. Sans préférence, ou si le fichier a
-disparu, le mode revient à `data-splash="logo"` : l'écran de démarrage ne peut
-jamais bloquer ni retarder le lancement au-delà de deux secondes.
+The splash screen follows the same pattern (`ui.splash`, same formats, 32 MB) and
+the same controls. The splash window does not use the application's
+stylesheet: the page remains in `data-splash="pending"` (nothing but the
+window color) until `src/splash.ts` has read the preference through
+IPC and obtained the image as a `data:` URL; it then switches to `data-splash="image"`
+and sets `--splash-image`, `--splash-size`, `--splash-repeat`, `--splash-dim`, and
+`--splash-blur`. The hexagonal logo is hidden, the brand and progress
+bar remain above the veil. Without a preference, or if the file has
+disappeared, the mode reverts to `data-splash="logo"`: the splash screen can
+never block or delay launch beyond two seconds.
 
-### Écrans secondaires
+### Secondary screens
 
-Les écrans hors graphe (Merge requests, Pull requests, Rechercher, Rebase
-interactif, Historique de fichier, Worktrees, Tags, Remotes, Sous-modules,
-Patches, Synchronisation) partagent un gabarit unique plutôt que des cartes
-isolées :
+Non-graph screens (Merge requests, Pull requests, Search, Interactive
+rebase, File history, Worktrees, Tags, Remotes, Submodules,
+Patches, Synchronization) share a single template rather than isolated
+cards:
 
-- **surface pleine largeur** : une barre d’outils supérieure (filtres, actions
-  de la vue), un corps défilant, et un inspecteur à droite pour les formulaires
-  ou la progression ; les titres sont portés une seule fois par la barre de vue
-  du shell ;
-- **lignes denses** : hauteur minimale de 44 px, un filet par ligne, sélection
-  `--selection-bg` avec barre d’accent à gauche, actions alignées à droite ;
-- **micro-typographie** : libellés de section en 10,5 px capitales, métadonnées
-  en 11 px, SHA et chemins en `Geist Mono` ; les statuts associent toujours un
-  libellé à leur pastille, jamais la couleur seule ;
-- **états** : erreurs persistantes en bandeau latéral, confirmations pour les
-  opérations destructives, états vides qui expliquent la prochaine action.
+- **full-width surface**: a top toolbar (filters, view
+  actions), a scrolling body, and a right inspector for forms
+  or progress; titles appear only once in the shell's view
+  bar;
+- **dense rows**: minimum height of 44 px, one rule per row, `--selection-bg`
+  selection with a left accent bar, right-aligned actions;
+- **microtypography**: section labels in 10.5 px uppercase, metadata
+  in 11 px, SHAs and paths in `Geist Mono`; statuses always pair a
+  label with their pill, never color alone;
+- **states**: persistent errors in a side banner, confirmations for
+  destructive operations, empty states that explain the next action.
 
-Le socle CSS correspondant vit dans `src/components/p2.module.css`
-(`screen`, `toolbar`, `entry`, `chip`, `alert`, `paneSection`) : un nouvel écran
-secondaire réutilise ces primitives au lieu d’en inventer de nouvelles.
+The corresponding CSS core lives in `src/components/p2.module.css`
+(`screen`, `toolbar`, `entry`, `chip`, `alert`, `paneSection`): a new secondary
+screen reuses these primitives instead of inventing new ones.

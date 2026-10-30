@@ -75,6 +75,9 @@ example), [build from source](#development).
 
 - Open a local repository, clone from GitLab/GitHub or a URL, create one with
   `git init` in a new folder or an existing unversioned folder.
+- Clone into an existing parent folder (for example `Dev`): BeeBranch previews
+  and creates a child folder named after the repository, without touching its
+  siblings. An already populated child destination is rejected by Git.
 - Multi-repository workspaces, tabs, isolated sessions, active tab restored.
 - Repository identity and **worktree-aware** sessions.
 
@@ -230,8 +233,12 @@ npm run tauri icon assets/beebranch.svg
 ## Contributing and security
 
 Contributions are accepted **exclusively through merge requests** (GitHub pull
-requests): `main` is protected and direct pushes are not allowed. Every commit
-must carry a `Signed-off-by` trailer (DCO 1.1) and CI must pass.
+requests) targeting **`dev`**, the development branch. Work and validate locally;
+pushes to `dev` do not run CI or publish releases, but its code is public.
+PRs to `dev` and `main` run the contribution checks. `main` remains the stable
+default branch: maintainers promote `dev` to `main` when ready. A successful CI
+run after that merge triggers a release only for a version without an existing
+tag. Every commit must carry a `Signed-off-by` trailer (DCO 1.1).
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): environment, conventions, scope,
   verification and evidence requirements.

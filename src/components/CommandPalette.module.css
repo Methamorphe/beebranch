@@ -79,8 +79,13 @@
 }
 
 .reason {
+  max-width: 45%;
+  overflow: hidden;
   color: var(--warning);
   font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty {

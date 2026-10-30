@@ -9,6 +9,7 @@ import {
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
 import { formatNumber, useI18n } from '../i18n'
+import type { Favourite } from '../lib/favourites'
 import styles from './Home.module.css'
 
 type CloneInput = {
@@ -29,6 +30,10 @@ type Props = {
   onClone: (input: CloneInput) => Promise<void>
   onCreate?: () => void
   onPickDirectory?: (defaultPath?: string) => Promise<string | null>
+  favourites: Favourite[]
+  onOpenFavourite: (slot: number) => void
+  onToggleFavourite: (entry: Favourite) => void
+  onMoveFavourite: (path: string, direction: -1 | 1) => void
 }
 
 function projectUrl(
@@ -44,37 +49,24 @@ function projectUrl(
 function parentDirectory(path: string): string | null {
   const trimmed = path.replace(/[\\/]+$/, '')
   const index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  return index > 0 ? trimmed.slice(0, index) : null
+  return index >= 0 ? trimmed.slice(0, index + 1) : null
 }
 
 function repoNameFromUrl(url: string) {
-  const trimmed = url.trim().replace(/[\\/]+$/, '')
-  if (!trimmed) {
-    return ''
+  let path = url.trim()
+  if (path.includes('://')) {
+    try {
+      path = new URL(path).pathname
+    } catch {
+      return ''
+    }
+  } else if (!/^[a-z]:/i.test(path) && /^[^/\\:]+:/.test(path)) {
+    path = path.slice(path.indexOf(':') + 1)
   }
-  const path = trimmed.includes('://')
-    ? trimmed.replace(/^[a-z]+:\/\//i, '').replace(/^[^/]+\//, '')
-    : trimmed.includes('@') && trimmed.includes(':')
-      ? trimmed.slice(trimmed.indexOf(':') + 1)
-      : trimmed
   const segments = path.split(/[\\/]/).filter(Boolean)
   const last = segments[segments.length - 1] ?? ''
-  return last.endsWith('.git') ? last.slice(0, -4) : last
-}
-
-function suggestedDestination(
-  project: GitlabProject,
-  recent: RecentRepo[],
-): string | null {
-  const reference = recent[0]?.path
-  if (!reference) {
-    return null
-  }
-  const parent = reference.replace(/\/[^/]+\/?$/, '')
-  if (!parent || parent === reference) {
-    return null
-  }
-  return `${parent}/${project.pathWithNamespace.split('/').pop() ?? project.name}`
+  const name = last.endsWith('.git') ? last.slice(0, -4) : last
+  return name === '.' || name === '..' || name === '.git' ? '' : name
 }
 
 export function Home({
@@ -86,6 +78,10 @@ export function Home({
   onClone,
   onCreate,
   onPickDirectory,
+  favourites,
+  onOpenFavourite,
+  onToggleFavourite,
+  onMoveFavourite,
 }: Props) {
   const { t, plural } = useI18n()
   const [mode, setMode] = useState<'idle' | 'clone'>('idle')
@@ -104,12 +100,17 @@ export function Home({
   const [protocol, setProtocol] = useState<'ssh' | 'https'>('https')
   const [manual, setManual] = useState(false)
   const [url, setUrl] = useState('')
-  const [destination, setDestination] = useState('')
+  const [parent, setParent] = useState('')
   const [branch, setBranch] = useState('')
   const [depth, setDepth] = useState('')
   const [recurse, setRecurse] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const name = repoNameFromUrl(url)
+  const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
+  const destination = parent.trim() && name
+    ? `${parent.trim().replace(/[\\/]+$/, '')}${separator}${name}`
+    : ''
 
   // A new tab lands here ready to search: focus the recent-repos field, and
   // start from a clean query when the tab is opened again. The field only
@@ -204,10 +205,10 @@ export function Home({
     setUrl(projectUrl(project, protocol))
     setManual(false)
     setError(null)
-    if (!destination.trim()) {
-      const suggestion = suggestedDestination(project, recent)
+    if (!parent.trim() && recent[0]?.path) {
+      const suggestion = parentDirectory(recent[0].path)
       if (suggestion) {
-        setDestination(suggestion)
+        setParent(suggestion)
       }
     }
   }
@@ -216,29 +217,27 @@ export function Home({
     if (!onPickDirectory) {
       return
     }
-    setError(null)
-    const current = destination.trim()
+    const current = parent.trim()
     const start =
-      (current ? parentDirectory(current) : null) ??
+      (current || null) ??
       (recent[0]?.path ? parentDirectory(recent[0].path) ?? recent[0].path : undefined)
     try {
-      const parent = await onPickDirectory(start)
-      if (!parent) {
+      const picked = await onPickDirectory(start)
+      if (!picked) {
         return
       }
-      const name = selectedProject
-        ? (selectedProject.pathWithNamespace.split('/').pop() ?? selectedProject.name)
-        : repoNameFromUrl(url) || t('shell.home.defaultRepoName')
-      const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/'
-      setDestination(`${parent.replace(/[\\/]+$/, '')}${separator}${name}`)
+      setError(null)
+      setParent(picked)
     } catch (cause) {
       setError(errorMessage(cause))
     }
   }
 
+  const canSubmit = Boolean(url.trim() && destination) && (manual || selectedProject)
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!url.trim() || !destination.trim()) {
+    if (!canSubmit) {
       return
     }
     setBusy(true)
@@ -298,7 +297,7 @@ export function Home({
               setError(null)
               setSelectedProject(null)
               setUrl('')
-              setManual(!session?.connected)
+              setManual(!activeSession?.connected)
             }}
             aria-expanded={mode === 'clone'}
           >
@@ -352,9 +351,8 @@ export function Home({
                   checked={manual}
                   onChange={(event) => {
                     setManual(event.target.checked)
-                    if (event.target.checked) {
-                      setSelectedProject(null)
-                    }
+                    setSelectedProject(null)
+                    setUrl('')
                   }}
                 />
                 {t('shell.home.manualUrl')}
@@ -479,8 +477,8 @@ export function Home({
                 <div className={styles.pathRow}>
                   <input
                     id="clone-destination"
-                    value={destination}
-                    onChange={(event) => setDestination(event.target.value)}
+                    value={parent}
+                    onChange={(event) => setParent(event.target.value)}
                     placeholder={t('shell.home.destinationPlaceholder')}
                     spellCheck={false}
                     required
@@ -499,6 +497,11 @@ export function Home({
                 <span className={styles.hint}>
                   {t('shell.home.browseHint')}
                 </span>
+                {destination ? (
+                  <output className={styles.hint} htmlFor="clone-destination">
+                    {t('shell.home.destinationPreview', { path: destination })}
+                  </output>
+                ) : null}
               </div>
               <div className={styles.options}>
                 <label className={styles.field}>
@@ -539,7 +542,7 @@ export function Home({
               <button
                 type="submit"
                 className={styles.primary}
-                disabled={busy || !url.trim() || !destination.trim()}
+                disabled={busy || !canSubmit}
               >
                 {busy ? t('shell.home.cloning') : t('shell.home.clone')}
               </button>
@@ -555,6 +558,75 @@ export function Home({
           </form>
         ) : null}
       </section>
+
+      {favourites.length > 0 ? (
+        <section
+          className={styles.recent}
+          aria-label={t('shell.favourites.title')}
+        >
+          <div className={styles.sectionHeading}>
+            <h2>{t('shell.favourites.title')}</h2>
+            <span>{t('shell.favourites.hint')}</span>
+          </div>
+          <div className={styles.list}>
+            {favourites.map((favourite, slot) => (
+              <div key={favourite.path} className={styles.favouriteRow}>
+                <button
+                  type="button"
+                  className={styles.repo}
+                  onClick={() => onOpenFavourite(slot)}
+                  title={favourite.path}
+                >
+                  <span className={styles.repoIcon} aria-hidden="true">
+                    ★
+                  </span>
+                  <span className={styles.repoText}>
+                    <strong>{favourite.name}</strong>
+                    <span>{favourite.path}</span>
+                  </span>
+                  <kbd>{`⌘⌥${slot + 1}`}</kbd>
+                </button>
+                <span className={styles.favouriteActions}>
+                  <button
+                    type="button"
+                    aria-label={t('shell.favourites.moveUp', {
+                      name: favourite.name,
+                    })}
+                    disabled={slot === 0}
+                    onClick={() => onMoveFavourite(favourite.path, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('shell.favourites.moveDown', {
+                      name: favourite.name,
+                    })}
+                    disabled={slot === favourites.length - 1}
+                    onClick={() => onMoveFavourite(favourite.path, 1)}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('shell.favourites.remove', {
+                      name: favourite.name,
+                    })}
+                    onClick={() =>
+                      onToggleFavourite({
+                        path: favourite.path,
+                        name: favourite.name,
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className={styles.recent} aria-label={t('shell.home.recentRepos')}>
         <div className={styles.sectionHeading}>
@@ -593,26 +665,48 @@ export function Home({
         ) : null}
         {recent.length ? (
           <div className={styles.list}>
-            {filteredRecent.map((entry) => (
-              <button
-                key={entry.repoId}
-                type="button"
-                className={styles.repo}
-                onClick={() => onOpen(entry.path)}
-                title={entry.path}
-              >
-                <span className={styles.repoIcon} aria-hidden="true">
-                  ⑂
-                </span>
-                <span className={styles.repoText}>
-                  <strong>{entry.name ?? entry.path.split('/').pop()}</strong>
-                  <span>{entry.path}</span>
-                </span>
-                <span className={styles.arrow} aria-hidden="true">
-                  →
-                </span>
-              </button>
-            ))}
+            {filteredRecent.map((entry) => {
+              const name =
+                entry.name ?? entry.path.split(/[\\/]/).filter(Boolean).pop() ?? entry.path
+              const isFavourite = favourites.some(
+                (favourite) => favourite.path === entry.path,
+              )
+              return (
+                <div key={entry.repoId} className={styles.favouriteRow}>
+                  <button
+                    type="button"
+                    className={styles.repo}
+                    onClick={() => onOpen(entry.path)}
+                    title={entry.path}
+                  >
+                    <span className={styles.repoIcon} aria-hidden="true">
+                      ⑂
+                    </span>
+                    <span className={styles.repoText}>
+                      <strong>{name}</strong>
+                      <span>{entry.path}</span>
+                    </span>
+                    <span className={styles.arrow} aria-hidden="true">
+                      →
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.star}
+                    aria-pressed={isFavourite}
+                    aria-label={t(
+                      isFavourite
+                        ? 'shell.favourites.removeAria'
+                        : 'shell.favourites.addAria',
+                      { name },
+                    )}
+                    onClick={() => onToggleFavourite({ path: entry.path, name })}
+                  >
+                    {isFavourite ? '★' : '☆'}
+                  </button>
+                </div>
+              )
+            })}
             {filteredRecent.length === 0 ? (
               <p className={styles.searchEmpty} role="status">
                 {t('shell.home.noRecentMatch', { query: recentQuery.trim() })}

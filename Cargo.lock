@@ -270,7 +270,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "beebranch"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "beebranch-app",
  "serde_json",
@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-app"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "base64 0.22.1",
  "beebranch-core",
@@ -293,6 +293,7 @@ dependencies = [
  "minisign-verify",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-plugin-updater",
  "tempfile",
@@ -305,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-bench"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "beebranch-core",
  "beebranch-git",
@@ -317,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-core"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -327,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-git"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "beebranch-core",
  "libc",
@@ -341,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-github"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "beebranch-core",
  "reqwest 0.12.28",
@@ -356,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-gitlab"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "beebranch-core",
  "reqwest 0.12.28",
@@ -371,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-store"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "beebranch-core",
  "keyring",

@@ -7,7 +7,7 @@
 //! The preview performs no mutation and reports every blocking reason. A merge
 //! starts by stashing tracked changes (`git stash push`) so the checkout and
 //! the merge never refuse on a dirty worktree; the stash is popped as soon as
-//! the merge allows it, exactly like GitKraken's automatic stash. A rebase
+//! the merge allows it, exactly like the benchmark client's automatic stash. A rebase
 //! still refuses tracked changes. The start command also refuses another
 //! in-progress operation, a branch already checked out in another worktree, and
 //! identical endpoints.

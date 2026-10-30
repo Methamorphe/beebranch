@@ -1,26 +1,26 @@
 name: Bug
-description: Signaler un comportement incorrect ou une régression
+description: Report incorrect behavior or a regression
 title: "[bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Merci de vérifier qu'une issue ne traite pas déjà le problème.
-        N'incluez **jamais** de token, de clé privée ou de donnée personnelle.
-        Pour une vulnérabilité, n'ouvrez pas d'issue : voir SECURITY.md.
+        Please check that an issue does not already cover the problem.
+        **Never** include a token, a private key or personal data.
+        For a vulnerability, do not open an issue: see SECURITY.md.
   - type: input
     id: version
     attributes:
-      label: Version de BeeBranch
-      description: Visible dans Réglages, ou sortie de `beebranch --version`.
+      label: BeeBranch version
+      description: Visible in Settings, or in the output of `beebranch --version`.
       placeholder: "0.7.2"
     validations:
       required: true
   - type: dropdown
     id: platform
     attributes:
-      label: Plateforme
+      label: Platform
       options:
         - macOS (Apple Silicon)
         - macOS (Intel)
@@ -31,40 +31,40 @@ body:
   - type: input
     id: git-version
     attributes:
-      label: Version de Git
-      description: Sortie de `git --version`.
+      label: Git version
+      description: Output of `git --version`.
       placeholder: "git version 2.55.0"
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Étapes de reproduction
-      description: Le plus court chemin déterministe vers le problème.
+      label: Steps to reproduce
+      description: The shortest deterministic path to the problem.
       placeholder: |
-        1. Ouvrir un dépôt …
-        2. Cliquer sur …
-        3. Observer …
+        1. Open a repository …
+        2. Click on …
+        3. Observe …
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Comportement attendu
+      label: Expected behavior
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: Comportement observé
-      description: Sortie, message d'erreur ou capture. Redactez chemins personnels et secrets.
+      label: Observed behavior
+      description: Output, error message or screenshot. Redact personal paths and secrets.
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Journaux ou captures
-      description: Réglages → Journaux, ou `~/Library/Logs/BeeBranch` / `%LOCALAPPDATA%\\BeeBranch\\logs`.
+      label: Logs or screenshots
+      description: Settings → Logs, or `~/Library/Logs/BeeBranch` / `%LOCALAPPDATA%\\BeeBranch\\logs`.
       render: text
     validations:
       required: false
@@ -73,7 +73,7 @@ body:
     attributes:
       label: Confirmations
       options:
-        - label: J'ai vérifié que la dernière release reproduit encore le problème.
+        - label: I have checked that the latest release still reproduces the problem.
           required: true
-        - label: Ce rapport ne contient ni secret ni donnée personnelle.
+        - label: This report contains no secret and no personal data.
           required: true

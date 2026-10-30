@@ -23,6 +23,29 @@ fn checkout_inverse(fingerprint: &Fingerprint) -> ReversibleAction {
     }
 }
 
+fn checkout_stash_inverse(
+    before: &Fingerprint,
+    inverse: ReversibleAction,
+    redo: ReversibleAction,
+    stash: Option<&beebranch_git::stash::StashEntry>,
+) -> (ReversibleAction, Option<ReversibleAction>) {
+    match stash {
+        Some(stash) => (
+            sequence(vec![
+                inverse,
+                ReversibleAction::ApplyStash {
+                    selector: stash.selector.clone(),
+                    expected_sha: stash.sha.clone(),
+                    drop: true,
+                    expected_status_hash: Some(before.status_hash.clone()),
+                },
+            ]),
+            None,
+        ),
+        None => (inverse, Some(redo)),
+    }
+}
+
 fn sequence(mut actions: Vec<ReversibleAction>) -> ReversibleAction {
     if actions.len() == 1 {
         actions.remove(0)
@@ -418,23 +441,31 @@ pub async fn branch_checkout(
         UndoMeta {
             kind: "checkout",
             label: format!("checkout {label}"),
-            touched_refs: Vec::new(),
+            touched_refs: vec!["refs/stash".to_owned()],
             affected_files: Vec::new(),
         },
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
-            branches::checkout(
+            let stash = branches::checkout_stashed(
                 runner,
                 worktree,
                 request.name.as_deref(),
                 request.detached_at.as_deref(),
             )?;
             let label = format!("checkout {label}");
-            let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| UndoDraft {
-                kind: "checkout".to_owned(),
-                label,
-                undo: checkout_inverse(before),
-                redo: Some(checkout_inverse(after)),
+            let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
+                let (undo, redo) = checkout_stash_inverse(
+                    before,
+                    checkout_inverse(before),
+                    checkout_inverse(after),
+                    stash.as_ref(),
+                );
+                UndoDraft {
+                    kind: "checkout".to_owned(),
+                    label,
+                    undo,
+                    redo,
+                }
             });
             Ok((
                 (),
@@ -470,21 +501,22 @@ pub async fn branch_checkout_at(
         UndoMeta {
             kind: "branch.checkout-at",
             label: format!("checkout de {name} sur {start}"),
-            touched_refs: vec![reference.clone()],
+            touched_refs: vec![reference.clone(), "refs/stash".to_owned()],
             affected_files: Vec::new(),
         },
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
-            branches::checkout_reset(runner, worktree, &name, &start)?;
+            let stash = branches::checkout_reset_stashed(runner, worktree, &name, &start)?;
             let label = format!("checkout de {name} sur {start}");
             let reference = reference.clone();
             let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
                 let (undo, redo) = checkout_reset_inverse(&name, &reference, before, after);
+                let (undo, redo) = checkout_stash_inverse(before, undo, redo, stash.as_ref());
                 UndoDraft {
                     kind: "branch.checkout-at".to_owned(),
                     label,
                     undo,
-                    redo: Some(redo),
+                    redo,
                 }
             });
             Ok((
@@ -901,6 +933,52 @@ mod tests {
 
     fn read(dir: &Path, name: &str) -> String {
         std::fs::read_to_string(dir.join(name)).expect("read")
+    }
+
+    #[test]
+    fn undo_checkout_restores_staged_unstaged_and_untracked_work() {
+        for reset in [false, true] {
+            let dir = tempfile::tempdir().expect("dir");
+            let runner = GitRunner::detect().expect("git");
+            repository(dir.path(), &runner);
+            std::fs::write(dir.path().join("a.txt"), "staged\n").unwrap();
+            git(&runner, dir.path(), GitSubcommand::Add, &["a.txt"], &[]);
+            std::fs::write(dir.path().join("a.txt"), "unstaged\n").unwrap();
+            std::fs::write(dir.path().join("new.txt"), "new\n").unwrap();
+            let discovery = discover(&runner, dir.path()).unwrap();
+            let refs = vec![
+                "refs/stash".to_owned(),
+                "refs/heads/remote-feature".to_owned(),
+            ];
+            let before = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
+            let stash = if reset {
+                branches::checkout_reset_stashed(&runner, dir.path(), "remote-feature", "feature")
+            } else {
+                branches::checkout_stashed(&runner, dir.path(), Some("feature"), None)
+            }
+            .unwrap();
+            let after = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
+            let (inverse, redo) = if reset {
+                checkout_reset_inverse(
+                    "remote-feature",
+                    "refs/heads/remote-feature",
+                    &before,
+                    &after,
+                )
+            } else {
+                (checkout_inverse(&before), checkout_inverse(&after))
+            };
+            let (action, redo) = checkout_stash_inverse(&before, inverse, redo, stash.as_ref());
+            assert!(redo.is_none());
+            undo::apply(&runner, &discovery, &action, &mut |_| Ok(())).unwrap();
+            let restored = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
+            assert_eq!(restored.head_branch, before.head_branch);
+            assert_eq!(restored.status_hash, before.status_hash);
+            assert_eq!(restored.index_tree, before.index_tree);
+            assert_eq!(restored.refs, before.refs);
+            assert_eq!(read(dir.path(), "a.txt"), "unstaged\n");
+            assert_eq!(read(dir.path(), "new.txt"), "new\n");
+        }
     }
 
     #[test]

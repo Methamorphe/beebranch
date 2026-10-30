@@ -14,9 +14,25 @@ type Props = {
   generation: number
   initialPath?: string
   onShowCommit: (sha: string) => void
+  /** Opens the diff of the file at a revision. */
+  onShowDiff?: (path: string, revision: string) => void
 }
 
 type Tab = 'history' | 'blame'
+
+/**
+ * Stable colour per author: the same name always gets the same tone, whatever
+ * the order of the log. Six tones keep the palette readable and theme-aware.
+ */
+const AUTHOR_TONES = ['accent', 'info', 'good', 'warn', 'bad', ''] as const
+
+function authorTone(author: string): string {
+  let hash = 0
+  for (let index = 0; index < author.length; index += 1) {
+    hash = (hash * 31 + author.charCodeAt(index)) % 4096
+  }
+  return AUTHOR_TONES[hash % AUTHOR_TONES.length] ?? ''
+}
 
 const STATUS_TONE: Record<string, string> = {
   A: p2.chipGood,
@@ -31,10 +47,12 @@ export function FileHistoryPanel({
   generation,
   initialPath,
   onShowCommit,
+  onShowDiff,
 }: Props) {
   const { t, plural } = useI18n()
   const [paths, setPaths] = useState<string[]>([])
   const [path, setPath] = useState(initialPath ?? '')
+  const [revision, setRevision] = useState('')
   const [tab, setTab] = useState<Tab>('history')
   const [follow, setFollow] = useState(true)
   const [history, setHistory] = useState<FileHistory | null>(null)
@@ -87,6 +105,7 @@ export function FileHistoryPanel({
             path: nextPath.trim(),
             follow,
             maxEntries: 300,
+            revision: revision.trim() || undefined,
           }),
         )
       } else {
@@ -105,7 +124,7 @@ export function FileHistoryPanel({
     } finally {
       setBusy(false)
     }
-  }, [repoId, tab, follow, start, end, path])
+  }, [repoId, tab, follow, start, end, path, revision])
 
   useEffect(() => {
     if (path.trim()) {
@@ -173,14 +192,26 @@ export function FileHistoryPanel({
         </datalist>
 
         {tab === 'history' ? (
-          <label className={p2.checkbox}>
-            <input
-              type="checkbox"
-              checked={follow}
-              onChange={(event) => setFollow(event.target.checked)}
-            />
-            {t('diff.history.followRenames')}
-          </label>
+          <>
+            <label className={p2.fieldInline}>
+              <span className={p2.toolbarLabel}>{t('diff.history.revision')}</span>
+              <input
+                value={revision}
+                onChange={(event) => setRevision(event.target.value)}
+                placeholder="HEAD"
+                aria-label={t('diff.history.revisionAria')}
+                spellCheck={false}
+              />
+            </label>
+            <label className={p2.checkbox}>
+              <input
+                type="checkbox"
+                checked={follow}
+                onChange={(event) => setFollow(event.target.checked)}
+              />
+              {t('diff.history.followRenames')}
+            </label>
+          </>
         ) : (
           <>
             <label className={p2.fieldInline}>
@@ -212,6 +243,17 @@ export function FileHistoryPanel({
         >
           {busy ? t('diff.history.loading') : t('diff.history.load')}
         </button>
+        {onShowDiff ? (
+          <button
+            type="button"
+            className={p2.ghost}
+            disabled={!path.trim()}
+            title={t('diff.history.diffHint')}
+            onClick={() => onShowDiff(path.trim(), revision.trim() || 'HEAD')}
+          >
+            {t('diff.history.diff')}
+          </button>
+        ) : null}
       </div>
 
       {error ? (
@@ -310,6 +352,7 @@ export function FileHistoryPanel({
                     >
                       <span className={p2.mono}>{group.sha.slice(0, 8)}</span>
                       <span className={p2.entryMeta}>
+                        <span className={p2.dot} data-tone={authorTone(group.author) || undefined} />
                         <span>{group.author}</span>
                         <span>·</span>
                         <span>{formatDateTime(dateFromSeconds(group.time))}</span>

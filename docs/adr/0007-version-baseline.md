@@ -1,62 +1,62 @@
-# ADR-0007 — Socle de versions : React stable, Git 2.34+, GitLab maintenu
+# ADR-0007 — Version baseline: stable React, Git 2.34+, maintained GitLab
 
-- **Statut :** accepté
-- **Date :** 2026-10-27
-- **Décideurs :** équipe projet
+- **Status:** accepted
+- **Date:** 2026-10-27
+- **Decision makers:** project team
 
-## Contexte
+## Context
 
-La consigne initiale était de « prendre la version LTS ». Vérification faite :
+The initial instruction was to “use the LTS version”. After verification:
 
-- **React** n'a pas de canal LTS ; le canal Latest est le canal stable recommandé ([politique React](https://react.dev/community/versioning-policy)). Version stable : **19.3** au 2026-10-27.
-- **Git** n'a pas de canal LTS. La version dépend de la distribution. Dernière version : **2.56.0** (2026-09-28) ([git-scm](https://git-scm.com/)).
-- **GitLab** n'a pas de canal LTS. Sa politique officielle maintient uniquement les **trois dernières versions mensuelles** ; au 2026-10-27 : **19.5, 19.4, 19.3** ([maintenance](https://docs.gitlab.com/policy/maintenance/)).
+- **React** has no LTS channel; the Latest channel is the recommended stable channel ([React policy](https://react.dev/community/versioning-policy)). Stable version: **19.3** as of 2026-10-27.
+- **Git** has no LTS channel. The version depends on the distribution. Latest version: **2.56.0** (2026-09-28) ([git-scm](https://git-scm.com/)).
+- **GitLab** has no LTS channel. Its official policy maintains only the **three latest monthly versions**; as of 2026-10-27: **19.5, 19.4, 19.3** ([maintenance](https://docs.gitlab.com/policy/maintenance/)).
 
-Choisir « la dernière version » casserait les postes dont Git vient du système, et GitLab self-hosted est souvent en retard sur la dernière release.
+Choosing “the latest version” would break workstations whose Git comes from the system, and self-hosted GitLab often lags behind the latest release.
 
-## Décision
+## Decision
 
-| Composant | Référence | Détail |
+| Component | Reference | Detail |
 |---|---|---|
-| React | **19.3** | Canal Latest, version épinglée au scaffold |
-| TypeScript / Vite | Dernière stable | Versions exactes épinglées dans le lockfile |
-| Git | **Plancher 2.34**, cible **2.56.0** | 2.34 = version d'Ubuntu 22.04 LTS ; couvre les distributions LTS courantes. CI sur 2.34 et 2.56.0, feature detection entre les deux. |
-| GitLab | **19.3–19.5** au 2026-10-27 | Les trois dernières versions maintenues. Cible = latest stable. Tests sur trois versions, feature detection pour les instances plus anciennes. |
+| React | **19.3** | Latest channel, version pinned at scaffold time |
+| TypeScript / Vite | Latest stable | Exact versions pinned in the lockfile |
+| Git | **Floor 2.34**, target **2.56.0** | 2.34 = Ubuntu 22.04 LTS version; covers current LTS distributions. CI on 2.34 and 2.56.0, feature detection between the two. |
+| GitLab | **19.3–19.5** as of 2026-10-27 | The three latest maintained versions. Target = latest stable. Tests on three versions, feature detection for older instances. |
 
-Règles :
+Rules:
 
-- Aucune fonctionnalité ne dépend d'une version supérieure sans fallback ou message explicite.
-- La version détectée est affichée dans les diagnostics.
-- Une montée de plancher (Git ou GitLab) exige un ADR de révision et une campagne de tests.
+- No feature depends on a higher version without a fallback or explicit message.
+- The detected version is displayed in diagnostics.
+- Raising the floor (Git or GitLab) requires a revision ADR and a test campaign.
 
-## Alternatives considérées
+## Alternatives considered
 
-| Alternative | Avantages | Inconvénients | Pourquoi rejetée |
+| Alternative | Advantages | Disadvantages | Why rejected |
 |---|---|---|---|
-| Dernière Git 2.56 obligatoire | Fonctionnalités récentes | Casse les postes avec Git système | Incompatible avec un parc hétérogène |
-| Git 2.39 plancher | Correspond à Debian 12 / RHEL 9 | Exclut Ubuntu 22.04 LTS | Trop restrictif sans connaître le parc |
-| GitLab 19.5 uniquement | Tests simples | Ne reflète pas la réalité self-hosted | Trop fragile |
-| Attendre une « LTS » GitLab | — | Elle n'existe pas | Impossible |
+| Require latest Git 2.56 | Recent features | Breaks workstations with system Git | Incompatible with a heterogeneous fleet |
+| Git 2.39 floor | Matches Debian 12 / RHEL 9 | Excludes Ubuntu 22.04 LTS | Too restrictive without knowing the fleet |
+| GitLab 19.5 only | Simple tests | Does not reflect self-hosted reality | Too fragile |
+| Wait for a GitLab “LTS” | — | It does not exist | Impossible |
 
-## Conséquences
+## Consequences
 
-### Positives
+### Positive
 
-- Fonctionne sur les distributions LTS courantes.
-- Le client reste utilisable avec un GitLab légèrement en retard.
-- Le feature detection évite les suppositions de version.
+- Works on current LTS distributions.
+- The client remains usable with a slightly outdated GitLab.
+- Feature detection avoids version assumptions.
 
-### Négatives
+### Negative
 
-- Matrice de tests Git/GitLab plus large.
-- Certaines fonctionnalités récentes ne sont pas disponibles partout.
+- Larger Git/GitLab test matrix.
+- Some recent features are not available everywhere.
 
-### Risques
+### Risks
 
-- **Parc plus ancien que 2.34** : message bloquant, procédure de mise à jour documentée.
-- **GitLab plus ancien que 19.3** : fonctionnalités désactivées, pas d'échec global.
-- **Évolution de la politique GitLab** : revoir le plancher à chaque release majeure.
+- **Fleet older than 2.34**: blocking message, documented update procedure.
+- **GitLab older than 19.3**: disabled features, no overall failure.
+- **Changes to GitLab policy**: review the floor at each major release.
 
-## Critères de révision
+## Revision criteria
 
-Réexaminer si le parc minimum change, si GitLab modifie sa politique de maintenance, ou si une fonctionnalité critique exige une version plus récente.
+Revisit if the minimum fleet changes, if GitLab changes its maintenance policy, or if a critical feature requires a newer version.

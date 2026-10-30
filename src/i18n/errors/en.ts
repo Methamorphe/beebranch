@@ -74,6 +74,10 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
     message: 'The push is not a fast-forward.',
     remediation: 'Fetch, then merge or rebase before pushing.',
   },
+  'git.push_lease_stale': {
+    message: 'The remote changed during the push.',
+    remediation: 'Retry the push: the expected remote SHA is read right before every send.',
+  },
   'git.unresolved_conflicts': {
     message: 'Some conflicts are not resolved.',
     remediation: 'Resolve the conflicting files, stage them, then continue.',

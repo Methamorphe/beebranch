@@ -507,6 +507,42 @@
   .footer, .resolveHeader, .sideHeader { flex-wrap: wrap; }
 }
 
+/* Keep conflict editing and operation controls inside the history tool dock. */
+.conflictsScreen .threeColumns {
+  display: grid;
+  grid-template-columns: clamp(120px, 20%, 200px) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.conflictsScreen .fileList {
+  max-height: none;
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+}
+
+.conflictsScreen .conflictGrid {
+  flex: 1;
+  flex-shrink: 1;
+  min-height: 0;
+  grid-template-rows: minmax(60px, 1fr) minmax(150px, 1.2fr);
+}
+
+.conflictsScreen .footer,
+.conflictsScreen .resolveHeader {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.conflictsScreen .resolve textarea {
+  min-height: 40px;
+}
+
+.conflictsScreen .empty {
+  min-height: 0;
+}
+
 /* ── Screen scaffold ───────────────────────────────────────────────
    Secondary screens are full-bleed panes: one toolbar, one scrolling
    body, an optional inspector. No floating cards and no repeated page
@@ -1232,8 +1268,48 @@
   min-width: 0;
 }
 
+/* Bounded height: the viewer virtualises its rows instead of growing the pane. */
+.diffHost {
+  display: flex;
+  flex-direction: column;
+  height: min(70vh, 760px);
+  min-height: 420px;
+  margin: 8px 0;
+}
+
 .commentBlock {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* A repository section can be narrow even in a wide desktop window. */
+@container repository-tool (max-width: 420px) {
+  .screen { flex:none; overflow:visible; }
+  .screenBody { flex:none; flex-direction:column; overflow:visible; }
+  .screenMain, .screenMain[data-fill='true'] { flex:none; overflow:visible; }
+  .screenAside, .inbox { width:auto; min-width:0; max-width:100%; max-height:none; overflow:visible; border-left:0; border-right:0; }
+  .screenAside { padding:10px; border-top:1px solid var(--border); }
+  .detailPane { overflow:visible; }
+  .toolbar { gap:6px; padding:8px; align-items:flex-start; }
+  .toolbar > .spacer { display:none; }
+  .listHeader { flex-wrap:wrap; gap:6px; padding:8px; }
+  .listHeader > * { min-width:0; max-width:100%; overflow-wrap:anywhere; }
+  .fieldInline, .toolbar > .field, .grow { flex:1 1 100%; width:100%; min-width:0; }
+  .field input, .field select, .field textarea,
+  .fieldInline input, .fieldInline select { width:100%; min-width:0; max-width:100%; box-sizing:border-box; }
+  .formRow, .actionRow { grid-template-columns:minmax(0,1fr); }
+  /* A content-sized first track may eat all the free space and push the last
+     column (time, duration, chip) past the panel edge: the first track can
+     shrink to zero, the last one never goes below its min-content. */
+  .entry { grid-template-columns:minmax(0,auto) minmax(min-content,1fr); gap:6px; padding:8px; }
+  .entry > * { min-width:0; max-width:100%; }
+  .entryActions { grid-column:2; min-width:0; justify-content:flex-start; }
+  .entryMeta { flex-wrap:wrap; gap:4px; white-space:normal; }
+  .entryMeta > span, .entryStack .linkButton { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+  .hintBar, .asideHint, .alert, .empty p, .actionRowHint { overflow-wrap:anywhere; }
+  .segmented { display:flex; flex-wrap:wrap; max-width:100%; }
+  .chip { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+  .toolbar button, .entryActions button, .asideSection > button { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+  .actionRowControls { min-width:0; flex-wrap:wrap; justify-content:flex-start; }
 }

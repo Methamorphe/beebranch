@@ -81,6 +81,31 @@ const messages = {
   'settings.gitlab.configure': 'Configurer GitLab',
 
   'settings.shortcuts.title': 'Raccourcis clavier',
+  'settings.files.title': 'Fichiers et hooks',
+  'settings.files.encoding': 'Encodage de lecture',
+  'settings.files.encodingHint':
+    'Utilisé à l’ouverture d’un fichier ; l’écriture ne réencode jamais le fichier.',
+  'settings.files.encodingAria': 'Encodage de lecture des fichiers',
+  'settings.files.encoding.utf8': 'UTF-8',
+  'settings.files.encoding.utf16le': 'UTF-16 LE',
+  'settings.files.encoding.windows1252': 'Windows-1252',
+  'settings.files.encoding.guess': 'Détection automatique',
+  'settings.files.hooksPath': 'Chemin des hooks',
+  'settings.files.hooksPathHint':
+    'Remplace core.hooksPath pour les commits créés dans l’application ; vide = configuration du dépôt.',
+  'settings.files.hooksPathAria': 'Chemin personnalisé des hooks',
+  'settings.files.hooksPathSaved': 'Chemin des hooks enregistré.',
+  'settings.signing.title': 'Signature des commits',
+  'settings.signing.hint':
+    'S’applique aux commits créés dans l’application ; « hériter » suit la configuration Git du dépôt.',
+  'settings.signing.modeAria': 'Signer les commits',
+  'settings.signing.mode.inherit': 'hériter de Git',
+  'settings.signing.mode.always': 'toujours signer',
+  'settings.signing.mode.never': 'ne jamais signer',
+  'settings.signing.keyPlaceholder': 'clé de signature (id GPG ou clé SSH)',
+  'settings.signing.keyAria': 'Clé de signature',
+  'settings.signing.formatAria': 'Format de signature',
+  'settings.signing.saved': 'Signature enregistrée.',
   'settings.shortcuts.notice':
     'Format : Mod+Shift+F (Mod = ⌘ ou Ctrl). Escape ferme toujours les dialogues. Les doublons sont refusés explicitement. ⌘/Ctrl + « + » ou « - » ajuste le zoom de l’interface entre 50 % et 200 % par paliers de 10 %, ⌘/Ctrl + « 0 » le réinitialise.',
   'settings.shortcuts.global': 'Raccourci global de l’application',
@@ -88,6 +113,8 @@ const messages = {
   'settings.shortcuts.default': 'Défaut',
   'settings.shortcuts.invalid': 'Raccourci invalide pour « {label} ».',
   'settings.shortcuts.conflict': 'Conflit de raccourcis : {labels}.',
+  'settings.shortcuts.conflictOnLoad':
+    'Raccourcis enregistrés en conflit ; revenus à leur valeur par défaut : {actions}.',
   'settings.shortcuts.save': 'Enregistrer les raccourcis',
   'settings.shortcuts.saved': 'Raccourcis enregistrés.',
 

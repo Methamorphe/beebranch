@@ -442,6 +442,9 @@ pub async fn github_pr_create(
         body: input.description,
         draft: input.draft,
         maintainer_can_modify: input.allow_collaboration,
+        reviewers: input.reviewers,
+        assignees: input.assignees,
+        labels: input.labels,
     };
     client
         .create_pull_request(&repo, &payload)

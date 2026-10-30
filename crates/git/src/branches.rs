@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::process::{CommandSpec, GitRunner};
 use crate::refs::read_refs;
+use crate::stash::{self, StashEntry};
 use crate::status::read_status;
 use crate::GitSubcommand;
 
@@ -118,6 +119,91 @@ pub fn checkout(
     }
     runner.run(&spec)?.ensure_success()?;
     Ok(())
+}
+
+/// Switch while leaving local work in a named stash. Unlike an integration
+/// autostash, it is kept for the user to reapply later.
+pub fn checkout_stashed(
+    runner: &GitRunner,
+    worktree: &Path,
+    name: Option<&str>,
+    detached_at: Option<&str>,
+) -> Result<Option<StashEntry>, AppError> {
+    let status = read_status(runner, worktree, Some(0))?;
+    if name.is_some() && name == status.branch.head.as_deref() && detached_at.is_none() {
+        checkout(runner, worktree, name, detached_at)?;
+        return Ok(None);
+    }
+    with_checkout_stash(
+        runner,
+        worktree,
+        name.or(detached_at).unwrap_or("HEAD"),
+        || checkout(runner, worktree, name, detached_at),
+    )
+}
+
+/// Also used when checking out a remote branch creates or moves a local branch.
+pub fn checkout_reset_stashed(
+    runner: &GitRunner,
+    worktree: &Path,
+    name: &str,
+    start: &str,
+) -> Result<Option<StashEntry>, AppError> {
+    with_checkout_stash(runner, worktree, name, || {
+        checkout_reset(runner, worktree, name, start)
+    })
+}
+
+fn with_checkout_stash(
+    runner: &GitRunner,
+    worktree: &Path,
+    target: &str,
+    switch: impl FnOnce() -> Result<(), AppError>,
+) -> Result<Option<StashEntry>, AppError> {
+    let discovery = crate::discover::discover(runner, worktree)?;
+    let detected = crate::state::detect(runner, &discovery, Some(0))?;
+    if detected.state.operation.is_some() || detected.status.counts.conflicted > 0 {
+        return Err(AppError::new(
+            "git.unresolved_conflicts",
+            ErrorCategory::GitState,
+            "Terminez l'opération Git en cours avant de changer de branche.",
+        ));
+    }
+    let status = detected.status;
+    let stashed = if status.counts.is_dirty() {
+        let source = status.branch.head.as_deref().unwrap_or("HEAD");
+        let message = format!("BeeBranch auto-stash (checkout {source} → {target})");
+        let previous = stash::list(runner, worktree)?
+            .first()
+            .map(|entry| entry.sha.clone());
+        stash::create(runner, worktree, &message, true)?;
+        let entry = stash::list(runner, worktree)?
+            .into_iter()
+            .next()
+            .filter(|entry| Some(&entry.sha) != previous.as_ref())
+            .ok_or_else(|| AppError::internal("le stash automatique n'a pas été créé"))?;
+        Some(entry)
+    } else {
+        None
+    };
+    if let Err(error) = switch() {
+        let Some(entry) = stashed else {
+            return Err(error);
+        };
+        let restored = stash::pop_indexed(runner, worktree, &entry.selector)
+            .is_ok_and(|outcome| outcome.conflicts.is_empty());
+        let note = if restored {
+            "Les modifications locales ont été restaurées.".to_owned()
+        } else {
+            format!(
+                "Les modifications sont conservées dans {} ({}).",
+                entry.selector, entry.sha
+            )
+        };
+        let detail = error.detail.clone().unwrap_or_default();
+        return Err(error.with_detail(format!("{detail}\n{note}")));
+    }
+    Ok(stashed)
 }
 
 /// Check out `name`, resetting it to `start` when it already exists.

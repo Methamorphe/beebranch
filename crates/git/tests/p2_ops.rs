@@ -3,6 +3,7 @@ mod common;
 use std::path::Path;
 
 use beebranch_git::blame;
+use beebranch_git::commit;
 use beebranch_git::conflict;
 use beebranch_git::history::{self, MergeFastForward, RebaseAction, RebaseStep};
 use beebranch_git::patch::{self, PatchSource};
@@ -76,6 +77,7 @@ fn worktrees_are_listed_locked_and_removed() {
         fixture.path(),
         &target.display().to_string(),
         false,
+        false,
     )
     .expect("remove");
     assert_eq!(after.entries.len(), 1);
@@ -101,6 +103,7 @@ fn removing_a_dirty_worktree_requires_force() {
         fixture.path(),
         &target.display().to_string(),
         false,
+        false,
     )
     .expect_err("dirty worktree");
     assert!(error.code.starts_with("git."), "{}", error.code);
@@ -109,8 +112,80 @@ fn removing_a_dirty_worktree_requires_force() {
         fixture.path(),
         &target.display().to_string(),
         true,
+        false,
     )
     .expect("forced remove");
+}
+
+#[test]
+fn worktree_remove_can_delete_the_branch_and_repair_is_idempotent() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "a\n", "base");
+    fixture.run(GitSubcommand::Branch, &["feature"], &[]);
+    let target = fixture.path().join("wt-feature");
+    worktree::add(
+        fixture.runner(),
+        fixture.path(),
+        &target.display().to_string(),
+        "feature",
+        None,
+        false,
+    )
+    .expect("add");
+
+    let repaired = worktree::repair(fixture.runner(), fixture.path(), None).expect("repair");
+    assert_eq!(repaired.entries.len(), 2);
+
+    let after = worktree::remove(
+        fixture.runner(),
+        fixture.path(),
+        &target.display().to_string(),
+        false,
+        true,
+    )
+    .expect("remove with branch");
+    assert_eq!(after.entries.len(), 1);
+    let branches = fixture
+        .runner()
+        .run(&CommandSpec::new(GitSubcommand::Branch, fixture.path()).arg("--list"))
+        .expect("branch list");
+    assert!(!branches.stdout.text_lossy().contains("feature"));
+}
+
+#[test]
+fn worktree_prune_reports_the_entries_it_removes() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "a\n", "base");
+    fixture.run(GitSubcommand::Branch, &["gone"], &[]);
+    let target = fixture.path().join("wt-gone");
+    worktree::add(
+        fixture.runner(),
+        fixture.path(),
+        &target.display().to_string(),
+        "gone",
+        None,
+        false,
+    )
+    .expect("add");
+    std::fs::remove_dir_all(&target).expect("delete worktree directory");
+
+    let dry =
+        worktree::prune(fixture.runner(), fixture.path(), true, Some("now")).expect("dry run");
+    assert!(dry.dry_run);
+    assert!(
+        !dry.removed.is_empty(),
+        "the dry run must announce the pruned entry"
+    );
+    assert_eq!(dry.report.entries.len(), 2, "a dry run removes nothing");
+
+    let real =
+        worktree::prune(fixture.runner(), fixture.path(), false, Some("now")).expect("prune");
+    assert!(!real.removed.is_empty());
+    assert_eq!(real.report.entries.len(), 1, "the metadata is gone");
+
+    let invalid = worktree::prune(fixture.runner(), fixture.path(), true, Some("--force"))
+        .expect_err("invalid expiry");
+    assert_eq!(invalid.code, "input.invalid");
 }
 
 #[test]
@@ -357,6 +432,7 @@ fn submodule_status_and_update_are_bounded() {
         &child.path().display().to_string(),
         "vendor/lib",
         None,
+        false,
     )
     .expect("submodule add");
     assert!(report
@@ -706,4 +782,378 @@ fn clones_a_local_repository_into_a_new_directory() {
     )
     .expect_err("destination exists");
     assert_eq!(error.code, "clone.destination_exists");
+}
+
+#[test]
+fn rebase_messages_outlive_a_pause() {
+    let (fixture, shas, upstream) = linear_fixture();
+    let plan = vec![
+        RebaseStep {
+            sha: shas[0].clone(),
+            action: RebaseAction::Edit,
+            message: None,
+        },
+        RebaseStep {
+            sha: shas[1].clone(),
+            action: RebaseAction::Pick,
+            message: None,
+        },
+        RebaseStep {
+            sha: shas[2].clone(),
+            action: RebaseAction::Reword,
+            message: Some("three reworded".into()),
+        },
+    ];
+    let paused = history::rebase_interactive(fixture.runner(), fixture.path(), &upstream, &plan)
+        .expect("start rebase");
+    assert!(paused.state.operation.is_some(), "an edit stop must pause");
+
+    let todo = std::fs::read_to_string(
+        fixture
+            .path()
+            .join(".git")
+            .join("rebase-merge")
+            .join("git-rebase-todo"),
+    )
+    .expect("todo");
+    let message_file = todo
+        .lines()
+        .find(|line| line.starts_with("exec "))
+        .and_then(|line| line.split(" -F '").nth(1))
+        .and_then(|rest| rest.split('\'').next())
+        .expect("exec line referencing a message file");
+    assert!(
+        std::path::Path::new(message_file).exists(),
+        "message file {message_file} must survive the pause"
+    );
+
+    let resumed = history::continue_operation(fixture.runner(), fixture.path()).expect("continue");
+    assert!(resumed.state.operation.is_none(), "rebase must finish");
+    assert!(subjects(&fixture).contains(&"three reworded".to_owned()));
+    assert!(
+        !fixture
+            .path()
+            .join(".git")
+            .join("beebranch-rebase")
+            .exists(),
+        "message files are removed once the rebase ends"
+    );
+}
+
+#[test]
+fn pull_rebase_merges_keeps_merges() {
+    let fixture = Fixture::new();
+    fixture.config(&["pull.rebase", "merges"]);
+    let strategy = beebranch_git::sync::resolve_pull_strategy(
+        fixture.runner(),
+        fixture.path(),
+        "main",
+        beebranch_git::sync::PullStrategy::Auto,
+    )
+    .expect("resolve strategy");
+    assert_eq!(strategy, beebranch_git::sync::PullStrategy::RebaseMerges);
+}
+
+#[test]
+fn remote_urls_with_a_user_are_accepted_and_secrets_are_masked() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "a\n", "base");
+    for (name, url) in [
+        ("sshurl", "ssh://git@example.test/team/repo.git"),
+        ("httpsuser", "https://user@example.test/team/repo.git"),
+        ("scp", "git@example.test:team/repo.git"),
+    ] {
+        refs_admin::add_remote(fixture.runner(), fixture.path(), name, url)
+            .unwrap_or_else(|error| panic!("{url} must be accepted: {}", error.message));
+    }
+    let refused = refs_admin::add_remote(
+        fixture.runner(),
+        fixture.path(),
+        "secret",
+        "https://user:pass@example.test/repo.git",
+    )
+    .expect_err("password refused");
+    assert_eq!(refused.code, "remote.url_has_credentials");
+
+    fixture.run(
+        GitSubcommand::Remote,
+        &["add", "legacy", "https://user:pass@example.test/repo.git"],
+        &[],
+    );
+    let remotes = refs_admin::list_remotes(fixture.runner(), fixture.path()).expect("remotes");
+    let legacy = remotes
+        .iter()
+        .find(|remote| remote.name == "legacy")
+        .expect("legacy remote");
+    let url = legacy.fetch_url.clone().expect("fetch url");
+    assert!(url.contains(":***@"), "{url}");
+    assert!(!url.contains("pass"), "{url}");
+}
+
+#[test]
+fn three_way_patch_reports_the_index_side_effect() {
+    let fixture = Fixture::new();
+    fixture.commit("file.txt", "one\n", "base");
+    fixture.write("file.txt", "one\ntwo\n");
+    let report = patch::create(
+        fixture.runner(),
+        fixture.path(),
+        &PatchSource::Worktree {
+            paths: vec!["file.txt".into()],
+        },
+    )
+    .expect("create patch");
+    fixture.run(
+        GitSubcommand::Restore,
+        &["--worktree", "--", "file.txt"],
+        &[],
+    );
+    let applied = patch::apply(fixture.runner(), fixture.path(), &report.text, true, false)
+        .expect("apply patch");
+    assert!(applied.staged, "a 3-way apply always stages the change");
+    let staged = fixture
+        .runner()
+        .run(
+            &CommandSpec::new(GitSubcommand::Diff, fixture.path())
+                .arg("--cached")
+                .arg("--name-only"),
+        )
+        .expect("diff --cached");
+    assert!(staged.stdout.text_lossy().contains("file.txt"));
+}
+
+#[test]
+fn detached_worktree_rejects_a_new_branch() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "a\n", "base");
+    let target = fixture.path().join("wt-detached");
+    let error = worktree::add(
+        fixture.runner(),
+        fixture.path(),
+        &target.display().to_string(),
+        "HEAD",
+        Some("feature"),
+        true,
+    )
+    .expect_err("detached plus new branch");
+    assert_eq!(error.code, "worktree.detached_with_branch");
+    assert!(error.message.contains("détaché"), "{}", error.message);
+    assert!(!target.exists());
+}
+
+#[test]
+fn squash_combines_a_contiguous_selection_and_replays_descendants() {
+    let (fixture, shas, _upstream) = linear_fixture();
+    let outcome = history::squash(
+        fixture.runner(),
+        fixture.path(),
+        &[shas[1].clone(), shas[0].clone()],
+        None,
+    )
+    .expect("squash two commits");
+    assert!(outcome.state.operation.is_none());
+    assert_eq!(subjects(&fixture), vec!["base", "one", "three"]);
+
+    let message = fixture
+        .runner()
+        .run(
+            &CommandSpec::new(GitSubcommand::Show, fixture.path())
+                .arg("-s")
+                .arg("--format=%B")
+                .arg("HEAD~1"),
+        )
+        .expect("show squashed");
+    let text = message.stdout.text_lossy();
+    assert!(text.contains("one"), "{text}");
+    assert!(text.contains("two"), "{text}");
+    assert!(!text.contains("three"), "{text}");
+}
+
+#[test]
+fn squash_accepts_a_replacement_message() {
+    let (fixture, shas, _upstream) = linear_fixture();
+    history::squash(
+        fixture.runner(),
+        fixture.path(),
+        &[shas[0].clone(), shas[1].clone()],
+        Some("combined one and two"),
+    )
+    .expect("squash with message");
+    assert_eq!(
+        subjects(&fixture),
+        vec!["base", "combined one and two", "three"]
+    );
+}
+
+#[test]
+fn squash_refuses_merges_and_non_contiguous_ranges() {
+    let (fixture, shas, _upstream) = linear_fixture();
+    let error = history::squash(
+        fixture.runner(),
+        fixture.path(),
+        &[shas[0].clone(), shas[2].clone()],
+        None,
+    )
+    .expect_err("non-contiguous");
+    assert_eq!(error.code, "squash.invalid_selection");
+    assert_eq!(subjects(&fixture), vec!["base", "one", "two", "three"]);
+
+    let merged = Fixture::new();
+    merged.commit("shared.txt", "base\n", "base");
+    merged.run(GitSubcommand::Switch, &["-c", "side"], &[]);
+    let side = merged.commit("side.txt", "side\n", "side");
+    merged.switch("main");
+    merged.commit("main.txt", "main\n", "main");
+    history::merge(
+        merged.runner(),
+        merged.path(),
+        "side",
+        MergeFastForward::Auto,
+    )
+    .expect("merge");
+    let head = merged.rev_parse(&["HEAD"]);
+    let error = history::squash(merged.runner(), merged.path(), &[head, side], None)
+        .expect_err("merge commit");
+    assert_eq!(error.code, "squash.invalid_selection");
+}
+
+#[test]
+fn squash_preview_reports_the_combined_message() {
+    let (fixture, shas, upstream) = linear_fixture();
+    let preview =
+        history::squash_preview(fixture.runner(), fixture.path(), &shas[1..3]).expect("preview");
+    assert_eq!(preview.upstream, shas[0]);
+    assert_eq!(preview.commits.len(), 2);
+    assert_eq!(preview.commits[0].sha, shas[1]);
+    assert_eq!(preview.commits[1].sha, shas[2]);
+    assert!(preview.message.contains("two"));
+    assert!(preview.message.contains("three"));
+    assert!(!preview.message.contains("one"));
+    assert_ne!(preview.upstream, upstream);
+}
+
+#[test]
+fn tag_annotation_and_fast_forward_are_guarded() {
+    let fixture = Fixture::new();
+    let first = fixture.commit("a.txt", "a\n", "first");
+    refs_admin::create_tag(fixture.runner(), fixture.path(), "v0", None, None, false)
+        .expect("lightweight tag");
+
+    let annotated = refs_admin::annotate_tag(fixture.runner(), fixture.path(), "v0", "release")
+        .expect("annotate");
+    assert!(annotated.annotated);
+    assert_eq!(annotated.target_oid.as_deref(), Some(first.as_str()));
+    assert_eq!(annotated.message.as_deref(), Some("release"));
+
+    let second = fixture.commit("b.txt", "b\n", "second");
+    let moved =
+        refs_admin::move_tag(fixture.runner(), fixture.path(), "v0", "HEAD").expect("fast-forward");
+    assert_eq!(moved.target_oid.as_deref(), Some(second.as_str()));
+    assert!(moved.annotated, "the annotation is preserved");
+    assert_eq!(moved.message.as_deref(), Some("release"));
+
+    fixture.run(GitSubcommand::Switch, &["-c", "detour", &first], &[]);
+    fixture.commit("c.txt", "c\n", "detour");
+    let error = refs_admin::move_tag(fixture.runner(), fixture.path(), "v0", "HEAD")
+        .expect_err("not a descendant");
+    assert_eq!(error.code, "tag.not_fast_forward");
+
+    let empty = refs_admin::annotate_tag(fixture.runner(), fixture.path(), "v0", "   ")
+        .expect_err("empty message");
+    assert_eq!(empty.code, "input.invalid");
+}
+
+#[test]
+fn amend_is_allowed_only_at_a_rebase_edit_stop() {
+    let (fixture, shas, upstream) = linear_fixture();
+    let plan = vec![
+        RebaseStep {
+            sha: shas[0].clone(),
+            action: RebaseAction::Edit,
+            message: None,
+        },
+        RebaseStep {
+            sha: shas[1].clone(),
+            action: RebaseAction::Pick,
+            message: None,
+        },
+        RebaseStep {
+            sha: shas[2].clone(),
+            action: RebaseAction::Pick,
+            message: None,
+        },
+    ];
+    let paused = history::rebase_interactive(fixture.runner(), fixture.path(), &upstream, &plan)
+        .expect("start rebase");
+    assert!(paused.state.operation.is_some());
+
+    // A plain commit stays refused while the operation is in progress.
+    let refused = commit::create_streaming(
+        fixture.runner(),
+        fixture.path(),
+        &commit::CommitOptions {
+            message: "not allowed".into(),
+            amend: false,
+            keep_message: false,
+            allow_empty: false,
+            ..commit::CommitOptions::default()
+        },
+        |_| {},
+    )
+    .expect_err("commit during rebase");
+    assert_eq!(refused.code, "operation.in_progress");
+
+    // The `edit` stop is the one place Git expects `commit --amend`.
+    fixture.write("one.txt", "1 amended\n");
+    fixture.add_all();
+    let amended = commit::create_streaming(
+        fixture.runner(),
+        fixture.path(),
+        &commit::CommitOptions {
+            message: "one amended".into(),
+            amend: true,
+            keep_message: false,
+            allow_empty: false,
+            ..commit::CommitOptions::default()
+        },
+        |_| {},
+    )
+    .expect("amend at the edit stop");
+    assert!(!amended.sha.is_empty());
+
+    let resumed = history::continue_operation(fixture.runner(), fixture.path()).expect("continue");
+    assert!(resumed.state.operation.is_none());
+    assert!(subjects(&fixture).contains(&"one amended".to_owned()));
+}
+
+#[test]
+fn submodule_remove_drops_the_entry_and_its_worktree() {
+    let fixture = Fixture::new();
+    fixture.commit("root.txt", "root\n", "root");
+    let child = Fixture::new();
+    child.commit("lib.txt", "lib\n", "lib");
+    submodule::add(
+        fixture.runner(),
+        fixture.path(),
+        &child.path().display().to_string(),
+        "vendor/lib",
+        None,
+        false,
+    )
+    .expect("submodule add");
+    fixture.add_all();
+    fixture.commit_staged("add submodule");
+
+    let report = submodule::remove(fixture.runner(), fixture.path(), "vendor/lib").expect("remove");
+    assert!(report.entries.is_empty());
+    assert!(!fixture.path().join("vendor").join("lib").exists());
+    let staged = fixture
+        .runner()
+        .run(
+            &CommandSpec::new(GitSubcommand::Diff, fixture.path())
+                .arg("--cached")
+                .arg("--name-only"),
+        )
+        .expect("diff --cached");
+    assert!(staged.stdout.text_lossy().contains("vendor/lib"));
 }

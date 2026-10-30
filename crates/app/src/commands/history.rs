@@ -354,6 +354,58 @@ pub async fn history_rebase_interactive(
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SquashPreviewRequest {
+    pub repo_id: String,
+    pub shas: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn history_squash_preview(
+    state: State<'_, AppState>,
+    request: SquashPreviewRequest,
+) -> Result<history::SquashPreview, AppError> {
+    let session = state.session(&request.repo_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        history::squash_preview(session.runner(), session.worktree(), &request.shas)
+    })
+    .await
+    .map_err(crate::error::join_error)?
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SquashRequest {
+    pub repo_id: String,
+    pub shas: Vec<String>,
+    pub message: Option<String>,
+}
+
+#[tauri::command]
+pub async fn history_squash(
+    state: State<'_, AppState>,
+    request: SquashRequest,
+) -> Result<MutationResult<HistoryOutcome>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    let store = state.store.clone();
+    let count = request.shas.len();
+    let label = format!("squash de {count} commits");
+    run_undoable_mutation(
+        session,
+        store,
+        history_meta("history.squash", label.clone()),
+        move |runner, discovery| {
+            let worktree = discovery.worktree()?;
+            let outcome =
+                history::squash(runner, worktree, &request.shas, request.message.as_deref())?;
+            let builder = history_builder("history.squash", label, &outcome, RestoreMode::Hard);
+            Ok((outcome, history_areas(), builder))
+        },
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SequenceRequest {
     pub repo_id: String,
     pub shas: Vec<String>,

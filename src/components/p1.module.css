@@ -192,6 +192,29 @@ button:disabled {
   font-size: 12.5px;
 }
 
+.editor {
+  width: 100%;
+  min-height: 320px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.document {
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 .output {
   max-height: 240px;
   margin: 0;
@@ -373,3 +396,15 @@ button:disabled {
 .row > .field { flex: 1; }
 .row > .checkbox { flex: none; }
 @media (max-width: 700px) { .row > .field { flex-basis: 100%; } }
+
+@container repository-tool (max-width: 420px) {
+  .root { flex:none; gap:10px; padding:8px; overflow:visible; }
+  .columns { display:flex; flex-direction:column; gap:8px; }
+  .split { grid-template-columns:minmax(0,1fr); }
+  .card { padding:5px 0; border:0; background:transparent; box-shadow:none; }
+  .row > *, .item > * { min-width:0; max-width:100%; }
+  .field input, .field select, .field textarea { width:100%; box-sizing:border-box; }
+  .item { flex-wrap:wrap; padding:6px 0; }
+  .field, .checkbox, .notice, .card p { overflow-wrap:anywhere; }
+  .row button { max-width:100%; white-space:normal; }
+}

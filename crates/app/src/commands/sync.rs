@@ -1,6 +1,6 @@
 //! Fetch, pull and push with progress streaming and cancellation.
 
-use beebranch_core::{AppError, Confirmation, DestructiveAction};
+use beebranch_core::{AppError, Confirmation, DestructiveAction, ErrorCategory};
 use beebranch_git::session::InvalidationArea;
 use beebranch_git::sync::{self, PullStrategy, PushRequest, SyncKind, SyncOutcome};
 use serde::Deserialize;
@@ -93,6 +93,193 @@ pub struct CancelRequest {
     pub operation_id: String,
 }
 
+/// Preference enabling `git submodule update --init --recursive` after a
+/// successful fetch or pull. Stored as `"true"`/`"false"`.
+pub const SUBMODULE_AUTO_UPDATE: &str = "git.submodulesAutoUpdate";
+
+/// Refresh submodules after a sync, when the preference is enabled.
+///
+/// Errors are reported to the log only: the sync itself succeeded, and a
+/// failing submodule endpoint must not turn it into a failure.
+async fn refresh_submodules(
+    store: std::sync::Arc<beebranch_store::Store>,
+    session: std::sync::Arc<beebranch_git::session::RepoSession>,
+) {
+    let enabled = store
+        .preference(SUBMODULE_AUTO_UPDATE)
+        .ok()
+        .flatten()
+        .map(|value| value == "true")
+        .unwrap_or(false);
+    if !enabled {
+        return;
+    }
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let runner = session.runner().clone();
+        let worktree = session.worktree().to_path_buf();
+        let report = beebranch_git::submodule::list(&runner, &worktree)?;
+        if report.entries.is_empty() {
+            return Ok::<(), AppError>(());
+        }
+        beebranch_git::submodule::update(&runner, &worktree, true, true, false, None)?;
+        Ok(())
+    })
+    .await;
+    match outcome {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(code = %error.code, "submodule auto-update failed: {}", error.message)
+        }
+        Err(error) => tracing::warn!(%error, "submodule auto-update task failed"),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchAllRequest {
+    pub repo_id: String,
+}
+
+/// Fetch every remote of the repository, one after another.
+///
+/// A failing remote does not abort the others: each outcome is returned in
+/// order, and the first error is reported only after the last remote ran.
+#[tauri::command]
+pub async fn sync_fetch_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: FetchAllRequest,
+) -> Result<MutationResult<Vec<RemoteFetchOutcome>>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    let remotes = {
+        let runner = session.runner().clone();
+        let worktree = session.worktree().to_path_buf();
+        tauri::async_runtime::spawn_blocking(move || {
+            beebranch_git::refs_admin::list_remotes(&runner, &worktree)
+        })
+        .await
+        .map_err(crate::error::join_error)??
+    };
+    if remotes.is_empty() {
+        return Err(AppError::invalid_input(
+            "Ce dépôt n'a aucun remote à récupérer.".to_owned(),
+        ));
+    }
+    let mut outcomes = Vec::with_capacity(remotes.len());
+    for remote in remotes {
+        let result = fetch_remote(&app, &state, &session, &request.repo_id, &remote.name).await;
+        match result {
+            Ok(outcome) => outcomes.push(RemoteFetchOutcome {
+                remote: remote.name,
+                outcome: Some(outcome),
+                error: None,
+            }),
+            Err(error) => outcomes.push(RemoteFetchOutcome {
+                remote: remote.name,
+                outcome: None,
+                error: Some(FetchFailure {
+                    code: error.code.to_string(),
+                    message: error.message.clone(),
+                }),
+            }),
+        }
+    }
+    let failed = outcomes
+        .iter()
+        .filter(|entry| entry.error.is_some())
+        .count();
+    if failed == outcomes.len() {
+        return Err(AppError::new(
+            "sync.fetch_all_failed",
+            ErrorCategory::Network,
+            "Aucun remote n'a pu être récupéré.",
+        ));
+    }
+    if failed > 0 {
+        tracing::warn!(failed, total = outcomes.len(), "fetch all partially failed");
+    }
+    Ok(MutationResult {
+        data: outcomes,
+        generation: session.generation(),
+        state: session.state(),
+    })
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchFailure {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteFetchOutcome {
+    pub remote: String,
+    pub outcome: Option<SyncOutcome>,
+    pub error: Option<FetchFailure>,
+}
+
+/// Fetch one remote under its own operation id.
+async fn fetch_remote(
+    app: &AppHandle,
+    state: &AppState,
+    session: &std::sync::Arc<beebranch_git::session::RepoSession>,
+    repo_id: &str,
+    remote: &str,
+) -> Result<SyncOutcome, AppError> {
+    let runner = authenticated_runner(state, session.runner())?;
+    let operation_id = new_operation_id("fetch");
+    begin_operation(
+        state,
+        &operation_id,
+        "fetch",
+        repo_id,
+        &session.worktree().display().to_string(),
+    )?;
+    let operations = state.operations.clone();
+    let app_handle = app.clone();
+    let owned_id = operation_id.clone();
+    let owned_remote = remote.to_owned();
+    let owned_repo = repo_id.to_owned();
+    let result = run_mutation(session.clone(), {
+        let app = app_handle;
+        let repo_id = owned_repo.clone();
+        move |_, discovery| {
+            let runner = &runner;
+            let worktree = discovery.worktree()?;
+            let context = beebranch_git::OperationContext::new(&owned_id, "fetch");
+            let command = sync::spawn_fetch(
+                runner,
+                worktree,
+                &owned_remote,
+                &context,
+                operation_progress(&app, &owned_id, &repo_id),
+            )?;
+            if let Ok(mut flags) = operations.lock() {
+                flags.insert(owned_id.clone(), (repo_id.clone(), command.cancel_flag()));
+            }
+            emit_operation(
+                &app,
+                "op://started",
+                serde_json::json!({ "operationId": owned_id, "repoId": repo_id }),
+            );
+            let outcome = sync::finish(command, SyncKind::Fetch, || None);
+            if let Ok(mut flags) = operations.lock() {
+                flags.remove(&owned_id);
+            }
+            let outcome = outcome?;
+            Ok((outcome, InvalidationArea::ALL.to_vec()))
+        }
+    })
+    .await;
+    finish_operation(state, &operation_id, result.as_ref().err())?;
+    match result {
+        Ok(mutation) => Ok(mutation.data),
+        Err(error) => Err(error),
+    }
+}
+
 #[tauri::command]
 pub async fn sync_fetch(
     app: AppHandle,
@@ -146,6 +333,9 @@ pub async fn sync_fetch(
     })
     .await;
     finish_operation(&state, &operation_id, result.as_ref().err())?;
+    if result.is_ok() {
+        refresh_submodules(state.store.clone(), session.clone()).await;
+    }
     result
 }
 
@@ -157,6 +347,7 @@ pub async fn sync_pull(
 ) -> Result<MutationResult<SyncOutcome>, AppError> {
     let session = state.session(&request.repo_id)?;
     let runner = authenticated_runner(&state, session.runner())?;
+    let auto_session = session.clone();
     let operation_id = new_operation_id("pull");
     begin_operation(
         &state,
@@ -189,6 +380,11 @@ pub async fn sync_pull(
                     (request.repo_id.clone(), command.cancel_flag()),
                 );
             }
+            emit_operation(
+                &app,
+                "op://started",
+                serde_json::json!({ "operationId": operation_id, "repoId": request.repo_id }),
+            );
             let remote_check =
                 || sync::remote_branch_sha(runner, worktree, &request.remote, &request.branch);
             let outcome = sync::finish(command, SyncKind::Pull, remote_check);
@@ -205,6 +401,9 @@ pub async fn sync_pull(
     })
     .await;
     finish_operation(&state, &operation_id, result.as_ref().err())?;
+    if result.is_ok() {
+        refresh_submodules(state.store.clone(), auto_session).await;
+    }
     result
 }
 
@@ -324,6 +523,11 @@ pub async fn sync_push(
                     (request.repo_id.clone(), command.cancel_flag()),
                 );
             }
+            emit_operation(
+                &app,
+                "op://started",
+                serde_json::json!({ "operationId": operation_id, "repoId": request.repo_id }),
+            );
             let remote_check =
                 || sync::remote_branch_sha(runner, worktree, &request.remote, &request.branch);
             let outcome = sync::finish(command, SyncKind::Push, remote_check);

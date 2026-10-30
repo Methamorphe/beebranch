@@ -485,3 +485,55 @@
   flex: 0 1 240px;
 }
 
+
+.favouriteRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.favouriteRow > .repo {
+  flex: 1;
+  min-width: 0;
+}
+
+.favouriteActions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.favouriteActions button,
+.star {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.favouriteActions button:hover:not(:disabled),
+.star:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.favouriteActions button:focus-visible,
+.star:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.favouriteActions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.star[aria-pressed='true'] {
+  color: var(--accent);
+}

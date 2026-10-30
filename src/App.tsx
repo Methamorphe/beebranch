@@ -5,6 +5,7 @@ import { CommandPalette, type PaletteCommand } from './components/CommandPalette
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { Home } from './components/Home'
 import { InitRepoDialog } from './components/InitRepoDialog'
+import { PushRejectedDialog } from './components/PushRejectedDialog'
 import { RepoBar } from './components/RepoBar'
 import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
@@ -33,6 +34,7 @@ import {
   redoApply,
   stashList,
   syncFetch,
+  syncFetchAll,
   syncPull,
   syncPush,
   undoApply,
@@ -53,6 +55,14 @@ import {
 } from './lib/layout'
 import { applyBackground } from './lib/background'
 import {
+  moveFavourite,
+  parseFavourites,
+  serializeFavourites,
+  toggleFavourite,
+  type Favourite,
+} from './lib/favourites'
+import { isPushRejection, type PushRejection } from './lib/pushRejection'
+import {
   BACKGROUND_KEY,
   SPLASH_KEY,
   parseMediaSettings,
@@ -61,6 +71,7 @@ import {
 } from './lib/mediaSettings'
 import {
   DEFAULT_SHORTCUTS,
+  SHORTCUT_LABELS,
   displayShortcut,
   findConflicts,
   normalizeShortcut,
@@ -81,6 +92,7 @@ const DENSITY_KEY = 'ui.density'
 const LAYOUT_KEY = 'ui.layout'
 const ACTIVE_WORKSPACE_KEY = 'ui.activeWorkspace'
 const WORKSPACE_LAST_REPO_KEY = 'ui.workspaceLastRepo'
+const FAVOURITES_KEY = 'ui.favourites'
 
 type Theme = 'dark' | 'light' | 'system'
 type Density = 'compact' | 'comfortable'
@@ -105,6 +117,10 @@ export default function App() {
   const [repos, setRepos] = useState<RepoView[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [view, setView] = useState<ViewId>('graph')
+  const navigationGuard = useRef<(() => boolean) | null>(null)
+  const registerNavigationGuard = useCallback((guard: (() => boolean) | null) => {
+    navigationGuard.current = guard
+  }, [])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
@@ -120,6 +136,7 @@ export default function App() {
   const installingUpdateRef = useRef(false)
   const [worktreeRequest, setWorktreeRequest] = useState(0)
   const [branchRequest, setBranchRequest] = useState(0)
+  const [historyRequest, setHistoryRequest] = useState<Parameters<typeof Workbench>[0]['historyRequest']>(null)
   const [generation, setGeneration] = useState(0)
   const [diffRequest, setDiffRequest] = useState<Parameters<typeof Workbench>[0]['diffRequest']>(null)
   const [recent, setRecent] = useState<RecentRepo[]>([])
@@ -132,6 +149,8 @@ export default function App() {
   const [launcherFocus, setLauncherFocus] = useState(0)
   const [initDialogOpen, setInitDialogOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  /** Push target whose update Git refused, awaiting the user's decision. */
+  const [pushRejected, setPushRejected] = useState<PushRejection | null>(null)
   const [previousView, setPreviousView] = useState<ViewId>('graph')
   const pickingRepository = useRef(false)
   const [gitlabConnected, setGitlabConnected] = useState(false)
@@ -141,12 +160,17 @@ export default function App() {
   const [undoState, setUndoState] = useState<UndoStatus | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>('dark')
+  const [favourites, setFavourites] = useState<Favourite[]>([])
+  /** Guards the persist effect until the stored list has been read back. */
+  const [favouritesLoaded, setFavouritesLoaded] = useState(false)
   const [locale, setLocaleState] = useState<Locale>(detectLocale)
   // `App` renders outside the provider (it owns the switching state), so the
   // module-level language must be current before its own `t` calls run.
   setLocale(locale)
   const [density, setDensity] = useState<Density>('comfortable')
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(DEFAULT_SHORTCUTS)
+  /** Labels of the actions whose stored binding was reverted to its default. */
+  const [shortcutConflict, setShortcutConflict] = useState<string[]>([])
   const [layout, setLayout] = useState<LayoutPreferences>(defaultLayout)
   const [background, setBackground] = useState<MediaSettings | null>(null)
   // Decoded `data:` URL for the wallpaper; kept out of state serialization
@@ -248,6 +272,32 @@ export default function App() {
       setActiveWorkspaceId(null)
     }
   }, [workspacesLoaded, workspaces, activeWorkspaceId])
+
+  useEffect(() => {
+    let cancelled = false
+    void preferenceGet(FAVOURITES_KEY)
+      .then((raw) => {
+        if (!cancelled) {
+          setFavourites(parseFavourites(raw))
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) {
+          setFavouritesLoaded(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated || !favouritesLoaded) {
+      return
+    }
+    void preferenceSet(FAVOURITES_KEY, serializeFavourites(favourites))
+  }, [hydrated, favouritesLoaded, favourites])
 
   // Resizing fires continuously; persist once the drag settles.
   useEffect(() => {
@@ -356,9 +406,21 @@ export default function App() {
                 normalized[action] =
                   normalizeShortcut(merged[action] ?? '') ?? DEFAULT_SHORTCUTS[action]
               }
-              if (findConflicts(normalized).length === 0) {
-                setShortcuts(normalized)
+              // A duplicate binding makes one action unreachable: the conflicting
+              // actions fall back to their default instead of being dropped
+              // silently, and the interface reports them.
+              let resolved = normalized
+              const conflicting = findConflicts(normalized)
+              if (conflicting.length > 0) {
+                resolved = { ...normalized }
+                for (const action of conflicting) {
+                  resolved[action] = DEFAULT_SHORTCUTS[action]
+                }
+                setShortcutConflict(
+                  conflicting.map((action) => t(SHORTCUT_LABELS[action])),
+                )
               }
+              setShortcuts(resolved)
             }
           } catch {
             // Keep the defaults when the stored shortcut map is corrupt.
@@ -617,14 +679,77 @@ export default function App() {
         setDiffRequest(null)
         setView('graph')
         await reloadRecent()
+        return true
       } catch (cause) {
         setError(errorMessage(cause))
+        return false
       } finally {
         setBusy(false)
       }
     },
     [reloadRecent, upsert],
   )
+
+  /**
+   * Open a favourite by slot; a repository that disappeared keeps its slot and
+   * the failure names the slot instead of a generic open error.
+   */
+  const openFavourite = useCallback(
+    async (slot: number, favourite: Favourite) => {
+      const opened = await openRepo(favourite.path)
+      if (!opened) {
+        setError(
+          t('shell.favourites.unavailable', {
+            slot: slot + 1,
+            name: favourite.name,
+            path: favourite.path,
+          }),
+        )
+      }
+    },
+    [openRepo],
+  )
+
+  const rememberFavourite = useCallback((entry: Favourite) => {
+    setFavourites((current) => toggleFavourite(current, entry))
+  }, [])
+
+  const reorderFavourite = useCallback((path: string, direction: -1 | 1) => {
+    setFavourites((current) => moveFavourite(current, path, direction))
+  }, [])
+
+  // Ctrl/⌘+Alt+1…9 switches to the favourite in that slot. An empty slot or a
+  // missing repository is reported; nothing else is opened.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.altKey) {
+        return
+      }
+      const match = /^[1-9]$/.exec(event.key)
+      if (!match) {
+        return
+      }
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      event.preventDefault()
+      const slot = Number(match[1]) - 1
+      const favourite = favourites[slot]
+      if (!favourite) {
+        setError(t('shell.favourites.emptySlot', { slot: slot + 1 }))
+        return
+      }
+      void openFavourite(slot, favourite)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [favourites, openFavourite])
 
   /**
    * Replace the open tabs with the repositories of a workspace, in the order
@@ -745,15 +870,11 @@ export default function App() {
           }
         }
         await reloadRecent()
-        const keptNote =
-          kept.length > 0
-            ? ` ${plural('shell.workspace.kept.one', 'shell.workspace.kept.other', kept.length)}`
-            : ''
-        setNotice(
-          ordered.length > 0
-            ? plural('shell.workspace.opened.one', 'shell.workspace.opened.other', ordered.length, { name: target.name, note: keptNote })
-            : t('shell.workspace.empty', { name: target.name, note: keptNote }),
-        )
+        // The workspace selector and repository tabs already show success.
+        // Only report tabs that could not be closed because work is in progress.
+        if (kept.length > 0) {
+          setNotice(plural('shell.workspace.kept.one', 'shell.workspace.kept.other', kept.length))
+        }
         if (failures.length > 0) {
           setError(t('shell.workspace.unavailable', { list: failures.join(', ') }))
         }
@@ -976,12 +1097,14 @@ export default function App() {
   )
 
   const openDiff = (request: Parameters<typeof Workbench>[0]['diffRequest']) => {
+    if (view !== 'diff' && navigationGuard.current?.() === false) return
     if (view !== 'diff') setPreviousView(view)
     setDiffRequest(request)
     setView('diff')
   }
 
   const navigate = useCallback((target: ViewId) => {
+    if (navigationGuard.current?.() === false) return false
     setLauncherOpen(false)
     if (target === 'status' || target === 'commit') {
       setView('graph')
@@ -990,11 +1113,20 @@ export default function App() {
       setView(target)
     }
     setPaletteOpen(false)
+    return true
+  }, [])
+  const openHistoryAction = useCallback((kind: 'stash' | 'rebase' | 'conflicts') => {
+    if (navigationGuard.current?.() === false) return
+    setLauncherOpen(false)
+    setView('graph')
+    setHistoryRequest((current) => ({ kind, serial: (current?.serial ?? 0) + 1 }))
+    setPaletteOpen(false)
   }, [])
 
   // Branch creation happens in the commit graph itself; this request is
   // forwarded to the workbench so the inline ref editor opens on HEAD.
   const newBranch = useCallback(() => {
+    if (navigationGuard.current?.() === false) return
     setView('graph')
     setBranchRequest((value) => value + 1)
     setPaletteOpen(false)
@@ -1029,7 +1161,7 @@ export default function App() {
     void reloadRecent()
   }, [reloadRecent])
 
-  // The launcher behaves like a tab: Escape closes it, as in GitKraken.
+  // The launcher behaves like a tab: Escape closes it, as in the benchmark client.
   useEffect(() => {
     if (!launcherOpen) return
     const onKey = (event: KeyboardEvent) => {
@@ -1061,6 +1193,9 @@ export default function App() {
   }, [busy, recent, openRepo])
 
   const commands = useMemo<PaletteCommand[]>(() => {
+    // Commands acting on the history are ranked first while it is open, so the
+    // palette opens on what the current view can do.
+    const graphContext = Boolean(repoId)
     const items: PaletteCommand[] = navigationGroups.flatMap((group) =>
       group.items.filter((item) => item.id !== 'commit' && item.id !== 'diff').map((item) => ({
         id: `view-${item.id}`,
@@ -1099,7 +1234,8 @@ export default function App() {
         label: t('shell.palette.resolveConflicts'),
         group: t('shell.palette.group.actions'),
         available: Boolean(repoId),
-        run: () => navigate('conflicts'),
+        contextual: graphContext,
+        run: () => openHistoryAction('conflicts'),
       },
       {
         id: 'action-new-branch',
@@ -1107,6 +1243,7 @@ export default function App() {
         group: t('shell.palette.group.git'),
         shortcut: '⌘B',
         available: Boolean(repoId),
+        contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.repo'),
         run: newBranch,
       },
@@ -1115,7 +1252,8 @@ export default function App() {
         label: t('shell.palette.rebase'),
         group: t('shell.palette.group.actions'),
         available: Boolean(repoId),
-        run: () => navigate('rebase'),
+        contextual: graphContext,
+        run: () => openHistoryAction('rebase'),
       },
       {
         id: 'action-undo',
@@ -1123,6 +1261,7 @@ export default function App() {
         group: t('shell.palette.group.git'),
         shortcut: '⌘Z',
         available: Boolean(repoId && undoState?.undo),
+        contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.nothingToUndo'),
         run: () => void performUndo('undo'),
       },
@@ -1132,6 +1271,7 @@ export default function App() {
         group: t('shell.palette.group.git'),
         shortcut: '⌘⇧Z',
         available: Boolean(repoId && undoState?.redo),
+        contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.nothingToRedo'),
         run: () => void performUndo('redo'),
       },
@@ -1140,6 +1280,7 @@ export default function App() {
         label: t('shell.palette.fetch'),
         group: t('shell.palette.group.git'),
         available: Boolean(repoId),
+        contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.repo'),
         run: () => {
           if (repoId) {
@@ -1150,10 +1291,26 @@ export default function App() {
         },
       },
       {
+        id: 'action-fetch-all',
+        label: t('shell.palette.fetchAll'),
+        group: t('shell.palette.group.git'),
+        available: Boolean(repoId),
+        contextual: graphContext,
+        unavailableReason: t('shell.palette.unavailable.repo'),
+        run: () => {
+          if (repoId) {
+            void syncFetchAll(repoId)
+              .then(() => refresh())
+              .catch((cause) => setError(errorMessage(cause)))
+          }
+        },
+      },
+      {
         id: 'action-pull',
         label: t('shell.palette.pull'),
         group: t('shell.palette.group.git'),
         available: Boolean(repoId && repo?.state.head?.kind === 'branch' && repo.state.head.upstream),
+        contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.upstream'),
         run: () => {
           if (!repoId || repo?.state.head?.kind !== 'branch' || !repo.state.head.upstream) {
@@ -1170,15 +1327,23 @@ export default function App() {
         label: t('shell.palette.push'),
         group: t('shell.palette.group.git'),
         available: Boolean(repoId && repo?.state.head?.kind === 'branch' && repo.state.head.upstream),
+        contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.upstream'),
         run: () => {
           if (!repoId || repo?.state.head?.kind !== 'branch' || !repo.state.head.upstream) {
             return
           }
           const [remote, ...rest] = repo.state.head.upstream.split('/')
-          void syncPush({ repoId, remote, branch: rest.join('/') })
+          const branch = rest.join('/')
+          void syncPush({ repoId, remote, branch })
             .then(() => refresh())
-            .catch((cause) => setError(errorMessage(cause)))
+            .catch((cause) => {
+              if (isPushRejection(cause)) {
+                setPushRejected({ repoId, remote, branch })
+                return
+              }
+              setError(errorMessage(cause))
+            })
         },
       },
       {
@@ -1223,8 +1388,43 @@ export default function App() {
         run: () => void switchWorkspace(workspace.id),
       })
     }
+    favourites.forEach((favourite, slot) => {
+      items.push({
+        id: `favourite-${favourite.path}`,
+        label: t('shell.palette.favourite', {
+          name: favourite.name,
+          slot: slot + 1,
+        }),
+        group: t('shell.palette.group.favourites'),
+        shortcut: `⌘⌥${slot + 1}`,
+        run: () => void openFavourite(slot, favourite),
+      })
+    })
+    const activePath = repo?.repo.worktree ?? null
+    const activeName = repo?.repo.name ?? ''
+    const activeFavourite = activePath
+      ? favourites.some((favourite) => favourite.path === activePath)
+      : false
+    items.push({
+      id: 'action-favourite-toggle',
+      label: activeFavourite
+        ? t('shell.palette.favouriteRemove', {
+            name: activeName || t('shell.palette.favouriteFallback'),
+          })
+        : t('shell.palette.favouriteAdd', {
+            name: activeName || t('shell.palette.favouriteFallback'),
+          }),
+      group: t('shell.palette.group.favourites'),
+      available: Boolean(activePath),
+      unavailableReason: t('shell.palette.unavailable.repo'),
+      run: () => {
+        if (activePath) {
+          rememberFavourite({ path: activePath, name: activeName || activePath })
+        }
+      },
+    })
     return items
-  }, [navigate, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale])
+  }, [navigate, openHistoryAction, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
 
   useZoom()
 
@@ -1316,16 +1516,20 @@ export default function App() {
         onOpenDialog={openRepositoryDialog}
         onOpenPalette={() => setPaletteOpen(true)}
         onRefresh={() => void refresh()}
-        onNavigate={navigate}
+        onNavigate={(target) => {
+          if (target === 'stash' || target === 'rebase' || target === 'conflicts') openHistoryAction(target)
+          else navigate(target)
+        }}
         onNewBranch={newBranch}
         onError={setError}
+        onPushRejected={setPushRejected}
         undo={undoState?.undo ?? null}
         redo={undoState?.redo ?? null}
         onUndo={() => performUndo('undo')}
         onRedo={() => performUndo('redo')}
       />
-      <div className={styles.body}>
-        <Sidebar
+      <div className={styles.body} data-repository={Boolean(repo) && !showStart}>
+        {!repo || showStart ? <Sidebar
           active={view}
           repoName={repo?.repo.name ?? null}
           branch={branch}
@@ -1336,9 +1540,9 @@ export default function App() {
           githubConnected={githubConnected}
           version="0.4.0"
           onSelect={navigate}
-        />
+        /> : null}
         <main id="main-content" tabIndex={-1} className={styles.main} aria-busy={busy}>
-          <Resizer
+          {!repo || showStart ? <Resizer
             className={styles.sidebarResizer}
             label={t('shell.resizer.navigation')}
             side="right"
@@ -1347,8 +1551,8 @@ export default function App() {
             max={SIDEBAR_MAX}
             onChange={(sidebar) => changeLayout({ sidebar })}
             onReset={() => changeLayout({ sidebar: 210 })}
-          />
-          <div className={`${styles.viewbar} ${view === 'graph' && repo ? styles.compactViewbar : ''}`}>
+          /> : null}
+          <div className={`${styles.viewbar} ${repo && !showStart ? styles.compactViewbar : ''}`}>
             {view === 'diff' ? <button type="button" className={styles.back} onClick={() => navigate(previousView)}>{t('shell.viewbar.back')}</button> : null}
             <div className={styles.viewHeading}>
               <h1>{showStart ? t('shell.welcome') : t(VIEW_LABELS[view])}</h1>
@@ -1378,16 +1582,12 @@ export default function App() {
                   ? ` · ${plural('shell.operation.conflictFiles.one', 'shell.operation.conflictFiles.other', repo.state.conflicts.files.length)}`
                   : ''}
               </span>
-              <button type="button" onClick={() => navigate('conflicts')}>
+              <button type="button" onClick={() => openHistoryAction('conflicts')}>
                 {t('shell.operation.resolve')}
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  navigate(
-                    repo.state.operation?.kind === 'rebase' ? 'rebase' : 'conflicts',
-                  )
-                }
+                onClick={() => openHistoryAction('conflicts')}
               >
                 {t('shell.operation.manage')}
               </button>
@@ -1420,6 +1620,15 @@ export default function App() {
                 onClone={cloneRepo}
                 onCreate={openInitDialog}
                 onPickDirectory={pickCloneDirectory}
+                favourites={favourites}
+                onOpenFavourite={(slot) => {
+                  const favourite = favourites[slot]
+                  if (favourite) {
+                    void openFavourite(slot, favourite)
+                  }
+                }}
+                onToggleFavourite={rememberFavourite}
+                onMoveFavourite={reorderFavourite}
               />
             ) : (
               <Workbench
@@ -1429,12 +1638,14 @@ export default function App() {
                 view={view}
                 worktreeRequest={worktreeRequest}
                 branchRequest={branchRequest}
+                historyRequest={historyRequest}
                 diffRequest={diffRequest}
                 onOpenDiff={openDiff}
                 onOpenRepo={(path) => void openRepo(path)}
                 onMutated={() => void refresh()}
                 onUndo={() => performUndo('undo')}
                 onNavigate={navigate}
+                onRegisterNavigationGuard={registerNavigationGuard}
                 gitlabConnected={gitlabConnected}
                 githubConnected={githubConnected}
                 theme={theme}
@@ -1448,6 +1659,7 @@ export default function App() {
                 splashError={splashError}
                 onSplashChange={(next) => void changeSplash(next)}
                 shortcuts={shortcuts}
+                shortcutConflict={shortcutConflict}
                 onShortcutsChange={(next) => {
                   setShortcuts(next)
                   void preferenceSet(SHORTCUTS_KEY, JSON.stringify(next))
@@ -1457,6 +1669,7 @@ export default function App() {
                 activeWorkspaceId={activeWorkspaceId}
                 onActivateWorkspace={(workspaceId) => void switchWorkspace(workspaceId)}
                 onWorkspacesChanged={setWorkspaces}
+                onPushRejected={setPushRejected}
               />
             )}
           </div>
@@ -1482,6 +1695,11 @@ export default function App() {
         onCreate={initRepo}
         onPickParent={pickInitParent}
       /> : null}
+      <PushRejectedDialog
+        rejection={pushRejected}
+        onClose={() => setPushRejected(null)}
+        onDone={() => void refresh()}
+      />
       <CommandPalette
         open={paletteOpen}
         commands={commands}

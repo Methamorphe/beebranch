@@ -19,9 +19,9 @@ pub use client::{
 };
 pub use error::{GithubError, MAX_DETAIL_CHARS};
 pub use models::{
-    GithubApprovals, GithubDiffRefs, GithubDiscussion, GithubJob, GithubNote, GithubPipeline,
-    GithubPosition, GithubProject, GithubPullRequest, GithubUser, GithubUserRef, JobLog, Paged,
-    PullRequestMerge,
+    GithubApprovals, GithubDiffRefs, GithubDiscussion, GithubFilePatch, GithubJob, GithubJobStep,
+    GithubNote, GithubPipeline, GithubPosition, GithubProject, GithubPullRequest, GithubUser,
+    GithubUserRef, GithubWorkflowRun, JobLog, Paged, PullRequestMerge, PullUpdate,
 };
 pub use pipeline::normalize_status;
 pub use remote::{matches_project, normalize_remote, RemoteInfo};

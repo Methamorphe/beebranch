@@ -3,7 +3,7 @@
 use beebranch_core::{AppError, Confirmation, DestructiveAction, ErrorCategory};
 use beebranch_git::session::InvalidationArea;
 use beebranch_git::undo::{Fingerprint, ReversibleAction};
-use beebranch_git::worktree::{self, WorktreeReport};
+use beebranch_git::worktree::{self, WorktreePruneReport, WorktreeReport};
 use serde::Deserialize;
 use tauri::State;
 
@@ -109,6 +109,9 @@ pub struct WorktreeRemoveRequest {
     pub path: String,
     #[serde(default)]
     pub force: bool,
+    /// Also delete the branch that was checked out in the removed worktree.
+    #[serde(default)]
+    pub delete_branch: bool,
     pub confirmation: Confirmation,
 }
 
@@ -159,6 +162,7 @@ pub async fn worktree_remove(
     let store = state.store.clone();
     let path = request.path.clone();
     let force = request.force;
+    let delete_branch = request.delete_branch;
     run_undoable_mutation(
         session,
         store,
@@ -176,18 +180,26 @@ pub async fn worktree_remove(
                 .iter()
                 .find(|entry| entry.path == path)
                 .cloned();
-            let report = worktree::remove(runner, worktree, &path, force)?;
+            let report = worktree::remove(runner, worktree, &path, force, delete_branch)?;
             let label = format!("suppression du worktree {path}");
             let builder = Box::new(move |_before: &Fingerprint, _after: &Fingerprint| {
-                let (reference, detach) = match &entry {
+                // When the branch was deleted with the worktree, the undo must
+                // recreate it at the recorded head, not check out a missing ref.
+                let (reference, detach, new_branch) = match &entry {
+                    Some(entry) if delete_branch && entry.branch.is_some() => (
+                        entry.head.clone().unwrap_or_else(|| "HEAD".to_owned()),
+                        false,
+                        entry.branch.clone(),
+                    ),
                     Some(entry) => match &entry.branch {
-                        Some(branch) => (branch.clone(), false),
+                        Some(branch) => (branch.clone(), false, None),
                         None => (
                             entry.head.clone().unwrap_or_else(|| "HEAD".to_owned()),
                             true,
+                            None,
                         ),
                     },
-                    None => ("HEAD".to_owned(), true),
+                    None => ("HEAD".to_owned(), true, None),
                 };
                 UndoDraft {
                     kind: "worktree.remove".to_owned(),
@@ -195,7 +207,7 @@ pub async fn worktree_remove(
                     undo: ReversibleAction::AddWorktree {
                         path: path.clone(),
                         reference,
-                        new_branch: None,
+                        new_branch,
                         detach,
                     },
                     redo: Some(ReversibleAction::RemoveWorktree {
@@ -256,17 +268,46 @@ pub struct WorktreePruneRequest {
     pub repo_id: String,
     #[serde(default)]
     pub dry_run: bool,
+    /// Git duration such as `3.days.ago`; omitted keeps Git's own default.
+    pub expire: Option<String>,
 }
 
 #[tauri::command]
 pub async fn worktree_prune(
     state: State<'_, AppState>,
     request: WorktreePruneRequest,
+) -> Result<MutationResult<WorktreePruneReport>, AppError> {
+    let session = state.session(&request.repo_id)?;
+    run_mutation(session, move |runner, discovery| {
+        let worktree = discovery.worktree()?;
+        let report = worktree::prune(runner, worktree, request.dry_run, request.expire.as_deref())?;
+        let areas = if request.dry_run {
+            vec![InvalidationArea::Refs]
+        } else {
+            vec![InvalidationArea::Refs, InvalidationArea::State]
+        };
+        Ok((report, areas))
+    })
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeRepairRequest {
+    pub repo_id: String,
+    /// Optional worktree path; omitted repairs every registered worktree.
+    pub path: Option<String>,
+}
+
+#[tauri::command]
+pub async fn worktree_repair(
+    state: State<'_, AppState>,
+    request: WorktreeRepairRequest,
 ) -> Result<MutationResult<WorktreeReport>, AppError> {
     let session = state.session(&request.repo_id)?;
     run_mutation(session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
-        let report = worktree::prune(runner, worktree, request.dry_run)?;
+        let report = worktree::repair(runner, worktree, request.path.as_deref())?;
         Ok((report, vec![InvalidationArea::Refs]))
     })
     .await

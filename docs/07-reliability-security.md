@@ -1,194 +1,194 @@
-# 07 — Fiabilité et sécurité
+# 07 — Reliability and security
 
-## 1. Invariants de fiabilité
+## 1. Reliability invariants
 
-1. **Aucune opération destructive silencieuse.** Toute action qui peut supprimer du travail est confirmée avec ses conséquences exactes.
-2. **L'état réel du dépôt est toujours affiché.** Merge, rebase, cherry-pick, conflit, détaché, verrou : visible avant toute action.
-3. **Aucune écriture manuelle dans `.git`.** Uniquement via Git.
-4. **Aucune suppression de verrou automatique.** Un `index.lock` est signalé, jamais supprimé sans action explicite et vérification.
-5. **Aucune perte silencieuse de fichier non suivi.** L'application ne supprime jamais de fichier non suivi ; le discard ne concerne que le contenu suivi et est explicitement irréversible.
-6. **Toute opération partielle est visible et récupérable.** Pas de rollback silencieux.
-7. **La configuration Git de l'utilisateur est respectée** (hooks, LFS, signatures, autocrlf, pull.rebase, credential helpers).
-8. **Une fonctionnalité n'est pas terminée si son comportement réel n'est pas vérifié.**
+1. **No silent destructive operations.** Every action that can delete work is confirmed with its exact consequences.
+2. **The repository's actual status is always displayed.** Merge, rebase, cherry-pick, conflict, detached, lock: visible before any action.
+3. **No manual writes to `.git`.** Only through Git.
+4. **No automatic lock deletion.** An `index.lock` is reported, never deleted without explicit action and verification.
+5. **No silent loss of untracked files.** The application never deletes untracked files; discard only affects tracked content and is explicitly irreversible.
+6. **Every partial operation is visible and recoverable.** No silent rollback.
+7. **The user's Git configuration is respected** (hooks, LFS, signatures, autocrlf, pull.rebase, credential helpers).
+8. **A feature is not complete unless its actual behavior has been verified.**
 
-## 2. Préflight et confirmations
+## 2. Preflight and confirmations
 
-### Matrice des actions sensibles
+### Sensitive action matrix
 
-| Action | Préflight | Confirmation | Réversible |
+| Action | Preflight | Confirmation | Reversible |
 |---|---|---|---|
-| Discard fichier/hunk | fichier inchangé depuis l'affichage | oui, avec diff | **non** |
-| Reset --hard | worktree état, untracked | oui, texte explicite | **non** |
-| Suppression de branche | mergée ? courante ? upstream ? | oui ; forte si non mergée | oui (ref/SHA) |
-| Force push | upstream, SHA distant attendu | oui, nom de branche à saisir | **non** (action distincte) |
-| Suppression de worktree | modifications non commitées | oui | oui (Git refuse si sale) |
-| Stash drop | stash sélectionné | oui | **non** |
-| Suppression de tag | distant ? | oui | oui (objet) |
-| Abort de merge/rebase | résolutions en cours | oui, perte des résolutions | **non** |
-| Retrait de remote | refs associées | oui | oui (URL/refspec) |
-| Fermeture d'onglet avec opération en cours | opération active | oui | — |
+| Discard file/hunk | file unchanged since display | yes, with diff | **no** |
+| Reset --hard | worktree status, untracked | yes, explicit text | **no** |
+| Branch deletion | merged? current? upstream? | yes; strong if not merged | yes (ref/SHA) |
+| Force push | upstream, expected remote SHA | yes, branch name must be typed | **no** (separate action) |
+| Worktree deletion | uncommitted changes | yes | yes (Git refuses if dirty) |
+| Stash drop | selected stash | yes | **no** |
+| Tag deletion | remote? | yes | yes (object) |
+| Merge/rebase abort | resolutions in progress | yes, loss of resolutions | **no** |
+| Remote removal | associated refs | yes | yes (URL/refspec) |
+| Closing a tab with an operation in progress | active operation | yes | — |
 
-### Règles
+### Rules
 
-- Le préflight est exécuté **immédiatement avant** la commande, pas au moment de l'affichage.
-- Les confirmations décrivent l'effet réel : nombre de fichiers, branches, commits, remote concerné.
-- Aucun « Ne plus demander » pour les actions destructives.
-- Les actions irréversibles sont annoncées comme telles ; aucune sauvegarde applicative n'est créée.
-- Les actions réversibles par Git (commit, stage) ne demandent pas de confirmation.
-- Un `--force` n'est jamais ajouté implicitement pour faire passer une commande.
+- Preflight runs **immediately before** the command, not when displayed.
+- Confirmations describe the actual effect: number of files, branches, commits, affected remote.
+- No “Don't ask again” for destructive actions.
+- Irreversible actions are announced as such; no application backup is created.
+- Actions reversible through Git (commit, stage) do not require confirmation.
+- A `--force` is never added implicitly to make a command succeed.
 
-## 3. Concurrence et modifications externes
+## 3. Concurrency and external changes
 
-- Une seule file de mutations par dépôt.
-- Les lectures sont bloquées pendant une mutation destructive.
-- Avant chaque mutation : vérification de l'empreinte (HEAD, index, status, refs concernées).
-- Si un autre processus Git agit : `index.lock`/`HEAD.lock` → `repo.busy`, avec explication.
-- Le watcher détecte les changements externes et invalide les caches concernés.
-- Une réponse de lecture obsolète est ignorée grâce à la génération.
-- Aucun verrou applicatif ne remplace les verrous Git ; on ne crée pas de fichier de verrou dans `.git`.
+- A single mutation queue per repository.
+- Reads are blocked during a destructive mutation.
+- Before each mutation: fingerprint verification (HEAD, index, status, affected refs).
+- If another Git process is active: `index.lock`/`HEAD.lock` → `repo.busy`, with an explanation.
+- The watcher detects external changes and invalidates affected caches.
+- A stale read response is ignored using the generation.
+- No application lock replaces Git locks; no lock file is created in `.git`.
 
-### Course critique
+### Critical race
 
-Le préflight ne garantit pas l'absence de course avec un processus externe. La garantie finale est celle de Git (verrous, refus d'écrasement). Les erreurs correspondantes sont mappées et affichées ; l'état est revalidé.
+Preflight does not guarantee the absence of a race with an external process. The final guarantee comes from Git (locks, refusal to overwrite). The corresponding errors are mapped and displayed; the status is revalidated.
 
-## 4. Reprise après crash
+## 4. Crash recovery
 
-- Journal SQLite : `operation_id`, type, état (`queued`, `running`, `done`, `failed`, `cancelled`, `interrupted`), timestamps, étapes.
-- Au démarrage :
-  1. les opérations `running` deviennent `interrupted` ;
-  2. l'état du dépôt est recalculé ;
-  3. les verrous résiduels sont **signalés**, pas supprimés ;
-  4. un panneau de reprise propose les actions sûres (`abort`, `continue`, vérifier le remote).
-- Un travail non commité n'est jamais restauré automatiquement.
-- Aucune sauvegarde applicative n'est conservée ; la récupération repose sur l'état réel du dépôt et le reflog Git.
+- SQLite journal: `operation_id`, type, status (`queued`, `running`, `done`, `failed`, `cancelled`, `interrupted`), timestamps, steps.
+- At startup:
+  1. `running` operations become `interrupted`;
+  2. the repository's status is recalculated;
+  3. residual locks are **reported**, not deleted;
+  4. a recovery panel offers safe actions (`abort`, `continue`, check the remote).
+- Uncommitted work is never restored automatically.
+- No application backup is retained; recovery relies on the repository's actual status and the Git reflog.
 
-## 5. Expérience d'erreur
+## 5. Error experience
 
-- Message en français, une phrase d'action.
-- Cause technique disponible en détail.
-- Remédiation concrète (commande Git équivalente, réglage, lien).
-- Code stable pour l'UI et les tests.
-- Les erreurs réseau ne bloquent jamais l'onglet local.
-- Les sorties de hooks sont affichées, pas résumées à « failed ».
+- Message in French, one action-oriented sentence.
+- Technical cause available in the details.
+- Concrete remediation (equivalent Git command, setting, link).
+- Stable code for the UI and tests.
+- Network errors never block the local tab.
+- Hook output is displayed, not summarized as “failed”.
 
-## 6. Modèle de menace
+## 6. Threat model
 
-| Actif | Menace | Mesure |
+| Asset | Threat | Measure |
 |---|---|---|
-| Token GitLab | fuite via logs, URL, frontend, crash report | keychain en release, fichier 0600 en build de développement, redaction, jamais dans l'URL |
-| Working tree | perte par discard/reset/clean | confirmation explicite, préflight, aucune suppression de fichier non suivi |
-| Dépôt | corruption par écriture directe | uniquement Git |
-| Configuration locale | exécution de commandes via `.git/config` ou filtres | avertissement à l'ouverture, transparence |
-| Contenu GitLab | XSS via Markdown/HTML | rendu Markdown sanitisé, HTML brut interdit, images distantes bloquées par défaut |
-| Dépendances | compromission | versions épinglées, audit, surface minimale |
-| Réseau | MITM | TLS vérifié, CA explicite |
-| Binaire | mise à jour malveillante | signature, vérification |
+| GitLab token | leak through logs, URL, frontend, crash report | OS keychain in release, 0600 file in development build, redaction, never in the URL |
+| Working tree | loss through discard/reset/clean | explicit confirmation, preflight, no untracked file deletion |
+| Repository | corruption through direct writes | Git only |
+| Local configuration | command execution through `.git/config` or filters | warning on opening, transparency |
+| GitLab content | XSS through Markdown/HTML | sanitized Markdown rendering, raw HTML prohibited, remote images blocked by default |
+| Dependencies | compromise | pinned versions, audit, minimal surface |
+| Network | MITM | verified TLS, explicit CA |
+| Binary | malicious update | signing, verification |
 
-### Configuration de dépôt exécutable
+### Executable repository configuration
 
-Un dépôt peut contenir une configuration locale (`filter.*.clean/smudge`, `core.fsmonitor`, `core.sshCommand`, `credential.helper`) qui lance des commandes lors d'opérations Git. À l'ouverture :
+A repository may contain local configuration (`filter.*.clean/smudge`, `core.fsmonitor`, `core.sshCommand`, `credential.helper`) that launches commands during Git operations. On opening:
 
-- détecter les clés locales qui définissent une commande externe ;
-- afficher un avertissement listant les clés et les valeurs ;
-- ne pas exécuter de commande d'ouverture ;
-- laisser l'utilisateur continuer ou ouvrir en lecture seule ;
-- ne jamais modifier la configuration sans action explicite.
+- detect local keys that define an external command;
+- display a warning listing the keys and values;
+- do not execute an opening command;
+- let the user continue or open read-only;
+- never modify configuration without explicit action.
 
-Les hooks ne sont pas versionnés, mais peuvent exister localement. Leur sortie est toujours affichée.
+Hooks are not versioned, but may exist locally. Their output is always displayed.
 
-### Contenu distant
+### Remote content
 
-- Markdown rendu en éléments React : aucune balise HTML brute n'est injectée.
-- Images distantes bloquées par défaut (évite le tracking IP) ; activation explicite par instance ou par MR.
-- Liens ouverts dans le navigateur système, schémas `https` uniquement.
-- Aucune exécution de script dans la webview.
+- Markdown rendered as React elements: no raw HTML tags are injected.
+- Remote images blocked by default (prevents IP tracking); explicit activation per instance or MR.
+- Links opened in the system browser, `https` schemes only.
+- No script execution in the webview.
 
 ## 7. Secrets
 
-- PAT et secrets dans le keychain OS pour les builds release.
-- Builds de développement : `secrets-dev.json` (0600) dans le dossier de données.
-  macOS indexe l'ACL du keychain sur la signature du binaire ; chaque
-  recompilation d'un binaire non signé invalide « Toujours autoriser » et
-  provoque une demande de mot de passe à chaque lancement. Une migration
-  one-shot lit le token existant (au plus une dernière autorisation), le copie
-  dans le fichier puis ne relit plus le keychain. Le fichier de développement ne
-  doit jamais être utilisé en release.
-- API backend uniquement ; le frontend reçoit un booléen « connecté », jamais le token.
-- Redaction centralisée : `PRIVATE-TOKEN`, `Authorization`, `user:pass@`, paramètres `access_token`, `private_token`.
-- Les erreurs Git peuvent contenir des URLs avec credentials : redaction avant affichage/log.
-- Les crash reports et exports de diagnostic sont filtrés.
-- Rotation/suppression du token : action explicite dans les réglages.
+- PAT and secrets in the OS keychain for release builds.
+- Development builds: `secrets-dev.json` (0600) in the data directory.
+  macOS keys the OS keychain ACL to the binary's signature; each
+  recompilation of an unsigned binary invalidates “Always Allow” and
+  triggers a password prompt on every launch. A one-shot migration
+  reads the existing token (at most one final authorization), copies it
+  to the file, then never reads the OS keychain again. The development file
+  must never be used in release.
+- Backend API only; the frontend receives a “connected” boolean, never the token.
+- Centralized redaction: `PRIVATE-TOKEN`, `Authorization`, `user:pass@`, `access_token`, `private_token` parameters.
+- Git errors may contain URLs with credentials: redaction before display/logging.
+- Crash reports and diagnostic exports are filtered.
+- Token rotation/deletion: explicit action in settings.
 
-## 8. Exécution des commandes
+## 8. Command execution
 
-- Allowlist de sous-commandes et d'options.
-- Aucun `sh -c`, `cmd /c`, `powershell`.
-- Aucune interpolation de message, nom de branche ou chemin dans une chaîne de commande.
-- Les chemins sont passés en `OsString` et après `--` quand applicable.
-- Les options venant du frontend sont validées par type (enum), pas par chaîne libre.
-- Les commandes sont exécutées dans le répertoire du worktree, jamais dans un `cwd` arbitraire.
-- Les variables d'environnement permettant une injection de configuration sont filtrées.
+- Allowlist of subcommands and options.
+- No `sh -c`, `cmd /c`, `powershell`.
+- No interpolation of messages, branch names, or paths into a command string.
+- Paths are passed as `OsString` and after `--` where applicable.
+- Options from the frontend are validated by type (enum), not as free-form strings.
+- Commands run in the worktree directory, never in an arbitrary `cwd`.
+- Environment variables that allow configuration injection are filtered.
 
-## 9. TLS et réseau
+## 9. TLS and network
 
-- Vérification TLS active par défaut.
-- CA interne importable (PEM), stockée localement, associée à l'instance.
-- Aucun réglage « ignorer TLS » au MVP.
-- Proxy explicite ou variables standard, documenté.
-- Timeouts réseau et backoff ; pas de retry sur les mutations non idempotentes.
+- TLS verification enabled by default.
+- Importable internal CA (PEM), stored locally, associated with the instance.
+- No “ignore TLS” setting in the MVP.
+- Explicit proxy or standard variables, documented.
+- Network timeouts and backoff; no retries for non-idempotent mutations.
 
 ## 10. Webview
 
-- CSP restrictive : `default-src 'self'` ; pas de script distant ; pas de `unsafe-eval`.
-- Aucun contenu distant chargé dans la webview en dehors des images explicitement autorisées.
-- Isolation des commandes Tauri par capabilities minimales.
-- Désactivation des APIs non utilisées (fs, shell, http) côté frontend.
-- Liens externes via une allowlist de schémas.
+- Restrictive CSP: `default-src 'self'`; no remote scripts; no `unsafe-eval`.
+- No remote content loaded into the webview other than explicitly allowed images.
+- Tauri command isolation through minimal capabilities.
+- Unused APIs (fs, shell, http) disabled on the frontend.
+- External links through a scheme allowlist.
 
-## 11. Dépendances et chaîne de build
+## 11. Dependencies and build chain
 
-- Versions épinglées (`Cargo.lock`, lockfile frontend).
-- Audit régulier (`cargo audit`, audit npm).
-- Nombre de dépendances directes minimisé ; justifier chaque ajout.
-- Build reproductible autant que possible.
-- Binaires signés et notarisation macOS/Windows.
+- Pinned versions (`Cargo.lock`, frontend lockfile).
+- Regular audits (`cargo audit`, npm audit).
+- Minimized number of direct dependencies; justify every addition.
+- Reproducible build as far as possible.
+- Signed binaries and macOS/Windows notarization.
 
-## 12. Tests de fiabilité et de sécurité
+## 12. Reliability and security tests
 
-| Test | Attendu |
+| Test | Expected |
 |---|---|
-| Kill du processus pendant fetch | état signalé, dépôt récupérable, pas de verrou supprimé automatiquement |
-| Kill pendant commit | état recalculé, aucun fichier perdu |
-| Action irréversible | aucun undo proposé, confirmation explicite, aucune copie créée |
-| Disque plein | erreur actionnable, aucun fichier partiel laissé par l'application |
-| Permissions refusées | erreur actionnable, pas de retry infini |
-| `index.lock` présent | `repo.busy`, pas de suppression |
-| Hook en échec | sortie affichée, commit non créé |
-| Signature absente | erreur explicite, pas de contournement |
-| Token expiré | événement d'auth, vues en cache |
-| TLS auto-signé non importé | erreur TLS, pas de bypass |
-| Markdown malveillant | aucun script exécuté, aucun HTML brut |
-| Dépôt avec filtre local | avertissement, aucune exécution implicite |
-| Force push | confirmation par saisie, ancien SHA enregistré |
-| Export de diagnostics | aucun token, aucune URL avec credentials |
-| Plateformes | mêmes tests sur Windows/macOS/Linux |
+| Process kill during fetch | status reported, repository recoverable, no lock deleted automatically |
+| Kill during commit | status recalculated, no file lost |
+| Irreversible action | no undo offered, explicit confirmation, no copy created |
+| Disk full | actionable error, no partial file left by the application |
+| Permission denied | actionable error, no infinite retries |
+| `index.lock` present | `repo.busy`, no deletion |
+| Failing hook | output displayed, commit not created |
+| Missing signature | explicit error, no workaround |
+| Expired token | auth event, cached views |
+| Self-signed TLS not imported | TLS error, no bypass |
+| Malicious Markdown | no script executed, no raw HTML |
+| Repository with local filter | warning, no implicit execution |
+| Force push | typed confirmation, previous SHA recorded |
+| Diagnostic export | no token, no URL with credentials |
+| Platforms | same tests on Windows/macOS/Linux |
 
-Les tests de sécurité vérifient les artefacts (logs, exports, base SQLite), pas seulement l'UI.
+Security tests check artifacts (logs, exports, SQLite database), not just the UI.
 
-## P3 — Undo, distribution et absence de télémétrie
+## P3 — Undo, distribution, and no telemetry
 
-- **Undo** : journal SQLite `undo_records`, empreintes HEAD/index/status/refs/
-  fichiers, préconditions vérifiées avant toute mutation. Chaque étape est
-  journalisée avant exécution ; un crash marque `restoreInterrupted` et ne
-  rejoue rien. Aucune copie de worktree n'est créée.
-- **Mises à jour** : artefacts signés minisign. Le plugin Tauri vérifie la
-  signature avant installation ; une signature absente ou invalide retourne
-  `update.signature_invalid`. Le manifeste `latest.json` n'est jamais exécuté.
-  Le rollback utilise `rollback.json`, également signé, avec confirmation.
-- **Packaging** : macOS signé/notarisé (hardened runtime + entitlements),
-  Windows signé (Authenticode, timestamp), Linux `.deb`/`.rpm`/AppImage. La CI
-  de release vérifie la signature de chaque plateforme avant publication.
-- **Aucune télémétrie** : audit `scripts/audit-no-telemetry.mjs` sur les
-  sources ; seules les connexions GitLab (configurées par l'utilisateur), Git
-  (remotes) et le manifeste de mise à jour signé sont possibles. Aucun envoi
-  sans action utilisateur.
+- **Undo**: SQLite `undo_records` journal, HEAD/index/status/refs/
+  file fingerprints, preconditions checked before every mutation. Each step is
+  journaled before execution; a crash marks `restoreInterrupted` and does not
+  replay anything. No worktree copy is created.
+- **Updates**: minisign-signed artifacts. The Tauri plugin verifies the
+  signature before installation; a missing or invalid signature returns
+  `update.signature_invalid`. The `latest.json` manifest is never executed.
+  Rollback uses `rollback.json`, also signed, with confirmation.
+- **Packaging**: macOS signed/notarized (hardened runtime + entitlements),
+  Windows signed (Authenticode, timestamp), Linux `.deb`/`.rpm`/AppImage. Release
+  CI verifies each platform's signature before publication.
+- **No telemetry**: `scripts/audit-no-telemetry.mjs` audit of the
+  sources; only GitLab connections (configured by the user), Git
+  (remotes), and the signed update manifest are possible. No sending
+  without user action.

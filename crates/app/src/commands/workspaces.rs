@@ -289,6 +289,12 @@ pub struct WorkspaceSyncRequest {
     pub action: WorkspaceAction,
     #[serde(default)]
     pub confirmation: Confirmation,
+    /// Paths to act on; omitted or empty means every repository.
+    #[serde(default)]
+    pub repo_paths: Option<Vec<String>>,
+    /// Pull strategy; omitted keeps the automatic resolution.
+    #[serde(default)]
+    pub strategy: Option<PullStrategy>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -317,17 +323,32 @@ pub async fn workspace_sync(
     let runner = state.runner()?.clone();
     let registry = state.sessions.clone();
     let store = state.store.clone();
-    let rows = store
+    let mut rows = store
         .workspace_repos(&request.workspace_id)
         .map_err(store_error)?;
     if rows.is_empty() {
         return Ok(Vec::new());
     }
+    if let Some(requested) = request.repo_paths.as_ref().filter(|list| !list.is_empty()) {
+        let mut selected = Vec::with_capacity(requested.len());
+        for path in requested {
+            let found = rows
+                .iter()
+                .find(|row| same_path(&row.path, path))
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::invalid_input(format!("`{path}` n'appartient pas à ce workspace"))
+                })?;
+            selected.push(found);
+        }
+        rows = selected;
+    }
     if rows.len() > WORKSPACE_REPO_LIMIT {
         return Err(AppError::internal("workspace dépasse sa borne"));
     }
+    let strategy = request.strategy.unwrap_or(PullStrategy::Auto);
     tauri::async_runtime::spawn_blocking(move || {
-        run_sync_workers(runner, registry, rows, request.action)
+        run_sync_workers(runner, registry, rows, request.action, strategy)
     })
     .await
     .map_err(join_error)
@@ -338,6 +359,7 @@ pub fn run_sync_workers(
     registry: Arc<SessionRegistry>,
     rows: Vec<WorkspaceRepoRow>,
     action: WorkspaceAction,
+    strategy: PullStrategy,
 ) -> Vec<WorkspaceSyncResult> {
     let total = rows.len();
     let rows = Arc::new(rows);
@@ -356,7 +378,15 @@ pub fn run_sync_workers(
             if index >= rows.len() {
                 break;
             }
-            let result = run_one(&runner, &registry, &rows[index], action, index, worker);
+            let result = run_one(
+                &runner,
+                &registry,
+                &rows[index],
+                action,
+                index,
+                worker,
+                strategy,
+            );
             if let Ok(mut guard) = results.lock() {
                 guard.insert(index, result);
             }
@@ -382,6 +412,7 @@ fn run_one(
     action: WorkspaceAction,
     index: usize,
     worker: usize,
+    strategy: PullStrategy,
 ) -> WorkspaceSyncResult {
     let result = (|| -> Result<WorkspaceSyncResult, AppError> {
         let (session, created) = registry.open(
@@ -393,7 +424,7 @@ fn run_one(
             },
         )?;
         let repo_id = session.id().as_str().to_owned();
-        let outcome = run_repo_action(&session, action, index, worker);
+        let outcome = run_repo_action(&session, action, index, worker, strategy);
         let state = session.refresh_state().ok();
         if created {
             registry.close(session.id());
@@ -435,6 +466,7 @@ fn run_repo_action(
     action: WorkspaceAction,
     index: usize,
     worker: usize,
+    strategy: PullStrategy,
 ) -> Result<sync::SyncOutcome, AppError> {
     let (remote, branch) = match action {
         WorkspaceAction::Fetch => {
@@ -494,7 +526,7 @@ fn run_repo_action(
                     worktree,
                     &remote_for_job,
                     &branch_for_job,
-                    PullStrategy::Auto,
+                    strategy,
                     &context,
                     |_| {},
                 )?;
@@ -512,6 +544,22 @@ fn run_repo_action(
         .take()
         .ok_or_else(|| AppError::internal("la synchronisation n'a produit aucun résultat"))?;
     Ok(outcome)
+}
+
+/// Whether two workspace paths designate the same directory.
+///
+/// Rows keep the canonical form Git reported (`\\?\C:\…` on Windows), while a
+/// caller usually sends the path it opened: both are canonicalised before the
+/// comparison so the two spellings meet.
+fn same_path(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    let canonical = |value: &str| std::fs::canonicalize(value).ok();
+    match (canonical(left), canonical(right)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
 }
 
 fn bounded_output(output: &str) -> String {

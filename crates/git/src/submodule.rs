@@ -155,22 +155,25 @@ fn validate_url(url: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Add a submodule. `branch` optionally tracks a branch.
+/// Add a submodule. `branch` optionally tracks a branch; `force` is never
+/// implied, because it overwrites an existing path.
 pub fn add(
     runner: &GitRunner,
     worktree: &Path,
     url: &str,
     path: &str,
     branch: Option<&str>,
+    force: bool,
 ) -> Result<SubmoduleReport, AppError> {
     validate_relative_path(path)?;
     validate_url(url)?;
     if let Some(branch) = branch {
         crate::branches::validate_branch_name(runner, worktree, branch)?;
     }
-    let mut spec = CommandSpec::new(GitSubcommand::Submodule, worktree)
-        .arg("add")
-        .arg("--force");
+    let mut spec = CommandSpec::new(GitSubcommand::Submodule, worktree).arg("add");
+    if force {
+        spec = spec.arg("--force");
+    }
     if let Some(branch) = branch {
         spec = spec.arg("-b").arg(branch);
     }
@@ -241,6 +244,40 @@ pub fn sync(
     runner
         .run(&spec.timeout(NETWORK_TIMEOUT))?
         .ensure_success()?;
+    list(runner, worktree)
+}
+
+/// Remove a submodule: deinitialise it, delete the gitlink and its
+/// `.gitmodules` entry. The caller must require a typed confirmation: the
+/// working tree of the submodule is discarded.
+pub fn remove(
+    runner: &GitRunner,
+    worktree: &Path,
+    path: &str,
+) -> Result<SubmoduleReport, AppError> {
+    validate_relative_path(path)?;
+    // `deinit` fails on a submodule that was never initialised; that is not an
+    // error here because `rm` can still remove the recorded entry.
+    let _ = runner.run(
+        &CommandSpec::new(GitSubcommand::Submodule, worktree)
+            .arg("deinit")
+            .arg("--force")
+            .arg("--")
+            .arg(path)
+            .timeout(NETWORK_TIMEOUT),
+    )?;
+    runner
+        .run(
+            &CommandSpec::new(GitSubcommand::Rm, worktree)
+                .arg("--force")
+                .arg("--")
+                .arg(path),
+        )?
+        .ensure_success()?;
+    let target = worktree.join(path);
+    if target.exists() {
+        let _ = std::fs::remove_dir_all(&target);
+    }
     list(runner, worktree)
 }
 

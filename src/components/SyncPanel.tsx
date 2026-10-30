@@ -2,13 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import {
   operationCancel,
+  preferenceGet,
+  preferenceSet,
   refsGet,
   statusGet,
   syncFetch,
+  syncFetchAll,
   syncPull,
   syncPush,
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
+import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import { useI18n, type MessageKey } from '../i18n'
 import type {
   OperationProgress,
@@ -25,6 +29,8 @@ type Props = {
   repoId: string
   generation: number
   onMutated: () => void
+  /** A push Git refused, handed to the recovery dialog. */
+  onPushRejected: (rejection: PushRejection) => void
 }
 
 const STRATEGIES: { value: PullStrategy; labelKey: MessageKey }[] = [
@@ -34,7 +40,19 @@ const STRATEGIES: { value: PullStrategy; labelKey: MessageKey }[] = [
   { value: 'merge', labelKey: 'ops.sync.strategy.merge' },
 ]
 
-export function SyncPanel({ repoId, generation, onMutated }: Props) {
+/** Auto-fetch intervals, in minutes; `0` disables the background fetch. */
+const AUTO_FETCH: { value: string; labelKey: MessageKey }[] = [
+  { value: '0', labelKey: 'ops.sync.autoFetch.off' },
+  { value: '1', labelKey: 'ops.sync.autoFetch.one' },
+  { value: '5', labelKey: 'ops.sync.autoFetch.five' },
+  { value: '15', labelKey: 'ops.sync.autoFetch.fifteen' },
+  { value: '30', labelKey: 'ops.sync.autoFetch.thirty' },
+]
+
+const PULL_STRATEGY_PREFERENCE = 'git.pullStrategy'
+const AUTO_FETCH_PREFERENCE = 'git.autoFetchMinutes'
+
+export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Props) {
   const { t } = useI18n()
   const [status, setStatus] = useState<StatusReport | null>(null)
   const [refs, setRefs] = useState<RefsSnapshot | null>(null)
@@ -52,6 +70,8 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
   const [outcome, setOutcome] = useState<SyncOutcome | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [errorOutput, setErrorOutput] = useState<string | null>(null)
+  const [autoFetch, setAutoFetch] = useState('0')
+  const [batch, setBatch] = useState<string | null>(null)
   const consoleRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
@@ -113,7 +133,7 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
     }
   }, [log])
 
-  const run = async (kind: 'fetch' | 'pull' | 'push') => {
+  const run = async (kind: 'fetch' | 'fetchAll' | 'pull' | 'push') => {
     setBusy(true)
     setError(null)
     setErrorOutput(null)
@@ -121,6 +141,26 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
     setOperationId(null)
     setLog([])
     try {
+      if (kind === 'fetchAll') {
+        const all = await syncFetchAll(repoId)
+        const lines = all.data.map((entry) =>
+          entry.error
+            ? `${entry.remote}: ${entry.error.code} — ${entry.error.message}`
+            : `${entry.remote}: ${t('ops.sync.fetchAllOk')}`,
+        )
+        setLog((current) => [...current, ...lines])
+        const failures = all.data.filter((entry) => entry.error).length
+        setBatch(
+          failures === 0
+            ? t('ops.sync.fetchAllDone', { count: all.data.length })
+            : t('ops.sync.fetchAllPartial', {
+                ok: all.data.length - failures,
+                failed: failures,
+              }),
+        )
+        onMutated()
+        return
+      }
       const result =
         kind === 'fetch'
           ? await syncFetch(repoId, remote)
@@ -143,11 +183,64 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
       setForce(false)
       onMutated()
     } catch (cause) {
-      setError(errorMessage(cause))
-      setErrorOutput(errorDetail(cause))
+      // A refused push is not a dead end: the recovery dialog fetches, then
+      // offers pull-then-push or a typed force push. The Git output stays in
+      // the console so the reason is still visible.
+      if (kind === 'push' && isPushRejection(cause)) {
+        const detail = errorDetail(cause)
+        if (detail) {
+          setLog((current) => [...current, detail])
+        }
+        onPushRejected({ repoId, remote, branch })
+      } else {
+        setError(errorMessage(cause))
+        setErrorOutput(errorDetail(cause))
+      }
     } finally {
       setBusy(false)
       setOperationId(null)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      preferenceGet(PULL_STRATEGY_PREFERENCE),
+      preferenceGet(AUTO_FETCH_PREFERENCE),
+    ])
+      .then(([savedStrategy, savedAutoFetch]) => {
+        if (cancelled) {
+          return
+        }
+        const known = STRATEGIES.some((entry) => entry.value === savedStrategy)
+        if (known && savedStrategy) {
+          setStrategy(savedStrategy as PullStrategy)
+        }
+        if (savedAutoFetch && AUTO_FETCH.some((entry) => entry.value === savedAutoFetch)) {
+          setAutoFetch(savedAutoFetch)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const saveAutoFetch = async (value: string) => {
+    setAutoFetch(value)
+    try {
+      await preferenceSet(AUTO_FETCH_PREFERENCE, value)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    }
+  }
+
+  const saveStrategy = async (value: PullStrategy) => {
+    setStrategy(value)
+    try {
+      await preferenceSet(PULL_STRATEGY_PREFERENCE, value)
+    } catch (cause) {
+      setError(errorMessage(cause))
     }
   }
 
@@ -190,6 +283,8 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
         <span className={`${p2.chip} ${behind > 0 ? p2.chipInfo : ''}`}>↓{behind}</span>
       </div>
 
+      <p className={p2.hintBar}>{t('ops.sync.branchHint')}</p>
+
       {error ? (
         <>
           <p className={p2.alert} role="alert">
@@ -206,6 +301,28 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
               {t('ops.sync.remoteSha', { sha: outcome.remoteSha.slice(0, 10) })}
             </span>
           ) : null}
+          {outcome.headBefore && outcome.headAfter ? (
+            <span className={`${p2.mono} ${p2.count}`}>
+              {t('ops.sync.outcomeHead', {
+                before: outcome.headBefore.slice(0, 8),
+                after: outcome.headAfter.slice(0, 8),
+              })}
+            </span>
+          ) : null}
+          {outcome.behindUpstream !== undefined && outcome.behindUpstream !== null ? (
+            <span className={`${p2.chip} ${outcome.behindUpstream > 0 ? p2.chipWarn : ''}`}>
+              {t('ops.sync.outcomeBehind', { count: outcome.behindUpstream })}
+            </span>
+          ) : null}
+          {outcome.cancelled ? (
+            <span className={`${p2.chip} ${p2.chipWarn}`}>{t('ops.sync.outcomeCancelled')}</span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {batch ? (
+        <div className={p2.listHeader} role="status">
+          <span className={p2.meta}>{batch}</span>
         </div>
       ) : null}
 
@@ -225,6 +342,20 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
               </p>
             </div>
             <div className={p2.actionRowControls}>
+              <label className={p2.fieldInline}>
+                <span className={p2.toolbarLabel}>{t('ops.sync.autoFetchLabel')}</span>
+                <select
+                  value={autoFetch}
+                  onChange={(event) => void saveAutoFetch(event.target.value)}
+                  aria-label={t('ops.sync.autoFetchAria')}
+                >
+                  {AUTO_FETCH.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {t(option.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 className={p2.secondary}
@@ -232,6 +363,14 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
                 onClick={() => void run('fetch')}
               >
                 Fetch
+              </button>
+              <button
+                type="button"
+                className={p2.ghost}
+                disabled={busy}
+                onClick={() => void run('fetchAll')}
+              >
+                {t('ops.sync.fetchAll')}
               </button>
             </div>
           </div>
@@ -246,7 +385,7 @@ export function SyncPanel({ repoId, generation, onMutated }: Props) {
             <div className={p2.actionRowControls}>
               <select
                 value={strategy}
-                onChange={(event) => setStrategy(event.target.value as PullStrategy)}
+                onChange={(event) => void saveStrategy(event.target.value as PullStrategy)}
                 aria-label={t('ops.sync.strategyAria')}
               >
                 {STRATEGIES.map((option) => (

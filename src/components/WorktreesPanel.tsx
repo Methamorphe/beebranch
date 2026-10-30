@@ -5,11 +5,12 @@ import {
   worktreeLock,
   worktreePrune,
   worktreeRemove,
+  worktreeRepair,
   worktreeUnlock,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { t, useI18n } from '../i18n'
-import type { WorktreeEntry, WorktreeReport } from '../types/git'
+import type { WorktreeEntry, WorktreePruneEntry, WorktreeReport } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
@@ -56,6 +57,10 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
   const [lockTarget, setLockTarget] = useState<WorktreeEntry | null>(null)
   const [lockReason, setLockReason] = useState('')
   const [pruneOpen, setPruneOpen] = useState(false)
+  const [filter, setFilter] = useState('')
+  const [expire, setExpire] = useState('')
+  const [removeBranch, setRemoveBranch] = useState(false)
+  const [pruned, setPruned] = useState<WorktreePruneEntry[] | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -85,7 +90,16 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
     }
   }
 
-  const entries = report?.entries ?? []
+  const entries = (report?.entries ?? []).filter((entry) => {
+    const needle = filter.trim().toLowerCase()
+    if (!needle) {
+      return true
+    }
+    return (
+      entry.path.toLowerCase().includes(needle) ||
+      (entry.branch ?? '').toLowerCase().includes(needle)
+    )
+  })
 
   return (
     <div className={p2.screen}>
@@ -94,13 +108,54 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
           {t('ops.worktree.count', { count: entries.length })}
         </span>
         <span className={p2.spacer} />
+        <label className={p2.fieldInline}>
+          <span className={p2.toolbarLabel}>{t('ops.worktree.filterLabel')}</span>
+          <input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder={t('ops.worktree.filterPlaceholder')}
+            aria-label={t('ops.worktree.filterAria')}
+            spellCheck={false}
+          />
+        </label>
+        <label className={p2.fieldInline}>
+          <span className={p2.toolbarLabel}>{t('ops.worktree.expireLabel')}</span>
+          <input
+            value={expire}
+            onChange={(event) => setExpire(event.target.value)}
+            placeholder="3.days.ago"
+            aria-label={t('ops.worktree.expireAria')}
+            spellCheck={false}
+          />
+        </label>
         <button
           type="button"
           className={p2.ghost}
           disabled={busy}
+          title={t('ops.worktree.repairHint')}
           onClick={() =>
-            void run(t('ops.worktree.notice.pruneDryRunDone'), () => worktreePrune(repoId, true))
+            void run(t('ops.worktree.notice.repaired'), () =>
+              worktreeRepair({ repoId }),
+            )
           }
+        >
+          {t('ops.worktree.repair')}
+        </button>
+        <button
+          type="button"
+          className={p2.ghost}
+          disabled={busy}
+          onClick={() => {
+            setPruned(null)
+            void run(t('ops.worktree.notice.pruneDryRunDone'), async () => {
+              const result = await worktreePrune({
+                repoId,
+                dryRun: true,
+                expire: expire.trim() || undefined,
+              })
+              setPruned(result.data.removed)
+            })
+          }}
         >
           {t('ops.worktree.pruneDryRun')}
         </button>
@@ -124,6 +179,18 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
       {notice ? (
         <div className={p2.listHeader} role="status">
           <span className={p2.meta}>{notice}</span>
+        </div>
+      ) : null}
+
+      {pruned && pruned.length > 0 ? (
+        <div className={p2.rows} aria-label={t('ops.worktree.prunedListAria')}>
+          {pruned.map((entry) => (
+            <div key={entry.path} className={p2.entry}>
+              <span className={p2.dot} data-tone="warn" />
+              <span className={`${p2.mono} ${p2.entryTitle}`}>{entry.path}</span>
+              <span className={p2.entryMeta}>{entry.reason || t('ops.worktree.pruneNoReason')}</span>
+            </div>
+          ))}
         </div>
       ) : null}
 
@@ -250,13 +317,20 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
                 onChange={(event) => setNewBranch(event.target.value)}
                 placeholder={t('ops.worktree.newBranchPlaceholder')}
                 spellCheck={false}
+                disabled={detach}
               />
             </label>
             <label className={p2.checkbox}>
               <input
                 type="checkbox"
                 checked={detach}
-                onChange={(event) => setDetach(event.target.checked)}
+                onChange={(event) => {
+                  setDetach(event.target.checked)
+                  // `git worktree add` refuses `--detach` together with `-b`.
+                  if (event.target.checked) {
+                    setNewBranch('')
+                  }
+                }}
               />
               {t('ops.worktree.detachedHead')}
             </label>
@@ -270,7 +344,7 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
                     repoId,
                     path: path.trim(),
                     reference: reference.trim(),
-                    newBranch: newBranch.trim() || undefined,
+                    newBranch: detach ? undefined : newBranch.trim() || undefined,
                     detach,
                   })
                   setPath('')
@@ -341,23 +415,42 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
         typed={pendingRemove?.dirty ? pendingRemove.path : undefined}
         confirmLabel={t('ops.worktree.remove')}
         busy={busy}
+        children={
+          pendingRemove?.branch ? (
+            <label className={p2.checkbox}>
+              <input
+                type="checkbox"
+                checked={removeBranch}
+                onChange={(event) => setRemoveBranch(event.target.checked)}
+              />
+              {t('ops.worktree.removeBranch', { branch: pendingRemove.branch })}
+            </label>
+          ) : null
+        }
         onCancel={() => setPendingRemove(null)}
         onConfirm={(typed) => {
           const target = pendingRemove
+          const deleteBranch = removeBranch
           setPendingRemove(null)
+          setRemoveBranch(false)
           if (!target) {
             return
           }
-          void run(t('ops.worktree.notice.removed'), () =>
-            worktreeRemove({
-              repoId,
-              path: target.path,
-              force: Boolean(target.dirty),
-              confirmation: {
-                acknowledged: true,
-                typed: target.dirty ? typed : undefined,
-              },
-            }),
+          void run(
+            deleteBranch
+              ? t('ops.worktree.notice.removedWithBranch')
+              : t('ops.worktree.notice.removed'),
+            () =>
+              worktreeRemove({
+                repoId,
+                path: target.path,
+                force: Boolean(target.dirty),
+                deleteBranch,
+                confirmation: {
+                  acknowledged: true,
+                  typed: target.dirty ? typed : undefined,
+                },
+              }),
           )
         }}
       />
@@ -371,7 +464,15 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
         onCancel={() => setPruneOpen(false)}
         onConfirm={() => {
           setPruneOpen(false)
-          void run(t('ops.worktree.notice.pruneDone'), () => worktreePrune(repoId, false))
+          setPruned(null)
+          void run(t('ops.worktree.notice.pruneDone'), async () => {
+            const result = await worktreePrune({
+              repoId,
+              dryRun: false,
+              expire: expire.trim() || undefined,
+            })
+            setPruned(result.data.removed)
+          })
         }}
       />
     </div>

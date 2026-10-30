@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use beebranch_app::commands::workspaces::{run_sync_workers, WorkspaceAction};
 use beebranch_app::state::{build_state, AppPaths};
+use beebranch_git::sync::PullStrategy;
 use beebranch_git::{CommandSpec, GitRunner, GitSubcommand, SessionRegistry, StdinMode};
 use beebranch_store::{MemorySecretStore, Store, WorkspaceRepoRow};
 
@@ -129,7 +130,13 @@ fn ten_repositories_report_per_repository_results_and_cleanup_sessions() {
     });
 
     let registry = Arc::new(SessionRegistry::new());
-    let results = run_sync_workers(runner, registry.clone(), rows, WorkspaceAction::Fetch);
+    let results = run_sync_workers(
+        runner,
+        registry.clone(),
+        rows,
+        WorkspaceAction::Fetch,
+        PullStrategy::Auto,
+    );
     assert_eq!(results.len(), 10);
     assert_eq!(results.iter().filter(|result| result.ok).count(), 9);
     let failed = results.iter().find(|result| !result.ok).expect("failure");
@@ -206,7 +213,13 @@ fn pull_is_isolated_and_requires_explicit_confirmation() {
         },
     ];
     let registry = Arc::new(SessionRegistry::new());
-    let results = run_sync_workers(runner, registry.clone(), rows, WorkspaceAction::Pull);
+    let results = run_sync_workers(
+        runner,
+        registry.clone(),
+        rows,
+        WorkspaceAction::Pull,
+        PullStrategy::Auto,
+    );
     assert_eq!(results.len(), 2);
     let clean_result = results
         .iter()

@@ -1,59 +1,59 @@
-name: Fonctionnalité
-description: Proposer une fonctionnalité ou une amélioration du périmètre
+name: Feature
+description: Propose a feature or a scope improvement
 title: "[feat] "
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        BeeBranch a un périmètre contrôlé : local-first, un seul moteur Git CLI,
-        pas d'IA, pas de télémétrie, pas de cloud propriétaire. Une demande qui
-        sort de ce cadre doit d'abord être discutée ici.
+        BeeBranch has a controlled scope: local-first, a single Git CLI engine,
+        no AI, no telemetry, no proprietary cloud. A request outside that frame
+        must first be discussed here.
   - type: textarea
     id: problem
     attributes:
-      label: Problème à résoudre
-      description: Décrivez le besoin réel, pas la solution.
+      label: Problem to solve
+      description: Describe the real need, not the solution.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Solution proposée
-      description: Comportement attendu, parcours, limites connues.
+      label: Proposed solution
+      description: Expected behavior, flow, known limits.
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considérées
-      description: Contournements actuels, autres clients, scripts.
+      label: Alternatives considered
+      description: Current workarounds, other clients, scripts.
     validations:
       required: false
   - type: dropdown
     id: area
     attributes:
-      label: Zone concernée
+      label: Area concerned
       options:
-        - Graphe et historique
+        - Graph and history
         - Status / diff / commit
-        - Branches, merge, rebase, conflits
+        - Branches, merge, rebase, conflicts
         - Sync / remote
-        - Stash, tags, worktrees, sous-modules, patchs
+        - Stash, tags, worktrees, submodules, patches
         - GitLab
         - GitHub
-        - Workspaces et multi-dépôts
-        - Interface et accessibilité
-        - Distribution et mises à jour
-        - Autre
+        - Workspaces and multi-repository
+        - Interface and accessibility
+        - Distribution and updates
+        - Other
     validations:
       required: true
   - type: checkboxes
     id: scope
     attributes:
-      label: Périmètre
+      label: Scope
       options:
-        - label: La demande reste local-first et n'exige ni compte éditeur, ni télémétrie.
+        - label: The request stays local-first and requires neither an editor account nor telemetry.
           required: true
-        - label: J'ai vérifié que la fonctionnalité n'existe pas déjà dans la dernière release.
+        - label: I have checked that the feature does not already exist in the latest release.
           required: true

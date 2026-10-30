@@ -199,6 +199,51 @@
   text-align: left;
 }
 
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.fileHistory {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.fileHistory:hover,
+.fileHistory:focus-visible {
+  color: var(--accent);
+}
+
+.signature {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.signature[data-code='G'] {
+  color: var(--success);
+}
+
+.signature[data-code='B'],
+.signature[data-code='R'],
+.signature[data-code='E'] {
+  color: var(--error);
+}
+
+.signature[data-code='U'],
+.signature[data-code='X'],
+.signature[data-code='Y'] {
+  color: var(--warning);
+}
+
 .file:hover:not(:disabled) {
   background: var(--surface-raised);
 }

@@ -13,13 +13,36 @@
 .worktreeHeading { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; padding:8px 14px; border-bottom:1px solid var(--border); font-size:14px; }
 .worktreeHeading strong { font-weight:600; }
 .worktreeHeading > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:55%; color:var(--accent-text); font-size:13px; }
-.worktreeRow { display:grid; grid-template-columns:var(--refs-width,0px) var(--graph-width,40px) minmax(0,1fr) var(--author-width,0px) var(--date-width,0px); align-items:center; gap:0; width:100%; height:32px; flex-shrink:0; padding:0; border:0; border-radius:0; text-align:left; color:var(--muted); background:var(--surface); }
+.worktreeRow { container:worktree / inline-size; display:grid; grid-template-columns:var(--refs-width,0px) var(--graph-width,40px) minmax(0,1fr) var(--author-width,0px) var(--date-width,0px); align-items:center; gap:0; width:100%; height:32px; min-height:32px; flex-shrink:0; padding:0; border:0; border-bottom:1px solid var(--border); border-radius:0; text-align:left; color:var(--muted); background:var(--surface); cursor:pointer; }
+.worktreeRow:hover { background:var(--surface-raised); }
 .worktreeRow[data-active='true'], .worktreeRow[data-active='true']:hover { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
-.wipRef { overflow:hidden; padding:0 10px; color:var(--muted); font-size:11px; white-space:nowrap; }
-.wipMarker { justify-self:center; color:var(--accent-text); font-size:23px; line-height:1; }
-.wipMessage { display:flex; align-items:center; gap:12px; min-width:0; overflow:hidden; padding:0 14px; white-space:nowrap; }
-.wipMessage strong { font-size:14px; font-weight:600; color:var(--text); }
-.wipMessage > span { overflow:hidden; text-overflow:ellipsis; font-size:12px; }
+.worktreeRow:focus-visible { outline:2px solid var(--accent-text); outline-offset:-2px; }
+.wipRef { min-width:0; overflow:hidden; white-space:nowrap; }
+.wipRef > span { margin-left:10px; display:inline-flex; align-items:center; height:21px; padding:0 7px; border:1px solid var(--border-strong); border-radius:4px; color:var(--muted-strong); background:var(--bg); font:11px var(--mono); }
+.wipMarker { justify-self:center; width:16px; height:16px; border:2px dashed var(--accent-text); border-radius:50%; }
+.worktreeRow[data-active='true'] .wipMarker { background:var(--accent-soft); }
+.wipMessage { grid-column:3 / -1; container:wip-message / inline-size; display:flex; align-items:center; gap:16px; min-width:0; overflow:hidden; padding:0 14px; white-space:nowrap; }
+.wipMessage strong { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:12px; font-weight:600; color:var(--text); }
+.wipStats { display:flex; align-items:center; flex:none; gap:12px; font-size:12px; font-variant-numeric:tabular-nums; }
+.wipStat { display:inline-flex; align-items:center; gap:5px; color:var(--muted-strong); }
+.wipStat svg { flex:none; color:var(--info); }
+.wipStat[data-kind='modified'] svg { color:var(--warning); }
+.wipStat[data-kind='new'] svg { color:var(--success); }
+.wipStat[data-kind='conflicted'], .wipStat[data-kind='conflicted'] svg { color:var(--error); }
+.wipStat[data-empty='true'], .wipStat[data-empty='true'] svg { color:var(--muted); }
+.wipStatCount { display:none; }
+@container wip-message (max-width:620px) {
+  .wipStatLabel { display:none; }
+  .wipStatCount { display:inline; }
+}
+@container wip-message (max-width:300px) {
+  .wipStats { gap:8px; }
+  .wipStat { gap:3px; }
+}
+@container worktree (max-width:400px) {
+  .wipMessage { gap:8px; padding:0 8px; }
+  .wipMessage strong { font-size:11px; }
+}
 .diffPreview { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
 .previewHeading { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); }
 .previewHeading code { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-family:var(--sans); }
@@ -37,7 +60,6 @@
 .contextHint { margin:0; padding:2px 9px 6px; color:var(--muted); font-size:11px; line-height:1.5; }
 .inspectorDock { display:contents; }
 .inspectorResizer { position:relative; z-index:2; flex:none; width:6px; margin-left:-3px; margin-right:-3px; }
-@media(max-width:1200px) { .wipMessage > span { display:none; } }
 @media(max-width:1120px) {
   .graphLayout { position:relative; overflow:hidden; }
   .inspectorDock {
@@ -62,7 +84,6 @@
 }
 
 @media(max-width:600px) { .graphControls select { max-width:155px; font-size:11px; } }
-.wipRef { max-width:100%; padding:0; text-indent:10px; }
 
 .worktreeHeading > span { margin-left:auto; }
 .worktreeHeading > button { padding:0 4px; color:var(--muted); font-size:18px; }
@@ -73,3 +94,26 @@
 .strategyOption input { flex:none; margin-top:3px; }
 .strategyOption:has(input:disabled) { color:var(--muted); }
 .strategyNote { display:block; margin-top:2px; color:var(--muted); font-size:11.5px; line-height:1.5; }
+.historyMenu { height:28px; min-height:28px; padding:2px 8px; border:0; border-radius:3px; background:transparent; color:var(--muted-strong); font-size:12px; text-transform:none; letter-spacing:0; }
+.historyMenu:hover { background:var(--surface-raised); color:var(--text); }
+.operationChip { display:inline-flex; align-items:center; gap:6px; height:28px; min-height:28px; padding:2px 8px; font-size:12px; color:var(--warning); }
+.operationChip span { font-variant-numeric:tabular-nums; }
+.toolBody { display:flex; flex:1; min-height:0; min-width:0; overflow:auto; }
+.panelToggle { display:inline-flex; align-items:center; height:28px; padding:0 8px; border:1px solid var(--border); border-radius:4px; color:var(--muted); background:transparent; font-size:11px; cursor:pointer; }
+.panelToggle[aria-expanded='true'] { color:var(--text); border-color:var(--accent); }
+.panelToggle:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+
+/* The repository explorer is fixed; code replaces only the central history. */
+.graphLayout { min-width:0; overflow:hidden; }
+.graphRegion { overflow:hidden; }
+.centralEditor { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+.centralEditor > .toolBody { flex:1; min-height:0; }
+.toolBody > * { min-width:0; max-width:100%; }
+.centralEditor .placeholder { min-height:0; }
+
+.navigatorResizer { position:relative; z-index:2; flex:none; width:6px; margin-inline:-3px; }
+@media(max-width:700px) { .navigatorResizer { display:none; } }
+
+.centralEditor { position:relative; }
+.centralEditor:is([data-central-editor='gitlab'], [data-central-editor='github'], [data-central-editor='workspaces']) > .previewHeading { position:absolute; top:12px; right:12px; z-index:2; border:0; padding:0; }
+.centralEditor:is([data-central-editor='gitlab'], [data-central-editor='github'], [data-central-editor='workspaces']) > .previewHeading > :is(span, code) { display:none; }

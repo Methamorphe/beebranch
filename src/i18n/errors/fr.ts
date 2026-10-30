@@ -82,6 +82,11 @@ const errors = {
     message: "Le push n'est pas un fast-forward.",
     remediation: 'Fetchez puis mergez ou rebasez avant de pousser.',
   },
+  'git.push_lease_stale': {
+    message: "Le remote a changé pendant l'envoi.",
+    remediation:
+      'Relancez le push : le SHA distant attendu est relu juste avant chaque envoi.',
+  },
   'git.unresolved_conflicts': {
     message: 'Des conflits ne sont pas résolus.',
     remediation: 'Résolvez les fichiers en conflit, ajoutez-les, puis continuez.',

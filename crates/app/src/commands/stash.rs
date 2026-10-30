@@ -51,7 +51,7 @@ pub async fn stash_create(
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
     let message = if request.message.trim().is_empty() {
-        "BeeBranch stash".to_owned()
+        "WIP".to_owned()
     } else {
         request.message.trim().to_owned()
     };
@@ -66,6 +66,13 @@ pub async fn stash_create(
         },
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
+            let message = if request.message.trim().is_empty() {
+                let status = beebranch_git::status::read_status(runner, worktree, Some(0))?;
+                let branch = status.branch.head.as_deref().unwrap_or("HEAD");
+                format!("WIP \"{branch}\"")
+            } else {
+                message
+            };
             let output = stash::create(runner, worktree, &message, request.include_untracked)?;
             let entry = stash::list(runner, worktree)?
                 .into_iter()

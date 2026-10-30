@@ -1,32 +1,32 @@
-## Problème
+## Problem
 
-<!-- Comportement observé, cause identifiée, issue liée. -->
+<!-- Observed behavior, identified cause, linked issue. -->
 
-## Changement
+## Change
 
-<!-- Ce qui change, et pourquoi cette solution plutôt qu'une autre. -->
+<!-- What changes, and why this solution rather than another. -->
 
-## Périmètre
+## Scope
 
-- [ ] Chaque commit est signé DCO (`git commit -s`).
-- [ ] Une seule préoccupation ; aucun refactor non lié.
-- [ ] Aucune nouvelle abstraction sans besoin démontré.
-- [ ] Aucun secret, token, clé ou fichier `.env` ajouté.
+- [ ] Every commit is DCO signed (`git commit -s`).
+- [ ] A single concern; no unrelated refactor.
+- [ ] No new abstraction without a demonstrated need.
+- [ ] No secret, token, key or `.env` file added.
 
-## Vérifications
+## Checks
 
 - [ ] `npm run lint`
 - [ ] `npm run build`
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings`
 - [ ] `cargo test --workspace`
-- [ ] `npm run ui:smoke` (si l'interface change)
+- [ ] `npm run ui:smoke` (if the UI changes)
 - [ ] `npm run audit:telemetry`
 
-Preuve d'exécution réelle (sortie, capture, scénario rejoué) :
+Evidence of real execution (output, screenshot, replayed scenario):
 
-<!-- Collez la preuve. Une fonctionnalité n'est pas terminée parce que l'UI existe. -->
+<!-- Paste the evidence. A feature is not done because the UI exists. -->
 
-## Risques et limites
+## Risks and limitations
 
-<!-- Ce qui n'est pas couvert, les hypothèses restantes, les plateformes non testées. -->
+<!-- What is not covered, remaining assumptions, untested platforms. -->

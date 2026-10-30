@@ -1,61 +1,61 @@
-# P1 — Revue de sortie
+# P1 — Exit review
 
-**Date :** 2026-10-27
-**Version :** 0.2.0
-**Décision :** GO technique pour P1. Le critère humain de P1-T14 reste ouvert.
+**Date:** 2026-10-27
+**Version:** 0.2.0
+**Decision:** Technical GO for P1. The P1-T14 human criterion remains open.
 
-## 1. Périmètre livré
+## 1. Delivered scope
 
-| Domaine | Implémentation | Tests |
+| Area | Implementation | Tests |
 |---|---|---|
-| Staging fichier/hunk/ligne | `crates/git/src/index.rs` | `crates/git/tests/p1_ops.rs` (ligne, hunk, CRLF, no-newline, unicode, mode, rename) |
-| Commit/amend | `crates/git/src/commit.rs` | hook échec/succès, identité absente, index vide, amend keep/replace |
-| Branches | `crates/git/src/branches.rs` | préflight, non mergée, courante, dirty checkout, upstream, comparaison |
-| Sync | `crates/git/src/sync.rs` | bare remote local, push, fetch, pull ff-only, force-with-lease policy |
-| Merge/rebase/conflits | `crates/git/src/history.rs` | conflit/résolution/continue, abort, reprise session, refus de double opération |
-| Stash | `crates/git/src/stash.rs` | create/pop/drop, pop conflictuel, SHA récupérable |
-| Recherche | `crates/git/src/search.rs` | message/auteur/SHA, profondeur |
-| GitLab | `crates/gitlab/src/models.rs`, `client.rs`, `pipeline.rs` | contrat wiremock liste/création/draft/422/pipelines, mapping tous statuts |
-| Destructif | `crates/core/src/actions.rs`, journal SQLite | confirmation absente, saisie erronée, action réversible |
-| Outils externes | `crates/app/src/commands/tools.rs` | placeholders, chemins, URL non sûre |
-| Workflow complet | `crates/git/tests/p1_workflow.rs` | branche → staging → commit → stash → push → merge conflictuel → continue → fetch |
+| File/hunk/line staging | `crates/git/src/index.rs` | `crates/git/tests/p1_ops.rs` (line, hunk, CRLF, no-newline, unicode, mode, rename) |
+| Commit/amend | `crates/git/src/commit.rs` | hook failure/success, missing identity, empty index, amend keep/replace |
+| Branches | `crates/git/src/branches.rs` | preflight, unmerged, current, dirty checkout, upstream, comparison |
+| Sync | `crates/git/src/sync.rs` | local bare remote, push, fetch, pull ff-only, force-with-lease policy |
+| Merge/rebase/conflicts | `crates/git/src/history.rs` | conflict/resolution/continue, abort, session recovery, rejection of concurrent operations |
+| Stash | `crates/git/src/stash.rs` | create/pop/drop, conflicting pop, recoverable SHA |
+| Search | `crates/git/src/search.rs` | message/author/SHA, depth |
+| GitLab | `crates/gitlab/src/models.rs`, `client.rs`, `pipeline.rs` | wiremock contract for list/creation/draft/422/pipelines, mapping of all statuses |
+| Destructive | `crates/core/src/actions.rs`, SQLite journal | missing confirmation, incorrect input, reversible action |
+| External tools | `crates/app/src/commands/tools.rs` | placeholders, paths, unsafe URL |
+| Full workflow | `crates/git/tests/p1_workflow.rs` | branch → staging → commit → stash → push → conflicting merge → continue → fetch |
 
-## 2. Vérifications exécutées
+## 2. Checks run
 
 ```text
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings   → OK
 cargo test --workspace                                  → 269 tests OK
-npm run lint                                            → 0 erreur (avertissements React d'effets)
+npm run lint                                            → 0 errors (React effect warnings)
 npm run build                                           → OK
 npm run ui:smoke                                        → OK
 ```
 
-`ui:smoke` exerce le graphe, le diff, la sélection de ligne, l'appel
-`index_unstage`, et l'ouverture des vues P1.
+`ui:smoke` exercises the graph, diff, line selection, the
+`index_unstage` call, and opening the P1 views.
 
-Benchmarks :
+Benchmarks:
 
 ```text
-PERF-07 dirty-10k full, 3 runs : p50 35.3 ms, p95 48.5 ms
+PERF-07 dirty-10k full, 3 runs: p50 35.3 ms, p95 48.5 ms
 PERF-10 linear-10k full, 3 runs: p50 87.2 ms, p95 98.6 ms
 ```
 
-Les entrées `PERF-07`/`PERF-10` sont dans `crates/bench/baselines/ci.json`
-avec des budgets absolus (60/100 ms et 150/250 ms).
+The `PERF-07`/`PERF-10` entries are in `crates/bench/baselines/ci.json`
+with absolute budgets (60/100 ms and 150/250 ms).
 
-## 3. Écarts et risques
+## 3. Gaps and risks
 
-| Élément | État | Suite |
+| Item | Status | Next step |
 |---|---|---|
-| P1-T14 dogfooding humain | non exécuté | appliquer `docs/reviews/p1-dogfooding.md` |
-| `--all-reduced --assert` | PERF-05/06 dépassent la baseline sur cette machine (facteur machine, code inchangé) | recalibrer la baseline sur l'agent CI avant blocage, comme prévu par B-04 |
-| Annulation sync | chemin implémenté (SIGTERM + revalidation) ; pas de test déterministe de réseau bloquant | ajouter un faux helper Git lent en CI |
-| Credential helper HTTPS | délégation aux helpers Git/config SSH existants, aucun token en URL/argv | helper applicatif keychain si un besoin réel est mesuré |
-| MR GitLab réelle | contrat HTTP complet + wiremock ; instance live P0 déjà validée | exécuter le parcours création sur projet de test |
+| P1-T14 human dogfooding | not run | apply `docs/reviews/p1-dogfooding.md` |
+| `--all-reduced --assert` | PERF-05/06 exceed the baseline on this machine (machine factor, unchanged code) | recalibrate the baseline on the CI agent before blocking, as planned by B-04 |
+| Sync cancellation | path implemented (SIGTERM + revalidation); no deterministic blocking-network test | add a fake slow Git helper in CI |
+| HTTPS credential helper | delegation to existing Git helpers/SSH config, no token in URL/argv | application OS keychain helper if a real need is measured |
+| Real GitLab MR | full HTTP contract + wiremock; P0 live instance already validated | run the creation flow on a test project |
 
-## 4. Décision
+## 4. Decision
 
-- **GO** pour utiliser P1 sur des dépôts réels hors opérations P2.
-- **NO-GO** pour déclarer le critère de sortie humain P1-T14 satisfait sans les
-  trois développeurs prévus.
+- **GO** for using P1 on real repositories outside P2 operations.
+- **NO-GO** for declaring the P1-T14 human exit criterion satisfied without the
+  three planned developers.

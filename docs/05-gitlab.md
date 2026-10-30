@@ -1,141 +1,141 @@
-# 05 — Intégration GitLab self-hosted
+# 05 — Self-hosted GitLab integration
 
-## 1. Périmètre
+## 1. Scope
 
 ### MVP (P0/P1)
 
-- Configuration de l'URL de l'instance (préfixe de chemin inclus).
-- Authentification par Personal Access Token.
-- Stockage du token dans le keychain OS.
-- Validation de la connexion.
-- Liste et recherche des projets accessibles.
-- Clonage SSH ou HTTPS.
-- Association automatique dépôt local ↔ projet GitLab.
-- Liste des merge requests.
-- Détail d'une MR.
-- Création d'une MR depuis une branche locale poussée.
-- Ouverture d'une MR dans le navigateur.
-- Statut des pipelines CI/CD.
-- Badge MR/CI dans le graphe et la vue des branches.
+- Instance URL configuration (including path prefix).
+- Personal Access Token authentication.
+- Token storage in the OS keychain.
+- Connection validation.
+- Listing and searching accessible projects.
+- SSH or HTTPS cloning.
+- Automatic local repository ↔ GitLab project association.
+- Merge request list.
+- MR details.
+- MR creation from a pushed local branch.
+- Opening an MR in the browser.
+- CI/CD pipeline status.
+- MR/CI badge in the graph and branch view.
 
-### Après le MVP (P2)
+### After the MVP (P2)
 
-- Commentaires inline et discussions.
+- Inline comments and discussions.
 - Approvals.
-- Merge depuis l'application.
-- Historique des pipelines et logs de jobs.
-- Dashboard multi-dépôts.
+- Merge from the application.
+- Pipeline history and job logs.
+- Multi-repository dashboard.
 
-### Hors périmètre
+### Out of scope
 
-- Création de projets, gestion des membres, réglages d'instance.
+- Project creation, member management, instance settings.
 - Import/export, wiki, snippets, releases.
-- Plusieurs instances simultanées par profil.
-- Mutations hors ligne mises en file.
+- Multiple simultaneous instances per profile.
+- Queued offline mutations.
 
-## 2. Configuration et authentification
+## 2. Configuration and authentication
 
-### Normalisation de l'URL
+### URL normalization
 
-| Entrée | Base API | Base web |
+| Input | API base | Web base |
 |---|---|---|
 | `https://gitlab.example.com` | `https://gitlab.example.com/api/v4` | `https://gitlab.example.com` |
 | `https://example.com/gitlab` | `https://example.com/gitlab/api/v4` | `https://example.com/gitlab` |
-| `https://example.com/gitlab/` | idem, slash final retiré | idem |
+| `https://example.com/gitlab/` | same, trailing slash removed | same |
 
-Règles :
+Rules:
 
-- schéma `https` obligatoire par défaut ; `http` autorisé uniquement avec avertissement explicite et confirmation ;
-- pas de slash final ;
-- conserver le préfixe de chemin ;
-- refuser une URL contenant des credentials (`user:pass@`) ;
-- ne jamais construire une URL API par concaténation naïve sans encoder les segments.
+- `https` scheme required by default; `http` allowed only with an explicit warning and confirmation;
+- no trailing slash;
+- retain the path prefix;
+- reject URLs containing credentials (`user:pass@`);
+- never build an API URL through naive concatenation without encoding the segments.
 
 ### PAT
 
-- Création : `https://<instance>/-/user_settings/personal_access_tokens` (GitLab récent) ou `/-/profile/personal_access_tokens` (ancien).
-- Scopes requis : `api` + `read_user`.
-- En-tête : `PRIVATE-TOKEN: <token>`.
-- Validation : `GET /user` ; réponse attendue : `id`, `username`, `name`, `avatar_url`.
-- Token stocké dans le keychain : service `beebranch.gitlab`, compte `<host>#<hash-url>`.
-- Jamais dans SQLite, les logs, les URLs de remote, les crash reports ou le frontend.
-- Expiration : un `401` déclenche `gitlab://auth-expired` ; l'utilisateur remplace le token ; aucune suppression automatique.
+- Creation: `https://<instance>/-/user_settings/personal_access_tokens` (recent GitLab) or `/-/profile/personal_access_tokens` (older).
+- Required scopes: `api` + `read_user`.
+- Header: `PRIVATE-TOKEN: <token>`.
+- Validation: `GET /user`; expected response: `id`, `username`, `name`, `avatar_url`.
+- Token stored in the OS keychain: service `beebranch.gitlab`, account `<host>#<hash-url>`.
+- Never in SQLite, logs, remote URLs, crash reports, or the frontend.
+- Expiration: a `401` triggers `gitlab://auth-expired`; the user replaces the token; no automatic deletion.
 
-### Device flow OAuth (gitlab.com)
+### OAuth device flow (gitlab.com)
 
-Pour `gitlab.com`, BeeBranch peut se connecter sans Personal Access Token via
-le device authorization grant de GitLab (≥ 17.9) :
+For `gitlab.com`, BeeBranch can connect without a Personal Access Token through
+GitLab's device authorization grant (≥ 17.9):
 
-1. `POST https://gitlab.com/oauth/authorize_device` avec l'Application ID et
-   les scopes `api read_user read_repository` ;
-2. le frontend affiche le `user_code` et ouvre la `verification_uri` (forme
-   `verification_uri_complete` qui préremplit le code) ;
-3. `gitlab_device_flow_poll` interroge `POST /oauth/token`
-   (`grant_type=device_code`) au rythme de `interval` ;
-4. les jetons OAuth sont stockés ensemble dans le keychain
-   (`<host>#<instance>#oauth`, JSON) — l'access token et le refresh token ne
-   sont jamais renvoyés au frontend ni journalisés.
+1. `POST https://gitlab.com/oauth/authorize_device` with the Application ID and
+   scopes `api read_user read_repository`;
+2. the frontend displays the `user_code` and opens the `verification_uri` (the
+   `verification_uri_complete` form, which prefills the code);
+3. `gitlab_device_flow_poll` polls `POST /oauth/token`
+   (`grant_type=device_code`) at the `interval` rate;
+4. OAuth tokens are stored together in the OS keychain
+   (`<host>#<instance>#oauth`, JSON) — the access token and refresh token are
+   never returned to the frontend or logged.
 
-Les access tokens GitLab expirent après 2 h. Un refresh token est conservé et
-renouvelé en arrière-plan deux minutes avant l'expiration
-(`grant_type=refresh_token`, rotation obligatoire : le nouveau refresh token
-remplace l'ancien dans le keychain). Le client GitLab partage sa cellule de
-token, donc la rotation profite à tous les clones déjà détenus par les
-commandes. Si le refresh échoue, la session est invalidée (`gitlab://auth-expired`)
-et l'écran de connexion revient.
+GitLab access tokens expire after 2 h. A refresh token is retained and
+renewed in the background two minutes before expiration
+(`grant_type=refresh_token`, required rotation: the new refresh token
+replaces the old one in the OS keychain). The GitLab client shares its token
+cell, so rotation benefits all clones already held by
+commands. If refresh fails, the session is invalidated (`gitlab://auth-expired`)
+and the connection screen returns.
 
-Prérequis de build : `BEEBRANCH_GITLAB_CLIENT_ID` (Application ID public de
-l'application OAuth gitlab.com, **client public**). Une instance auto-hébergée
-nécessite sa propre application OAuth : le device flow intégré est refusé
-(`gitlab.device_flow_unavailable`) et les méthodes PAT / identifiants Git
-restent disponibles.
+Build prerequisite: `BEEBRANCH_GITLAB_CLIENT_ID` (public Application ID of
+the gitlab.com OAuth application, **public client**). A self-hosted instance
+requires its own OAuth application: the built-in device flow is rejected
+(`gitlab.device_flow_unavailable`), and the PAT / Git credential methods
+remain available.
 
-### Réutilisation des credentials Git
+### Reusing Git credentials
 
-Un poste où `git clone https://<instance>/…` fonctionne possède déjà un
-identifiant. BeeBranch le détecte **sans réseau** au démarrage et à chaque
-`gitlab_status` tant qu'aucune session n'est active :
+A workstation where `git clone https://<instance>/…` works already has a
+credential. BeeBranch detects it **without network access** at startup and on each
+`gitlab_status` while no session is active:
 
-| Source | Lecture | Exemple |
+| Source | Reading | Example |
 |---|---|---|
-| `git credential fill` pour l'hôte de l'instance | le helper configuré répond (trousseau macOS, Gestionnaire d'identifiants Windows, `gh auth git-credential`, …) | `username=oauth2` + `password=glpat-…` |
-| `url.<base>.insteadOf` (global et système) | la base de réécriture porte les identifiants | `https://oauth2:glpat-…@gitlab.example.com/` |
-| helper `store --file=<chemin>` | fichier indiqué par la configuration | `credential.helper = store --file=~/work/creds` |
-| fichiers par défaut du helper `store` | `$XDG_CONFIG_HOME/git/credentials`, `~/.git-credentials` | `https://oauth2:glpat-…@gitlab.example.com` |
+| `git credential fill` for the instance host | the configured helper responds (macOS OS keychain, Windows Credential Manager, `gh auth git-credential`, …) | `username=oauth2` + `password=glpat-…` |
+| `url.<base>.insteadOf` (global and system) | the rewrite base carries the credentials | `https://oauth2:glpat-…@gitlab.example.com/` |
+| `store --file=<path>` helper | file specified by the configuration | `credential.helper = store --file=~/work/creds` |
+| default `store` helper files | `$XDG_CONFIG_HOME/git/credentials`, `~/.git-credentials` | `https://oauth2:glpat-…@gitlab.example.com` |
 
-L'écran de connexion expose « Utiliser mes identifiants Git » : l'URL de
-l'instance suffit, le helper est interrogé pour cet hôte puis la session est
-validée par `GET /user`. Aucun token n'est saisi ni copié.
+The connection screen exposes “Use my Git credentials”: the instance URL
+is sufficient; the helper is queried for that host, then the session is
+validated through `GET /user`. No token is entered or copied.
 
-Règles de sûreté :
+Safety rules:
 
-- l'interrogation du helper est bornée (5 s), sans invite terminale
-  (`GIT_TERMINAL_PROMPT=0`) et avec `GCM_INTERACTIVE=never` : un helper
-  interactif ne peut ni bloquer le démarrage ni ouvrir une fenêtre ;
-- le helper n'est interrogé que pour l'hôte d'une instance connue ; sans
-  instance, seuls les fichiers ci-dessus sont scannés et seul un token de forme
-  GitLab (`glpat-`, `gloas-`, …) est utilisé — un token GitHub n'est jamais
-  pris pour GitLab ;
-- seules les entrées `https://user:password@host` avec un mot de passe sont
-  retenues ; SSH et `http://` sont ignorés ;
-- une instance déjà configurée n'accepte que l'identifiant de **son** hôte ;
-- le token n'est ni recopié dans le keychain, ni dans SQLite, ni journalisé ;
-  la session indique sa provenance (`credentialSource`) et « Déconnecter » est
-  masqué : le secret reste géré par Git ;
-- le clone HTTPS utilise ce même identifiant pour l'hôte correspondant, via le
-  helper `GIT_ASKPASS` existant (fichier temporaire 0600, jamais dans argv).
+- helper queries are bounded (5 s), without terminal prompts
+  (`GIT_TERMINAL_PROMPT=0`) and with `GCM_INTERACTIVE=never`: an interactive
+  helper cannot block startup or open a window;
+- the helper is queried only for the host of a known instance; without an
+  instance, only the files above are scanned, and only a GitLab-shaped token
+  (`glpat-`, `gloas-`, …) is used — a GitHub token is never
+  mistaken for GitLab;
+- only `https://user:password@host` entries with a password are
+  retained; SSH and `http://` are ignored;
+- an already configured instance accepts only the credential for **its** host;
+- the token is not copied to the OS keychain or SQLite, or logged;
+  the session indicates its source (`credentialSource`), and “Disconnect” is
+  hidden: the secret remains managed by Git;
+- HTTPS cloning uses this same credential for the matching host, through the
+  existing `GIT_ASKPASS` helper (0600 temporary file, never in argv).
 
-### TLS et réseau
+### TLS and network
 
-- Vérification TLS toujours active.
-- CA interne : import PEM dans les réglages, chargée en plus du trust store système.
-- Proxy : support explicite via réglages (ou variables d'environnement standard), documenté.
-- Erreur TLS : message contenant l'hôte, la cause et la procédure d'import du CA.
-- Aucun mode « ignorer les certificats » au MVP.
+- TLS verification always enabled.
+- Internal CA: PEM import in settings, loaded in addition to the system trust store.
+- Proxy: explicit support through settings (or standard environment variables), documented.
+- TLS error: message containing the host, cause, and CA import procedure.
+- No “ignore certificates” mode in the MVP.
 
 ```mermaid
 sequenceDiagram
-  participant U as Utilisateur
+  participant U as User
   participant UI
   participant App
   participant KC as Keychain
@@ -143,24 +143,24 @@ sequenceDiagram
 
   U->>UI: URL + PAT
   UI->>App: gitlab_configure(url, token)
-  App->>App: normaliser l'URL
+  App->>App: normalize the URL
   App->>GL: GET /user (PRIVATE-TOKEN)
-  alt succès
+  alt success
     GL-->>App: 200 {id, username}
-    App->>KC: stocker le token
-    App->>App: persister l'instance (SQLite)
-    App-->>UI: instance validée
+    App->>KC: store the token
+    App->>App: persist the instance (SQLite)
+    App-->>UI: validated instance
   else 401
     GL-->>App: 401
-    App-->>UI: auth.failed (token invalide)
+    App-->>UI: auth.failed (invalid token)
   else TLS
     App-->>UI: tls.ca_required
   end
 ```
 
-## 3. Projets et association
+## 3. Projects and association
 
-### Liste et recherche
+### Listing and search
 
 ```text
 GET /projects?membership=true&simple=true&per_page=100&order_by=last_activity_at&sort=desc
@@ -168,75 +168,75 @@ GET /projects?search=<q>&membership=true&simple=true&per_page=100
 GET /groups/:id/projects?include_subgroups=true&per_page=100
 ```
 
-- Pagination via `X-Next-Page` ; arrêt sur page vide ou plafond configuré.
-- `simple=true` pour limiter la charge.
-- Cache local TTL (5 min) ; invalidation manuelle.
-- Le champ `id` numérique est utilisé pour les appels API ; `path_with_namespace` pour l'affichage.
+- Pagination via `X-Next-Page`; stop on an empty page or the configured cap.
+- `simple=true` to limit load.
+- Local TTL cache (5 min); manual invalidation.
+- The numeric `id` field is used for API calls; `path_with_namespace` for display.
 
-### Association dépôt ↔ projet
+### Repository ↔ project association
 
-Sources de vérité, par ordre de préférence :
+Sources of truth, in order of preference:
 
-1. Correspondance exacte avec `ssh_url_to_repo` ou `http_url_to_repo`.
-2. Correspondance normalisée du chemin (`path_with_namespace`) et de l'hôte.
-3. Association manuelle assistée (liste filtrée).
+1. Exact match with `ssh_url_to_repo` or `http_url_to_repo`.
+2. Normalized path (`path_with_namespace`) and host match.
+3. Assisted manual association (filtered list).
 
-Normalisation des remotes :
+Remote normalization:
 
-| Forme | Extraction |
+| Form | Extraction |
 |---|---|
 | `git@host:group/project.git` | host, `group/project` |
-| `ssh://git@host:2222/group/project.git` | host, port, chemin |
-| `https://host/group/project.git` | host, chemin |
-| `https://host/gitlab/group/project.git` | préfixe + chemin |
+| `ssh://git@host:2222/group/project.git` | host, port, path |
+| `https://host/group/project.git` | host, path |
+| `https://host/gitlab/group/project.git` | prefix + path |
 
-- Le port SSH et le préfixe de chemin sont pris en compte.
-- Les sous-groupes sont supportés.
-- L'association est stockée dans SQLite et revalidée si le remote change.
-- Un dépôt sans association reste pleinement utilisable ; l'UI propose « associer à un projet ».
+- The SSH port and path prefix are taken into account.
+- Subgroups are supported.
+- The association is stored in SQLite and revalidated if the remote changes.
+- A repository without an association remains fully usable; the UI offers “associate with a project”.
 
-## 4. Clonage
+## 4. Cloning
 
 ### HTTPS
 
-- URL du remote enregistrée **sans token**.
-- Credential helper fourni par l'application :
-  - `git -c credential.helper= -c credential.helper=<helper> clone --progress <url> <path>` ;
-  - le helper lit le token dans le keychain pour l'instance associée.
-- Aucun token en argv, en URL ou dans `.git/config`.
-- Si le helper échoue : `auth.failed` avec remédiation.
+- Remote URL saved **without a token**.
+- Credential helper provided by the application:
+  - `git -c credential.helper= -c credential.helper=<helper> clone --progress <url> <path>`;
+  - the helper reads the token from the OS keychain for the associated instance.
+- No token in argv, URLs, or `.git/config`.
+- If the helper fails: `auth.failed` with remediation.
 
 ### SSH
 
-- Utilise l'agent et `~/.ssh/config` existants.
-- Aucune génération ni upload de clé au MVP.
-- Échec `Permission denied (publickey)` → message avec vérification de `ssh -T git@host`.
+- Uses the existing agent and `~/.ssh/config`.
+- No key generation or upload in the MVP.
+- `Permission denied (publickey)` failure → message with a `ssh -T git@host` check.
 
-### Après clonage
+### After cloning
 
-- Ouvrir la session de dépôt.
-- Associer au projet.
-- Proposer l'initialisation des submodules si présents (action explicite).
+- Open the repository session.
+- Associate with the project.
+- Offer submodule initialization if present (explicit action).
 
 ## 5. Merge requests
 
-### Liste
+### List
 
 ```text
 GET /projects/:id/merge_requests?state=opened&scope=<scope>&order_by=updated_at&sort=desc&per_page=50
 GET /merge_requests?scope=created_by_me|assigned_to_me|reviews_for_me&state=opened&per_page=50
 ```
 
-Scopes UI :
+UI scopes:
 
-- « Mes MR » : `created_by_me`.
-- « À reviewer » : `reviews_for_me`.
-- « Assignées » : `assigned_to_me`.
-- « Projet » : toutes les MR ouvertes du projet courant.
+- “My MRs”: `created_by_me`.
+- “To review”: `reviews_for_me`.
+- “Assigned”: `assigned_to_me`.
+- “Project”: all open MRs in the current project.
 
-Champs utilisés : `iid`, `title`, `state`, `draft`, `source_branch`, `target_branch`, `author`, `assignees`, `reviewers`, `labels`, `detailed_merge_status`, `has_conflicts`, `sha`, `web_url`, `updated_at`, `user_notes_count`, `head_pipeline`.
+Fields used: `iid`, `title`, `state`, `draft`, `source_branch`, `target_branch`, `author`, `assignees`, `reviewers`, `labels`, `detailed_merge_status`, `has_conflicts`, `sha`, `web_url`, `updated_at`, `user_notes_count`, `head_pipeline`.
 
-### Détail
+### Details
 
 ```text
 GET /projects/:id/merge_requests/:iid
@@ -244,13 +244,13 @@ GET /projects/:id/merge_requests/:iid/diffs?per_page=50&page=1
 GET /projects/:id/merge_requests/:iid/pipelines
 ```
 
-- Les diffs proviennent de `/diffs` (jamais de `/changes`, déprécié depuis GitLab 15.7).
-- Chaque entrée contient `old_path`, `new_path`, `new_file`, `renamed_file`, `deleted_file`, `generated_file`, `diff`.
-- Le diff est du texte unifié ; le parseur de `crates/git` peut être réutilisé, sans exécuter Git.
-- `overflow` / `real_size` : afficher un avertissement si le diff est tronqué par GitLab.
-- Option d'exactitude : récupérer `refs/merge-requests/<iid>/head` et calculer le diff localement. À valider en P0 ; fallback API obligatoire.
+- Diffs come from `/diffs` (never `/changes`, deprecated since GitLab 15.7).
+- Each entry contains `old_path`, `new_path`, `new_file`, `renamed_file`, `deleted_file`, `generated_file`, `diff`.
+- The diff is unified text; the `crates/git` parser can be reused without running Git.
+- `overflow` / `real_size`: display a warning if GitLab truncates the diff.
+- Accuracy option: fetch `refs/merge-requests/<iid>/head` and calculate the diff locally. To be validated in P0; API fallback required.
 
-### Création
+### Creation
 
 ```text
 POST /projects/:id/merge_requests
@@ -258,10 +258,10 @@ POST /projects/:id/merge_requests
   remove_source_branch, squash, allow_collaboration
 ```
 
-- La branche source doit être poussée ; sinon message explicite.
-- Draft : préfixe `Draft:` dans le titre (comportement GitLab).
-- Template de description : lecture du template du projet si disponible (P2).
-- Après création : rafraîchir la liste, associer la MR à la branche, afficher le badge.
+- The source branch must be pushed; otherwise, show an explicit message.
+- Draft: `Draft:` prefix in the title (GitLab behavior).
+- Description template: read the project template if available (P2).
+- After creation: refresh the list, associate the MR with the branch, display the badge.
 
 ### Merge / approvals (P2)
 
@@ -272,9 +272,9 @@ POST /projects/:id/merge_requests/:iid/approve
 GET  /projects/:id/merge_requests/:iid/approvals
 ```
 
-- `approvals` est Premium/Ultimate : `403`/`404` → fonctionnalité masquée, pas une erreur.
-- `405 Method Not Allowed`, `406 Not Acceptable`, `409 Conflict` → messages spécifiques (conflit, pipeline requis, déjà mergée).
-- Le merge exige le SHA courant pour éviter une course.
+- `approvals` is Premium/Ultimate: `403`/`404` → feature hidden, not an error.
+- `405 Method Not Allowed`, `406 Not Acceptable`, `409 Conflict` → specific messages (conflict, pipeline required, already merged).
+- The merge requires the current SHA to avoid a race.
 
 ### Discussions (P2)
 
@@ -284,10 +284,10 @@ POST /projects/:id/merge_requests/:iid/discussions
      body, position[base_sha|start_sha|head_sha|old_path|new_path|new_line|old_line]
 ```
 
-- Les positions utilisent les SHAs de `diff_refs`.
-- Une discussion peut être résolue via `PUT .../discussions/:discussion_id?resolved=true`.
+- Positions use the SHAs from `diff_refs`.
+- A discussion can be resolved through `PUT .../discussions/:discussion_id?resolved=true`.
 
-## 6. Pipelines et CI
+## 6. Pipelines and CI
 
 ```text
 GET /projects/:id/merge_requests/:iid/pipelines
@@ -296,60 +296,60 @@ GET /projects/:id/pipelines/:pipeline_id/jobs?per_page=100
 GET /projects/:id/jobs/:job_id/trace
 ```
 
-- La MR expose `head_pipeline` : `id`, `status`, `ref`, `sha`, `web_url`, `detailed_status`.
-- Statuts mappés :
+- The MR exposes `head_pipeline`: `id`, `status`, `ref`, `sha`, `web_url`, `detailed_status`.
+- Mapped statuses:
 
 | GitLab | UI |
 |---|---|
-| `created`, `waiting_for_resource`, `preparing`, `pending` | en attente |
-| `running` | en cours |
-| `success` | succès |
-| `failed` | échec |
-| `canceled` | annulé |
-| `skipped`, `manual`, `scheduled` | neutre / action requise |
-| inconnu | inconnu (ne pas masquer) |
+| `created`, `waiting_for_resource`, `preparing`, `pending` | pending |
+| `running` | running |
+| `success` | success |
+| `failed` | failed |
+| `canceled` | canceled |
+| `skipped`, `manual`, `scheduled` | neutral / action required |
+| unknown | unknown (do not hide) |
 
-- Rafraîchissement : 30 s quand la vue MR est active et la fenêtre au premier plan ; pause sinon ; bouton manuel.
-- Logs de jobs : P2, chargés à la demande, tronqués et paginés.
+- Refresh: 30 s when the MR view is active and the window is in the foreground; paused otherwise; manual button.
+- Job logs: P2, loaded on demand, truncated and paginated.
 
-## 7. Cache, hors ligne et rafraîchissement
+## 7. Cache, offline mode, and refresh
 
-| Donnée | TTL | Invalidation |
+| Data | TTL | Invalidation |
 |---|---|---|
-| Identité utilisateur | session | 401 |
-| Liste de projets | 5 min | manuelle, changement de token |
-| Liste de MR | 60 s (vue active) | mutation, navigation |
-| Détail MR | 60 s | idem |
-| Diffs | 5 min | nouveau SHA de tête |
-| Pipelines | 30 s (actif) | fin d'opération |
+| User identity | session | 401 |
+| Project list | 5 min | manual, token change |
+| MR list | 60 s (active view) | mutation, navigation |
+| MR details | 60 s | same |
+| Diffs | 5 min | new head SHA |
+| Pipelines | 30 s (active) | end of operation |
 
-- Cache SQLite avec `ETag`, `Last-Modified`, `fetched_at`, `body` (quand l'endpoint fournit ces en-têtes ; sinon TTL seul).
-- `If-None-Match` ; `304` réutilise le cache.
-- Hors ligne :
-  - toutes les opérations Git locales fonctionnent ;
-  - les vues GitLab affichent les dernières données avec un bandeau « données du <date> » ;
-  - aucune mutation GitLab n'est mise en file ;
-  - les erreurs réseau ne bloquent jamais l'onglet dépôt.
-- Au retour en ligne : rafraîchissement des vues actives, pas de tempête de requêtes (backoff + jitter).
+- SQLite cache with `ETag`, `Last-Modified`, `fetched_at`, `body` (when the endpoint provides these headers; otherwise, TTL only).
+- `If-None-Match`; `304` reuses the cache.
+- Offline:
+  - all local Git operations work;
+  - GitLab views display the latest data with a “data from <date>” banner;
+  - no GitLab mutations are queued;
+  - network errors never block the repository tab.
+- When back online: refresh active views, no request storm (backoff + jitter).
 
-## 8. Erreurs, retries et limites
+## 8. Errors, retries, and limits
 
-| Code | Traitement |
+| Code | Handling |
 |---|---|
-| `401` | token invalide/expiré → événement d'auth, pas de retry |
-| `403` | scope insuffisant ou fonctionnalité indisponible → message, feature off |
-| `404` | ressource supprimée ou accès refusé → retirer du cache |
-| `409` | conflit (merge, état) → message, rafraîchir |
-| `422` | validation (branche, titre, source) → message de champ |
-| `429` | `Retry-After` respecté, backoff, pas de boucle |
-| `5xx` | retry GET avec backoff exponentiel + jitter, plafonné |
-| Réseau/TLS | message classifié, pas de retry infini |
+| `401` | invalid/expired token → auth event, no retry |
+| `403` | insufficient scope or unavailable feature → message, feature off |
+| `404` | resource deleted or access denied → remove from cache |
+| `409` | conflict (merge, status) → message, refresh |
+| `422` | validation (branch, title, source) → field message |
+| `429` | `Retry-After` honored, backoff, no loop |
+| `5xx` | retry GET with exponential backoff + jitter, capped |
+| Network/TLS | classified message, no infinite retry |
 
-- Retries uniquement pour les requêtes **idempotentes** (`GET`, `HEAD`).
-- Maximum 3 tentatives, délai de base 500 ms, plafond 8 s, jitter.
-- Aucune requête GitLab dans le chemin critique d'une opération Git locale.
+- Retries only for **idempotent** requests (`GET`, `HEAD`).
+- Maximum 3 attempts, 500 ms base delay, 8 s cap, jitter.
+- No GitLab requests in the critical path of a local Git operation.
 
-## 9. Modèle de données local
+## 9. Local data model
 
 ```sql
 gitlab_instances(
@@ -402,40 +402,40 @@ gitlab_cache(
 )
 ```
 
-- Le token n'apparaît dans aucune table.
-- Les corps de cache peuvent contenir des descriptions de MR ; le stockage est local et non chiffré au MVP, documenté.
+- The token does not appear in any table.
+- Cache bodies may contain MR descriptions; storage is local and unencrypted in the MVP, documented.
 
 ## 10. Feature detection
 
-| Fonctionnalité | Détection |
+| Feature | Detection |
 |---|---|
-| Approvals | `GET .../approvals` → 200 ou 403/404 |
-| Merge trains | champ `merge_trains_enabled` du projet |
-| Logs de jobs | `GET .../trace` → 200 |
-| Discussions positionnées | présence de `diff_refs` |
-| Diffs | endpoint `/diffs` disponible |
-| Version | en-tête `X-Gitlab-Version` (si présent) |
+| Approvals | `GET .../approvals` → 200 or 403/404 |
+| Merge trains | project's `merge_trains_enabled` field |
+| Job logs | `GET .../trace` → 200 |
+| Positioned discussions | presence of `diff_refs` |
+| Diffs | `/diffs` endpoint available |
+| Version | `X-Gitlab-Version` header (if present) |
 
-Les fonctionnalités indisponibles sont masquées, jamais remplacées par une erreur bloquante.
+Unavailable features are hidden, never replaced with a blocking error.
 
-## 11. Sécurité
+## 11. Security
 
-- Token dans le keychain uniquement ; accès via le backend.
-- Redaction des en-têtes et des URLs avant tout log.
-- Aucune valeur de token dans les messages d'erreur.
-- TLS vérifié ; CA importée explicitement.
-- Les liens externes sont ouverts dans le navigateur système via une allowlist de schémas (`https`).
-- Les données GitLab ne sont jamais écrites dans le dépôt.
-- Un changement d'URL d'instance invalide l'association et le cache ; le token reste lié à l'ancienne URL jusqu'à suppression explicite.
+- Token in the OS keychain only; access through the backend.
+- Headers and URLs redacted before any logging.
+- No token values in error messages.
+- TLS verified; CA explicitly imported.
+- External links opened in the system browser through a scheme allowlist (`https`).
+- GitLab data is never written to the repository.
+- An instance URL change invalidates the association and cache; the token remains tied to the old URL until explicitly deleted.
 
 ## 12. Tests
 
-| Type | Contenu |
+| Type | Content |
 |---|---|
-| Unitaire | normalisation d'URL, parsing de remote, mapping d'erreurs, pagination, feature detection |
-| Contrat | client mocké (HTTP local) : 200/304/401/403/404/409/422/429/5xx |
-| Intégration | instance GitLab de test (conteneur) : auth, projets, MR, diffs, pipelines |
-| Sécurité | absence de token dans les logs, les URLs et les erreurs |
-| Hors ligne | coupure réseau : Git local OK, vues GitLab en cache, aucune mutation en file |
-| TLS | CA auto-signée acceptée uniquement si importée |
-| Performance | temps de chargement d'une liste de 100 MR, pagination, taille IPC |
+| Unit | URL normalization, remote parsing, error mapping, pagination, feature detection |
+| Contract | mocked client (local HTTP): 200/304/401/403/404/409/422/429/5xx |
+| Integration | test GitLab instance (container): auth, projects, MRs, diffs, pipelines |
+| Security | no tokens in logs, URLs, or errors |
+| Offline | network disconnection: local Git OK, cached GitLab views, no queued mutations |
+| TLS | self-signed CA accepted only if imported |
+| Performance | load time for a list of 100 MRs, pagination, IPC size |

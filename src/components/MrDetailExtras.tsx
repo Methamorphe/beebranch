@@ -3,8 +3,10 @@ import { openExternalUrl } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { formatDateTime, formatNumber, useI18n } from '../i18n'
 import type { ForgeApi } from '../lib/forge'
+import { sliceJobLog } from '../lib/jobLog'
 import type {
   ApprovalsDto,
+  DiffReport,
   GitlabDiffRefs,
   GitlabDiscussion,
   GitlabJob,
@@ -13,6 +15,8 @@ import type {
   JobLog,
 } from '../types/git'
 import { ConfirmDialog } from './ConfirmDialog'
+import { DiffViewer } from './DiffViewer'
+import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -23,7 +27,19 @@ type Props = {
   onRefresh: () => void
 }
 
-type Tab = 'overview' | 'discussions' | 'jobs'
+type Tab = 'overview' | 'discussions' | 'diff' | 'jobs'
+
+/** A comment written from the diff, waiting for the publish action. */
+type PendingComment = {
+  id: string
+  oldPath: string
+  newPath: string
+  side: 'new' | 'old'
+  line: number
+  body: string
+}
+
+let pendingSeq = 0
 
 function statusTone(status: string | undefined): string {
   switch ((status ?? '').toLowerCase()) {
@@ -57,10 +73,23 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
   const { t } = useI18n()
   const [tab, setTab] = useState<Tab>('overview')
   const [discussions, setDiscussions] = useState<GitlabDiscussion[]>([])
+  const [discussionsNext, setDiscussionsNext] = useState<number | undefined>()
   const [approvals, setApprovals] = useState<ApprovalsDto | null>(null)
   const [jobs, setJobs] = useState<GitlabJob[]>([])
+  const [jobsNext, setJobsNext] = useState<number | undefined>()
   const [pipelineId, setPipelineId] = useState<number | null>(null)
+  /** Pipeline pinned from the overview, or `null` for the latest one. */
+  const [pipelineChoice, setPipelineChoice] = useState<number | null>(null)
+  const [jobAction, setJobAction] = useState<{
+    job: GitlabJob
+    action: 'retry' | 'cancel'
+  } | null>(null)
+  const [approvalNote, setApprovalNote] = useState('')
   const [log, setLog] = useState<{ job: GitlabJob; value: JobLog } | null>(null)
+  /** Step whose log section is shown, or `null` for the whole job. */
+  const [logStep, setLogStep] = useState<string | null>(null)
+  /** Whole-run action waiting for its confirmation. */
+  const [runAction, setRunAction] = useState<'rerun' | 'cancel' | null>(null)
   const [body, setBody] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [inline, setInline] = useState(false)
@@ -73,18 +102,32 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
   const [removeSource, setRemoveSource] = useState(false)
   const [autoMerge, setAutoMerge] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
+  /** Open review dialog, or `null` when none is shown. */
+  const [reviewDialog, setReviewDialog] = useState<'changes' | 'edit' | null>(null)
+  const [changesBody, setChangesBody] = useState('')
+  const [editTitle, setEditTitle] = useState('')
+  const [editDescription, setEditDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [diff, setDiff] = useState<DiffReport | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
+  const [pending, setPending] = useState<PendingComment[]>([])
 
-  const loadDiscussions = useCallback(async () => {
-    try {
-      const page = await api.discussions({ projectId, iid: mr.iid })
-      setDiscussions(page.items)
-    } catch (cause) {
-      setError(errorMessage(cause))
-    }
-  }, [api, projectId, mr.iid])
+  const loadDiscussions = useCallback(
+    async (page = 1, append = false) => {
+      try {
+        const result = await api.discussions({ projectId, iid: mr.iid, page })
+        setDiscussions((current) =>
+          append ? [...current, ...result.items] : result.items,
+        )
+        setDiscussionsNext(result.nextPage)
+      } catch (cause) {
+        setError(errorMessage(cause))
+      }
+    },
+    [api, projectId, mr.iid],
+  )
 
   const loadApprovals = useCallback(async () => {
     try {
@@ -94,24 +137,45 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
     }
   }, [api, projectId, mr.iid])
 
-  const loadJobs = useCallback(async () => {
-    try {
-      const page = await api.jobs({ projectId, iid: mr.iid })
-      setJobs(page.items)
-      setPipelineId(page.pipelineId ?? null)
-    } catch (cause) {
-      setError(errorMessage(cause))
-    }
-  }, [api, projectId, mr.iid])
+  const loadJobs = useCallback(
+    async (page = 1, append = false) => {
+      try {
+        const result = await api.jobs({
+          projectId,
+          iid: mr.iid,
+          pipelineId: pipelineChoice ?? undefined,
+          page,
+        })
+        setJobs((current) =>
+          append ? [...current, ...result.items] : result.items,
+        )
+        setJobsNext(result.nextPage)
+        setPipelineId(result.pipelineId ?? null)
+      } catch (cause) {
+        setError(errorMessage(cause))
+      }
+    },
+    [api, projectId, mr.iid, pipelineChoice],
+  )
 
   useEffect(() => {
     setDiscussions([])
+    setDiscussionsNext(undefined)
     setApprovals(null)
     setJobs([])
+    setJobsNext(undefined)
+    setPipelineChoice(null)
+    setJobAction(null)
+    setApprovalNote('')
     setLog(null)
+    setLogStep(null)
+    setRunAction(null)
     setInline(false)
     setRefs(null)
     setReplyTo(null)
+    setDiff(null)
+    setDiffLoading(false)
+    setPending([])
   }, [mr.iid])
 
   useEffect(() => {
@@ -123,6 +187,33 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
       void loadJobs()
     }
   }, [tab, loadDiscussions, loadApprovals, loadJobs])
+
+  useEffect(() => {
+    if (tab !== 'diff') {
+      return
+    }
+    let cancelled = false
+    api
+      .diff(projectId, mr.iid)
+      .then((report) => {
+        if (!cancelled) {
+          setDiff(report)
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setError(errorMessage(cause))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDiffLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tab, api, projectId, mr.iid])
 
   useEffect(() => {
     if (!inline || refs) {
@@ -146,6 +237,128 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
     } finally {
       setBusy(false)
     }
+  }
+
+  /**
+   * Publish the queued comments one by one.
+   *
+   * Neither provider is reachable in batch from here (GitHub needs GraphQL for
+   * a pending review), so each comment is its own call. A failure stays in the
+   * queue and is reported with the first reason instead of being swallowed.
+   */
+  const publishPending = async () => {
+    if (pending.length === 0) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    const cached = refs
+    const anchor =
+      cached ??
+      (await api
+        .diffRefs({ projectId, iid: mr.iid })
+        .then((value) => {
+          setRefs(value)
+          return value
+        })
+        .catch((cause) => {
+          setError(errorMessage(cause))
+          return null
+        }))
+    if (!anchor) {
+      setBusy(false)
+      return
+    }
+    const failed: PendingComment[] = []
+    let sent = 0
+    let reason: string | null = null
+    for (const comment of pending) {
+      try {
+        await api.discussionCreate({
+          projectId,
+          iid: mr.iid,
+          body: comment.body,
+          position: {
+            baseSha: anchor.baseSha,
+            startSha: anchor.startSha,
+            headSha: anchor.headSha,
+            positionType: 'text',
+            newPath: comment.newPath,
+            oldPath: comment.oldPath,
+            newLine: comment.side === 'new' ? comment.line : undefined,
+            oldLine: comment.side === 'old' ? comment.line : undefined,
+          },
+        })
+        sent += 1
+      } catch (cause) {
+        failed.push(comment)
+        reason = reason ?? errorMessage(cause)
+      }
+    }
+    setPending(failed)
+    if (failed.length > 0) {
+      setError(
+        t('forge.detail.publishPartial', {
+          sent,
+          failed: failed.length,
+          reason: reason ?? '',
+        }),
+      )
+    } else {
+      setNotice(t('forge.detail.publishDone', { count: sent }))
+    }
+    await loadDiscussions()
+    onRefresh()
+    setBusy(false)
+  }
+
+  const requestChanges = async () => {
+    if (!changesBody.trim()) {
+      return
+    }
+    await run(t('forge.detail.changesDone'), async () => {
+      setApprovals(
+        await api.requestChanges({
+          projectId,
+          iid: mr.iid,
+          body: changesBody.trim(),
+        }),
+      )
+      setChangesBody('')
+      setReviewDialog(null)
+    })
+  }
+
+  const saveMetadata = async () => {
+    const trimmed = editTitle.trim()
+    if (!trimmed) {
+      return
+    }
+    await run(t('forge.detail.metadataSaved'), async () => {
+      await api.update({
+        projectId,
+        iid: mr.iid,
+        title: trimmed,
+        description: editDescription,
+      })
+      setReviewDialog(null)
+    })
+  }
+
+  const toggleOpen = async () => {
+    const closing = isOpen
+    await run(
+      closing ? t('forge.detail.closed') : t('forge.detail.reopened'),
+      () => api.setOpen({ projectId, iid: mr.iid, open: !closing }),
+    )
+  }
+
+  const toggleDraft = async () => {
+    await run(
+      mr.draft ? t('forge.detail.readyDone') : t('forge.detail.draftDone'),
+      () => api.setDraft({ projectId, iid: mr.iid, draft: !mr.draft }),
+    )
   }
 
   const send = async () => {
@@ -195,11 +408,71 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
     }
   }
 
-  const showLog = async (job: GitlabJob) => {
+  const showLog = async (job: GitlabJob, step: string | null = null) => {
     setBusy(true)
     setError(null)
     try {
       setLog({ job, value: await api.jobLog({ projectId, jobId: job.id }) })
+      setLogStep(step)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Retry or cancel one job, then reload the list with the provider state. */
+  const runJobAction = async () => {
+    if (!jobAction) {
+      return
+    }
+    const { job, action } = jobAction
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      if (action === 'retry') {
+        await api.retryJob?.({ projectId, jobId: job.id })
+      } else {
+        await api.cancelJob?.({ projectId, jobId: job.id })
+      }
+      setNotice(
+        action === 'retry'
+          ? t('forge.detail.jobRetried')
+          : t('forge.detail.jobCancelled'),
+      )
+      setJobAction(null)
+      await loadJobs()
+      onRefresh()
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Re-run the failed jobs of the run, or cancel it, then reload it. */
+  const applyRunAction = async () => {
+    if (!runAction || pipelineId === null) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      if (runAction === 'rerun') {
+        await api.rerunFailed?.({ projectId, runId: pipelineId })
+      } else {
+        await api.cancelRun?.({ projectId, runId: pipelineId })
+      }
+      setNotice(
+        runAction === 'rerun'
+          ? t('forge.detail.runRerunDone')
+          : t('forge.detail.runCancelled'),
+      )
+      setRunAction(null)
+      await loadJobs()
+      onRefresh()
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
@@ -208,6 +481,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
   }
 
   const approval = approvals?.state
+  const isOpen = mr.state === 'opened' || mr.state === 'open'
   const ordered = [...discussions].sort((a, b) => {
     const left = a.notes.find((note) => note.position)?.position
     const right = b.notes.find((note) => note.position)?.position
@@ -227,6 +501,19 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
             onClick={() => setTab('overview')}
           >
             Vue d’ensemble
+          </button>
+          <button
+            type="button"
+            className={tab === 'diff' ? p2.segmentOn : p2.segment}
+            aria-pressed={tab === 'diff'}
+            onClick={() => {
+              setTab('diff')
+              setDiff(null)
+              setDiffLoading(true)
+              setError(null)
+            }}
+          >
+            {t('forge.detail.tabDiff')}
           </button>
           <button
             type="button"
@@ -264,6 +551,77 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
         </div>
       ) : null}
 
+          <section className={p2.paneSection}>
+            <h3 className={p2.paneTitle}>{t('forge.detail.requestTitle')}</h3>
+            <div className={p2.row}>
+              {api.capabilities.editMetadata ? (
+                <button
+                  type="button"
+                  className={p2.secondary}
+                  disabled={busy}
+                  onClick={() => {
+                    setEditTitle(mr.title)
+                    setEditDescription(mr.description ?? '')
+                    setReviewDialog('edit')
+                  }}
+                >
+                  {t('forge.detail.metadataAction')}
+                </button>
+              ) : null}
+              {api.capabilities.draftToggle ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => void toggleDraft()}
+                >
+                  {mr.draft ? t('forge.detail.markReady') : t('forge.detail.markDraft')}
+                </button>
+              ) : null}
+              {api.capabilities.closeReopen ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => void toggleOpen()}
+                >
+                  {isOpen ? t('forge.detail.stateClose') : t('forge.detail.stateReopen')}
+                </button>
+              ) : null}
+              {api.capabilities.requestChanges ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => {
+                    setChangesBody('')
+                    setReviewDialog('changes')
+                  }}
+                >
+                  {t('forge.detail.requestChanges')}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={p2.ghost}
+                disabled={busy}
+                onClick={() => void openExternalUrl(mr.webUrl)}
+              >
+                {t('common.open')}
+              </button>
+            </div>
+            {approval && (approval.changesRequestedBy?.length ?? 0) > 0 ? (
+              <div className={p2.row}>
+                <span className={p2.asideHint}>{t('forge.detail.changesFrom')}</span>
+                {approval.changesRequestedBy?.map((entry) => (
+                  <span key={entry.user.id} className={`${p2.chip} ${p2.chipWarn}`}>
+                    @{entry.user.username}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
       {tab === 'overview' ? (
         <>
           <section className={p2.paneSection}>
@@ -293,6 +651,17 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                     ))
                   )}
                 </div>
+                {api.capabilities.approvalNote ? (
+                  <label className={p2.field}>
+                    {t('forge.detail.approveNote')}
+                    <input
+                      value={approvalNote}
+                      onChange={(event) => setApprovalNote(event.target.value)}
+                      placeholder={t('forge.detail.approveNotePlaceholder')}
+                      disabled={busy}
+                    />
+                  </label>
+                ) : null}
                 <div className={p2.row}>
                   <button
                     type="button"
@@ -300,7 +669,15 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                     disabled={busy}
                     onClick={() =>
                       void run(t('forge.detail.approveDone'), async () => {
-                        setApprovals(await api.approve({ projectId, iid: mr.iid }))
+                        const note = approvalNote.trim()
+                        setApprovals(
+                          await api.approve({
+                            projectId,
+                            iid: mr.iid,
+                            note: note || undefined,
+                          }),
+                        )
+                        setApprovalNote('')
                       })
                     }
                   >
@@ -316,9 +693,12 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                       })
                     }
                   >
-                    Retirer mon approbation
+                    {t('forge.detail.unapprove')}
                   </button>
                 </div>
+                {approvals.reason ? (
+                  <p className={p2.asideHint}>{approvals.reason}</p>
+                ) : null}
               </>
             ) : (
               <p className={p2.asideHint}>
@@ -371,6 +751,18 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                       </span>
                     </span>
                     <span className={p2.entryActions}>
+                      {api.capabilities.pipelineSelection ? (
+                        <button
+                          type="button"
+                          className={p2.ghost}
+                          onClick={() => {
+                            setPipelineChoice(pipeline.id)
+                            setTab('jobs')
+                          }}
+                        >
+                          {t('forge.detail.jobsOpen')}
+                        </button>
+                      ) : null}
                       {pipeline.webUrl ? (
                         <button
                           type="button"
@@ -397,14 +789,15 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                   onChange={(event) => setStrategy(event.target.value)}
                 >
                   <option value="merge">{t('forge.detail.strategyMergeCommit')}</option>
+                  {/* GitLab only accepts `merge`/`squash` on the MR merge
+                      endpoint; `rebase_merge` is a project setting, applied by
+                      `PUT /merge_requests/:iid/rebase` before the merge. */}
                   {api.id === 'github' ? (
                     <>
                       <option value="squash">{t('forge.detail.strategySquash')}</option>
                       <option value="rebase">{t('forge.detail.strategyRebase')}</option>
                     </>
-                  ) : (
-                    <option value="rebase_merge">{t('forge.detail.strategyRebaseMerge')}</option>
-                  )}
+                  ) : null}
                 </select>
               </label>
               <label className={p2.checkbox}>
@@ -453,6 +846,111 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
               })}
             </p>
           </section>
+        </>
+      ) : null}
+
+      {tab === 'diff' ? (
+        <>
+          {pending.length > 0 ? (
+            <section className={p2.paneSection}>
+              <h3 className={p2.paneTitle}>
+                {t('forge.detail.pendingTitle')}
+                <span className={p2.count}>{pending.length}</span>
+              </h3>
+              <p className={p2.asideHint}>{t('forge.detail.pendingHint')}</p>
+              <div className={p2.rows}>
+                {pending.map((comment) => (
+                  <div key={comment.id} className={p2.entry}>
+                    <span className={p2.entryStack}>
+                      <span className={p2.entryMeta}>
+                        <span className={`${p2.chip} ${p2.chipInfo} ${p2.mono}`}>
+                          {comment.side === 'new' ? comment.newPath : comment.oldPath}
+                        </span>
+                        <span className={p2.count}>
+                          {t('forge.detail.pendingAnchor', {
+                            line: comment.line,
+                            side:
+                              comment.side === 'new'
+                                ? t('forge.detail.sideNew')
+                                : t('forge.detail.sideOld'),
+                          })}
+                        </span>
+                      </span>
+                      <span className={p2.comment}>{comment.body}</span>
+                    </span>
+                    <span className={p2.entryActions}>
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        disabled={busy}
+                        aria-label={t('forge.detail.pendingRemove', {
+                          path:
+                            comment.side === 'new'
+                              ? comment.newPath
+                              : comment.oldPath,
+                          line: comment.line,
+                        })}
+                        onClick={() =>
+                          setPending((current) =>
+                            current.filter((entry) => entry.id !== comment.id),
+                          )
+                        }
+                      >
+                        {t('forge.detail.pendingRemoveLabel')}
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className={p2.row}>
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => setPending([])}
+                >
+                  {t('forge.detail.pendingClear')}
+                </button>
+                <span className={p2.spacer} />
+                <button
+                  type="button"
+                  className={p2.primary}
+                  disabled={busy}
+                  onClick={() => void publishPending()}
+                >
+                  {t('forge.detail.publish', { count: pending.length })}
+                </button>
+              </div>
+            </section>
+          ) : null}
+          {diffLoading && diff === null ? (
+            <p className={p2.asideHint}>{t('common.loading')}</p>
+          ) : null}
+          {diff ? (
+            <div className={p2.diffHost}>
+              <DiffViewer
+                report={diff}
+                source={`${api.label} ${api.short} ${mr.iid}`}
+                lineComment={{
+                  suggestions: api.capabilities.suggestions,
+                  onComment: (request) => {
+                    pendingSeq += 1
+                    setPending((current) => [
+                      ...current,
+                      {
+                        id: `pending-${pendingSeq}`,
+                        oldPath: request.oldPath,
+                        newPath: request.newPath,
+                        side: request.side,
+                        line: request.line,
+                        body: request.content,
+                      },
+                    ])
+                  },
+                }}
+              />
+            </div>
+          ) : null}
         </>
       ) : null}
 
@@ -540,6 +1038,20 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
               )
             })
           )}
+
+          {discussionsNext ? (
+            <div className={p2.footerBar}>
+              <span className={p2.spacer} />
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={busy}
+                onClick={() => void loadDiscussions(discussionsNext, true)}
+              >
+                {t('forge.detail.logMore')}
+              </button>
+            </div>
+          ) : null}
 
           <section className={p2.paneSection}>
             <h3 className={p2.paneTitle}>
@@ -641,6 +1153,37 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
             <span className={p2.label}>
               {t('forge.detail.pipelineSummary', { id: pipelineId ?? '—', count: jobs.length })}
             </span>
+            <span className={p2.spacer} />
+            {api.capabilities.runControl && pipelineId !== null ? (
+              <>
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => setRunAction('rerun')}
+                >
+                  {t('forge.detail.runRerun')}
+                </button>
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={busy}
+                  onClick={() => setRunAction('cancel')}
+                >
+                  {t('forge.detail.runCancel')}
+                </button>
+              </>
+            ) : null}
+            {pipelineChoice !== null ? (
+              <button
+                type="button"
+                className={p2.ghost}
+                disabled={busy}
+                onClick={() => setPipelineChoice(null)}
+              >
+                {t('forge.detail.jobsLatest')}
+              </button>
+            ) : null}
           </div>
           {jobs.length === 0 ? (
             <div className={p2.empty} role="status">
@@ -674,8 +1217,49 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                         <span>{Math.round(job.duration)} s</span>
                       ) : null}
                     </span>
+                    {job.steps && job.steps.length > 0 ? (
+                      <span className={p2.entryMeta}>
+                        {job.steps.map((step) => (
+                          <button
+                            key={step.number}
+                            type="button"
+                            className={p2.chip}
+                            title={t('forge.detail.stepLog', {
+                              name: step.name,
+                            })}
+                            onClick={() => void showLog(job, step.name)}
+                          >
+                            {step.number}. {step.name}
+                          </button>
+                        ))}
+                      </span>
+                    ) : null}
                   </span>
                   <span className={p2.entryActions}>
+                    {api.capabilities.jobControl &&
+                    (job.status === 'failed' ||
+                      job.status === 'canceled' ||
+                      job.status === 'cancelled') ? (
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        disabled={busy}
+                        onClick={() => setJobAction({ job, action: 'retry' })}
+                      >
+                        {t('forge.detail.jobRetry')}
+                      </button>
+                    ) : null}
+                    {api.capabilities.jobControl &&
+                    (job.status === 'running' || job.status === 'pending') ? (
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        disabled={busy}
+                        onClick={() => setJobAction({ job, action: 'cancel' })}
+                      >
+                        {t('forge.detail.jobCancel')}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={p2.secondary}
@@ -698,6 +1282,20 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
               ))}
             </div>
           )}
+
+          {jobsNext ? (
+            <div className={p2.footerBar}>
+              <span className={p2.spacer} />
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={busy}
+                onClick={() => void loadJobs(jobsNext, true)}
+              >
+                {t('forge.detail.logMore')}
+              </button>
+            </div>
+          ) : null}
 
           {log ? (
             <section className={p2.paneSection}>
@@ -746,11 +1344,162 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
                   {t('common.close')}
                 </button>
               </div>
-              <pre className={p2.log}>{log.value.text}</pre>
+              {log.job.steps && log.job.steps.length > 0 ? (
+                <div className={p2.row}>
+                  <button
+                    type="button"
+                    className={logStep === null ? p2.secondary : p2.ghost}
+                    onClick={() => setLogStep(null)}
+                  >
+                    {t('forge.detail.allSteps')}
+                  </button>
+                  {log.job.steps.map((step) => (
+                    <button
+                      key={step.number}
+                      type="button"
+                      className={logStep === step.name ? p2.secondary : p2.ghost}
+                      title={t('forge.detail.stepLog', { name: step.name })}
+                      onClick={() => setLogStep(step.name)}
+                    >
+                      {step.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <pre className={p2.log}>{sliceJobLog(log.value.text, logStep)}</pre>
             </section>
           ) : null}
         </>
       ) : null}
+
+      <Dialog
+        open={reviewDialog === 'changes'}
+        onClose={() => setReviewDialog(null)}
+        busy={busy}
+        titleId="review-changes-title"
+      >
+        <h2 id="review-changes-title">{t('forge.detail.changesTitle')}</h2>
+        <p className={p2.asideHint}>{t('forge.detail.changesHint')}</p>
+        <textarea
+          className={p2.editor}
+          value={changesBody}
+          aria-label={t('forge.detail.changesAria')}
+          onChange={(event) => setChangesBody(event.target.value)}
+          disabled={busy}
+        />
+        <div className={p2.row}>
+          <button
+            type="button"
+            className={p2.ghost}
+            disabled={busy}
+            onClick={() => setReviewDialog(null)}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className={p2.primary}
+            disabled={busy || !changesBody.trim()}
+            onClick={() => void requestChanges()}
+          >
+            {t('forge.detail.requestChanges')}
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={reviewDialog === 'edit'}
+        onClose={() => setReviewDialog(null)}
+        busy={busy}
+        titleId="review-edit-title"
+      >
+        <h2 id="review-edit-title">{t('forge.detail.metadataTitle')}</h2>
+        <label className={p2.field}>
+          {t('forge.detail.metadataTitleLabel')}
+          <input
+            value={editTitle}
+            aria-label={t('forge.detail.metadataTitleLabel')}
+            onChange={(event) => setEditTitle(event.target.value)}
+            disabled={busy}
+          />
+        </label>
+        <label className={p2.field}>
+          {t('forge.detail.metadataDescriptionLabel')}
+          <textarea
+            className={p2.editor}
+            value={editDescription}
+            aria-label={t('forge.detail.metadataDescriptionLabel')}
+            onChange={(event) => setEditDescription(event.target.value)}
+            disabled={busy}
+          />
+        </label>
+        <div className={p2.row}>
+          <button
+            type="button"
+            className={p2.ghost}
+            disabled={busy}
+            onClick={() => setReviewDialog(null)}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className={p2.primary}
+            disabled={busy || !editTitle.trim()}
+            onClick={() => void saveMetadata()}
+          >
+            {t('common.save')}
+          </button>
+        </div>
+      </Dialog>
+
+      <ConfirmDialog
+        open={runAction !== null}
+        title={t(
+          runAction === 'cancel'
+            ? 'forge.detail.runCancelTitle'
+            : 'forge.detail.runRerunTitle',
+          { id: pipelineId ?? '' },
+        )}
+        consequence={t(
+          runAction === 'cancel'
+            ? 'forge.detail.runCancelConsequence'
+            : 'forge.detail.runRerunConsequence',
+          { id: pipelineId ?? '', label: api.label },
+        )}
+        confirmLabel={t(
+          runAction === 'cancel'
+            ? 'forge.detail.runCancel'
+            : 'forge.detail.runRerun',
+        )}
+        busy={busy}
+        onCancel={() => setRunAction(null)}
+        onConfirm={() => void applyRunAction()}
+      />
+
+      <ConfirmDialog
+        open={jobAction !== null}
+        title={t(
+          jobAction?.action === 'cancel'
+            ? 'forge.detail.jobCancelTitle'
+            : 'forge.detail.jobRetryTitle',
+          { name: jobAction?.job.name ?? '' },
+        )}
+        consequence={t(
+          jobAction?.action === 'cancel'
+            ? 'forge.detail.jobCancelConsequence'
+            : 'forge.detail.jobRetryConsequence',
+          { name: jobAction?.job.name ?? '', label: api.label },
+        )}
+        confirmLabel={t(
+          jobAction?.action === 'cancel'
+            ? 'forge.detail.jobCancel'
+            : 'forge.detail.jobRetry',
+        )}
+        busy={busy}
+        onCancel={() => setJobAction(null)}
+        onConfirm={() => void runJobAction()}
+      />
 
       <ConfirmDialog
         open={mergeOpen}

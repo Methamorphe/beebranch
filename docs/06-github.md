@@ -1,158 +1,158 @@
-# 06 — Intégration GitHub
+# 06 — GitHub integration
 
-## 1. Périmètre
+## 1. Scope
 
-GitHub s'ajoute à GitLab sans le remplacer. Les deux fournisseurs sont
-indépendants : une session, un jeton, un keychain et des identifiants
-d'instance distincts. Un dépôt ne peut être associé qu'à un projet d'un
-fournisseur à la fois ; les commandes de chaque fournisseur ne lisent que
-l'association qui lui appartient.
+GitHub is added alongside GitLab without replacing it. The two providers are
+independent: separate sessions, tokens, OS keychains, and instance
+identifiers. A repository can be associated with only one project from one
+provider at a time; each provider's commands read only
+the association that belongs to it.
 
-Fonctionnalités livrées :
+Delivered features:
 
-- connexion à `github.com` ou à GitHub Enterprise Server (`/api/v3`) ;
-- Personal Access Token stocké dans le keychain (`beebranch.github`) ;
-- détection hors ligne d'un jeton déjà présent dans Git : helper configuré
-  (`osxkeychain`, GCM, `gh auth git-credential`), `url.*.insteadOf` ou
-  `~/.git-credentials` ; onboarding « Utiliser mes identifiants Git » ;
-- liste et recherche des dépôts accessibles ;
-- association automatique ou manuelle dépôt ↔ projet ;
-- pull requests : mes PR, à relire, assignées, projet ; détail et création ;
-- revues : approbations, retrait d'approbation, commentaires de revue ;
-- checks CI rattachés à la tête de la PR ;
-- jobs GitHub Actions du dernier run et logs bornés ;
-- badge de PR/CI dans le graphe et sélecteur de clonage.
+- connection to `github.com` or GitHub Enterprise Server (`/api/v3`);
+- Personal Access Token stored in the OS keychain (`beebranch.github`);
+- offline detection of a token already present in Git: configured helper
+  (`osxkeychain`, GCM, `gh auth git-credential`), `url.*.insteadOf`, or
+  `~/.git-credentials`; “Use my Git credentials” onboarding;
+- listing and searching accessible repositories;
+- automatic or manual repository ↔ project association;
+- pull requests: my PRs, to review, assigned, project; details and creation;
+- reviews: approvals, approval dismissal, review comments;
+- CI checks attached to the PR head;
+- GitHub Actions jobs from the latest run and bounded logs;
+- PR/CI badge in the graph and clone selector.
 
-## 2. URL et authentification
+## 2. URL and authentication
 
-| Entrée | Base REST | Base web |
+| Input | REST base | Web base |
 |---|---|---|
 | `https://github.com` | `https://api.github.com` | `https://github.com` |
 | `https://api.github.com` | `https://api.github.com` | `https://github.com` |
 | `https://github.example.com` | `https://github.example.com/api/v3` | `https://github.example.com` |
 
-Règles :
+Rules:
 
-- `https` obligatoire ; `http` refusé (`github.insecure_url`) ;
-- identifiants dans l'URL refusés (`github.url_credentials`) ;
-- paramètres et fragment refusés ;
-- en-têtes `Authorization: Bearer <token>`, `Accept:
-  application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28` ;
-- validation par `GET /user` ; un `401` émet `github://auth-expired`.
+- `https` required; `http` rejected (`github.insecure_url`);
+- credentials in the URL rejected (`github.url_credentials`);
+- query parameters and fragments rejected;
+- headers `Authorization: Bearer <token>`, `Accept:
+  application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`;
+- validation through `GET /user`; a `401` emits `github://auth-expired`.
 
-Scopes recommandés : `repo`, `read:user`, `checks:read` (token classique) ou,
-pour un token fine-grained, accès au dépôt avec *Contents* en lecture,
-*Pull requests* en lecture/écriture, *Checks* en lecture et *Metadata*.
-Le formulaire ouvre la page de création de token avec ces scopes préremplis.
+Recommended scopes: `repo`, `read:user`, `checks:read` (classic token) or,
+for a fine-grained token, repository access with read-only *Contents*,
+read/write *Pull requests*, read-only *Checks*, and *Metadata*.
+The form opens the token creation page with these scopes prefilled.
 
-### Device flow OAuth (github.com)
+### OAuth device flow (github.com)
 
-BeeBranch peut connecter github.com sans Personal Access Token via le
-[device authorization grant](https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow) :
+BeeBranch can connect to github.com without a Personal Access Token through the
+[device authorization grant](https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow):
 
-1. l'application demande un code à `POST https://github.com/login/device/code`
-   (scopes `repo read:user`) ;
-2. le frontend affiche `userCode` et ouvre `verificationUri` dans le navigateur ;
-3. il interroge `github_device_flow_poll` au rythme de `interval` ; le backend
-   échange le `device_code` contre un token (`authorization_pending` et
-   `slow_down` sont absorbés) ;
-4. le token `gho_` est validé par `GET /user`, stocké dans le keychain
-   (`beebranch.github`) et n'est jamais renvoyé au frontend.
+1. the application requests a code from `POST https://github.com/login/device/code`
+   (scopes `repo read:user`);
+2. the frontend displays `userCode` and opens `verificationUri` in the browser;
+3. it polls `github_device_flow_poll` at the `interval` rate; the backend
+   exchanges the `device_code` for a token (`authorization_pending` and
+   `slow_down` are handled internally);
+4. the `gho_` token is validated through `GET /user`, stored in the OS keychain
+   (`beebranch.github`), and never returned to the frontend.
 
-Le `device_code` reste côté backend (mémoire seulement) ; lui seul permettrait
-d'obtenir le token. Le bouton n'est proposé que pour `github.com` : GitHub
-Enterprise Server exige une OAuth App propre à l'instance.
+The `device_code` stays on the backend (memory only); it alone would allow
+obtaining the token. The button is offered only for `github.com`: GitHub
+Enterprise Server requires an instance-specific OAuth App.
 
-Client ID : celui de l'OAuth App BeeBranch (**Device Flow activé**) est
-embarqué dans le binaire — un client ID OAuth est public et le device flow
-n'utilise aucun client secret. `BEEBRANCH_GITHUB_CLIENT_ID` (variable
-d'exécution ou de build) permet de pointer une autre OAuth App pour un fork ou
-un test local.
+Client ID: the BeeBranch OAuth App's ID (**Device Flow enabled**) is
+embedded in the binary — an OAuth client ID is public, and the device flow
+uses no client secret. `BEEBRANCH_GITHUB_CLIENT_ID` (runtime
+or build variable) can point to another OAuth App for a fork or
+a local test.
 
-### Réutilisation des identifiants Git
+### Reusing Git credentials
 
-Comme GitLab, BeeBranch interroge `git credential fill` pour l'hôte de
-l'instance configurée : un poste authentifié via `gh auth login` (qui installe
-`gh auth git-credential`), le trousseau macOS ou le Gestionnaire
-d'identifiants Windows se connecte sans nouveau Personal Access Token. La
-requête est locale, bornée à 5 s, sans invite (`GIT_TERMINAL_PROMPT=0`,
-`GCM_INTERACTIVE=never`). Le bouton « Utiliser mes identifiants Git » applique
-le même chemin sans instance préalable. Le jeton reste dans Git : il n'est ni
-copié dans le keychain `beebranch.github`, ni dans SQLite, ni dans les logs.
+Like GitLab, BeeBranch queries `git credential fill` for the host of
+the configured instance: a workstation authenticated through `gh auth login` (which installs
+`gh auth git-credential`), the macOS OS keychain, or Windows Credential
+Manager connects without a new Personal Access Token. The
+request is local, limited to 5 s, and noninteractive (`GIT_TERMINAL_PROMPT=0`,
+`GCM_INTERACTIVE=never`). The “Use my Git credentials” button follows
+the same path without a prior instance. The token stays in Git: it is not
+copied to the `beebranch.github` OS keychain, SQLite, or logs.
 
-## 3. Endpoints utilisés
+## 3. Endpoints used
 
 | Usage | Endpoint |
 |---|---|
-| identité | `GET /user` |
-| dépôts | `GET /user/repos` ; recherche `GET /search/repositories` |
-| dépôt par id | `GET /repositories/{id}` |
-| PR d'un dépôt | `GET /repos/{o}/{r}/pulls?state=open` |
-| PR transverses | `GET /search/issues?q=is:pr is:open <filtre>` |
-| détail | `GET /repos/{o}/{r}/pulls/{n}` |
-| création | `POST /repos/{o}/{r}/pulls` |
+| identity | `GET /user` |
+| repositories | `GET /user/repos`; search `GET /search/repositories` |
+| repository by ID | `GET /repositories/{id}` |
+| repository PRs | `GET /repos/{o}/{r}/pulls?state=open` |
+| cross-repository PRs | `GET /search/issues?q=is:pr is:open <filter>` |
+| details | `GET /repos/{o}/{r}/pulls/{n}` |
+| creation | `POST /repos/{o}/{r}/pulls` |
 | checks | `GET /repos/{o}/{r}/commits/{sha}/check-runs` |
-| commentaires généraux | `GET/POST /repos/{o}/{r}/issues/{n}/comments` |
-| commentaires de revue | `GET/POST /repos/{o}/{r}/pulls/{n}/comments` |
-| réponse à un thread | `POST /repos/{o}/{r}/pulls/{n}/comments/{id}/replies` |
-| revues | `GET/POST /repos/{o}/{r}/pulls/{n}/reviews` |
-| retrait d'approbation | `PUT /repos/{o}/{r}/pulls/{n}/reviews/{id}/dismissals` |
+| general comments | `GET/POST /repos/{o}/{r}/issues/{n}/comments` |
+| review comments | `GET/POST /repos/{o}/{r}/pulls/{n}/comments` |
+| thread reply | `POST /repos/{o}/{r}/pulls/{n}/comments/{id}/replies` |
+| reviews | `GET/POST /repos/{o}/{r}/pulls/{n}/reviews` |
+| approval dismissal | `PUT /repos/{o}/{r}/pulls/{n}/reviews/{id}/dismissals` |
 | merge | `PUT /repos/{o}/{r}/pulls/{n}/merge` |
-| runs Actions | `GET /repos/{o}/{r}/actions/runs?head_sha={sha}` |
-| jobs d'un run | `GET /repos/{o}/{r}/actions/runs/{id}/jobs` |
-| logs d'un job | `GET /repos/{o}/{r}/actions/jobs/{id}/logs` (redirection signée) |
+| Actions runs | `GET /repos/{o}/{r}/actions/runs?head_sha={sha}` |
+| run jobs | `GET /repos/{o}/{r}/actions/runs/{id}/jobs` |
+| job logs | `GET /repos/{o}/{r}/actions/jobs/{id}/logs` (signed redirect) |
 
-Pagination par en-tête `Link: rel="next"`. Les pages sont plafonnées à 100
-éléments ; le client s'arrête dès qu'aucun lien suivant n'est présent.
+Pagination through the `Link: rel="next"` header. Pages are capped at 100
+items; the client stops as soon as no next link is present.
 
-## 4. Modèle de données partagé
+## 4. Shared data model
 
-Les DTO GitHub reprennent exactement les formes GitLab consommées par l'UI :
+GitHub DTOs use exactly the GitLab shapes consumed by the UI:
 
-| GitHub | Champ normalisé |
+| GitHub | Normalized field |
 |---|---|
-| numéro de PR | `iid` |
-| id numérique du dépôt | `projectId` |
+| PR number | `iid` |
+| numeric repository ID | `projectId` |
 | login | `author.username` |
-| état `open` | `opened` |
+| `open` status | `opened` |
 | `mergeable: false` | `hasConflicts` |
 | `mergeable_state` | `detailedMergeStatus` |
 | check-runs | `headPipeline` / pipelines |
-| jobs Actions | jobs CI |
+| Actions jobs | CI jobs |
 
-`repositoryName` est ajouté aux résultats de recherche transverses pour que
-l'application retrouve l'identifiant numérique depuis le cache local.
+`repositoryName` is added to cross-repository search results so that
+the application can find the numeric identifier in the local cache.
 
-## 5. Limites de l'API REST
+## 5. REST API limitations
 
-| Fonction | Comportement |
+| Feature | Behavior |
 |---|---|
-| Résolution d'un thread | non exposée en REST ; l'UI masque « Résoudre » |
-| Auto-merge | GraphQL uniquement ; l'UI masque l'option et l'API la refuse |
-| Suppression de branche au merge | réglage du dépôt ; l'option est masquée |
-| Nombre d'approbations requis | non exposé par la revue de base ; affiché comme inconnu (0) |
-| Statut CI d'une liste de PR | non inclus dans `GET /pulls` ; chargé au détail |
+| Resolving a thread | not exposed through REST; the UI hides “Resolve” |
+| Auto-merge | GraphQL only; the UI hides the option and the API rejects it |
+| Branch deletion on merge | repository setting; the option is hidden |
+| Required approval count | not exposed by the basic review; displayed as unknown (0) |
+| CI status in a PR list | not included in `GET /pulls`; loaded in the details |
 
-Ces limites sont explicites (`github.unsupported`, `github.auto_merge_unsupported`,
-`github.remove_branch_unsupported`) et ne dégradent jamais le reste de
-l'application.
+These limitations are explicit (`github.unsupported`, `github.auto_merge_unsupported`,
+`github.remove_branch_unsupported`) and never degrade the rest of
+the application.
 
-## 6. Cache, retries et sécurité
+## 6. Cache, retries, and security
 
-- Cache SQLite partagé (`core::http_cache`) avec `ETag` et `If-None-Match`.
-- Retries bornés (3) sur `429`, `5xx` et `403` avec quota épuisé
-  (`x-ratelimit-remaining: 0`), backoff déterministe.
-- Aucun token dans les URLs, les logs, SQLite ou les erreurs ; les détails
-  sont redactés (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`).
-- TLS vérifié ; CA interne importable ; redirections non suivies pour les
-  requêtes authentifiées.
+- Shared SQLite cache (`core::http_cache`) with `ETag` and `If-None-Match`.
+- Bounded retries (3) on `429`, `5xx`, and `403` with exhausted quota
+  (`x-ratelimit-remaining: 0`), deterministic backoff.
+- No tokens in URLs, logs, SQLite, or errors; details
+  are redacted (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`).
+- TLS verified; internal CA can be imported; redirects not followed for
+  authenticated requests.
 
 ## 7. Tests
 
-- `crates/github` : normalisation d'URL, remotes, modèle, erreurs, client
-  wiremock (auth, pagination `Link`, PR, checks, discussions, revues, merge,
-  jobs, logs, cache 304).
-- `crates/core` : identifiants `gh_` et redaction des jetons GitHub.
-- `crates/store` : isolation `provider` des instances et des associations.
-- `crates/app` : sélection des identifiants Git pour GitHub.
-- `npm run ui:smoke` : navigation vers « Connexion GitHub » et « Pull requests ».
+- `crates/github`: URL normalization, remotes, model, errors, wiremock
+  client (auth, `Link` pagination, PRs, checks, discussions, reviews, merge,
+  jobs, logs, 304 cache).
+- `crates/core`: `gh_` credentials and GitHub token redaction.
+- `crates/store`: `provider` isolation for instances and associations.
+- `crates/app`: Git credential selection for GitHub.
+- `npm run ui:smoke`: navigation to “GitHub connection” and “Pull requests”.
