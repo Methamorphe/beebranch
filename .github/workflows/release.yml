@@ -359,7 +359,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="$RELEASE_TAG"
-          previous=$(gh release list --repo "${{ github.repository }}" --limit 2 --json tagName --jq '.[1].tagName // empty')
+          # The release being published does not exist yet when this job runs,
+          # so the newest release is the previous one. Excluding the current
+          # tag keeps the step correct on a re-run after a partial
+          # publication; `.[1]` used to skip one version (1.2.0 pointed its
+          # rollback to 1.0.1 instead of 1.1.0).
+          previous=$(gh release list --repo "${{ github.repository }}" --limit 20 --json tagName \
+            --jq "[.[] | select(.tagName != \"$tag\")][0].tagName // empty")
           if [ -n "$previous" ] && [ "$previous" != "$tag" ]; then
             gh release download "$previous" --repo "${{ github.repository }}" --pattern latest.json --dir target/update/previous --clobber || true
           fi
