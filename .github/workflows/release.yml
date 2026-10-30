@@ -342,13 +342,13 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: bundles-*
           path: target/release/bundle
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: manifest-*
           path: target/update/fragments
