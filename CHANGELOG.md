@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.1] — 2026-10-30
+
+### Fixed
+
+- **Custom wallpaper on Windows**: the image was read and persisted but never
+  displayed. Chromium — WebView2 on Windows — silently discards CSS custom
+  property values above 2 MiB, less than the base64 of an ordinary photo, so
+  `--app-bg-image` was dropped while WebKit accepted it. The image is now
+  written as a `background-image` on its own layer; the custom splash screen,
+  which showed nothing but its veil, gets the same fix.
+- **“Create a token” link on Windows**: it opened a File Explorer window
+  instead of the forge page. The URL was launched through `explorer.exe`, which
+  splits its arguments on commas and treats them as filesystem items — the
+  GitLab and GitHub token pages carry comma-separated scopes. Links now go
+  through `ShellExecuteW`, the registered `https` handler.
+
 ## [1.2.0] — 2026-10-30
 
 ### Added

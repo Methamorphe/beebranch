@@ -82,8 +82,11 @@ function mockScript(commits, rows, diffLines) {
       { fullName:'refs/heads/collision', name:'collision', kind:'branch', targetOid:commits[2].sha, objectType:'commit', isHead:false },
       { fullName:'refs/remotes/origin/collision', name:'origin/collision', kind:'remoteBranch', remote:'origin', targetOid:commits[0].sha, objectType:'commit', isHead:false },
       { fullName:'refs/tags/main', name:'main', kind:'tag', targetOid:commits[0].sha, objectType:'commit', isHead:false },
-      { fullName: 'refs/tags/v0.1', name: 'v0.1', kind: 'tag', targetOid: commits[5].sha,
-        objectType: 'commit', isHead: false },
+      // Annotated tag: the ref stores a tag object, and only the commit it
+      // peels to exists as a history row.
+      { fullName: 'refs/tags/v0.1', name: 'v0.1', kind: 'tag',
+        targetOid: '2fd0c0de2fd0c0de2fd0c0de2fd0c0de2fd0c0de',
+        peeledOid: commits[5].sha, objectType: 'tag', isHead: false },
       // Local branch and its remote mirror on the same commit: one branch.
       { fullName: 'refs/heads/synced', name: 'synced', kind: 'branch', targetOid: commits[3].sha,
         objectType: 'commit', upstream: 'refs/remotes/origin/synced', isHead: false },
@@ -1585,7 +1588,21 @@ try {
       if (command === 'background_read') {
         window.__wallpaperReads.push(args.path)
         if (window.__wallpaperFailure) throw { code:'background.read_failed', message:'image introuvable' }
-        return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg=='
+        // A real photo exceeds 2 MiB once base64-encoded, the point where
+        // Chromium (WebView2 on Windows) silently dropped the image while it
+        // travelled through a CSS custom property. Noise keeps the PNG big.
+        const canvas = document.createElement('canvas')
+        canvas.width = 1024
+        canvas.height = 768
+        const context = canvas.getContext('2d')
+        const pixels = context.createImageData(canvas.width, canvas.height)
+        // getRandomValues caps each call at 64 KiB of entropy.
+        for (let offset = 0; offset < pixels.data.length; offset += 65536) {
+          crypto.getRandomValues(pixels.data.subarray(offset, Math.min(offset + 65536, pixels.data.length)))
+        }
+        context.putImageData(pixels, 0, 0)
+        window.__wallpaperUrl = canvas.toDataURL('image/png')
+        return window.__wallpaperUrl
       }
       return original(command, args)
     }
@@ -1598,7 +1615,11 @@ try {
   assertUI('wallpaper-css-layer', await evaluate(client, `(() => {
     const root = getComputedStyle(document.documentElement)
     const shell = getComputedStyle(document.querySelector('#root > div'))
-    return root.getPropertyValue('--app-bg-image').startsWith('url("data:image/png;base64,')
+    const layer = [...document.querySelectorAll('#root div')]
+      .find((node) => getComputedStyle(node).backgroundImage.startsWith('url("data:image/png;base64,'))
+    const image = layer ? getComputedStyle(layer).backgroundImage : ''
+    return window.__wallpaperUrl.length > 2 * 1024 * 1024
+      && image.length > 2 * 1024 * 1024
       && root.getPropertyValue('--app-bg-dim').trim() === '0.45'
       && root.getPropertyValue('--app-bg-size').trim() === 'cover'
       && shell.backgroundColor === 'rgba(0, 0, 0, 0)'
@@ -1645,7 +1666,7 @@ try {
   await go('profiles')
   await evaluate(client, `[...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Retirer').click()`)
   await waitFor(client, `document.documentElement.dataset.background === undefined`, 'wallpaper removed')
-  assertUI('wallpaper-remove-clears-layer', await evaluate(client, `!document.documentElement.style.getPropertyValue('--app-bg-image') && !document.body.innerText.includes('wallpaper.gif')`))
+  assertUI('wallpaper-remove-clears-layer', await evaluate(client, `![...document.querySelectorAll('#root div')].some((node) => getComputedStyle(node).backgroundImage.startsWith('url("data:image/png')) && !document.body.innerText.includes('wallpaper.gif')`))
   await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__wallpaperInvokeBefore; return true })()`)
 
   await go('graph')
@@ -3438,7 +3459,7 @@ try {
   const origin = await evaluate(client, 'location.origin')
   await client.send('Page.navigate', { url: origin + '/splash.html' })
   await waitFor(client, `document.documentElement.dataset.splash === 'logo'`, 'default splash')
-  assertUI('splash-default-logo', await evaluate(client, `getComputedStyle(document.querySelector('.badge')).display !== 'none' && !document.documentElement.style.getPropertyValue('--splash-image')`))
+  assertUI('splash-default-logo', await evaluate(client, `getComputedStyle(document.querySelector('.badge')).display !== 'none' && getComputedStyle(document.querySelector('.backdrop')).backgroundImage === 'none'`))
   await screenshot(client, 'splash-logo.png')
 
   await client.send('Page.addScriptToEvaluateOnNewDocument', { source: `
@@ -3449,7 +3470,19 @@ try {
           return JSON.stringify({ path: '/tmp/splash.gif', fit: 'tile', dim: 30, blur: 6 })
         }
         if (command === 'background_read') {
-          return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg=='
+          // Same 2 MiB threshold as the wallpaper: a custom property would have
+          // been dropped by Chromium.
+          const canvas = document.createElement('canvas')
+          canvas.width = 1024
+          canvas.height = 768
+          const context = canvas.getContext('2d')
+          const pixels = context.createImageData(canvas.width, canvas.height)
+          for (let offset = 0; offset < pixels.data.length; offset += 65536) {
+            crypto.getRandomValues(pixels.data.subarray(offset, Math.min(offset + 65536, pixels.data.length)))
+          }
+          context.putImageData(pixels, 0, 0)
+          window.__splashUrl = canvas.toDataURL('image/png')
+          return window.__splashUrl
         }
         return original(command, args)
       }
@@ -3460,11 +3493,13 @@ try {
   assertUI('splash-custom-layers', await evaluate(client, `(() => {
     const root = getComputedStyle(document.documentElement)
     const backdrop = getComputedStyle(document.querySelector('.backdrop'))
-    return root.getPropertyValue('--splash-size').trim() === 'auto'
+    return window.__splashUrl.length > 2 * 1024 * 1024
+      && backdrop.backgroundImage.startsWith('url("data:image/png;base64,')
+      && backdrop.backgroundImage.length > 2 * 1024 * 1024
+      && root.getPropertyValue('--splash-size').trim() === 'auto'
       && root.getPropertyValue('--splash-repeat').trim() === 'repeat'
       && root.getPropertyValue('--splash-dim').trim() === '0.3'
       && root.getPropertyValue('--splash-blur').trim() === '6px'
-      && backdrop.backgroundImage.startsWith('url("data:image/png;base64,')
       && getComputedStyle(document.querySelector('.badge')).display === 'none'
   })()`))
   await screenshot(client, 'splash-custom.png')

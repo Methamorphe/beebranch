@@ -52,10 +52,11 @@ body {
   transition: opacity 180ms ease-out;
 }
 
-/* Overscan by the blur radius so the filtered edges never show. */
+/* Overscan by the blur radius so the filtered edges never show. The image is
+   written on this node by `src/splash.ts`: Chromium drops custom property
+   values above 2 MiB, so it cannot travel as a variable. */
 .backdrop {
   inset: calc(var(--splash-blur, 0px) * -2);
-  background-image: var(--splash-image, none);
   background-position: center;
   background-repeat: var(--splash-repeat, no-repeat);
   background-size: var(--splash-size, cover);
