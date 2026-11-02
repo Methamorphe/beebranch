@@ -121,6 +121,11 @@ export type DiffRequest = {
   base?: string
   targetRef?: string
   path?: string
+  /**
+   * UI-only: select this path after loading a multi-file report.
+   * Unlike `path`, it does not filter the backend request.
+   */
+  focusPath?: string
   contextLines?: number
   untracked?: boolean
   /** Enables hunk/line staging controls in the diff view. */
