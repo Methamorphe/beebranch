@@ -1,11 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [1.4.0] — 2026-11-02
 
 ### Added
 
-- Right-click a file in the changes panel to reach the same actions as the row `···` menu — stage or unstage, open in the configured editor, ignore an untracked file by file/extension/folder, discard unstaged edits, copy the path — plus file deletion.
-- Delete a file from the working tree after an explicit confirmation. The backend refuses directories and paths that resolve outside the worktree, unlinks symbolic links without following them, and journals the deletion as a destructive operation.
+- **File context menu** (#26): right-click a file in the changes panel to reach the same actions as the row `···` menu — stage or unstage, open in the configured editor, ignore an untracked file by file/extension/folder, discard unstaged edits, and copy the path. One shared action list feeds both menus, so the row menu keeps every action keyboard-reachable.
+- **File deletion** (#26): delete a file from the working tree after an explicit confirmation. Directories and paths that resolve outside the worktree are refused, symbolic links are unlinked without being followed, and the deletion is journaled as a destructive operation. A tracked file can be restored from the index; an untracked file is permanently lost.
+- **Find in the history graph** (#23): `Mod+F` opens a find bar over the loaded commits. Matches on subject, author and SHA prefix are revealed with Enter or ↑/↓; Escape closes the bar. Deep Search stays on `Mod+Shift+F`, and focused editors or inputs keep their own `Mod+F`.
+- **Keyboard navigation between diff files** (#25): `←`/`→` and `↑`/`↓` move between files of a multi-file diff while the active file stays scrolled into view. Editable fields, dialogs and menus keep those keys. Opening a file from the commit detail loads the full commit diff and selects that file instead of filtering the report to it.
 
 ## [1.3.1] — 2026-11-02
 
