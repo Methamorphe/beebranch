@@ -3000,6 +3000,46 @@ try {
   await delay(120)
   assertUI('graph-drag-cancel-no-menu', await evaluate(client, `!document.querySelector('[role="menu"]')`))
 
+  // Drag a graph branch onto a left-panel local branch (issue #19).
+  const navDrop = await evaluate(client, `(() => {
+    const bounds = document.querySelector('canvas').getBoundingClientRect()
+    const row = document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"]')
+    const rowBounds = row.getBoundingClientRect()
+    return {
+      source: { x: bounds.left + 20, y: bounds.top + 12 * 30 + 15 },
+      target: { x: rowBounds.left + rowBounds.width / 2, y: rowBounds.top + rowBounds.height / 2 },
+    }
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, buttons:1, x: navDrop.source.x, y: navDrop.source.y })
+  for (const ratio of [0.2, 0.4, 0.6, 0.8, 1]) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      button: 'left',
+      buttons: 1,
+      x: navDrop.source.x + (navDrop.target.x - navDrop.source.x) * ratio,
+      y: navDrop.source.y + (navDrop.target.y - navDrop.source.y) * ratio,
+    })
+    await delay(45)
+  }
+  assertUI(
+    'navigator-drop-highlight',
+    await evaluate(client, `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"][data-drop="true"]') !== null`),
+  )
+  const navGhost = await evaluate(client, `(() => { const ghost = document.querySelector('[class*=dragGhost]'); return ghost ? ghost.innerText : null })()`)
+  assertUI('navigator-drop-ghost', navGhost !== null && navGhost.includes('feature') && navGhost.includes('main'))
+  await client.send('Input.dispatchMouseEvent', { type:'mouseReleased', button:'left', clickCount:1, buttons:0, x: navDrop.target.x, y: navDrop.target.y })
+  await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'navigator drop menu')
+  assertUI(
+    'navigator-drop-menu',
+    await evaluate(client, `(() => {
+      const menu = document.querySelector('[role="menu"]')
+      return menu.innerText.includes('Fusionner feature dans main') && menu.innerText.includes('Rebaser feature sur main')
+    })()`),
+  )
+  await key('Escape')
+  await delay(80)
+  assertUI('navigator-drop-cancel', await evaluate(client, `!document.querySelector('[role="menu"]')`))
+
   // A fetch refresh must not blank the graph or the commit inspector while
   // the new page is loading (stale-while-revalidate).
   await evaluate(client, `document.querySelector('canvas').focus()`)
