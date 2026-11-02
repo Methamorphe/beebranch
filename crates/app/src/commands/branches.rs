@@ -144,6 +144,22 @@ fn integration_undo(
             _ => undo::restore_to(before, RestoreMode::Hard),
         }),
     }
+    // Restoring the original checkout only resets that branch. If the
+    // integration switched branches, also restore the branch it modified.
+    if operation.is_none() && before.head_branch.as_deref() != Some(target) {
+        let reference = format!("refs/heads/{target}");
+        if let (Some(previous), Some(current)) =
+            (ref_sha(before, &reference), ref_sha(after, &reference))
+        {
+            if previous != current {
+                actions.push(ReversibleAction::UpdateRef {
+                    reference,
+                    expected: current,
+                    sha: previous,
+                });
+            }
+        }
+    }
     if let Some(stash) = auto_stash {
         actions.push(ReversibleAction::ApplyStash {
             selector: stash.selector.clone(),
@@ -220,7 +236,7 @@ pub struct IntegrationStartRequest {
     pub confirmation: Confirmation,
 }
 
-/// Start a branch drop: check out the target, then merge or rebase.
+/// Start a branch drop: merge source into target, or rebase source onto target.
 #[tauri::command]
 pub async fn branch_integration_start(
     state: State<'_, AppState>,
@@ -231,10 +247,14 @@ pub async fn branch_integration_start(
         .verify(DestructiveAction::BranchIntegrate, None)?;
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
-    let target_ref = format!("refs/heads/{}", request.target);
+    let branch_to_update = match request.mode {
+        IntegrationMode::Merge => request.target.clone(),
+        IntegrationMode::Rebase => request.source.clone(),
+    };
+    let target_ref = format!("refs/heads/{branch_to_update}");
     let label = match request.mode {
         IntegrationMode::Merge => format!("merge de {} dans {}", request.source, request.target),
-        IntegrationMode::Rebase => format!("rebase de {} sur {}", request.target, request.source),
+        IntegrationMode::Rebase => format!("rebase de {} sur {}", request.source, request.target),
     };
     let source = request.source.clone();
     let target = request.target.clone();
@@ -258,7 +278,7 @@ pub async fn branch_integration_start(
                 request.fast_forward,
             )?;
             let builder_label = label.clone();
-            let target = target.clone();
+            let target = branch_to_update.clone();
             let operation = result.outcome.state.operation.clone();
             let auto_stash = result.auto_stash.clone();
             let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
@@ -978,6 +998,65 @@ mod tests {
             assert_eq!(restored.refs, before.refs);
             assert_eq!(read(dir.path(), "a.txt"), "unstaged\n");
             assert_eq!(read(dir.path(), "new.txt"), "new\n");
+        }
+    }
+
+    #[test]
+    fn undo_rebase_restores_source_and_original_checkout_without_moving_main() {
+        for start_on_source in [false, true] {
+            let dir = tempfile::tempdir().expect("dir");
+            let runner = GitRunner::detect().expect("git");
+            repository(dir.path(), &runner);
+            std::fs::write(dir.path().join("main.txt"), "main\n").unwrap();
+            git(&runner, dir.path(), GitSubcommand::Add, &["-A"], &[]);
+            git(
+                &runner,
+                dir.path(),
+                GitSubcommand::Commit,
+                &["-F", "-"],
+                b"main\n",
+            );
+            if start_on_source {
+                git(
+                    &runner,
+                    dir.path(),
+                    GitSubcommand::Switch,
+                    &["feature"],
+                    &[],
+                );
+            }
+            let discovery = discover(&runner, dir.path()).unwrap();
+            let refs = vec![
+                "refs/heads/feature".to_owned(),
+                "refs/heads/main".to_owned(),
+            ];
+            let before = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
+            let result = integration::start(
+                &runner,
+                dir.path(),
+                "feature",
+                "main",
+                IntegrationMode::Rebase,
+                MergeFastForward::Auto,
+            )
+            .unwrap();
+            let after = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
+            let (action, redo) = integration_undo(
+                &before,
+                &after,
+                "feature",
+                result.outcome.state.operation.as_ref(),
+                None,
+            );
+            undo::apply(&runner, &discovery, &action, &mut |_| Ok(())).unwrap();
+            let restored = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
+            assert_eq!(restored.head_branch, before.head_branch);
+            assert_eq!(restored.head_sha, before.head_sha);
+            assert_eq!(restored.refs, before.refs);
+            undo::apply(&runner, &discovery, &redo.expect("redo"), &mut |_| Ok(())).unwrap();
+            let redone = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
+            assert_eq!(redone.head_branch, after.head_branch);
+            assert_eq!(redone.refs, after.refs);
         }
     }
 

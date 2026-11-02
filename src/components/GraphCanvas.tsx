@@ -30,6 +30,7 @@ import {
   resolveGraphRef,
   type GraphRefKind,
 } from '../lib/graphRefs'
+import { graphBranchFocus } from '../lib/graphBranchFocus'
 import { authorAvatarStyle } from '../lib/authorAvatar'
 import { parseHexColor, pillFill, readableTextColor } from '../lib/contrast'
 import styles from './GraphCanvas.module.css'
@@ -86,6 +87,8 @@ type Props = {
   pin?: { row: number; lane: number } | null
 }
 
+const BRANCH_FOCUS_DELAY = 450
+const UNFOCUSED_ALPHA = 0.22
 const ROW_HEIGHT = 30
 const OVERSCAN = 8
 /** Comfortable-density graph node: initials disc plus lane ring, within 30 px rows. */
@@ -456,7 +459,10 @@ export function GraphCanvas({
   }
   const [refHover, setRefHover] = useState<RefAnchor | null>(null)
   const dragStart = useRef<{ entry: RefEntry; x: number; y: number } | null>(null)
+  const dragPointerId = useRef<number | null>(null)
   const dragTargetRect = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
+  const dragTargetEntry = useRef<RefEntry | null>(null)
+  const externalDropEl = useRef<HTMLElement | null>(null)
   const [drag, setDrag] = useState<{ entry: RefEntry; x: number; y: number; target: RefEntry | null } | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -469,10 +475,43 @@ export function GraphCanvas({
   const closeRefSoon = () => { cancelRefClose(); closeTimer.current = setTimeout(() => { if (!popupRef.current?.contains(document.activeElement)) setRefHover(null) }, 140) }
   const checkoutRef = (raw: string) => {
     if (checkoutDisabled || !isCheckoutableRef(resolveGraphRef(raw, refEntries))) return
+    hoverBranch(null)
     cancelRefClose()
     setRefHover(null)
     onCheckoutRef?.(raw)
   }
+  const [focusTip, setFocusTip] = useState<string | null>(null)
+  const focusCandidate = useRef<string | null>(null)
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const branchFocus = useMemo(
+    () => focusTip ? graphBranchFocus(commits, rows, focusTip) : null,
+    [commits, rows, focusTip],
+  )
+  const hoverBranch = useCallback((tip: string | null) => {
+    if (focusCandidate.current === tip) return
+    focusCandidate.current = tip
+    if (focusTimer.current) clearTimeout(focusTimer.current)
+    focusTimer.current = null
+    setFocusTip(null)
+    if (tip) focusTimer.current = setTimeout(() => {
+      focusTimer.current = null
+      setFocusTip(tip)
+    }, BRANCH_FOCUS_DELAY)
+  }, [])
+  useEffect(() => {
+    const clear = () => hoverBranch(null)
+    clear()
+    window.addEventListener('blur', clear)
+    window.addEventListener('resize', clear)
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') clear() }
+    document.addEventListener('keydown', escape)
+    return () => {
+      if (focusTimer.current) clearTimeout(focusTimer.current)
+      window.removeEventListener('blur', clear)
+      window.removeEventListener('resize', clear)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [generation, hoverBranch])
   const hoveredRef = useRef<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const revealed = useRef<number | undefined>(undefined)
@@ -590,6 +629,7 @@ export function GraphCanvas({
       pin ? (lane === 0 ? pin.lane : lane === pin.lane ? 0 : lane) : lane
     const laneAt = (lane: number, index: number) =>
       pin && index > pin.row ? swapLane(lane) : lane
+    const alphaFor = (sha: string) => !branchFocus || branchFocus.ancestors.has(sha) ? 1 : UNFOCUSED_ALPHA
     const emphasisFor = (sha: string, index: number) =>
       sha === selected
         ? 0.5
@@ -606,8 +646,9 @@ export function GraphCanvas({
     for (let index = first; index <= last; index += 1) {
       const commit = commits[index]
       if (!commit) continue
+      context.globalAlpha = 1
       const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
-      const emphasis = emphasisFor(commit.sha, index)
+      const emphasis = emphasisFor(commit.sha, index) * alphaFor(commit.sha)
       if (emphasis > 0) {
         context.globalAlpha = emphasis
         context.fillStyle = findHits?.has(commit.sha) && commit.sha !== selected && !picked.includes(commit.sha)
@@ -619,10 +660,13 @@ export function GraphCanvas({
         context.globalAlpha = 1
       }
       if (commit.sha === selected || picked.includes(commit.sha)) {
+        context.globalAlpha = alphaFor(commit.sha)
         context.fillStyle = accentColor
         context.fillRect(2, y - ROW_HEIGHT / 2 + stripInset, 2, ROW_HEIGHT - stripInset * 2)
       }
     }
+
+    context.globalAlpha = 1
 
     // 2. Lane rails. A lane keeps its column until the row of the commit it
     // heads to: an inherited lane is crossed edge to edge, while a lane opened
@@ -643,7 +687,29 @@ export function GraphCanvas({
       const boundary = pin !== null && index === pin.row
       const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
       const nodeX = laneX(nodeLane)
+      const strokeRail = (lane: number, path: Path2D) => {
+        const focus = branchFocus?.lanes[index]
+        if (!focus) { context.stroke(path); return }
+        if (focus.top.has(lane) === focus.bottom.has(lane)) {
+          context.save()
+          context.globalAlpha = focus.top.has(lane) ? 1 : UNFOCUSED_ALPHA
+          context.stroke(path)
+          context.restore()
+          return
+        }
+        // Split at the node: incoming children need not belong to this branch.
+        for (const [highlighted, y] of [[focus.top.has(lane), top], [focus.bottom.has(lane), center]] as const) {
+          context.save()
+          context.beginPath()
+          context.rect(col.refs, y, col.graph, ROW_HEIGHT / 2)
+          context.clip()
+          context.globalAlpha = highlighted ? 1 : UNFOCUSED_ALPHA
+          context.stroke(path)
+          context.restore()
+        }
+      }
       for (const rail of row.rails) {
+        const path = new Path2D()
         const topLane = laneAt(rail.lane, index)
         const bottomLane = boundary ? swapLane(rail.lane) : topLane
         if (!rail.fromTop) {
@@ -653,10 +719,9 @@ export function GraphCanvas({
           const end = rail.toBottom ? top + ROW_HEIGHT : center
           if (end - start < 0.5) continue
           context.strokeStyle = laneColor(bottomLane)
-          context.beginPath()
-          context.moveTo(x, start)
-          context.lineTo(x, end)
-          context.stroke()
+          path.moveTo(x, start)
+          path.lineTo(x, end)
+          strokeRail(rail.lane, path)
           continue
         }
         const xTop = laneX(topLane)
@@ -667,19 +732,18 @@ export function GraphCanvas({
           ? top + ROW_HEIGHT
           : center - (arrival ? corner(xTop, nodeX) : 0)
         context.strokeStyle = laneColor(bottomLane)
-        context.beginPath()
-        context.moveTo(xTop, top)
+        path.moveTo(xTop, top)
         if (topLane === bottomLane) {
           if (end - top < 0.5) continue
-          context.lineTo(xTop, end)
+          path.lineTo(xTop, end)
         } else {
           // Pin boundary: the incoming column steps to the pinned column on
           // the centerline instead of leaving a gap between the two rows.
-          context.lineTo(xTop, center)
-          context.lineTo(xBottom, center)
-          if (rail.toBottom) context.lineTo(xBottom, end)
+          path.lineTo(xTop, center)
+          path.lineTo(xBottom, center)
+          if (rail.toBottom) path.lineTo(xBottom, end)
         }
-        context.stroke()
+        strokeRail(rail.lane, path)
       }
     }
 
@@ -702,6 +766,7 @@ export function GraphCanvas({
         if (laneIndex === row.nodeLane) continue
         context.strokeStyle = laneColor(laneIndex)
         if (row.departures.includes(laneIndex)) {
+          context.globalAlpha = alphaFor(commits[index]!.sha)
           const x = laneX(boundary ? swapLane(laneIndex) : laneAt(laneIndex, index))
           if (x !== nodeX) {
             const radius = corner(nodeX, x)
@@ -714,6 +779,7 @@ export function GraphCanvas({
           }
         }
         if (row.arrivals.includes(laneIndex)) {
+          context.globalAlpha = !branchFocus || branchFocus.lanes[index]?.top.has(laneIndex) ? 1 : UNFOCUSED_ALPHA
           const x = laneX(laneAt(laneIndex, index))
           if (x !== nodeX) {
             const radius = corner(nodeX, x)
@@ -739,6 +805,7 @@ export function GraphCanvas({
       const boundary = pin !== null && index === pin.row
       const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
       const nodeX = laneX(nodeLane)
+      context.globalAlpha = alphaFor(commit.sha)
       const isSelected = commit.sha === selected
       const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
       const accentRing = isSelected || headCommit
@@ -801,6 +868,7 @@ export function GraphCanvas({
         continue
       }
       const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
+      context.globalAlpha = alphaFor(commit.sha)
       const nodeColor = laneColor(row.nodeLane)
 
       // References: every visible ref is a colored pill, overflow becomes `+N`.
@@ -898,6 +966,7 @@ export function GraphCanvas({
 
     }
 
+    context.globalAlpha = 1
     const dropRect = dragTargetRect.current
     if (dropRect) {
       context.strokeStyle = accentTextColor
@@ -912,8 +981,7 @@ export function GraphCanvas({
     for (const x of [col.refs, col.refs + col.graph, ...(col.author ? [width - col.author - col.date] : []), ...(col.date ? [width - col.date] : [])]) {
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
-
-  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale])
+  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -970,29 +1038,98 @@ export function GraphCanvas({
     return () => { media.removeEventListener('change', scheduleDraw); observer.disconnect() }
   }, [scheduleDraw])
 
+  const markExternalDrop = (el: HTMLElement | null) => {
+    if (externalDropEl.current === el) return
+    if (externalDropEl.current) externalDropEl.current.removeAttribute('data-drop')
+    externalDropEl.current = el
+    if (el) el.setAttribute('data-drop', 'true')
+  }
+
+  const hitRef = (clientX: number, clientY: number) => {
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    if (!bounds) return
+    const x = clientX - bounds.left, y = clientY - bounds.top
+    return refRects.current.find((rect) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
+  }
+
+  /** Canvas branch badge, or a local branch row in the left navigator. */
+  const resolveDropTarget = (clientX: number, clientY: number, source: RefEntry) => {
+    const hit = hitRef(clientX, clientY)
+    if (hit) {
+      markExternalDrop(null)
+      const entry = resolveGraphRef(hit.raw, refEntries)
+      if (!entry || entry.kind !== 'branch') return null
+      if (entry.fullName === source.fullName) return null
+      return {
+        entry,
+        rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
+      }
+    }
+    // Skip the canvas itself: with pointer capture it sits under the cursor
+    // even when the gesture visually left the graph for the left panel.
+    const stack =
+      typeof document.elementsFromPoint === 'function'
+        ? document.elementsFromPoint(clientX, clientY)
+        : [document.elementFromPoint(clientX, clientY)].filter(Boolean)
+    const row = stack
+      .map((node) =>
+        node instanceof Element ? node.closest<HTMLElement>('[data-ref]') : null,
+      )
+      .find(
+        (candidate) =>
+          candidate &&
+          candidate.closest('[data-repository-section="local"]') &&
+          candidate.getAttribute('data-ref')?.startsWith('refs/heads/'),
+      )
+    if (!row) {
+      markExternalDrop(null)
+      return null
+    }
+    const fullName = row.getAttribute('data-ref')
+    const entry = refEntries.find((candidate) => candidate.fullName === fullName)
+    if (!entry || entry.kind !== 'branch' || entry.fullName === source.fullName) {
+      markExternalDrop(null)
+      return null
+    }
+    markExternalDrop(row)
+    return { entry, rect: null }
+  }
+  const releaseDragCapture = () => {
+    const canvas = canvasRef.current
+    const pointerId = dragPointerId.current
+    dragPointerId.current = null
+    if (canvas && pointerId !== null && canvas.hasPointerCapture(pointerId)) {
+      canvas.releasePointerCapture(pointerId)
+    }
+  }
+
+  const isDragging = drag !== null
   useEffect(() => {
-    if (!drag) return
+    if (!isDragging) return
+    const clearExternalDrop = () => {
+      const el = externalDropEl.current
+      if (!el) return
+      el.removeAttribute('data-drop')
+      externalDropEl.current = null
+    }
     const abort = () => {
       dragStart.current = null
       dragTargetRect.current = null
+      dragTargetEntry.current = null
+      clearExternalDrop()
+      releaseDragCapture()
       setDrag(null)
       scheduleDraw()
     }
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') abort()
     }
-    const releaseOutside = (event: PointerEvent) => {
-      const canvas = canvasRef.current
-      if (canvas && event.target instanceof Node && canvas.contains(event.target)) return
-      abort()
-    }
     document.addEventListener('keydown', escape)
-    window.addEventListener('pointerup', releaseOutside)
     return () => {
       document.removeEventListener('keydown', escape)
-      window.removeEventListener('pointerup', releaseOutside)
+      clearExternalDrop()
     }
-  }, [drag, scheduleDraw])
+  }, [isDragging, scheduleDraw])
 
   useEffect(() => {
     if (!branchTarget) return
@@ -1024,26 +1161,8 @@ export function GraphCanvas({
     return () => { document.removeEventListener('keydown', close); document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', resize); window.removeEventListener('blur', resize) }
   }, [refHover])
 
-  const dropTargetAt = (clientX: number, clientY: number, source: RefEntry) => {
-    const hit = hitRef(clientX, clientY)
-    if (!hit) return null
-    const entry = resolveGraphRef(hit.raw, refEntries)
-    if (!entry || entry.kind !== 'branch') return null
-    if (entry.fullName === source.fullName) return null
-    return {
-      entry,
-      rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
-    }
-  }
-
-  const hitRef = (clientX: number, clientY: number) => {
-    const bounds = canvasRef.current?.getBoundingClientRect()
-    if (!bounds) return
-    const x = clientX - bounds.left, y = clientY - bounds.top
-    return refRects.current.find((rect) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
-  }
-
   const onScroll = () => {
+    hoverBranch(null)
     cancelRefClose()
     setRefHover(null)
     // Rows moved under a still cursor: drop the tooltip measured for the
@@ -1065,6 +1184,7 @@ export function GraphCanvas({
   }
 
   const onCanvasPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    hoverBranch(null)
     if (event.button === 0 && !branchTarget) {
       const hit = hitRef(event.clientX, event.clientY)
       if (hit && !hit.overflow) {
@@ -1072,6 +1192,10 @@ export function GraphCanvas({
         if (entry && (entry.kind === 'branch' || entry.kind === 'remoteBranch')) {
           cancelRefClose()
           dragStart.current = { entry, x: event.clientX, y: event.clientY }
+          dragPointerId.current = event.pointerId
+          // Keep receiving moves/up outside the canvas so drops can land on
+          // the left-panel branch list (issue #19).
+          event.currentTarget.setPointerCapture(event.pointerId)
           return
         }
       }
@@ -1088,8 +1212,9 @@ export function GraphCanvas({
       if (!drag) {
         setRefHover(null)
       }
-      const found = dropTargetAt(event.clientX, event.clientY, start.entry)
+      const found = resolveDropTarget(event.clientX, event.clientY, start.entry)
       dragTargetRect.current = found?.rect ?? null
+      dragTargetEntry.current = found?.entry ?? null
       scheduleDraw()
       setDrag({ entry: start.entry, x: event.clientX, y: event.clientY, target: found?.entry ?? null })
       return
@@ -1097,6 +1222,8 @@ export function GraphCanvas({
     const bounds = event.currentTarget.getBoundingClientRect()
     const index = Math.floor((scrollTopRef.current + event.clientY - bounds.top) / ROW_HEIGHT)
     const hit = hitRef(event.clientX, event.clientY)
+    const hoveredEntry = hit && !hit.overflow ? resolveGraphRef(hit.raw, refEntries) : undefined
+    hoverBranch(isCheckoutableRef(hoveredEntry) ? hit!.commit.sha : null)
     if (hit) {
       const refs = decorations.get(hit.commit.sha)
       // One real ref (a branch and its own remote mirror count as one) leaves
@@ -1130,12 +1257,19 @@ export function GraphCanvas({
     if (hoveredRef.current !== index) { hoveredRef.current = index; scheduleDraw() }
   }
 
-  const onCanvasPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+  const endDragGesture = (event: ReactPointerEvent<HTMLCanvasElement>, commit: boolean) => {
     const start = dragStart.current
     dragStart.current = null
-    if (drag) {
-      const target = drag.target
+    releaseDragCapture()
+    if (drag && commit) {
+      // Re-resolve at release: the last move may have been between rows.
+      const found = start
+        ? resolveDropTarget(event.clientX, event.clientY, start.entry)
+        : null
+      const target = found?.entry ?? dragTargetEntry.current ?? drag.target
       dragTargetRect.current = null
+      dragTargetEntry.current = null
+      markExternalDrop(null)
       setDrag(null)
       scheduleDraw()
       if (start && target && onRefDrop) {
@@ -1144,6 +1278,20 @@ export function GraphCanvas({
       return
     }
     dragTargetRect.current = null
+    dragTargetEntry.current = null
+    markExternalDrop(null)
+    if (drag) {
+      setDrag(null)
+      scheduleDraw()
+    }
+  }
+
+  const onCanvasPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    endDragGesture(event, true)
+  }
+
+  const onCanvasPointerCancel = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    endDragGesture(event, false)
   }
 
   const onPointer = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1295,6 +1443,7 @@ export function GraphCanvas({
         <canvas
           ref={canvasRef}
           className={styles.canvas}
+          data-branch-focus={focusTip ?? undefined}
           data-dragging={drag ? 'true' : undefined}
           role="img"
           tabIndex={0}
@@ -1302,6 +1451,7 @@ export function GraphCanvas({
           onPointerMove={onCanvasPointerMove}
           onPointerLeave={(event) => {
             if (drag) return
+            if (!(event.relatedTarget instanceof Node && popupRef.current?.contains(event.relatedTarget))) hoverBranch(null)
             hoveredRef.current = null
             scheduleDraw()
             if (!(event.relatedTarget instanceof Node && popupRef.current?.contains(event.relatedTarget))) closeRefSoon()
@@ -1312,6 +1462,7 @@ export function GraphCanvas({
           }}
           onPointerDown={onCanvasPointerDown}
           onPointerUp={onCanvasPointerUp}
+          onPointerCancel={onCanvasPointerCancel}
           onContextMenu={onContextMenuEvent}
           onKeyDown={onKeyDown}
         />
@@ -1327,7 +1478,7 @@ export function GraphCanvas({
           <span>{drag.target ? `→ ${drag.target.name}` : t('graph.drop.hint')}</span>
         </div>
       ) : null}
-      {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={closeRefSoon} onCheckout={checkoutRef} onClose={() => { setRefHover(null); canvasRef.current?.focus() }} /> : null}
+      {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={() => { hoverBranch(null); closeRefSoon() }} onHoverRef={(raw) => { const entry = raw ? resolveGraphRef(raw, refEntries) : undefined; hoverBranch(isCheckoutableRef(entry) ? refHover.commit.sha : null) }} onCheckout={checkoutRef} onClose={() => { hoverBranch(null); setRefHover(null); canvasRef.current?.focus() }} /> : null}
       <span className={styles.srOnly} role="status" data-role="graph-selection">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )

@@ -191,14 +191,20 @@ A refused push is never a dead end. The refusal (`git.non_fast_forward`, or
    remotely, or replaces the remote tip (`--force-with-lease`, behind a typed
    confirmation of the branch name).
 
-The expected SHA of a force push is read with `git ls-remote` right before the
-send, never taken from the UI or an older fetch.
+The expected SHA of a force push is read once with `git ls-remote` before the
+send, never taken from the UI or an older fetch. The same SHA is recorded in
+the destructive-operation journal and passed to `--force-with-lease`; a remote
+change after this snapshot rejects the push. Preflight propagates SSH,
+authentication and transport errors; only a successful lookup with no matching
+ref reports a missing branch. There is no automatic force-push retry.
 
 ### Branch→branch integration
 
-Dropping branch `source` onto `target` checks out `target` then merges or rebases
-`source` into `target`. If the worktree contains tracked changes, a merge
-automatically protects them:
+Dropping branch `source` onto `target` uses the selected operation:
+a merge checks out `target` and merges `source` into it; a rebase checks out
+`source` and rebases it onto `target`, leaving `target` unchanged. Preview,
+worktree ownership checks and undo track the branch modified by that operation.
+If the worktree contains tracked changes, a merge automatically protects them:
 
 1. `git stash push -m "BeeBranch auto-stash …"` (tracked files only);
 2. check out `target`, then `git merge --no-edit [--ff|--ff-only|--no-ff] <source>`;
@@ -349,9 +355,27 @@ git -c sequence.editor=<helper> rebase -i --autosquash <base>
 | Submodules | Delegate to `git submodule`; statuses via `git submodule status --recursive`; do not parse `.gitmodules` as a source of truth |
 | LFS | Detect `git lfs`; filters are applied by Git; never read a pointer file as a normal file without indicating LFS |
 | Signature | Respect `commit.gpgsign`, `user.signingkey`, `gpg.format`; never force |
-| SSH | Use the agent, `~/.ssh/config`, `GIT_SSH_COMMAND` if set; do not generate keys in the MVP |
+| SSH | Use the agent, `~/.ssh/config`, `GIT_SSH_COMMAND` if set; macOS network commands have a native askpass fallback for locked keys; do not generate keys in the MVP |
 | HTTPS | Credential helper provided by the application, token read from the OS keychain; never in the URL |
 | Hooks | Executed by Git; output displayed; blocking failure unless explicit action |
+
+SSH askpass helpers and `SSH_ASKPASS_REQUIRE` are inherited on every platform.
+On macOS, when no SSH askpass helper is configured, network commands use a
+temporary executable helper that opens a native dialog with masked input.
+The passphrase travels directly to SSH through the helper's stdout. The default
+macOS transport uses `/usr/bin/ssh -o UseKeychain=yes -o AddKeysToAgent=yes`:
+Apple's SSH verifies the passphrase, saves it in the macOS Keychain and adds the
+key to the running agent. Subsequent connections (including the multiple
+connections needed by a force push) reuse the agent or Keychain. BeeBranch
+does not write passphrases to temporary files. Explicit `GIT_SSH`,
+`GIT_SSH_COMMAND` and `core.sshCommand` transports retain precedence and must
+provide their own persistence. Remote branch preflight allows 180 seconds so
+the 120-second passphrase dialog is not killed prematurely.
+Host-key confirmation is an explicit
+Yes/No dialog, defaulting to No. Existing askpass helpers and explicit policies
+(including `never`) take precedence. The helper survives until the Git process
+finishes and is removed when its runner and commands are dropped. Local reads
+and background HTTPS credential discovery do not install this fallback.
 
 ### HTTPS credential helper
 

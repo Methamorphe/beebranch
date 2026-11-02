@@ -428,7 +428,7 @@ pub async fn sync_push(
             let remote = request.remote.clone();
             let branch = request.branch.clone();
             move || {
-                beebranch_git::sync::remote_branch_sha(
+                beebranch_git::sync::try_remote_branch_sha(
                     &runner,
                     session.worktree(),
                     &remote,
@@ -437,7 +437,7 @@ pub async fn sync_push(
             }
         })
         .await
-        .map_err(crate::error::join_error)?;
+        .map_err(crate::error::join_error)??;
         let Some(previous) = previous else {
             return Err(AppError::new(
                 "push.remote_ref_missing",
@@ -460,6 +460,7 @@ pub async fn sync_push(
                 "{}/{} · ancien SHA distant {previous}",
                 request.remote, request.branch
             ),
+            previous,
         ))
     } else {
         None
@@ -472,10 +473,13 @@ pub async fn sync_push(
         &session.worktree().display().to_string(),
     )?;
     let operations = state.operations.clone();
+    // Reuse exactly the ref recorded in the journal as the lease. A second
+    // lookup needlessly authenticates again and could silently authorize
+    // overwriting a newer tip than the one recorded above.
+    let force_with_lease = journal_id.as_ref().map(|(_, _, sha)| sha.clone());
     let result = run_mutation(session, {
         let operation_id = operation_id.clone();
         let app = app.clone();
-        let force = request.force;
         move |_, discovery| {
             let runner = &runner;
             let worktree = discovery.worktree()?;
@@ -488,21 +492,6 @@ pub async fn sync_push(
             )
             .unwrap_or_default();
             announce_hooks(&app, &operation_id, &request.repo_id, &hooks);
-            let force_with_lease = if force {
-                let sha =
-                    sync::remote_branch_sha(runner, worktree, &request.remote, &request.branch)
-                        .ok_or_else(|| {
-                            AppError::new(
-                                "push.remote_ref_missing",
-                                beebranch_core::ErrorCategory::GitState,
-                                "La branche distante est introuvable pour --force-with-lease.",
-                            )
-                            .with_remediation("Fetchez la branche distante et vérifiez le remote.")
-                        })?;
-                Some(sha)
-            } else {
-                None
-            };
             let push = PushRequest {
                 remote: request.remote.clone(),
                 branch: request.branch.clone(),
@@ -540,7 +529,7 @@ pub async fn sync_push(
     })
     .await;
     finish_operation(&state, &operation_id, result.as_ref().err())?;
-    if let Some((journal_id, detail)) = journal_id {
+    if let Some((journal_id, detail, _)) = journal_id {
         finish_destructive(&state, &journal_id, &detail, result.as_ref().err())?;
     }
     result

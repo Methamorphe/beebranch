@@ -312,6 +312,8 @@ impl CommandOutcome {
 #[derive(Debug, Clone)]
 pub struct GitRunner {
     program: GitProgram,
+    #[cfg(target_os = "macos")]
+    ssh_askpass: std::sync::Arc<crate::ssh_askpass::SshAskpass>,
     https_credentials: Option<std::sync::Arc<crate::https_auth::CredentialHelper>>,
 }
 
@@ -321,6 +323,8 @@ impl GitRunner {
         let path = program.resolve_path()?;
         Ok(Self {
             program: GitProgram::from_path(path),
+            #[cfg(target_os = "macos")]
+            ssh_askpass: std::sync::Arc::new(crate::ssh_askpass::SshAskpass::new()?),
             https_credentials: None,
         })
     }
@@ -385,6 +389,10 @@ impl GitRunner {
             on_event,
         )?;
         running.https_credentials = self.https_credentials.clone();
+        #[cfg(target_os = "macos")]
+        {
+            running.ssh_askpass = Some(self.ssh_askpass.clone());
+        }
         Ok(running)
     }
 
@@ -407,6 +415,19 @@ impl GitRunner {
 
         command.env_clear();
         command.envs(environment::prepare(&spec.env)?);
+        #[cfg(target_os = "macos")]
+        if matches!(
+            spec.subcommand,
+            GitSubcommand::Clone
+                | GitSubcommand::Fetch
+                | GitSubcommand::Pull
+                | GitSubcommand::Push
+                | GitSubcommand::LsRemote
+                | GitSubcommand::Submodule
+                | GitSubcommand::Lfs
+        ) {
+            self.ssh_askpass.configure(&mut command);
+        }
 
         Ok(command)
     }
@@ -456,5 +477,41 @@ mod tests {
         assert!(!redacted.contains("pass"));
         assert!(redacted.contains("https://***@example.test/x"));
         assert_eq!(captured.bytes(), b"https://user:pass@example.test/x");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_ssh_helper_is_limited_to_network_commands_and_outlives_the_runner() {
+        let runner = GitRunner::detect().unwrap();
+        let repository = tempfile::tempdir().unwrap();
+        runner
+            .run(&CommandSpec::new(GitSubcommand::Init, repository.path()).arg("--bare"))
+            .unwrap()
+            .ensure_success()
+            .unwrap();
+        let path = runner.ssh_askpass.path();
+        let spec = CommandSpec::new(GitSubcommand::LsRemote, repository.path())
+            .arg(repository.path())
+            .env("SSH_ASKPASS", "")
+            .env("SSH_ASKPASS_REQUIRE", "");
+        let command = runner.build_command(&spec).unwrap();
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| { key == "SSH_ASKPASS" && value == Some(path.as_os_str()) }));
+        for subcommand in [GitSubcommand::Status, GitSubcommand::Credential] {
+            let local = CommandSpec::new(subcommand, repo_dir()).env("SSH_ASKPASS", "");
+            let command = runner.build_command(&local).unwrap();
+            assert!(!command
+                .get_envs()
+                .any(|(key, value)| { key == "SSH_ASKPASS" && value == Some(path.as_os_str()) }));
+        }
+        let running = runner.spawn(&spec, |_| {}).unwrap();
+        drop(runner);
+        assert!(path.exists(), "the child still needs its SSH helper");
+        assert!(running.wait().unwrap().success());
+        assert!(
+            !path.exists(),
+            "the helper is cleaned up after its last owner"
+        );
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! Dropping branch `source` onto branch `target` means:
 //! - merge: check out `target`, then merge `source` into it;
-//! - rebase: check out `target`, then rebase `target` onto `source`.
+//! - rebase: check out `source`, then rebase `source` onto `target`.
 //!
 //! The preview performs no mutation and reports every blocking reason. A merge
 //! starts by stashing tracked changes (`git stash push`) so the checkout and
@@ -91,6 +91,8 @@ impl AutoStashOutcome {
 #[serde(rename_all = "camelCase")]
 pub struct BranchIntegrationOutcome {
     pub preview: BranchIntegrationPreview,
+    /// Whether the operation checked out its working branch (source for rebase).
+    /// The field name is retained for IPC compatibility.
     pub checked_out_target: bool,
     pub original_branch: Option<String>,
     /// `Some` when tracked changes were stashed for the integration.
@@ -138,13 +140,17 @@ pub fn preview(
         .head
         .clone()
         .filter(|_| !status.branch.detached);
+    let branch_to_update = match mode {
+        IntegrationMode::Merge => target,
+        IntegrationMode::Rebase => source,
+    };
     let canonical_worktree =
         std::fs::canonicalize(worktree).unwrap_or_else(|_| worktree.to_path_buf());
     let checked_out_elsewhere = worktree::list(runner, worktree, false)?
         .entries
         .iter()
         .find(|entry| {
-            entry.branch.as_deref() == Some(target)
+            entry.branch.as_deref() == Some(branch_to_update)
                 && std::fs::canonicalize(&entry.path)
                     .map(|path| path != canonical_worktree)
                     .unwrap_or(false)
@@ -164,7 +170,7 @@ pub fn preview(
         Some("Des modifications locales empêchent le rebase.".to_owned())
     } else if let Some(path) = &checked_out_elsewhere {
         Some(format!(
-            "La branche cible est déjà extraite dans le worktree {path}."
+            "La branche à modifier est déjà extraite dans le worktree {path}."
         ))
     } else if status.branch.detached {
         Some("HEAD est détaché ; basculez sur une branche.".to_owned())
@@ -186,7 +192,7 @@ pub fn preview(
             && comparison.behind == 0
             && comparison.ahead > 0,
         current_branch: current_branch.clone(),
-        requires_checkout: current_branch.as_deref() != Some(target),
+        requires_checkout: current_branch.as_deref() != Some(branch_to_update),
         worktree_dirty: dirty,
         stash_required: tracked_changes && mode == IntegrationMode::Merge,
         checked_out_elsewhere,
@@ -196,7 +202,7 @@ pub fn preview(
     })
 }
 
-/// Check out `target` and integrate `source` into it.
+/// Merge `source` into `target`, or rebase `source` onto `target`.
 ///
 /// Tracked changes are stashed before the checkout and popped once the merge
 /// completes. The stash is left in place when the merge pauses on conflicts or
@@ -238,16 +244,20 @@ pub fn start(
         None
     };
 
+    let branch_to_update = match mode {
+        IntegrationMode::Merge => target,
+        IntegrationMode::Rebase => source,
+    };
     let mut checked_out = false;
     if preview.requires_checkout {
-        if let Err(error) = branches::checkout(runner, worktree, Some(target), None) {
+        if let Err(error) = branches::checkout(runner, worktree, Some(branch_to_update), None) {
             return Err(restore_stash_on_failure(runner, worktree, error, &stashed));
         }
         checked_out = true;
     }
     let result = match mode {
         IntegrationMode::Merge => history::merge(runner, worktree, source, fast_forward),
-        IntegrationMode::Rebase => history::rebase(runner, worktree, source),
+        IntegrationMode::Rebase => history::rebase(runner, worktree, target),
     };
     match result {
         Ok(mut outcome) => {
@@ -290,7 +300,7 @@ pub fn start(
             if checked_out {
                 let detail = error.detail.clone().unwrap_or_default();
                 Err(error.with_detail(format!(
-                    "{detail} ; le dépôt est maintenant sur la branche {target}."
+                    "{detail} ; le dépôt est maintenant sur la branche {branch_to_update}."
                 )))
             } else {
                 Err(error)

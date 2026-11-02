@@ -309,6 +309,33 @@ type Props = {
   onShowHistory?: (path: string) => void
   /** Present when the diff is a review request accepting line comments. */
   lineComment?: LineComment
+  /** Path to select when the report loads; ignored when missing from the report. */
+  initialPath?: string
+}
+
+/** Index of `path` in the report, or `0` when absent. */
+function indexForPath(files: FileDiff[], path: string | undefined): number {
+  if (!path) {
+    return 0
+  }
+  const index = files.findIndex((entry) => {
+    const entryPath = entry.newPath === '/dev/null' ? entry.oldPath : entry.newPath
+    return entryPath === path
+  })
+  return index >= 0 ? index : 0
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+  const tag = target.tagName.toLowerCase()
+  return (
+    tag === 'input' ||
+    tag === 'textarea' ||
+    tag === 'select' ||
+    target.isContentEditable
+  )
 }
 
 const MARKDOWN_PATH = /\.(md|markdown|mdown|mkd|mdx)$/i
@@ -411,7 +438,18 @@ function PathParts({ path }: { path: string }) {
   )
 }
 
-export function DiffViewer({ report, source, commit, staging, embedded = false, onAmend, readDocument, onShowHistory, lineComment }: Props) {
+export function DiffViewer({
+  report,
+  source,
+  commit,
+  staging,
+  embedded = false,
+  onAmend,
+  readDocument,
+  onShowHistory,
+  lineComment,
+  initialPath,
+}: Props) {
   const { t, plural } = useI18n()
   const [mode, setMode] = useState<Mode>('inline')
   const [wrap, setWrap] = useState(() => {
@@ -422,7 +460,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     }
   })
   const [contentHeight, setContentHeight] = useState(0)
-  const [active, setActive] = useState(0)
+  const [active, setActive] = useState(() => indexForPath(report.files, initialPath))
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(600)
   const [lineSelection, setLineSelection] = useState<Record<number, number[]>>({})
@@ -454,6 +492,8 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
   } | null>(null)
   const [commentBody, setCommentBody] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const filesRef = useRef<HTMLElement>(null)
+  const activeRef = useRef(active)
   const file = report.files[active]
   const rows = useMemo(
     () => (file ? buildRows(file, mode) : []),
@@ -501,7 +541,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
   }, [documentPath, markdown, readDocument, rendered, report])
 
   useEffect(() => {
-    setActive(0)
+    setActive(indexForPath(report.files, initialPath))
     setLineSelection({})
     setHunkSelection([])
     setPendingDiscard(null)
@@ -509,7 +549,11 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     setActionNotice(null)
     setCommentTarget(null)
     setCommentBody('')
-  }, [report])
+  }, [report, initialPath])
+
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
 
   useEffect(() => {
     performance.mark('diff.first-paint')
@@ -525,6 +569,64 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
     setViewportHeight(element.clientHeight)
     return () => observer.disconnect()
   }, [])
+
+  // ←/→ and ↑/↓ both move between files while a multi-file diff is open.
+  useEffect(() => {
+    if (report.files.length <= 1 || editingPath) {
+      return
+    }
+    const fileCount = report.files.length
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isEditableTarget(event.target) ||
+        document.querySelector(
+          '[aria-modal="true"], [role="menu"], [role="dialog"], [role="alertdialog"]',
+        )
+      ) {
+        return
+      }
+      const step =
+        event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+          ? -1
+          : event.key === 'ArrowRight' || event.key === 'ArrowDown'
+            ? 1
+            : 0
+      if (step === 0) {
+        return
+      }
+      const next = Math.max(0, Math.min(fileCount - 1, activeRef.current + step))
+      if (next === activeRef.current) {
+        return
+      }
+      event.preventDefault()
+      setActive(next)
+      setCommentTarget(null)
+      setCommentBody('')
+      setLineSelection({})
+      setHunkSelection([])
+      setActionError(null)
+      setActionNotice(null)
+      setPendingDiscard(null)
+      setScrollTop(0)
+      scrollRef.current?.scrollTo({ top: 0 })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editingPath, report.files.length])
+
+  useEffect(() => {
+    if (report.files.length <= 1) {
+      return
+    }
+    const current = filesRef.current?.querySelector('[aria-current="true"]')
+    if (current instanceof HTMLElement) {
+      current.scrollIntoView({ block: 'nearest' })
+    }
+  }, [active, report.files.length])
 
   // Editing replaces the whole viewer: no modal, no navigation away from the
   // repository, and the file list cannot silently drop the draft.
@@ -901,7 +1003,7 @@ export function DiffViewer({ report, source, commit, staging, embedded = false, 
 
   return (
     <div className={`${styles.root} ${report.files.length === 1 ? styles.singleFile : ''}`}>
-      {report.files.length > 1 ? <aside className={styles.files} aria-label={t('diff.files.aria')}>
+      {report.files.length > 1 ? <aside ref={filesRef} className={styles.files} aria-label={t('diff.files.aria')}>
         {report.files.map((entry, index) => (
           <button
             key={`${entry.oldPath}->${entry.newPath}`}

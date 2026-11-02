@@ -65,6 +65,33 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('no-extra-branch-panel', `!document.querySelector('#branch-list-panel')`)
   await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','patches','search','operations'].every((id) => document.querySelector('[data-repository-section="' + id + '"]'))`)
   await check('graph-fills-height', `document.querySelector('canvas').getBoundingClientRect().height > 600`)
+  // Dwell on the feature badge: only its ancestry should keep full contrast.
+  await evaluate(client, `(() => { const canvas = document.querySelector('canvas'); canvas.parentElement.scrollTop = 0; canvas.parentElement.dispatchEvent(new Event('scroll')); })()`)
+  await delay(60)
+  const featurePoint = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left+20, y:b.top+12*30+15 } })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
+  await delay(100)
+  await check('graph-branch-focus-waits-for-dwell', `!document.querySelector('canvas').dataset.branchFocus`)
+  await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    window.__focusPixels = (row) => {
+      const scale = canvas.width / canvas.getBoundingClientRect().width
+      return Array.from(canvas.getContext('2d').getImageData(0, Math.round(row * 30 * scale), canvas.width, Math.round(30 * scale)).data).join(',')
+    }
+    window.__beforeFocus = [window.__focusPixels(2), window.__focusPixels(13)]
+  })()`)
+  await delay(500)
+  await check('graph-branch-focus-activates', `document.querySelector('canvas').dataset.branchFocus === '000000000000000000000000000000000000000d'`)
+  await check('graph-branch-focus-dims-unrelated-row', `window.__focusPixels(2) !== window.__beforeFocus[0]`)
+  await check('graph-branch-focus-preserves-ancestor-row', `window.__focusPixels(13) === window.__beforeFocus[1]`)
+  await screenshot('workspace-branch-focus.png')
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x + 400, y:featurePoint.y })
+  await delay(60)
+  await check('graph-branch-focus-clears-on-leave', `!document.querySelector('canvas').dataset.branchFocus && window.__focusPixels(2) === window.__beforeFocus[0]`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
+  await evaluate(client, `document.querySelector('canvas').parentElement.dispatchEvent(new Event('scroll'))`)
+  await delay(500)
+  await check('graph-branch-focus-cancels-pending-on-scroll', `!document.querySelector('canvas').dataset.branchFocus`)
   await screenshot('workspace-tree.png')
   await evaluate(client, `document.documentElement.dataset.density = 'compact'`)
   await delay(300)
@@ -117,6 +144,50 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await evaluate(client, `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/feature"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
   await waitFor(client, `window.__workspaceCalls.some(([name]) => name === 'branch_checkout')`, 'direct branch checkout')
   await check('checkout-keeps-workspace', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('[data-central-editor]')`)
+
+  // Issue #19: drag a graph branch onto a left-panel local branch.
+  await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
+  await delay(80)
+  const navDrop = await evaluate(client, `(() => {
+    const bounds = document.querySelector('canvas').getBoundingClientRect()
+    const row = document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"]')
+    const rowBounds = row.getBoundingClientRect()
+    return {
+      source: { x: bounds.left + 20, y: bounds.top + 12 * 30 + 15 },
+      target: { x: rowBounds.left + rowBounds.width / 2, y: rowBounds.top + rowBounds.height / 2 },
+    }
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, buttons:1, x: navDrop.source.x, y: navDrop.source.y })
+  for (const ratio of [0.2, 0.4, 0.6, 0.8, 1]) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      button: 'left',
+      buttons: 1,
+      x: navDrop.source.x + (navDrop.target.x - navDrop.source.x) * ratio,
+      y: navDrop.source.y + (navDrop.target.y - navDrop.source.y) * ratio,
+    })
+    await delay(45)
+  }
+  await check(
+    'navigator-drop-highlight',
+    `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"][data-drop="true"]') !== null`,
+  )
+  await check(
+    'navigator-drop-ghost',
+    `(() => { const ghost = document.querySelector('[class*=dragGhost]'); return Boolean(ghost && ghost.innerText.includes('feature') && ghost.innerText.includes('main')) })()`,
+  )
+  await client.send('Input.dispatchMouseEvent', { type:'mouseReleased', button:'left', clickCount:1, buttons:0, x: navDrop.target.x, y: navDrop.target.y })
+  await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'navigator drop menu')
+  await check(
+    'navigator-drop-menu',
+    `(() => {
+      const menu = document.querySelector('[role="menu"]')
+      return Boolean(menu && menu.innerText.includes('Fusionner feature dans main') && menu.innerText.includes('Rebaser feature sur main'))
+    })()`,
+  )
+  await evaluate(client, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+  await delay(80)
+  await check('navigator-drop-cancel', `!document.querySelector('[role="menu"]')`)
 
   await click('[data-repository-section="stash"] button[aria-expanded]')
   await click('[data-stash="stash@{0}"]')

@@ -15,6 +15,7 @@
 .row { display:flex; align-items:center; gap:7px; width:100%; min-height:28px; padding:4px 12px 4px 24px; border-radius:0; color:var(--text); text-align:left; font-size:12px; }
 .row[data-current='true'] { color:var(--success); }
 .row[aria-current='true'] { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
+.row[data-drop='true'] { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent-text); outline:1px solid var(--accent-text); }
 .name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .operations { display:flex; flex-direction:column; }
 .operations button { padding:5px 12px 5px 24px; font-size:12px; text-align:left; }

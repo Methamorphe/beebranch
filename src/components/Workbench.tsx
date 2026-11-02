@@ -319,6 +319,7 @@ export function Workbench({
   const integrationConsequence = (pending: PendingIntegration | null) => {
     if (!pending) return ''
     const { source, target, mode, fastForward, preview } = pending
+    const updatedBranch = mode === 'rebase' ? source : target
     const parts = [
       plural(
         'workbench.integration.commitsToIntegrate.one',
@@ -361,15 +362,18 @@ export function Workbench({
         parts.push(t('workbench.integration.fastForwardImpossible'))
       }
     }
+    if (mode === 'rebase') {
+      parts.push(t('workbench.integration.rebaseBaseUnchanged', { target: target.name }))
+    }
     if (preview.requiresCheckout) {
-      parts.push(t('workbench.integration.checkoutRequired', { target: target.name }))
+      parts.push(t('workbench.integration.checkoutRequired', { target: updatedBranch.name }))
     }
     if (preview.stashRequired) {
       parts.push(t('workbench.integration.stashRequired'))
     } else if (preview.worktreeDirty) {
       parts.push(t('workbench.integration.untrackedLeft'))
     }
-    if (preview.currentBranch && preview.currentBranch !== target.name) {
+    if (preview.currentBranch && preview.currentBranch !== updatedBranch.name) {
       parts.push(t('workbench.integration.currentBranch', { branch: preview.currentBranch }))
     }
     return t('workbench.integration.noMutation', {
@@ -1518,6 +1522,7 @@ export function Workbench({
             <DiffViewer
               report={report}
               source={source}
+              initialPath={diffRequest?.focusPath ?? diffRequest?.path}
               commit={
                 diffCommit
                   ? {
@@ -2334,7 +2339,13 @@ export function Workbench({
               detail={detail && detail.summary.sha === selected ? detail : null}
               loading={detailLoading && !(detail && detail.summary.sha === selected)}
               error={detailError}
-              onShowDiff={(sha, path) => onOpenDiff({ target: 'commit', base: sha, path })}
+              onShowDiff={(sha, path) =>
+                onOpenDiff(
+                  path
+                    ? { target: 'commit', base: sha, focusPath: path }
+                    : { target: 'commit', base: sha },
+                )
+              }
               onShowHistory={(path) => {
                 setFilePath(path)
                 onNavigate('fileHistory')
