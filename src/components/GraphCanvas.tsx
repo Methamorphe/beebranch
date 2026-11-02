@@ -456,7 +456,10 @@ export function GraphCanvas({
   }
   const [refHover, setRefHover] = useState<RefAnchor | null>(null)
   const dragStart = useRef<{ entry: RefEntry; x: number; y: number } | null>(null)
+  const dragPointerId = useRef<number | null>(null)
   const dragTargetRect = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
+  const dragTargetEntry = useRef<RefEntry | null>(null)
+  const externalDropEl = useRef<HTMLElement | null>(null)
   const [drag, setDrag] = useState<{ entry: RefEntry; x: number; y: number; target: RefEntry | null } | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1023,29 +1026,98 @@ export function GraphCanvas({
     return () => { media.removeEventListener('change', scheduleDraw); observer.disconnect() }
   }, [scheduleDraw])
 
+  const markExternalDrop = (el: HTMLElement | null) => {
+    if (externalDropEl.current === el) return
+    if (externalDropEl.current) externalDropEl.current.removeAttribute('data-drop')
+    externalDropEl.current = el
+    if (el) el.setAttribute('data-drop', 'true')
+  }
+
+  const hitRef = (clientX: number, clientY: number) => {
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    if (!bounds) return
+    const x = clientX - bounds.left, y = clientY - bounds.top
+    return refRects.current.find((rect) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
+  }
+
+  /** Canvas branch badge, or a local branch row in the left navigator. */
+  const resolveDropTarget = (clientX: number, clientY: number, source: RefEntry) => {
+    const hit = hitRef(clientX, clientY)
+    if (hit) {
+      markExternalDrop(null)
+      const entry = resolveGraphRef(hit.raw, refEntries)
+      if (!entry || entry.kind !== 'branch') return null
+      if (entry.fullName === source.fullName) return null
+      return {
+        entry,
+        rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
+      }
+    }
+    // Skip the canvas itself: with pointer capture it sits under the cursor
+    // even when the gesture visually left the graph for the left panel.
+    const stack =
+      typeof document.elementsFromPoint === 'function'
+        ? document.elementsFromPoint(clientX, clientY)
+        : [document.elementFromPoint(clientX, clientY)].filter(Boolean)
+    const row = stack
+      .map((node) =>
+        node instanceof Element ? node.closest<HTMLElement>('[data-ref]') : null,
+      )
+      .find(
+        (candidate) =>
+          candidate &&
+          candidate.closest('[data-repository-section="local"]') &&
+          candidate.getAttribute('data-ref')?.startsWith('refs/heads/'),
+      )
+    if (!row) {
+      markExternalDrop(null)
+      return null
+    }
+    const fullName = row.getAttribute('data-ref')
+    const entry = refEntries.find((candidate) => candidate.fullName === fullName)
+    if (!entry || entry.kind !== 'branch' || entry.fullName === source.fullName) {
+      markExternalDrop(null)
+      return null
+    }
+    markExternalDrop(row)
+    return { entry, rect: null }
+  }
+  const releaseDragCapture = () => {
+    const canvas = canvasRef.current
+    const pointerId = dragPointerId.current
+    dragPointerId.current = null
+    if (canvas && pointerId !== null && canvas.hasPointerCapture(pointerId)) {
+      canvas.releasePointerCapture(pointerId)
+    }
+  }
+
+  const isDragging = drag !== null
   useEffect(() => {
-    if (!drag) return
+    if (!isDragging) return
+    const clearExternalDrop = () => {
+      const el = externalDropEl.current
+      if (!el) return
+      el.removeAttribute('data-drop')
+      externalDropEl.current = null
+    }
     const abort = () => {
       dragStart.current = null
       dragTargetRect.current = null
+      dragTargetEntry.current = null
+      clearExternalDrop()
+      releaseDragCapture()
       setDrag(null)
       scheduleDraw()
     }
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') abort()
     }
-    const releaseOutside = (event: PointerEvent) => {
-      const canvas = canvasRef.current
-      if (canvas && event.target instanceof Node && canvas.contains(event.target)) return
-      abort()
-    }
     document.addEventListener('keydown', escape)
-    window.addEventListener('pointerup', releaseOutside)
     return () => {
       document.removeEventListener('keydown', escape)
-      window.removeEventListener('pointerup', releaseOutside)
+      clearExternalDrop()
     }
-  }, [drag, scheduleDraw])
+  }, [isDragging, scheduleDraw])
 
   useEffect(() => {
     if (!branchTarget) return
@@ -1076,25 +1148,6 @@ export function GraphCanvas({
     window.addEventListener('blur', resize)
     return () => { document.removeEventListener('keydown', close); document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', resize); window.removeEventListener('blur', resize) }
   }, [refHover])
-
-  const dropTargetAt = (clientX: number, clientY: number, source: RefEntry) => {
-    const hit = hitRef(clientX, clientY)
-    if (!hit) return null
-    const entry = resolveGraphRef(hit.raw, refEntries)
-    if (!entry || entry.kind !== 'branch') return null
-    if (entry.fullName === source.fullName) return null
-    return {
-      entry,
-      rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
-    }
-  }
-
-  const hitRef = (clientX: number, clientY: number) => {
-    const bounds = canvasRef.current?.getBoundingClientRect()
-    if (!bounds) return
-    const x = clientX - bounds.left, y = clientY - bounds.top
-    return refRects.current.find((rect) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
-  }
 
   const onScroll = () => {
     hoverBranch(null)
@@ -1127,6 +1180,10 @@ export function GraphCanvas({
         if (entry && (entry.kind === 'branch' || entry.kind === 'remoteBranch')) {
           cancelRefClose()
           dragStart.current = { entry, x: event.clientX, y: event.clientY }
+          dragPointerId.current = event.pointerId
+          // Keep receiving moves/up outside the canvas so drops can land on
+          // the left-panel branch list (issue #19).
+          event.currentTarget.setPointerCapture(event.pointerId)
           return
         }
       }
@@ -1143,8 +1200,9 @@ export function GraphCanvas({
       if (!drag) {
         setRefHover(null)
       }
-      const found = dropTargetAt(event.clientX, event.clientY, start.entry)
+      const found = resolveDropTarget(event.clientX, event.clientY, start.entry)
       dragTargetRect.current = found?.rect ?? null
+      dragTargetEntry.current = found?.entry ?? null
       scheduleDraw()
       setDrag({ entry: start.entry, x: event.clientX, y: event.clientY, target: found?.entry ?? null })
       return
@@ -1187,12 +1245,19 @@ export function GraphCanvas({
     if (hoveredRef.current !== index) { hoveredRef.current = index; scheduleDraw() }
   }
 
-  const onCanvasPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+  const endDragGesture = (event: ReactPointerEvent<HTMLCanvasElement>, commit: boolean) => {
     const start = dragStart.current
     dragStart.current = null
-    if (drag) {
-      const target = drag.target
+    releaseDragCapture()
+    if (drag && commit) {
+      // Re-resolve at release: the last move may have been between rows.
+      const found = start
+        ? resolveDropTarget(event.clientX, event.clientY, start.entry)
+        : null
+      const target = found?.entry ?? dragTargetEntry.current ?? drag.target
       dragTargetRect.current = null
+      dragTargetEntry.current = null
+      markExternalDrop(null)
       setDrag(null)
       scheduleDraw()
       if (start && target && onRefDrop) {
@@ -1201,6 +1266,20 @@ export function GraphCanvas({
       return
     }
     dragTargetRect.current = null
+    dragTargetEntry.current = null
+    markExternalDrop(null)
+    if (drag) {
+      setDrag(null)
+      scheduleDraw()
+    }
+  }
+
+  const onCanvasPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    endDragGesture(event, true)
+  }
+
+  const onCanvasPointerCancel = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    endDragGesture(event, false)
   }
 
   const onPointer = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1371,6 +1450,7 @@ export function GraphCanvas({
           }}
           onPointerDown={onCanvasPointerDown}
           onPointerUp={onCanvasPointerUp}
+          onPointerCancel={onCanvasPointerCancel}
           onContextMenu={onContextMenuEvent}
           onKeyDown={onKeyDown}
         />
