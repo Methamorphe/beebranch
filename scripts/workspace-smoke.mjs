@@ -65,6 +65,33 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('no-extra-branch-panel', `!document.querySelector('#branch-list-panel')`)
   await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','patches','search','operations'].every((id) => document.querySelector('[data-repository-section="' + id + '"]'))`)
   await check('graph-fills-height', `document.querySelector('canvas').getBoundingClientRect().height > 600`)
+  // Dwell on the feature badge: only its ancestry should keep full contrast.
+  await evaluate(client, `(() => { const canvas = document.querySelector('canvas'); canvas.parentElement.scrollTop = 0; canvas.parentElement.dispatchEvent(new Event('scroll')); })()`)
+  await delay(60)
+  const featurePoint = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left+20, y:b.top+12*30+15 } })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
+  await delay(100)
+  await check('graph-branch-focus-waits-for-dwell', `!document.querySelector('canvas').dataset.branchFocus`)
+  await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    window.__focusPixels = (row) => {
+      const scale = canvas.width / canvas.getBoundingClientRect().width
+      return Array.from(canvas.getContext('2d').getImageData(0, Math.round(row * 30 * scale), canvas.width, Math.round(30 * scale)).data).join(',')
+    }
+    window.__beforeFocus = [window.__focusPixels(2), window.__focusPixels(13)]
+  })()`)
+  await delay(500)
+  await check('graph-branch-focus-activates', `document.querySelector('canvas').dataset.branchFocus === '000000000000000000000000000000000000000d'`)
+  await check('graph-branch-focus-dims-unrelated-row', `window.__focusPixels(2) !== window.__beforeFocus[0]`)
+  await check('graph-branch-focus-preserves-ancestor-row', `window.__focusPixels(13) === window.__beforeFocus[1]`)
+  await screenshot('workspace-branch-focus.png')
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x + 400, y:featurePoint.y })
+  await delay(60)
+  await check('graph-branch-focus-clears-on-leave', `!document.querySelector('canvas').dataset.branchFocus && window.__focusPixels(2) === window.__beforeFocus[0]`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
+  await evaluate(client, `document.querySelector('canvas').parentElement.dispatchEvent(new Event('scroll'))`)
+  await delay(500)
+  await check('graph-branch-focus-cancels-pending-on-scroll', `!document.querySelector('canvas').dataset.branchFocus`)
   await screenshot('workspace-tree.png')
   await evaluate(client, `document.documentElement.dataset.density = 'compact'`)
   await delay(300)

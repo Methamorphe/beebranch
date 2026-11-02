@@ -28,6 +28,8 @@ const ALLOWED: &[&str] = &[
     "SSH_AUTH_SOCK",
     "SSH_AGENT_PID",
     "SSH_ASKPASS",
+    "SSH_ASKPASS_REQUIRE",
+    "SSH_ASKPASS_PROMPT",
     "GIT_ASKPASS",
     "GIT_CONFIG_NOSYSTEM",
     "GIT_SSH",
@@ -237,6 +239,9 @@ mod tests {
                 ("HOME", "/home/test"),
                 ("LC_ALL", "C"),
                 ("SSH_AUTH_SOCK", "/tmp/agent"),
+                ("SSH_ASKPASS", "/usr/bin/custom-askpass"),
+                ("SSH_ASKPASS_REQUIRE", "force"),
+                ("SSH_ASKPASS_PROMPT", "confirm"),
             ]),
             &[],
         )
@@ -255,6 +260,16 @@ mod tests {
             Some("C")
         );
         assert!(find(&environment, "SSH_AUTH_SOCK").is_some());
+        for (name, expected) in [
+            ("SSH_ASKPASS", "/usr/bin/custom-askpass"),
+            ("SSH_ASKPASS_REQUIRE", "force"),
+            ("SSH_ASKPASS_PROMPT", "confirm"),
+        ] {
+            assert_eq!(
+                find(&environment, name).and_then(|value| value.to_str()),
+                Some(expected)
+            );
+        }
     }
 
     #[test]

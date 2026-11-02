@@ -196,9 +196,11 @@ send, never taken from the UI or an older fetch.
 
 ### Branch→branch integration
 
-Dropping branch `source` onto `target` checks out `target` then merges or rebases
-`source` into `target`. If the worktree contains tracked changes, a merge
-automatically protects them:
+Dropping branch `source` onto `target` uses the selected operation:
+a merge checks out `target` and merges `source` into it; a rebase checks out
+`source` and rebases it onto `target`, leaving `target` unchanged. Preview,
+worktree ownership checks and undo track the branch modified by that operation.
+If the worktree contains tracked changes, a merge automatically protects them:
 
 1. `git stash push -m "BeeBranch auto-stash …"` (tracked files only);
 2. check out `target`, then `git merge --no-edit [--ff|--ff-only|--no-ff] <source>`;
@@ -349,9 +351,19 @@ git -c sequence.editor=<helper> rebase -i --autosquash <base>
 | Submodules | Delegate to `git submodule`; statuses via `git submodule status --recursive`; do not parse `.gitmodules` as a source of truth |
 | LFS | Detect `git lfs`; filters are applied by Git; never read a pointer file as a normal file without indicating LFS |
 | Signature | Respect `commit.gpgsign`, `user.signingkey`, `gpg.format`; never force |
-| SSH | Use the agent, `~/.ssh/config`, `GIT_SSH_COMMAND` if set; do not generate keys in the MVP |
+| SSH | Use the agent, `~/.ssh/config`, `GIT_SSH_COMMAND` if set; macOS network commands have a native askpass fallback for locked keys; do not generate keys in the MVP |
 | HTTPS | Credential helper provided by the application, token read from the OS keychain; never in the URL |
 | Hooks | Executed by Git; output displayed; blocking failure unless explicit action |
+
+SSH askpass helpers and `SSH_ASKPASS_REQUIRE` are inherited on every platform.
+On macOS, when no SSH askpass helper is configured, network commands use a
+temporary executable helper that opens a native dialog with masked input.
+The passphrase travels directly to SSH through the helper's stdout; BeeBranch
+does not store it or add it to the agent. Host-key confirmation is an explicit
+Yes/No dialog, defaulting to No. Existing askpass helpers and explicit policies
+(including `never`) take precedence. The helper survives until the Git process
+finishes and is removed when its runner and commands are dropped. Local reads
+and background HTTPS credential discovery do not install this fallback.
 
 ### HTTPS credential helper
 

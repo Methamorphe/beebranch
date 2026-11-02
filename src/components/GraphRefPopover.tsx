@@ -8,7 +8,7 @@ import styles from './GraphRefPopover.module.css'
 
 export type RefAnchor = { commit: CommitSummary; left: number; top: number; bottom: number }
 
-export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose, onEnter, onLeave, elementRef }: {
+export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose, onEnter, onLeave, onHoverRef, elementRef }: {
   anchor: RefAnchor
   entries: RefEntry[]
   disabled: boolean
@@ -16,6 +16,7 @@ export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose
   onClose: () => void
   onEnter: () => void
   onLeave: () => void
+  onHoverRef: (raw: string | null) => void
   elementRef: RefObject<HTMLDivElement | null>
 }) {
   const { t } = useI18n()
@@ -41,6 +42,10 @@ export function GraphRefPopover({ anchor, entries, disabled, onCheckout, onClose
       return <button key={key} type="button" className={styles.reference} data-ref={raw} data-kind={kind} disabled={disabled || !checkoutable || entry.isHead}
         title={kind === 'tag' ? t('graph.popover.tag') : entry?.isHead ? t('graph.popover.head') : checkoutable ? t('graph.popover.checkout') : t('graph.popover.symbolic')}
         aria-label={`${label} · ${kindLabel}`}
+        onPointerEnter={() => onHoverRef(raw)}
+        onPointerLeave={() => onHoverRef(null)}
+        onFocus={() => onHoverRef(raw)}
+        onBlur={() => onHoverRef(null)}
         onDoubleClick={() => { if (checkoutable) onCheckout(entry!.fullName) }}
         onKeyDown={(event) => { if (checkoutable && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onCheckout(entry!.fullName) } }}>
         <ViewIcon view={kind === 'tag' ? 'tags' : kind === 'remote' ? 'remotes' : 'branch'} /><span>{label}</span>

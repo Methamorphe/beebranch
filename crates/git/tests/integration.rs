@@ -251,7 +251,7 @@ fn merge_conflict_keeps_a_typed_abort_path() {
 }
 
 #[test]
-fn rebase_drop_moves_the_target_onto_the_source() {
+fn rebase_drop_moves_source_onto_target_without_moving_target() {
     let fixture = Fixture::new();
     fixture.commit("a.txt", "base\n", "base");
     let main = current_branch(&fixture);
@@ -272,6 +272,7 @@ fn rebase_drop_moves_the_target_onto_the_source() {
     assert!(preview.applicable);
     assert_eq!(preview.ahead, 1);
     assert_eq!(preview.behind, 1);
+    assert!(preview.requires_checkout);
 
     let result = integration::start(
         fixture.runner(),
@@ -283,11 +284,73 @@ fn rebase_drop_moves_the_target_onto_the_source() {
     )
     .expect("rebase");
     assert!(!result.outcome.conflicted);
-    assert_eq!(current_branch(&fixture), main);
-    let after = fixture.rev_parse(&["--verify", "HEAD"]);
-    assert_ne!(before, after);
+    assert_eq!(current_branch(&fixture), "feature");
+    assert_eq!(fixture.rev_parse(&["--verify", &main]), before);
+    assert_eq!(fixture.rev_parse(&["HEAD^"]), before);
+    assert_ne!(fixture.rev_parse(&["HEAD"]), before);
     assert!(fixture.path().join("b.txt").exists());
     assert!(fixture.path().join("c.txt").exists());
+}
+
+#[test]
+fn rebase_drop_preserves_base_when_feature_is_already_ahead() {
+    for start_on_source in [false, true] {
+        let fixture = Fixture::new();
+        fixture.commit("base.txt", "base\n", "base");
+        let main = current_branch(&fixture);
+        let base = fixture.rev_parse(&["HEAD"]);
+        fixture.switch_new("feature");
+        fixture.commit("feature.txt", "feature\n", "feature");
+        let feature = fixture.rev_parse(&["HEAD"]);
+        if !start_on_source {
+            fixture.switch(&main);
+        }
+        let result = integration::start(
+            fixture.runner(),
+            fixture.path(),
+            "feature",
+            &main,
+            IntegrationMode::Rebase,
+            MergeFastForward::Auto,
+        )
+        .expect("rebase");
+        assert_eq!(result.preview.requires_checkout, !start_on_source);
+        assert_eq!(current_branch(&fixture), "feature");
+        assert_eq!(fixture.rev_parse(&[&main]), base);
+        assert_eq!(fixture.rev_parse(&["feature"]), feature);
+    }
+}
+
+#[test]
+fn rebase_checks_source_worktree_ownership_instead_of_base() {
+    for source_elsewhere in [false, true] {
+        let fixture = Fixture::new();
+        fixture.commit("base.txt", "base\n", "base");
+        let main = current_branch(&fixture);
+        fixture.switch_new("feature");
+        fixture.switch_new("other");
+        let path = fixture.path().join("other-worktree");
+        let branch = if source_elsewhere { "feature" } else { &main };
+        worktree::add(
+            fixture.runner(),
+            fixture.path(),
+            &path.display().to_string(),
+            branch,
+            None,
+            false,
+        )
+        .expect("worktree");
+        let preview = integration::preview(
+            fixture.runner(),
+            fixture.path(),
+            "feature",
+            &main,
+            IntegrationMode::Rebase,
+        )
+        .expect("preview");
+        assert_eq!(preview.applicable, !source_elsewhere);
+        assert_eq!(preview.checked_out_elsewhere.is_some(), source_elsewhere);
+    }
 }
 
 #[test]

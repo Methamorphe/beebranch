@@ -155,8 +155,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "auth.ssh_key",
             ErrorCategory::Auth,
-            "La clé SSH a été refusée.",
-            "Vérifiez votre agent SSH et testez `ssh -T git@<hôte>`.",
+            "L'authentification SSH a échoué.",
+            "Déverrouillez votre clé avec sa passphrase ou ajoutez-la à l'agent avec `ssh-add <clé>`, puis réessayez. Vérifiez aussi l'accès avec `ssh -T git@<hôte>`.",
             stderr,
         );
     }

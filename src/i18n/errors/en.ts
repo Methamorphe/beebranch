@@ -41,8 +41,9 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
     remediation: 'Check known_hosts or connect once over SSH to accept the host key.',
   },
   'auth.ssh_key': {
-    message: 'The SSH key was rejected.',
-    remediation: 'Check your SSH agent and test `ssh -T git@<host>`.',
+    message: 'SSH authentication failed.',
+    remediation:
+      'Unlock your key with its passphrase or add it to the agent with `ssh-add <key>`, then try again. Also check access with `ssh -T git@<host>`.',
   },
   'auth.failed': {
     message: 'Authentication failed.',

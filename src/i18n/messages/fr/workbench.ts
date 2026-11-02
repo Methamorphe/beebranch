@@ -114,6 +114,7 @@ const messages = {
   'workbench.integration.nothingToIntegrate': 'rien à intégrer',
   'workbench.integration.operation.merge': 'Fusion',
   'workbench.integration.operation.rebase': 'Rebase',
+  'workbench.integration.rebaseBaseUnchanged': 'La branche {target} reste inchangée',
   'workbench.integration.rebaseAction': 'Rebaser',
   'workbench.integration.sameCommit':
     '{target} et {source} pointent sur le même commit.',
