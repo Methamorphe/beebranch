@@ -182,6 +182,7 @@ export default function App() {
   const [splash, setSplash] = useState<MediaSettings | null>(null)
   const [splashError, setSplashError] = useState<string | null>(null)
   const backgroundToken = useRef(0)
+  const backgroundLayer = useRef<HTMLDivElement | null>(null)
   const splashToken = useRef(0)
   const restored = useRef(false)
 
@@ -314,10 +315,11 @@ export default function App() {
     setLayout((current) => ({ ...current, ...patch }))
   }, [])
 
-  // Wallpaper settings are applied through CSS variables on <html>; the image
-  // itself is a data URL that must not be re-diffed on every render.
+  // Wallpaper settings are applied through CSS variables on <html> and the
+  // image directly on its layer; the data URL must not be re-diffed on every
+  // render.
   useEffect(() => {
-    applyBackground(background, backgroundUrl)
+    applyBackground(background, backgroundUrl, backgroundLayer.current)
   }, [background, backgroundUrl])
 
   // Sliders fire continuously; persist once the drag settles. The splash uses
@@ -1460,7 +1462,7 @@ export default function App() {
     >
       {background && backgroundUrl ? (
         <div className={styles.background} aria-hidden="true">
-          <div className={styles.backgroundImage} />
+          <div className={styles.backgroundImage} ref={backgroundLayer} />
           <div className={styles.backgroundDim} />
         </div>
       ) : null}

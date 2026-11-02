@@ -21,11 +21,12 @@
   pointer-events: none;
 }
 
-/* Overscan by the blur radius so the filtered edges never show. */
+/* Overscan by the blur radius so the filtered edges never show. The image
+   itself is written on this node by `applyBackground`: a custom property would
+   be dropped by Chromium above 2 MiB, i.e. for any ordinary photo. */
 .backgroundImage {
   position: absolute;
   inset: calc(var(--app-bg-blur, 0px) * -2);
-  background-image: var(--app-bg-image);
   background-position: center;
   background-repeat: var(--app-bg-repeat, no-repeat);
   background-size: var(--app-bg-size, cover);

@@ -37,11 +37,14 @@ export function RepositoryNavigator(props: Props) {
   const matches = (value: string) => value.toLowerCase().includes(query.trim().toLowerCase())
   const tags = props.entries.filter((entry) => entry.kind === 'tag' && matches(entry.name))
   const stashes = props.stashes.filter((entry) => matches(entry.message) || matches(entry.selector))
+  // An annotated tag stores a tag object; only the commit it peels to exists as
+  // a row of the history, so selecting the tag object opens the detail without
+  // ever focusing the graph.
   const refRow = (entry: RefEntry) => <button type="button" key={entry.fullName}
     className={styles.row} data-ref={entry.fullName} data-current={entry.isHead}
-    aria-current={props.selected === entry.targetOid ? 'true' : undefined}
+    aria-current={props.selected === (entry.peeledOid ?? entry.targetOid) ? 'true' : undefined}
     title={entry.name} disabled={props.busy}
-    onClick={() => props.onSelect(entry.targetOid)}
+    onClick={() => props.onSelect(entry.peeledOid ?? entry.targetOid)}
     onDoubleClick={() => entry.kind !== 'tag' && props.onCheckout(entry)}
     onContextMenu={(event) => { event.preventDefault(); props.onRefMenu(entry, event.clientX, event.clientY) }}>
     <span aria-hidden="true">{entry.kind === 'tag' ? '◇' : entry.kind === 'remoteBranch' ? '☁' : '⑂'}</span>

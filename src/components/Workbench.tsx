@@ -279,6 +279,18 @@ export function Workbench({
         source: preview.source,
       })
     }
+    if (preview.ahead === 0 && preview.behind > 0) {
+      return plural(
+        'workbench.integration.targetAheadUseReverse.one',
+        'workbench.integration.targetAheadUseReverse.other',
+        preview.behind,
+        {
+          count: formatNumber(preview.behind),
+          target: preview.target,
+          source: preview.source,
+        },
+      )
+    }
     if (preview.ahead === 0) {
       return t('workbench.integration.alreadyIntegrated', {
         target: preview.target,
@@ -324,6 +336,19 @@ export function Workbench({
             fastForward === 'never'
               ? 'workbench.integration.mergeCommitInstead'
               : 'workbench.integration.fastForwardNoMerge',
+          ),
+        )
+      } else if (preview.ahead === 0 && preview.behind > 0) {
+        parts.push(
+          plural(
+            'workbench.integration.targetAheadUseReverse.one',
+            'workbench.integration.targetAheadUseReverse.other',
+            preview.behind,
+            {
+              count: formatNumber(preview.behind),
+              target: target.name,
+              source: source.name,
+            },
           ),
         )
       } else if (preview.ahead === 0) {
@@ -1075,7 +1100,7 @@ export function Workbench({
       }
       // A fast-forward is possible exactly when the target has no commit the
       // source lacks; anything else needs a merge commit.
-      const canFastForward = preview.behind === 0
+      const canFastForward = preview.fastForward
       const fastForward: MergeFastForward =
         mode === 'merge'
           ? requested === 'never' || !canFastForward
@@ -2462,7 +2487,12 @@ export function Workbench({
                 name="integration-fast-forward"
                 value="only"
                 checked={pendingIntegration.fastForward === 'only'}
-                disabled={pendingIntegration.preview.behind > 0}
+                disabled={!pendingIntegration.preview.fastForward}
+                title={
+                  pendingIntegration.preview.fastForward
+                    ? undefined
+                    : fastForwardReason(pendingIntegration.preview) ?? undefined
+                }
                 onChange={() => chooseIntegrationStrategy('only')}
               />
               <span>

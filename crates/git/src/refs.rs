@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::process::{CommandSpec, GitRunner};
 use crate::GitSubcommand;
 
-const REF_FORMAT: &str =
-    "%(refname)%09%(objectname)%09%(objecttype)%09%(upstream)%09%(HEAD)%09%(symref)";
+const REF_FORMAT: &str = "%(refname)%09%(objectname)%09%(objecttype)%09%(upstream)%09%(HEAD)%09%(symref)%09%(*objectname)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +28,10 @@ pub struct RefEntry {
     pub name: String,
     pub kind: RefKind,
     pub target_oid: String,
+    /// Object an annotated tag peels to (`%(*objectname)`); `None` when the ref
+    /// already points at its object. The history view navigates a tag by this
+    /// oid: the tag object itself is not a commit row.
+    pub peeled_oid: Option<String>,
     pub object_type: String,
     pub upstream: Option<String>,
     pub is_head: bool,
@@ -115,7 +118,7 @@ pub fn parse_refs(input: &str) -> Result<RefsSnapshot, String> {
             continue;
         }
         let fields: Vec<&str> = line.split('\t').collect();
-        if fields.len() < 6 {
+        if fields.len() < 7 {
             return Err(format!("ligne for-each-ref incomplète: {line:?}"));
         }
         let full_name = fields[0];
@@ -124,6 +127,7 @@ pub fn parse_refs(input: &str) -> Result<RefsSnapshot, String> {
         let upstream = non_empty(fields[3]);
         let is_head = fields[4].trim() == "*";
         let symref = non_empty(fields[5]);
+        let peeled_oid = non_empty(fields[6]);
 
         let (kind, name, remote) = if let Some(name) = full_name.strip_prefix("refs/heads/") {
             (RefKind::Branch, name.to_owned(), None)
@@ -155,6 +159,7 @@ pub fn parse_refs(input: &str) -> Result<RefsSnapshot, String> {
             name,
             kind,
             target_oid,
+            peeled_oid,
             object_type,
             upstream,
             is_head,
@@ -181,10 +186,10 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = "\
-refs/heads/main\tabc123\tcommit\trefs/remotes/origin/main\t*\t
-refs/remotes/origin/HEAD\tabc123\tcommit\t\t\trefs/remotes/origin/main
-refs/remotes/origin/main\tabc123\tcommit\t\t\t
-refs/tags/v1.0\tdef456\ttag\t\t\t
+refs/heads/main\tabc123\tcommit\trefs/remotes/origin/main\t*\t\t
+refs/remotes/origin/HEAD\tabc123\tcommit\t\t\trefs/remotes/origin/main\t
+refs/remotes/origin/main\tabc123\tcommit\t\t\t\t
+refs/tags/v1.0\tdef456\ttag\t\t\t\t789abc
 ";
 
     #[test]
@@ -201,6 +206,7 @@ refs/tags/v1.0\tdef456\ttag\t\t\t
         assert_eq!(branch.kind, RefKind::Branch);
         assert_eq!(branch.upstream.as_deref(), Some("refs/remotes/origin/main"));
         assert!(branch.is_head);
+        assert_eq!(branch.peeled_oid, None);
 
         let remote_head = &snapshot.entries[1];
         assert_eq!(
@@ -210,6 +216,10 @@ refs/tags/v1.0\tdef456\ttag\t\t\t
         assert_eq!(remote_head.remote.as_deref(), Some("origin"));
 
         assert_eq!(snapshot.entries[3].kind, RefKind::Tag);
+        // An annotated tag points at a tag object; the commit it peels to is
+        // what the history view can reveal.
+        assert_eq!(snapshot.entries[3].target_oid, "def456");
+        assert_eq!(snapshot.entries[3].peeled_oid.as_deref(), Some("789abc"));
     }
 
     #[test]
@@ -230,9 +240,9 @@ refs/tags/v1.0\tdef456\ttag\t\t\t
 
     #[test]
     fn deduplicates_remotes() {
-        let input = "refs/remotes/origin/a\t1\tcommit\t\t\t\n\
-                     refs/remotes/origin/b\t2\tcommit\t\t\t\n\
-                     refs/remotes/upstream/c\t3\tcommit\t\t\t\n";
+        let input = "refs/remotes/origin/a\t1\tcommit\t\t\t\t\n\
+                     refs/remotes/origin/b\t2\tcommit\t\t\t\t\n\
+                     refs/remotes/upstream/c\t3\tcommit\t\t\t\t\n";
         let snapshot = parse_refs(input).expect("parse");
         assert_eq!(snapshot.remotes, vec!["origin", "upstream"]);
     }

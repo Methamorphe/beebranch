@@ -527,15 +527,75 @@ pub fn open_external_url(input: UrlInput) -> Result<(), AppError> {
     {
         return Err(AppError::invalid_input("URL invalide".to_owned()));
     }
-    #[cfg(target_os = "macos")]
-    let (program, args) = ("open", vec![url]);
-    #[cfg(target_os = "linux")]
-    let (program, args) = ("xdg-open", vec![url]);
-    #[cfg(target_os = "windows")]
-    let (program, args) = ("explorer", vec![url]);
+    launch_browser(url)
+}
 
+/// Hands the URL to the default browser of the platform.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn launch_browser(url: &str) -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(target_os = "linux")]
+    let program = "xdg-open";
+    spawn_browser(program, url)
+}
+
+/// `explorer.exe` is not a URL opener: it treats every argument as a shell
+/// item and splits the list on commas, so a token page such as
+/// `…/personal_access_tokens?scopes=api,read_user` opened a File Explorer
+/// window on the wrong folder. `ShellExecuteW` hands the URL to the registered
+/// `https` handler without parsing it as a command line.
+#[cfg(target_os = "windows")]
+fn launch_browser(url: &str) -> Result<(), AppError> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    fn wide(value: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let operation = wide("open");
+    let target = wide(url);
+    // SAFETY: both strings are NUL-terminated and outlive the call; the URL was
+    // validated above and no window handle nor working directory is needed.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW reports success with a value above 32, an error code below.
+    if result as isize > 32 {
+        Ok(())
+    } else {
+        Err(AppError::internal(format!(
+            "ouverture du navigateur: code {}",
+            result as isize
+        )))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn launch_browser(url: &str) -> Result<(), AppError> {
+    let _ = url;
+    Err(AppError::internal(
+        "ouverture du navigateur non prise en charge".to_owned(),
+    ))
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn spawn_browser(program: &str, url: &str) -> Result<(), AppError> {
     Command::new(program)
-        .args(args)
+        .arg(url)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

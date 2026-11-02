@@ -81,7 +81,14 @@ async function applyLanguage() {
 
 function apply(settings: MediaSettings, dataUrl: string) {
   const options = normalizeMediaOptions(settings)
-  root.style.setProperty('--splash-image', `url("${dataUrl}")`)
+  // The image goes straight on the backdrop: Chromium drops custom property
+  // values above 2 MiB, which any ordinary photo exceeds (see
+  // `lib/background.ts`). The options stay variables so the stylesheet owns the
+  // presentation.
+  const backdrop = document.querySelector<HTMLElement>('.backdrop')
+  if (backdrop) {
+    backdrop.style.backgroundImage = `url("${dataUrl}")`
+  }
   root.style.setProperty(
     '--splash-size',
     options.fit === 'cover' ? 'cover' : options.fit === 'contain' ? 'contain' : 'auto',

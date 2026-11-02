@@ -339,6 +339,16 @@ button:disabled {
   box-sizing: border-box;
 }
 
+.counter {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.counterOver { color: var(--warning); font-weight: 600; }
+
 .primary:hover:not(:disabled) { background:var(--accent-strong); color:var(--accent-contrast); }
 .secondary:hover:not(:disabled) { border-color:var(--border-strong); }
 .dialogBackdrop { animation:overlay-enter var(--duration-fast) var(--ease-out); }

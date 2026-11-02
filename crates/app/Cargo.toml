@@ -23,6 +23,15 @@ tauri-plugin-updater.workspace = true
 tokio.workspace = true
 url.workspace = true
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# `ShellExecuteW` opens an https URL with the registered browser handler; the
+# `explorer` binary instead parses its arguments as shell items.
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
 [dev-dependencies]
 minisign-verify = "0.3.0"
 tempfile.workspace = true

@@ -1,5 +1,69 @@
 # Changelog
 
+## [1.2.2] — 2026-10-30
+
+### Added
+
+- **Summary character counter**: the commit panel — and the amend dialog — now
+  show how many characters remain for the first line of the message, capped at
+  the conventional 72-character Git subject. The count turns into a warning once
+  the limit is exceeded; the body stays free-form.
+
+### Changed
+
+- **Reference pills (graph)**: branch, remote and tag pills keep the hue of the
+  rail they sit on but are filled solid instead of a 20–32 % tint, with the
+  label and glyph in whichever ink — near-black or near-white — has the higher
+  WCAG ratio on that fill. Two light-theme lanes sat between the two inks, so
+  those pills are darkened just enough to clear AA: the floor is 4.65:1 in the
+  light palette and 6.0:1 in the dark one (locked by
+  `scripts/reference-pill-check.ts`). A branch badge now reads as the same
+  colour as its line in the history, instead of a near-background wash that was
+  hard to pick out.
+
+### Fixed
+
+- **Tag rows in the repository tree**: picking a tag now focuses — and scrolls
+  to — the commit it points at. An annotated tag stores a tag object, and that
+  oid is not a row of the graph, so the selection landed nowhere and the
+  inspector stayed empty. `for-each-ref` now also reports the peeled commit
+  (`%(*objectname)`), and a tag row selects that oid; lightweight tags keep
+  pointing at their commit directly.
+
+## [1.2.1] — 2026-10-30
+
+### Fixed
+
+- **Custom wallpaper on Windows**: the image was read and persisted but never
+  displayed. Chromium — WebView2 on Windows — silently discards CSS custom
+  property values above 2 MiB, less than the base64 of an ordinary photo, so
+  `--app-bg-image` was dropped while WebKit accepted it. The image is now
+  written as a `background-image` on its own layer; the custom splash screen,
+  which showed nothing but its veil, gets the same fix.
+- **“Create a token” link on Windows**: it opened a File Explorer window
+  instead of the forge page. The URL was launched through `explorer.exe`, which
+  splits its arguments on commas and treats them as filesystem items — the
+  GitLab and GitHub token pages carry comma-separated scopes. Links now go
+  through `ShellExecuteW`, the registered `https` handler.
+
+## [1.2.0] — 2026-10-30
+
+### Added
+
+- **Local author avatars (graph)**: at comfortable density every commit node of
+  the graph column becomes an initials disc — fill derived from a stable hash
+  of the normalised author email over the `--lane-*` palette, lane colour as
+  outer ring, label contrast kept at WCAG ≥ 4.5:1 in both themes. Compact
+  density and stash nodes keep their original dots.
+- **Author tooltip on the graph column**: hovering the graph column sets the
+  canvas title to the author name and email of the commit under the pointer.
+
+### Changed
+
+- The author column lists plain author names again; the initials discs live in
+  the graph column only. No third-party avatar URL and no CSP change: the
+  application stays local-first.
+
 ## [1.1.0] — 2026-10-30
 
 ### Added
