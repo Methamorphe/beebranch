@@ -17,8 +17,7 @@
 .fileGroup + .fileGroup { border-top:1px solid var(--border); margin-top:6px; }
 .fileRow { display:flex; align-items:center; gap:5px; height:29px; padding:0 8px 0 10px; }
 .fileRow:hover { background:var(--surface-raised); }
-.fileRow[data-selected='true'] { background:var(--accent-soft); }
-.fileRow[data-checked='true'] { background:var(--accent-soft); }
+.fileRow[data-selected='true'], .fileRow[data-checked='true'], .fileRow[data-menu='true'] { background:var(--accent-soft); }
 .fileRow[data-flash='true'] { animation:file-flash 280ms var(--ease-out); }
 /* Directory rows in the tree view: disclosure, then the file count below it. */
 .dirRow { display:flex; align-items:center; gap:6px; width:100%; min-height:27px; padding:0 8px 0 10px; color:var(--muted); font-size:12px; text-align:left; }
@@ -37,6 +36,12 @@
 .filePath:hover:not(:disabled) { background:none; }
 .stage { flex:none; width:24px; min-height:26px; padding:0 4px; color:var(--muted); font-size:16px; }
 .danger,.error { color:var(--error); }
+.menuActions { display:flex; flex-direction:column; gap:1px; }
+.menuAction { width:100%; min-height:34px; padding:7px 9px; border:0; color:var(--text); font-size:13px; text-align:left; background:none; }
+.menuAction:focus-visible, .menuAction:hover:not(:disabled) { background:var(--surface-raised); outline-offset:-2px; }
+.menuAction:disabled { color:var(--muted); }
+.menuAction.danger { color:var(--error); }
+.menuSeparator { height:1px; margin:4px 6px; background:var(--border); }
 .loading,.error,.notice,.empty,.banner { margin:0; padding:6px 12px; font-size:12px; }
 .notice,.empty,.loading { color:var(--muted); }
 .banner { color:var(--warning); }

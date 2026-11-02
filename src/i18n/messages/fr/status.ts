@@ -24,9 +24,12 @@ const messages = {
   'status.notice.mergeTool': 'Merge tool ouvert : {path}',
   'status.notice.editor': 'Éditeur ouvert : {path}',
   'status.notice.resolved': 'Conflit marqué résolu : {path}',
+  'status.notice.copiedPath': 'Chemin copié : {path}',
+  'status.notice.deleted': 'Fichier supprimé : {path}',
 
   'status.error.discardUnsupported':
     'Un fichier non suivi ou en conflit ne peut pas être discardé ici.',
+  'status.error.clipboardUnavailable': 'Presse-papiers indisponible.',
   'status.loading': 'Lecture du status…',
   'status.empty': 'Aucun status.',
 
@@ -57,6 +60,11 @@ const messages = {
   'status.row.ignorePattern': 'Ignorer {pattern}',
   'status.row.ignoreDir': 'Ignorer le dossier',
   'status.row.discardAction': 'Abandonner les modifications…',
+  'status.row.stageMenu': 'Préparer',
+  'status.row.unstageMenu': 'Retirer de l’index',
+  'status.row.copyPath': 'Copier le chemin',
+  'status.row.deleteAction': 'Supprimer le fichier…',
+  'status.menu.aria': 'Actions sur le fichier {path}',
 
   'status.filter.placeholder': 'Filtrer les fichiers…',
   'status.filter.aria': 'Filtrer les chemins',
@@ -81,6 +89,11 @@ const messages = {
   'status.discard.consequenceMany':
     '{count} fichiers ({list}) : le contenu non indexé sera remplacé par la version de l’index.',
   'status.discard.confirm': 'Discard',
+
+  'status.delete.title': 'Supprimer le fichier',
+  'status.delete.consequenceOne':
+    '“{path}” sera supprimé du worktree. Un fichier suivi peut être restauré depuis l’index ; un fichier non suivi est définitivement perdu.',
+  'status.delete.confirm': 'Supprimer',
 }
 
 export default messages

@@ -182,6 +182,17 @@ export function fileWrite(input: {
   })
 }
 
+/** Delete one worktree file; the backend requires an explicit confirmation. */
+export function fileDelete(
+  repoId: string,
+  path: string,
+  confirmation: Confirmation,
+): Promise<MutationResult<string>> {
+  return call<MutationResult<string>>('file_delete', {
+    request: { repoId, path, confirmation },
+  })
+}
+
 export function recoveryList(): Promise<
   {
     operation: OperationRecord

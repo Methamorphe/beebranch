@@ -76,7 +76,7 @@ Preflight does not guarantee the absence of a race with an external process. The
 | Asset | Threat | Measure |
 |---|---|---|
 | GitLab token | leak through logs, URL, frontend, crash report | OS keychain in release, 0600 file in development build, redaction, never in the URL |
-| Working tree | loss through discard/reset/clean | explicit confirmation, preflight, no untracked file deletion |
+| Working tree | loss through discard/reset/delete | explicit confirmation, preflight, no bulk clean; an untracked file is only deleted one at a time through an acknowledged action, and the deletion is journaled |
 | Repository | corruption through direct writes | Git only |
 | Local configuration | command execution through `.git/config` or filters | warning on opening, transparency |
 | GitLab content | XSS through Markdown/HTML | sanitized Markdown rendering, raw HTML prohibited, remote images blocked by default |

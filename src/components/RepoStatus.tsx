@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   conflictMarkResolved,
   diffGet,
+  fileDelete,
   indexDiscard,
   indexIgnore,
   indexStage,
@@ -19,6 +20,7 @@ import { splitPath } from '../lib/paths'
 import type { Fingerprint, StatusEntry, StatusReport } from '../types/git'
 import { ActionMenu } from './ActionMenu'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ContextMenu } from './ContextMenu'
 import styles from './RepoStatus.module.css'
 
 type Props = {
@@ -74,6 +76,23 @@ type PendingDiscard = {
   expected: Fingerprint[]
 }
 
+/** One entry of the row `···` popover and of the right-click menu. */
+type RowAction = {
+  key: string
+  label: string
+  danger?: boolean
+  disabled?: boolean
+  dividerBefore?: boolean
+  run: () => void
+}
+
+type FileMenu = {
+  x: number
+  y: number
+  entry: StatusEntry
+  staged: boolean
+}
+
 export function RepoStatus({
   repoId,
   generation,
@@ -95,6 +114,8 @@ export function RepoStatus({
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set())
   const [refresh, setRefresh] = useState(0)
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<StatusEntry | null>(null)
+  const [fileMenu, setFileMenu] = useState<FileMenu | null>(null)
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set())
   const [flashPaths, setFlashPaths] = useState<Set<string>>(() => new Set())
   const selectionAnchor = useRef<string | null>(null)
@@ -355,6 +376,163 @@ export function RepoStatus({
     return <div className={styles.loading}>{loading ? t('status.loading') : t('status.empty')}</div>
   }
 
+  const copyPath = async (entry: StatusEntry) => {
+    setError(null)
+    try {
+      await navigator.clipboard.writeText(entry.path)
+      setNotice(t('status.notice.copiedPath', { path: entry.path }))
+    } catch {
+      setError(t('status.error.clipboardUnavailable'))
+    }
+  }
+
+  const confirmDelete = async () => {
+    const target = pendingDelete
+    if (!target) {
+      return
+    }
+    const ok = await run(t('status.notice.deleted', { path: target.path }), () =>
+      fileDelete(repoId, target.path, { acknowledged: true }),
+    )
+    if (ok) {
+      setSelectedKeys((current) => {
+        const next = new Set(current)
+        next.delete(`worktree:${target.path}`)
+        next.delete(`index:${target.path}`)
+        return next
+      })
+    }
+    setPendingDelete(null)
+  }
+
+  /**
+   * The single source of truth for both entry points: the row `···` popover
+   * and the right-click menu. `ignored` paths may be directories (`build/`),
+   * which the backend never deletes recursively.
+   */
+  const rowActions = (entry: StatusEntry, staged: boolean): RowAction[] => {
+    const actions: RowAction[] = []
+    const isDirectory = entry.path.endsWith('/')
+    if (entry.kind === 'unmerged') {
+      actions.push({
+        key: 'resolve',
+        label: t('status.row.resolve'),
+        disabled: busy,
+        run: () => onNavigate('conflicts'),
+      })
+    } else if (entry.kind !== 'ignored') {
+      actions.push(staged
+        ? {
+            key: 'unstage',
+            label: t('status.row.unstageMenu'),
+            disabled: busy,
+            run: () => void unstage(entry),
+          }
+        : {
+            key: 'stage',
+            label: t('status.row.stageMenu'),
+            disabled: busy,
+            run: () => void stage(entry),
+          })
+    }
+    if (!isDirectory) {
+      actions.push({
+        key: 'editor',
+        label: t('status.row.openEditor'),
+        disabled: busy,
+        run: () => void openTool(entry, 'editor'),
+      })
+    }
+    if (entry.kind === 'unmerged') {
+      actions.push(
+        {
+          key: 'merge-tool',
+          label: t('status.row.mergeTool'),
+          disabled: busy,
+          run: () => void openTool(entry, 'merge'),
+        },
+        {
+          key: 'mark-resolved',
+          label: t('status.row.markResolved'),
+          disabled: busy,
+          run: () => void resolve(entry),
+        },
+      )
+    }
+    if (entry.kind === 'untracked') {
+      actions.push({
+        key: 'ignore-file',
+        label: t('status.row.ignoreFile'),
+        disabled: busy,
+        run: () => void ignore(entry.path),
+      })
+      const pattern = extPattern(entry.path)
+      if (pattern) {
+        actions.push({
+          key: 'ignore-extension',
+          label: t('status.row.ignorePattern', { pattern }),
+          disabled: busy,
+          run: () => void ignore(pattern),
+        })
+      }
+      if (entry.path.includes('/')) {
+        actions.push({
+          key: 'ignore-directory',
+          label: t('status.row.ignoreDir'),
+          disabled: busy,
+          run: () => void ignore(dirPattern(entry.path)),
+        })
+      }
+    }
+    if (!staged && entry.kind === 'ordinary') {
+      actions.push({
+        key: 'discard',
+        label: t('status.row.discardAction'),
+        danger: true,
+        disabled: busy,
+        run: () => void requestDiscard([entry]),
+      })
+    }
+    actions.push({
+      key: 'copy-path',
+      label: t('status.row.copyPath'),
+      dividerBefore: true,
+      run: () => void copyPath(entry),
+    })
+    if (!isDirectory && !entry.submodule && entry.kind !== 'unmerged') {
+      actions.push({
+        key: 'delete',
+        label: t('status.row.deleteAction'),
+        danger: true,
+        dividerBefore: true,
+        disabled: busy,
+        run: () => setPendingDelete(entry),
+      })
+    }
+    return actions
+  }
+
+  const menuItems = (entry: StatusEntry, staged: boolean, variant: 'popover' | 'context') =>
+    rowActions(entry, staged).map((action) =>
+      variant === 'popover' ? (
+        <Fragment key={action.key}>
+          {action.dividerBefore ? <div className={styles.menuSeparator} role="separator" /> : null}
+          <button type="button" className={action.danger ? styles.danger : undefined}
+            disabled={action.disabled} onClick={action.run}>{action.label}</button>
+        </Fragment>
+      ) : (
+        <Fragment key={action.key}>
+          {action.dividerBefore ? <div className={styles.menuSeparator} role="separator" /> : null}
+          <button type="button" role="menuitem"
+            className={action.danger ? `${styles.menuAction} ${styles.danger}` : styles.menuAction}
+            disabled={action.disabled} onClick={() => {
+              setFileMenu(null)
+              action.run()
+            }}>{action.label}</button>
+        </Fragment>
+      ),
+    )
+
   const select = (entry: StatusEntry, staged: boolean) => onSelectDiff({
     target: staged ? 'index' : 'worktree', path: entry.path,
     untracked: entry.kind === 'untracked', allowActions: entry.kind !== 'unmerged',
@@ -453,7 +631,12 @@ export function RepoStatus({
     return (
       <div key={entry.path} className={styles.fileRow}
         style={depth > 0 ? { paddingLeft: 10 + depth * 12 } : undefined}
-        data-selected={entry.path === selectedPath} data-checked={selectedKeys.has(selectionKey)} data-flash={flashPaths.has(entry.path)}>
+        data-selected={entry.path === selectedPath} data-checked={selectedKeys.has(selectionKey)} data-flash={flashPaths.has(entry.path)}
+        data-menu={fileMenu?.entry.path === entry.path && fileMenu.staged === staged}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setFileMenu({ x: event.clientX, y: event.clientY, entry, staged })
+        }}>
         <input
           type="checkbox"
           className={styles.select}
@@ -473,10 +656,7 @@ export function RepoStatus({
         </button>
         {entry.kind === 'unmerged' ? <button type="button" className={styles.stage} onClick={() => onNavigate('conflicts')}>{t('status.row.resolve')}</button> : entry.kind !== 'ignored' ? <button type="button" className={styles.stage} disabled={busy} title={staged ? t('status.row.unstageTitle') : t('status.row.stageTitle')} aria-label={staged ? t('status.row.unstageAria', { path: entry.path }) : t('status.row.stageAria', { path: entry.path })} onClick={() => void (staged ? unstage(entry) : stage(entry))}>{staged ? '−' : '+'}</button> : null}
         <ActionMenu label={t('status.row.actionsAria', { path: entry.path })}>
-            <button type="button" disabled={busy} onClick={() => void openTool(entry, 'editor')}>{t('status.row.openEditor')}</button>
-            {entry.kind === 'unmerged' ? <><button type="button" disabled={busy} onClick={() => void openTool(entry, 'merge')}>{t('status.row.mergeTool')}</button><button type="button" disabled={busy} onClick={() => void resolve(entry)}>{t('status.row.markResolved')}</button></> : null}
-            {entry.kind === 'untracked' ? <><button type="button" disabled={busy} onClick={() => void ignore(entry.path)}>{t('status.row.ignoreFile')}</button>{extPattern(entry.path) ? <button type="button" disabled={busy} onClick={() => void ignore(extPattern(entry.path)!)}>{t('status.row.ignorePattern', { pattern: extPattern(entry.path)! })}</button> : null}{entry.path.includes('/') ? <button type="button" disabled={busy} onClick={() => void ignore(dirPattern(entry.path))}>{t('status.row.ignoreDir')}</button> : null}</> : null}
-            {!staged && entry.kind === 'ordinary' ? <button type="button" className={styles.danger} disabled={busy} onClick={() => void requestDiscard([entry])}>{t('status.row.discardAction')}</button> : null}
+          {menuItems(entry, staged, 'popover')}
         </ActionMenu>
       </div>
     )
@@ -550,6 +730,16 @@ export function RepoStatus({
           )
         })}
       </div>
+      {fileMenu ? (
+        <ContextMenu x={fileMenu.x} y={fileMenu.y} title={fileMenu.entry.path}
+          subtitle={entryLabel(fileMenu.entry)}
+          ariaLabel={t('status.menu.aria', { path: fileMenu.entry.path })}
+          onClose={() => setFileMenu(null)}>
+          <div className={styles.menuActions}>
+            {menuItems(fileMenu.entry, fileMenu.staged, 'context')}
+          </div>
+        </ContextMenu>
+      ) : null}
       <ConfirmDialog
         open={pendingDiscard !== null}
         title={t('status.discard.title')}
@@ -566,6 +756,18 @@ export function RepoStatus({
         busy={busy}
         onCancel={() => setPendingDiscard(null)}
         onConfirm={() => void confirmDiscard()}
+      />
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={t('status.delete.title')}
+        consequence={pendingDelete
+          ? t('status.delete.consequenceOne', { path: pendingDelete.path })
+          : ''}
+        irreversible
+        confirmLabel={t('status.delete.confirm')}
+        busy={busy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => void confirmDelete()}
       />
     </div>
   )

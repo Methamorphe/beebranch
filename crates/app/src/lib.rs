@@ -39,6 +39,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::read::diff_get,
             commands::read::file_content_get,
             commands::read::file_write,
+            commands::read::file_delete,
             commands::index::file_fingerprints,
             commands::index::index_stage,
             commands::index::index_unstage,
