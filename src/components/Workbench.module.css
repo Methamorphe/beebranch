@@ -1,8 +1,58 @@
 .content { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; width:100%; gap:0; }
 .graphLayout { display:flex; flex:1; min-height:0; }
 .historyMain { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
-.graphRegion { flex:1; display:flex; min-height:0; min-width:0; }
+.graphRegion { flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; }
 .graphRegion[hidden] { display:none; }
+.findBar {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:none;
+  padding:6px 10px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+}
+.findBar input {
+  flex:1;
+  min-width:0;
+  height:28px;
+  padding:2px 8px;
+  border:1px solid var(--border-strong);
+  border-radius:4px;
+  color:var(--text);
+  background:var(--bg);
+  font-size:13px;
+}
+.findCount {
+  flex:none;
+  max-width:42%;
+  overflow:hidden;
+  color:var(--muted);
+  font-size:11.5px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.findNav,
+.findClose {
+  flex:none;
+  width:28px;
+  height:28px;
+  padding:0;
+  border:0;
+  border-radius:4px;
+  color:var(--muted-strong);
+  background:transparent;
+  font-size:14px;
+  line-height:1;
+}
+.findNav:hover:not(:disabled),
+.findClose:hover {
+  color:var(--text);
+  background:var(--surface-raised);
+}
+.findNav:disabled {
+  opacity:0.35;
+}
 .graphToolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 12px; border-bottom:1px solid var(--border); }
 .graphControls { display:flex; align-items:center; gap:3px; min-width:0; margin-left:auto; }
 .graphControls select { min-width:0; max-width:190px; height:28px; padding:2px 5px; border:0; border-radius:3px; background:transparent; color:var(--muted-strong); font-size:12px; text-transform:none; letter-spacing:0; }

@@ -35,6 +35,7 @@ const messages = {
   'shell.palette.refresh': 'Refresh the repository',
   'shell.palette.resolveConflicts': 'Resolve conflicts',
   'shell.palette.newBranch': 'New branch…',
+  'shell.palette.findInGraph': 'Find in graph…',
   'shell.palette.rebase': 'Interactive rebase…',
   'shell.palette.fetch': 'Fetch origin',
   'shell.palette.fetchAll': 'Fetch every remote',

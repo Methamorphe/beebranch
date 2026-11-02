@@ -35,6 +35,7 @@ const messages = {
   'shell.palette.refresh': 'Rafraîchir le dépôt',
   'shell.palette.resolveConflicts': 'Résoudre les conflits',
   'shell.palette.newBranch': 'Nouvelle branche…',
+  'shell.palette.findInGraph': 'Rechercher dans le graphe…',
   'shell.palette.rebase': 'Rebase interactif…',
   'shell.palette.fetch': 'Fetch origin',
   'shell.palette.fetchAll': 'Fetch tous les remotes',

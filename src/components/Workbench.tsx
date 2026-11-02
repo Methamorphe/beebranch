@@ -72,6 +72,7 @@ import type {
   StashEntry,
   Workspace,
 } from '../types/git'
+import { matchGraphCommits, stepGraphFind } from '../lib/graphFind'
 import type { ShortcutMap } from '../lib/shortcuts'
 import {
   EMPTY_VISIBILITY,
@@ -124,6 +125,8 @@ type Props = {
   view: ViewId
   worktreeRequest: number
   branchRequest: number
+  /** Bumped by Mod+F / palette to open the in-graph find bar. */
+  findRequest: number
   historyRequest: { kind: 'stash' | 'rebase' | 'conflicts'; serial: number } | null
   diffRequest: DiffRequest | null
   onOpenDiff: (request: DiffRequest) => void
@@ -237,6 +240,7 @@ export function Workbench({
   view,
   worktreeRequest,
   branchRequest,
+  findRequest,
   diffRequest,
   historyRequest,
   onOpenDiff,
@@ -421,6 +425,9 @@ export function Workbench({
   }, [repoId, generation])
   const [rebaseBase, setRebaseBase] = useState('')
   const [reveal, setReveal] = useState<{ sha: string; serial: number }>()
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const findInputRef = useRef<HTMLInputElement>(null)
   const [selected, setSelected] = useState<string | undefined>()
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -994,6 +1001,84 @@ export function Workbench({
       startBranchCreate()
     }
   }, [branchRequest, startBranchCreate, view])
+
+  const previousFindRequest = useRef(findRequest)
+  useEffect(() => {
+    if (previousFindRequest.current === findRequest) return
+    previousFindRequest.current = findRequest
+    if (!repoId || findRequest === 0) return
+    setLocalDiff(null)
+    setComparePath(null)
+    setHistoryTool(null)
+    setFindOpen(true)
+    window.requestAnimationFrame(() => {
+      findInputRef.current?.focus()
+      findInputRef.current?.select()
+    })
+  }, [findRequest, repoId])
+
+  useEffect(() => {
+    if (!findOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (document.querySelector('[aria-modal="true"], [role="menu"]')) return
+      event.preventDefault()
+      setFindOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [findOpen])
+
+  const findMatches = useMemo(
+    () => (findOpen ? matchGraphCommits(graph.commits, findQuery) : []),
+    [findOpen, findQuery, graph.commits],
+  )
+  const findHitSet = useMemo(
+    () => new Set(findMatches.map((index) => graph.commits[index]?.sha).filter(Boolean) as string[]),
+    [findMatches, graph.commits],
+  )
+  const findActiveOrdinal = useMemo(() => {
+    if (!selected || findMatches.length === 0) return 0
+    const position = findMatches.findIndex(
+      (index) => graph.commits[index]?.sha === selected,
+    )
+    return position >= 0 ? position + 1 : 0
+  }, [findMatches, graph.commits, selected])
+
+  const jumpFind = useCallback(
+    (direction: 1 | -1) => {
+      const index = stepGraphFind(findMatches, graph.commits, selected, direction)
+      if (index == null) return
+      const commit = graph.commits[index]
+      if (!commit) return
+      setSelected(commit.sha)
+      setWorktreeSelected(false)
+      setReveal((previous) => ({ sha: commit.sha, serial: (previous?.serial ?? 0) + 1 }))
+    },
+    [findMatches, graph.commits, selected],
+  )
+
+  // Auto-jump only when the find query text changes, never on graph refresh
+  // or manual selection moves.
+  const lastAutoJumpQuery = useRef('')
+  useEffect(() => {
+    if (!findOpen) {
+      lastAutoJumpQuery.current = ''
+      return
+    }
+    const query = findQuery.trim()
+    if (!query || findMatches.length === 0) {
+      lastAutoJumpQuery.current = query
+      return
+    }
+    if (lastAutoJumpQuery.current === query) return
+    lastAutoJumpQuery.current = query
+    const commit = graph.commits[findMatches[0]!]
+    if (!commit) return
+    setSelected(commit.sha)
+    setWorktreeSelected(false)
+    setReveal((previous) => ({ sha: commit.sha, serial: (previous?.serial ?? 0) + 1 }))
+  }, [findOpen, findQuery, findMatches, graph.commits])
 
   const closeInspector = useCallback(() => {
     if (comparison) {
@@ -2022,6 +2107,84 @@ export function Workbench({
         <div className={styles.historyMain}>
 
           <div className={styles.graphRegion} hidden={centerActive}>
+        {findOpen ? (
+          <div className={styles.findBar} role="search">
+            <input
+              ref={findInputRef}
+              value={findQuery}
+              onChange={(event) => setFindQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setFindOpen(false)
+                  return
+                }
+                if (
+                  (event.metaKey || event.ctrlKey) &&
+                  !event.shiftKey &&
+                  !event.altKey &&
+                  event.key.toLowerCase() === 'f'
+                ) {
+                  event.preventDefault()
+                  event.currentTarget.select()
+                  return
+                }
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  jumpFind(event.shiftKey ? -1 : 1)
+                }
+              }}
+              placeholder={t('graph.find.placeholder')}
+              aria-label={t('graph.find.aria')}
+              spellCheck={false}
+            />
+            <span className={styles.findCount} role="status">
+              {findQuery.trim()
+                ? findMatches.length === 0
+                  ? t('graph.find.none')
+                  : findActiveOrdinal > 0
+                    ? t('graph.find.count', {
+                        current: findActiveOrdinal,
+                        total: findMatches.length,
+                      })
+                    : t('graph.find.count', {
+                        current: '—',
+                        total: findMatches.length,
+                      })
+                : t('graph.find.hint')}
+            </span>
+            <button
+              type="button"
+              className={styles.findNav}
+              disabled={findMatches.length === 0}
+              aria-label={t('graph.find.previous')}
+              title={t('graph.find.previous')}
+              onClick={() => jumpFind(-1)}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className={styles.findNav}
+              disabled={findMatches.length === 0}
+              aria-label={t('graph.find.next')}
+              title={t('graph.find.next')}
+              onClick={() => jumpFind(1)}
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              className={styles.findClose}
+              aria-label={t('graph.find.close')}
+              title={t('graph.find.close')}
+              onClick={() => setFindOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {graph.commits.length === 0 && !graph.loading ? (
           <div className={styles.emptyHistory}>
             {worktreeRow}
@@ -2038,6 +2201,7 @@ export function Workbench({
             rows={graph.rows}
             selected={selected}
             reveal={reveal}
+            findHits={findOpen && findQuery.trim() ? findHitSet : undefined}
             mrBadges={badges}
             refEntries={visibleRefs}
             pin={graphPin}

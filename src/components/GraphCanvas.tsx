@@ -59,6 +59,8 @@ type Props = {
   rows: GraphRow[]
   selected?: string
   reveal?: { sha: string; serial: number }
+  /** SHAs matching the in-graph find query; drawn with a soft row tint. */
+  findHits?: ReadonlySet<string>
   mrBadges?: Record<string, MrBadge>
   refEntries?: RefEntry[]
   checkoutDisabled?: boolean
@@ -377,6 +379,7 @@ export function GraphCanvas({
   rows,
   selected,
   reveal,
+  findHits,
   mrBadges,
   onSelect,
   refEntries = [],
@@ -628,7 +631,15 @@ export function GraphCanvas({
       pin && index > pin.row ? swapLane(lane) : lane
     const alphaFor = (sha: string) => !branchFocus || branchFocus.ancestors.has(sha) ? 1 : UNFOCUSED_ALPHA
     const emphasisFor = (sha: string, index: number) =>
-      sha === selected ? 0.5 : picked.includes(sha) ? 0.34 : hoveredRef.current === index ? 0.18 : 0
+      sha === selected
+        ? 0.5
+        : picked.includes(sha)
+          ? 0.34
+          : findHits?.has(sha)
+            ? 0.22
+            : hoveredRef.current === index
+              ? 0.18
+              : 0
 
     // 1. Row emphasis stays neutral: only the graph column carries the branch
     // colors, so a selected row lifts the surface instead of tinting the row.
@@ -640,7 +651,9 @@ export function GraphCanvas({
       const emphasis = emphasisFor(commit.sha, index) * alphaFor(commit.sha)
       if (emphasis > 0) {
         context.globalAlpha = emphasis
-        context.fillStyle = raisedColor
+        context.fillStyle = findHits?.has(commit.sha) && commit.sha !== selected && !picked.includes(commit.sha)
+          ? accentColor
+          : raisedColor
         context.beginPath()
         context.roundRect(6, y - ROW_HEIGHT / 2 + stripInset, Math.max(0, width - 12), ROW_HEIGHT - stripInset * 2, 4)
         context.fill()
@@ -968,8 +981,7 @@ export function GraphCanvas({
     for (const x of [col.refs, col.refs + col.graph, ...(col.author ? [width - col.author - col.date] : []), ...(col.date ? [width - col.date] : [])]) {
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
-
-  }, [commits, rows, selected, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus])
+  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus])
 
   useLayoutEffect(() => {
     drawRef.current = draw
