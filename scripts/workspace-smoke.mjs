@@ -118,6 +118,50 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `window.__workspaceCalls.some(([name]) => name === 'branch_checkout')`, 'direct branch checkout')
   await check('checkout-keeps-workspace', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('[data-central-editor]')`)
 
+  // Issue #19: drag a graph branch onto a left-panel local branch.
+  await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
+  await delay(80)
+  const navDrop = await evaluate(client, `(() => {
+    const bounds = document.querySelector('canvas').getBoundingClientRect()
+    const row = document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"]')
+    const rowBounds = row.getBoundingClientRect()
+    return {
+      source: { x: bounds.left + 20, y: bounds.top + 12 * 30 + 15 },
+      target: { x: rowBounds.left + rowBounds.width / 2, y: rowBounds.top + rowBounds.height / 2 },
+    }
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, buttons:1, x: navDrop.source.x, y: navDrop.source.y })
+  for (const ratio of [0.2, 0.4, 0.6, 0.8, 1]) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      button: 'left',
+      buttons: 1,
+      x: navDrop.source.x + (navDrop.target.x - navDrop.source.x) * ratio,
+      y: navDrop.source.y + (navDrop.target.y - navDrop.source.y) * ratio,
+    })
+    await delay(45)
+  }
+  await check(
+    'navigator-drop-highlight',
+    `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"][data-drop="true"]') !== null`,
+  )
+  await check(
+    'navigator-drop-ghost',
+    `(() => { const ghost = document.querySelector('[class*=dragGhost]'); return Boolean(ghost && ghost.innerText.includes('feature') && ghost.innerText.includes('main')) })()`,
+  )
+  await client.send('Input.dispatchMouseEvent', { type:'mouseReleased', button:'left', clickCount:1, buttons:0, x: navDrop.target.x, y: navDrop.target.y })
+  await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'navigator drop menu')
+  await check(
+    'navigator-drop-menu',
+    `(() => {
+      const menu = document.querySelector('[role="menu"]')
+      return Boolean(menu && menu.innerText.includes('Fusionner feature dans main') && menu.innerText.includes('Rebaser feature sur main'))
+    })()`,
+  )
+  await evaluate(client, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+  await delay(80)
+  await check('navigator-drop-cancel', `!document.querySelector('[role="menu"]')`)
+
   await click('[data-repository-section="stash"] button[aria-expanded]')
   await click('[data-stash="stash@{0}"]')
   await check('stash-selects-in-graph', `document.querySelector('[data-stash="stash@{0}"]').getAttribute('aria-current') === 'true' && !document.querySelector('[data-repository-tool="stash"], [data-central-editor]')`)
