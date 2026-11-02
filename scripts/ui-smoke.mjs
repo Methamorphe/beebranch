@@ -289,6 +289,7 @@ function mockScript(commits, rows, diffLines) {
     index_stage: (args) => { (window.__p1Calls ??= []).push(['stage', args]); return { data: { files: ['src/module-1.ts'], hunks: 1, patchBytes: 42 }, generation: 2, state: repo.state }; },
     index_unstage: (args) => { (window.__p1Calls ??= []).push(['unstage', args]); return { data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state }; },
     index_discard: (args) => { (window.__p1Calls ??= []).push(['discard', args]); return { data: { files: [], hunks: 0, patchBytes: 0 }, generation: 2, state: repo.state } },
+    file_delete: (args) => { (window.__p1Calls ??= []).push(['delete', args]); return { data: args.request.path, generation: 2, state: repo.state } },
     gitlab_status: () => window.__gitlabDisconnected ? { connected: false } : ({
       connected: true,
       instance: { id: 'gl_demo', baseUrl: 'https://gitlab.example.test', displayName: 'GitLab' },

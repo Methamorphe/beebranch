@@ -252,6 +252,41 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await click('button[aria-label="Fermer l’aperçu"]')
   await check('closing-diff-restores-same-graph', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('canvas').closest('[hidden]')`)
 
+  // Right-clicking a file row exposes the same actions as the `···` popover,
+  // plus the worktree deletion that only lives in the menu.
+  await evaluate(client, `(() => {
+    const row = document.querySelector('button[title="src/module-1.ts"]').closest('div[class*="fileRow"]')
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles:true, cancelable:true, clientX:200, clientY:300 }))
+    return true
+  })()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="menu"]'))`, 'file context menu')
+  await check('file-context-menu-actions', `(() => {
+    const menu = document.querySelector('[role="menu"]')
+    const labels = [...menu.querySelectorAll('button')].map((button) => button.textContent.trim())
+    return menu.getAttribute('aria-label') === 'Actions sur le fichier src/module-1.ts'
+      && labels.includes('Préparer')
+      && labels.includes('Copier le chemin')
+      && labels.includes('Supprimer le fichier…')
+  })()`)
+  await screenshot('workspace-file-context-menu.png')
+  await evaluate(client, `([...document.querySelectorAll('[role="menu"] button')].find((button) => button.textContent.trim() === 'Supprimer le fichier…')).click()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'file delete confirmation')
+  await check('file-delete-confirmation', `(() => {
+    const dialog = document.querySelector('[role="alertdialog"]')
+    return dialog.innerText.includes('Supprimer le fichier')
+      && dialog.innerText.includes('src/module-1.ts')
+      && dialog.innerText.includes('irréversible')
+  })()`)
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Supprimer')).click()`)
+  await waitFor(client, `(window.__p1Calls ?? []).some(([action]) => action === 'delete')`, 'file delete call')
+  await check('file-delete-call', `(() => {
+    const call = (window.__p1Calls ?? []).find(([action]) => action === 'delete')
+    return Boolean(call)
+      && call[1].request.path === 'src/module-1.ts'
+      && call[1].request.confirmation.acknowledged === true
+  })()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'delete confirmation closed')
+
   // The subject counter watches the first line only and warns past 72 chars.
   const setCommitMessage = (value) => evaluate(client, `(() => {
     const editor = document.querySelector('textarea[aria-label="Message de commit"]')

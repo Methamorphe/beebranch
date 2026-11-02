@@ -26,6 +26,7 @@ pub enum DestructiveAction {
     TagDelete,
     TagDeleteRemote,
     SubmoduleRemove,
+    FileDelete,
     AbortOperation,
     RemoteRemove,
     WorkspaceSync,
@@ -48,6 +49,7 @@ impl DestructiveAction {
             Self::TagDelete => "tag.delete",
             Self::TagDeleteRemote => "tag.delete_remote",
             Self::SubmoduleRemove => "submodule.remove",
+            Self::FileDelete => "file.delete",
             Self::AbortOperation => "operation.abort",
             Self::RemoteRemove => "remote.remove",
             Self::WorkspaceSync => "workspace.sync",
@@ -90,6 +92,9 @@ impl DestructiveAction {
             Self::SubmoduleRemove => {
                 "Le sous-module est désinitialisé puis retiré de l'index et de .gitmodules ; son contenu de travail est supprimé."
             }
+            Self::FileDelete => {
+                "Le fichier est supprimé du worktree ; un fichier non suivi ne peut pas être restauré."
+            }
             Self::AbortOperation => {
                 "L'opération en cours est abandonnée ; les résolutions de conflits non commitées sont perdues."
             }
@@ -114,6 +119,7 @@ impl DestructiveAction {
                 | Self::ForcePush
                 | Self::AbortOperation
                 | Self::SubmoduleRemove
+                | Self::FileDelete
                 | Self::CloseTabInProgress
         )
     }
@@ -217,6 +223,9 @@ mod tests {
             DestructiveAction::WorktreeRemove,
             DestructiveAction::StashDrop,
             DestructiveAction::TagDelete,
+            DestructiveAction::TagDeleteRemote,
+            DestructiveAction::SubmoduleRemove,
+            DestructiveAction::FileDelete,
             DestructiveAction::AbortOperation,
             DestructiveAction::RemoteRemove,
             DestructiveAction::WorkspaceSync,

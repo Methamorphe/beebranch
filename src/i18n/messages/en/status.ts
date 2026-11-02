@@ -24,9 +24,12 @@ const messages = {
   'status.notice.mergeTool': 'Merge tool opened: {path}',
   'status.notice.editor': 'Editor opened: {path}',
   'status.notice.resolved': 'Conflict marked resolved: {path}',
+  'status.notice.copiedPath': 'Path copied: {path}',
+  'status.notice.deleted': 'File deleted: {path}',
 
   'status.error.discardUnsupported':
     'An untracked or conflicted file cannot be discarded here.',
+  'status.error.clipboardUnavailable': 'Clipboard unavailable.',
   'status.loading': 'Reading status…',
   'status.empty': 'No status.',
 
@@ -57,6 +60,11 @@ const messages = {
   'status.row.ignorePattern': 'Ignore {pattern}',
   'status.row.ignoreDir': 'Ignore the folder',
   'status.row.discardAction': 'Discard changes…',
+  'status.row.stageMenu': 'Stage',
+  'status.row.unstageMenu': 'Unstage',
+  'status.row.copyPath': 'Copy the path',
+  'status.row.deleteAction': 'Delete the file…',
+  'status.menu.aria': 'Actions on the file {path}',
 
   'status.filter.placeholder': 'Filter files…',
   'status.filter.aria': 'Filter paths',
@@ -81,6 +89,11 @@ const messages = {
   'status.discard.consequenceMany':
     '{count} files ({list}): the unstaged content will be replaced by the index version.',
   'status.discard.confirm': 'Discard',
+
+  'status.delete.title': 'Delete the file',
+  'status.delete.consequenceOne':
+    '“{path}” will be deleted from the working tree. A tracked file can be restored from the index; an untracked file is lost for good.',
+  'status.delete.confirm': 'Delete',
 }
 
 export default messages

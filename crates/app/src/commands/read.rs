@@ -1,16 +1,20 @@
-use beebranch_core::{AppError, Page, PageRequest};
+use beebranch_core::{AppError, Confirmation, DestructiveAction, Page, PageRequest};
 use beebranch_git::commit::CommitDetail;
 use beebranch_git::diff::{read_untracked_file, DiffLimits, DiffReport, DiffTarget};
 use beebranch_git::graph::GraphRow;
 use beebranch_git::log::CommitSummary;
 use beebranch_git::refs::RefsSnapshot;
-use beebranch_git::session::RepoSession;
+use beebranch_git::session::{InvalidationArea, RepoSession};
 use beebranch_git::status::StatusReport;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::Path;
-use tauri::State;
+use tauri::{AppHandle, State};
 
+use crate::commands::util::{
+    begin_destructive, emit_operation, finish_destructive, new_operation_id, run_mutation,
+    MutationResult,
+};
 use crate::error::join_error;
 use crate::state::AppState;
 
@@ -203,6 +207,15 @@ pub struct FileWriteReport {
     pub sha256: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDeleteRequest {
+    pub repo_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub confirmation: Confirmation,
+}
+
 /// Write an edited file back to the worktree.
 ///
 /// The bytes keep the configured read encoding, so opening a Windows-1252 file
@@ -298,6 +311,95 @@ fn write_file_content(
         path: request.path.clone(),
         bytes: bytes.len() as u64,
         sha256: sha256_hex(&bytes),
+    })
+}
+
+/// Delete one file from the worktree.
+///
+/// Only a regular file or a symbolic link is removed: a directory would
+/// silently delete a whole subtree, and a link is unlinked rather than
+/// followed so nothing outside the worktree can be targeted. Deletions are
+/// journaled like every other destructive operation.
+#[tauri::command]
+pub async fn file_delete(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: FileDeleteRequest,
+) -> Result<MutationResult<String>, AppError> {
+    let action = DestructiveAction::FileDelete;
+    request.confirmation.verify(action, None)?;
+
+    let session = state.session(&request.repo_id)?;
+    let operation_id = new_operation_id("delete");
+    let detail = format!("{} · {}", action.code(), request.path);
+    begin_destructive(
+        &state,
+        &operation_id,
+        action.code(),
+        &request.repo_id,
+        &session.worktree().display().to_string(),
+    )?;
+
+    let result = run_mutation(session, {
+        let path = request.path.clone();
+        move |_runner, discovery| {
+            let worktree = discovery.worktree()?;
+            delete_worktree_file(worktree, &path)?;
+            Ok((path.clone(), vec![InvalidationArea::Worktree]))
+        }
+    })
+    .await;
+
+    match &result {
+        Ok(_) => {
+            finish_destructive(&state, &operation_id, &detail, None)?;
+            emit_operation(
+                &app,
+                "destructive://done",
+                serde_json::json!({ "operationId": operation_id, "action": action.code(), "detail": detail }),
+            );
+        }
+        Err(error) => {
+            finish_destructive(&state, &operation_id, &detail, Some(error))?;
+        }
+    }
+    result
+}
+
+fn delete_worktree_file(worktree: &Path, path: &str) -> Result<(), AppError> {
+    beebranch_git::diff::validate_relative_path(path)?;
+    let target = worktree.join(path);
+    let metadata = std::fs::symlink_metadata(&target).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => {
+            AppError::not_found(format!("Le fichier `{path}` n'existe pas."))
+        }
+        _ => AppError::internal(format!("lecture de {}: {error}", target.display())),
+    })?;
+    if metadata.is_dir() {
+        return Err(AppError::invalid_input(format!(
+            "`{path}` est un dossier ; seule la suppression d'un fichier est prise en charge."
+        )));
+    }
+    if !metadata.is_file() && !metadata.file_type().is_symlink() {
+        return Err(AppError::invalid_input(format!(
+            "`{path}` n'est pas un fichier."
+        )));
+    }
+    let root = std::fs::canonicalize(worktree)
+        .map_err(|error| AppError::internal(format!("worktree {}: {error}", worktree.display())))?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| AppError::invalid_input(format!("`{path}` n'a pas de dossier parent.")))?;
+    let canonical_parent = std::fs::canonicalize(parent).map_err(|error| {
+        AppError::internal(format!("lecture du dossier {}: {error}", parent.display()))
+    })?;
+    if !canonical_parent.starts_with(&root) {
+        return Err(AppError::invalid_input(
+            "le chemin sort du worktree".to_owned(),
+        ));
+    }
+    std::fs::remove_file(&target).map_err(|error| {
+        AppError::internal(format!("suppression de {}: {error}", target.display()))
     })
 }
 
@@ -932,6 +1034,54 @@ mod tests {
                 read_file_content(&session, &content_request("link.md", None, None), "utf8")
                     .is_err()
             );
+        }
+    }
+
+    #[test]
+    fn file_delete_removes_files_and_refuses_directories_or_escapes() {
+        let dir = tempfile::tempdir().expect("repo");
+        let runner = GitRunner::detect().expect("git");
+        repository(dir.path(), &runner);
+
+        delete_worktree_file(dir.path(), "b.txt").expect("delete file");
+        assert!(!dir.path().join("b.txt").exists());
+        assert_eq!(
+            delete_worktree_file(dir.path(), "b.txt")
+                .expect_err("already gone")
+                .code,
+            "resource.not_found"
+        );
+
+        std::fs::create_dir_all(dir.path().join("sub")).expect("mkdir");
+        std::fs::write(dir.path().join("sub/child.txt"), "keep\n").expect("write");
+        assert!(
+            delete_worktree_file(dir.path(), "sub").is_err(),
+            "a directory is never removed recursively"
+        );
+        assert!(dir.path().join("sub/child.txt").exists());
+        assert!(delete_worktree_file(dir.path(), "../escape.txt").is_err());
+
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().expect("outside");
+            let outside_file = outside.path().join("target.txt");
+            std::fs::write(&outside_file, "outside\n").expect("write");
+            std::os::unix::fs::symlink(&outside_file, dir.path().join("link.txt"))
+                .expect("symlink");
+            delete_worktree_file(dir.path(), "link.txt").expect("delete link");
+            assert!(!dir.path().join("link.txt").exists());
+            assert!(
+                outside_file.exists(),
+                "unlinking a link never deletes its target"
+            );
+
+            std::os::unix::fs::symlink(outside.path(), dir.path().join("escape"))
+                .expect("symlink dir");
+            assert!(
+                delete_worktree_file(dir.path(), "escape/target.txt").is_err(),
+                "a parent link cannot carry the deletion outside the worktree"
+            );
+            assert!(outside_file.exists());
         }
     }
 

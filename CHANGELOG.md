@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Right-click a file in the changes panel to reach the same actions as the row `···` menu — stage or unstage, open in the configured editor, ignore an untracked file by file/extension/folder, discard unstaged edits, copy the path — plus file deletion.
+- Delete a file from the working tree after an explicit confirmation. The backend refuses directories and paths that resolve outside the worktree, unlinks symbolic links without following them, and journals the deletion as a destructive operation.
+
 ## [1.3.1] — 2026-11-02
 
 ### Fixed

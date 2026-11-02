@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import { t } from '../i18n'
 import styles from './ContextMenu.module.css'
 
-export function ContextMenu({ x, y, title, subtitle, children, onClose }: {
-  x: number; y: number; title: string; subtitle: string; children: ReactNode; onClose: () => void
+export function ContextMenu({ x, y, title, subtitle, ariaLabel, children, onClose }: {
+  x: number; y: number; title: string; subtitle: string; ariaLabel?: string; children: ReactNode; onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
@@ -41,7 +41,7 @@ export function ContextMenu({ x, y, title, subtitle, children, onClose }: {
       if (previous?.isConnected) previous.focus()
     }
   }, [x, y])
-  return createPortal(<div ref={ref} className={styles.menu} role="menu" aria-label={t('shell.contextMenu.aria')}
+  return createPortal(<div ref={ref} className={styles.menu} role="menu" aria-label={ariaLabel ?? t('shell.contextMenu.aria')}
     onKeyDown={(event) => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || event.target instanceof HTMLInputElement) return
       event.preventDefault()
