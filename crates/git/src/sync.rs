@@ -349,29 +349,39 @@ pub fn remote_branch_sha(
     remote: &str,
     branch: &str,
 ) -> Option<String> {
-    if validate_remote(remote).is_err()
-        || validate_branch(branch).is_err()
-        || crate::branches::validate_branch_name(runner, worktree, branch).is_err()
-    {
-        return None;
-    }
+    try_remote_branch_sha(runner, worktree, remote, branch)
+        .ok()
+        .flatten()
+}
+
+/// Read a remote ref without confusing authentication/transport failures with
+/// an absent branch. Force-push preflight must propagate these errors.
+pub fn try_remote_branch_sha(
+    runner: &GitRunner,
+    worktree: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<Option<String>, AppError> {
+    validate_remote(remote)?;
+    validate_branch(branch)?;
+    crate::branches::validate_branch_name(runner, worktree, branch)?;
     let outcome = runner
         .run(
             &CommandSpec::new(GitSubcommand::LsRemote, worktree)
                 .arg("--heads")
                 .arg(remote)
                 .arg(format!("refs/heads/{branch}"))
-                .timeout(std::time::Duration::from_secs(20)),
-        )
-        .ok()?;
-    if !outcome.success() {
-        return None;
-    }
+                // A locked SSH key may need the native passphrase dialog
+                // (up to 120 seconds). Do not kill it during force-push preflight.
+                .timeout(std::time::Duration::from_secs(180)),
+        )?
+        .ensure_success()?;
     let text = outcome.stdout.text_lossy();
-    text.lines()
+    Ok(text
+        .lines()
         .next()
         .and_then(|line| line.split_whitespace().next())
-        .map(str::to_owned)
+        .map(str::to_owned))
 }
 
 fn join_output(stdout: String, stderr: String) -> String {

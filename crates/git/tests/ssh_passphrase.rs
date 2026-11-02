@@ -55,3 +55,33 @@ fn encrypted_key_can_be_unlocked_during_a_git_network_command() {
     assert!(!diagnostic.contains("test-only-passphrase"));
     assert!(!diagnostic.contains("BEGIN OPENSSH PRIVATE KEY"));
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn repository_ssh_command_keeps_precedence_over_the_keychain_transport() {
+    let directory = tempfile::tempdir().unwrap();
+    let runner = GitRunner::detect().unwrap();
+    runner
+        .run(&CommandSpec::new(GitSubcommand::Init, directory.path()))
+        .unwrap()
+        .ensure_success()
+        .unwrap();
+    runner
+        .run(
+            &CommandSpec::new(GitSubcommand::Config, directory.path()).args([
+                "--local",
+                "core.sshCommand",
+                "echo custom-ssh-transport >&2; exit 1",
+            ]),
+        )
+        .unwrap()
+        .ensure_success()
+        .unwrap();
+    let outcome = runner
+        .run(
+            &CommandSpec::new(GitSubcommand::LsRemote, directory.path())
+                .arg("git@example.invalid:repo.git"),
+        )
+        .unwrap();
+    assert!(outcome.stderr.text_lossy().contains("custom-ssh-transport"));
+}

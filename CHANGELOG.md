@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.1] — 2026-11-02
+
+### Fixed
+
+- The default macOS SSH transport saves a verified key passphrase in the macOS Keychain and adds the key to the running SSH agent. Later connections can reuse it without another passphrase prompt. Explicit custom SSH transports retain precedence.
+- Force push reads the remote branch once and uses that same SHA for its journal and `--force-with-lease`. A remote change after that snapshot still rejects the push.
+- SSH and network errors during force-push preflight now remain visible instead of being reported as a missing remote branch.
+- Remote branch checks allow enough time to complete the native passphrase dialog.
+
 ## [1.3.0] — 2026-11-02
 
 ### Added

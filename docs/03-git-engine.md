@@ -191,8 +191,12 @@ A refused push is never a dead end. The refusal (`git.non_fast_forward`, or
    remotely, or replaces the remote tip (`--force-with-lease`, behind a typed
    confirmation of the branch name).
 
-The expected SHA of a force push is read with `git ls-remote` right before the
-send, never taken from the UI or an older fetch.
+The expected SHA of a force push is read once with `git ls-remote` before the
+send, never taken from the UI or an older fetch. The same SHA is recorded in
+the destructive-operation journal and passed to `--force-with-lease`; a remote
+change after this snapshot rejects the push. Preflight propagates SSH,
+authentication and transport errors; only a successful lookup with no matching
+ref reports a missing branch. There is no automatic force-push retry.
 
 ### Branch→branch integration
 
@@ -358,8 +362,16 @@ git -c sequence.editor=<helper> rebase -i --autosquash <base>
 SSH askpass helpers and `SSH_ASKPASS_REQUIRE` are inherited on every platform.
 On macOS, when no SSH askpass helper is configured, network commands use a
 temporary executable helper that opens a native dialog with masked input.
-The passphrase travels directly to SSH through the helper's stdout; BeeBranch
-does not store it or add it to the agent. Host-key confirmation is an explicit
+The passphrase travels directly to SSH through the helper's stdout. The default
+macOS transport uses `/usr/bin/ssh -o UseKeychain=yes -o AddKeysToAgent=yes`:
+Apple's SSH verifies the passphrase, saves it in the macOS Keychain and adds the
+key to the running agent. Subsequent connections (including the multiple
+connections needed by a force push) reuse the agent or Keychain. BeeBranch
+does not write passphrases to temporary files. Explicit `GIT_SSH`,
+`GIT_SSH_COMMAND` and `core.sshCommand` transports retain precedence and must
+provide their own persistence. Remote branch preflight allows 180 seconds so
+the 120-second passphrase dialog is not killed prematurely.
+Host-key confirmation is an explicit
 Yes/No dialog, defaulting to No. Existing askpass helpers and explicit policies
 (including `never`) take precedence. The helper survives until the Git process
 finishes and is removed when its runner and commands are dropped. Local reads
