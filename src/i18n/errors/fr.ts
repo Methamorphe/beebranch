@@ -48,8 +48,9 @@ const errors = {
     remediation: 'Vérifiez known_hosts ou connectez-vous une première fois en SSH.',
   },
   'auth.ssh_key': {
-    message: 'La clé SSH a été refusée.',
-    remediation: 'Vérifiez votre agent SSH et testez `ssh -T git@<hôte>`.',
+    message: "L'authentification SSH a échoué.",
+    remediation:
+      "Déverrouillez votre clé avec sa passphrase ou ajoutez-la à l'agent avec `ssh-add <clé>`, puis réessayez. Vérifiez aussi l'accès avec `ssh -T git@<hôte>`.",
   },
   'auth.failed': {
     message: "L'authentification Git a échoué.",

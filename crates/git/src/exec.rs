@@ -49,6 +49,8 @@ struct Control {
 /// Dropping the handle force-stops the process and reaps it; call
 /// [`Self::wait`] for a graceful outcome.
 pub struct RunningCommand {
+    #[cfg(target_os = "macos")]
+    pub(crate) ssh_askpass: Option<Arc<crate::ssh_askpass::SshAskpass>>,
     pub(crate) https_credentials: Option<Arc<crate::https_auth::CredentialHelper>>,
     child: Option<Child>,
     pid: Option<u32>,
@@ -310,6 +312,8 @@ where
     };
 
     Ok(RunningCommand {
+        #[cfg(target_os = "macos")]
+        ssh_askpass: None,
         https_credentials: None,
         child: Some(child),
         pid: Some(pid),

@@ -109,6 +109,7 @@ const messages = {
   'workbench.integration.nothingToIntegrate': 'nothing to integrate',
   'workbench.integration.operation.merge': 'Merge',
   'workbench.integration.operation.rebase': 'Rebase',
+  'workbench.integration.rebaseBaseUnchanged': 'Branch {target} stays unchanged',
   'workbench.integration.rebaseAction': 'Rebase',
   'workbench.integration.sameCommit': '{target} and {source} point to the same commit.',
   'workbench.integration.stashRequired':

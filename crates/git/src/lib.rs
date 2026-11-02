@@ -36,6 +36,8 @@ pub mod refs;
 pub mod refs_admin;
 pub mod search;
 pub mod session;
+#[cfg(target_os = "macos")]
+mod ssh_askpass;
 pub mod stash;
 pub mod state;
 pub mod status;
