@@ -1437,6 +1437,7 @@ export function Workbench({
             <DiffViewer
               report={report}
               source={source}
+              initialPath={diffRequest?.focusPath ?? diffRequest?.path}
               commit={
                 diffCommit
                   ? {
@@ -2174,7 +2175,13 @@ export function Workbench({
               detail={detail && detail.summary.sha === selected ? detail : null}
               loading={detailLoading && !(detail && detail.summary.sha === selected)}
               error={detailError}
-              onShowDiff={(sha, path) => onOpenDiff({ target: 'commit', base: sha, path })}
+              onShowDiff={(sha, path) =>
+                onOpenDiff(
+                  path
+                    ? { target: 'commit', base: sha, focusPath: path }
+                    : { target: 'commit', base: sha },
+                )
+              }
               onShowHistory={(path) => {
                 setFilePath(path)
                 onNavigate('fileHistory')
