@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0] — 2026-11-02
+
+### Added
+
+- Hover over a branch badge for 450 ms to focus its history. Commits outside its ancestry, along with their graph lines and labels, fade into the background. Shared ancestors and merged history remain visible. Moving away, scrolling, pressing Escape or starting a drag clears the focus. The branch popover supports the same preview.
+- Drag a branch from the graph onto a local branch in the repository tree to open the merge or rebase preview. Pointer capture keeps the drag active across the graph boundary; cancelling or releasing outside a valid target leaves the repository unchanged.
+- On macOS, SSH network operations can open a native dialog to unlock an encrypted private key when no askpass helper is configured. Passphrase input is masked, host-key confirmation defaults to No, and existing SSH helpers and explicit policies take precedence. BeeBranch does not store the passphrase or add the key to the agent.
+
+### Fixed
+
+- Dropping a source branch onto a target and choosing Rebase now rebases the source onto the target, leaving the target unchanged. The preview, worktree checks and confirmation describe the branch that will actually change.
+- Undo and redo restore the rebased source branch as well as the original checkout, including when the operation started on a different branch.
+- Merge previews explain when a fast-forward is impossible and why a merge commit is required.
+- SSH authentication errors now explain how to unlock a key or add it to the SSH agent.
+
 ## [1.2.2] — 2026-10-30
 
 ### Added
