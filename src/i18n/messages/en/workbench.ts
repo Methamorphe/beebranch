@@ -206,6 +206,11 @@ const messages = {
   'workbench.notice.upstreamSet': 'Upstream of {branch}: {upstream}.',
   'workbench.notice.worktreeCreated': 'Worktree created: {path}',
 
+  'workbench.publish.title': 'Publish branch {branch}',
+  'workbench.publish.consequence':
+    'This local branch has no upstream yet. The push creates or updates {remote}/{branch} and makes the local branch track it.',
+  'workbench.publish.confirm': 'Push and create {remote}/{branch}',
+
   'workbench.preview.ariaLabel': 'Changes preview',
   'workbench.preview.closeAriaLabel': 'Close the preview',
   'workbench.preview.comparison': 'Comparison {base} → {target}',
@@ -233,6 +238,7 @@ const messages = {
   'workbench.refMenu.pin': 'Pin to the left of the graph',
   'workbench.refMenu.pullFastForwardOnly': 'Pull (fast-forward only)',
   'workbench.refMenu.pushTo': 'Push to {target}',
+  'workbench.refMenu.publishTo': 'Publish to {target}',
   'workbench.refMenu.remoteBranch': 'remote branch',
   'workbench.refMenu.rename': 'Rename…',
   'workbench.refMenu.renameBranchAria': 'New branch name',

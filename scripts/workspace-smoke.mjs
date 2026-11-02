@@ -49,6 +49,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
         return { data:'stash@{0}', generation:4 }
       }
       if (command === 'stash_drop') { window.__workspaceStashes = []; return { data:'dropped', generation:4 } }
+      if (command === 'branch_create') {
+        return { data: { name: args.request.name, exists:false, current:true, merged:false, ahead:0, behind:0, worktreeDirty:false }, generation:4 }
+      }
       const result = await original(command, args)
       if (command === 'diff_get' && window.__workspaceSingleDiff) result.data.files = result.data.files.slice(0, 1)
       if (command === 'repo_refresh') result.generation = window.__workspaceRefresh = (window.__workspaceRefresh ?? 90) + 1
@@ -286,6 +289,96 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
       && call[1].request.confirmation.acknowledged === true
   })()`)
   await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'delete confirmation closed')
+
+  // Publishing a local branch is one explicit decision: the first push creates
+  // the remote ref and records the upstream, so it asks before sending.
+  await evaluate(client, `(() => {
+    const canvas = document.querySelector('canvas')
+    canvas.parentElement.scrollTop = 0
+    canvas.parentElement.dispatchEvent(new Event('scroll'))
+    return true
+  })()`)
+  await delay(80)
+  const publishPoint = await evaluate(client, `(() => {
+    const b = document.querySelector('canvas').getBoundingClientRect()
+    return { x:b.left+20, y:b.top+12*30+15 }
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:publishPoint.x, y:publishPoint.y })
+  await delay(100)
+  await evaluate(client, `(() => {
+    document.querySelector('canvas').dispatchEvent(new MouseEvent('contextmenu', { bubbles:true, cancelable:true, clientX:${publishPoint.x}, clientY:${publishPoint.y} }))
+    return true
+  })()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="menu"]'))`, 'branch context menu')
+  await check('branch-menu-offers-publish', `[...document.querySelectorAll('[role="menu"] button')].some((button) => button.textContent.includes('Publier vers origin/feature'))`)
+  await evaluate(client, `([...document.querySelectorAll('[role="menu"] button')].find((button) => button.textContent.includes('Publier vers origin/feature'))).click()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'publish branch dialog')
+  await check('branch-publish-dialog-explains-upstream', `(() => {
+    const dialog = document.querySelector('[role="alertdialog"]')
+    return dialog.querySelector('h2')?.textContent.includes('Publier la branche feature')
+      && dialog.innerText.includes('origin/feature')
+      && dialog.innerText.includes('upstream')
+      && !(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'feature')
+  })()`)
+  await screenshot('workspace-publish-dialog.png')
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.includes('Pousser et créer origin/feature'))).click()`)
+  await waitFor(client, `(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'feature' && args.request.setUpstream === true)`, 'publish branch push')
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'publish dialog closed')
+  await check('branch-publish-sets-upstream', `true`)
+
+  // Creating a branch the remote does not know yet offers its first push.
+  await click('button[aria-label="Créer une branche"]')
+  await waitFor(client, `Boolean(document.querySelector('input[aria-label="Nom de la nouvelle branche"]'))`, 'inline branch form')
+  await evaluate(client, `(() => {
+    const input = document.querySelector('input[aria-label="Nom de la nouvelle branche"]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'publish/inline')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await delay(50)
+  await click('button[aria-label="Créer la branche"]')
+  await waitFor(client, `(window.__workspaceCalls ?? []).some(([command, args]) => command === 'branch_create' && args.request.name === 'publish/inline')`, 'branch create call')
+  await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'publish dialog after branch creation')
+  await check('branch-creation-offers-publish', `(() => {
+    const dialog = document.querySelector('[role="alertdialog"]')
+    return dialog.querySelector('h2')?.textContent.includes('Publier la branche publish/inline')
+      && dialog.innerText.includes('origin/publish/inline')
+      && !(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'publish/inline')
+  })()`)
+  await screenshot('workspace-branch-created-publish.png')
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.includes('Pousser et créer origin/publish/inline'))).click()`)
+  await waitFor(client, `(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'publish/inline' && args.request.setUpstream === true)`, 'branch creation publish push')
+
+  // The toolbar Push follows the same rule for a checked-out branch that has
+  // no upstream: a dialog instead of the sync panel, and a push with -u.
+  await evaluate(client, `(() => {
+    window.__publishOriginalInvoke = window.__TAURI_INTERNALS__.invoke
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      const result = await window.__publishOriginalInvoke(command, args)
+      if ((command === 'repo_get_state' || command === 'repo_refresh') && result?.state?.head?.kind === 'branch') {
+        return { ...result, state:{ ...result.state, head:{ ...result.state.head, upstream: undefined } } }
+      }
+      return result
+    }
+    window.__emitTauriEvent('repo://changed', { repoId:'repo_demo', generation:5, areas:['state'] })
+    return true
+  })()`)
+  await delay(250)
+  await evaluate(client, `([...document.querySelectorAll('[aria-label="Actions Git"] button')].find((button) => button.textContent.trim() === 'Push')).click()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'toolbar publish dialog')
+  await check('toolbar-push-asks-to-publish', `(() => {
+    const dialog = document.querySelector('[role="alertdialog"]')
+    return dialog.querySelector('h2')?.textContent.includes('Publier la branche main')
+      && dialog.innerText.includes('origin/main')
+  })()`)
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.includes('Pousser et créer origin/main'))).click()`)
+  await waitFor(client, `(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'main' && args.request.setUpstream === true)`, 'toolbar publish push')
+  await evaluate(client, `(() => {
+    window.__TAURI_INTERNALS__.invoke = window.__publishOriginalInvoke
+    window.__emitTauriEvent('repo://changed', { repoId:'repo_demo', generation:5, areas:['state'] })
+    return true
+  })()`)
+  await delay(200)
 
   // The subject counter watches the first line only and warns past 72 chars.
   const setCommitMessage = (value) => evaluate(client, `(() => {

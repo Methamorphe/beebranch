@@ -8,6 +8,7 @@ import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
+import { PublishBranchDialog, type PublishTarget } from './PublishBranchDialog'
 import { ToolbarIcon } from './ToolbarIcon'
 import styles from './RepoBar.module.css'
 
@@ -42,16 +43,22 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const [pending, setPending] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ repoId: string; text: string } | null>(null)
   const [branches, setBranches] = useState<string[]>([])
+  const [remotes, setRemotes] = useState<string[]>([])
+  const [publish, setPublish] = useState<PublishTarget | null>(null)
   const [latestStash, setLatestStash] = useState<StashEntry | null>(null)
   const repoId = repo?.repo.repoId ?? null
   useEffect(() => {
     let cancelled = false
     setLatestStash(null)
     setBranches([])
+    setRemotes([])
     if (repoId) void Promise.allSettled([stashList(repoId), refsGet(repoId)]).then(([stashes, refs]) => {
       if (cancelled) return
       if (stashes.status === 'fulfilled') setLatestStash(stashes.value[0] ?? null)
-      if (refs.status === 'fulfilled') setBranches(refs.value.data.entries.filter((entry) => entry.kind === 'branch').map((entry) => entry.name))
+      if (refs.status === 'fulfilled') {
+        setBranches(refs.value.data.entries.filter((entry) => entry.kind === 'branch').map((entry) => entry.name))
+        setRemotes(refs.value.data.remotes)
+      }
     })
     return () => { cancelled = true }
   }, [repoId, repo?.generation])
@@ -80,9 +87,33 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
     }
     finally { setPending(null) }
   }
+  const publishBranch = () => {
+    const target = publish
+    setPublish(null)
+    if (!repoId || !target) return
+    void run(
+      'Publish',
+      () => syncPush({ repoId, remote: target.remote, branch: target.branch, setUpstream: true }),
+      () => t('workbench.notice.branchPushed', { branch: target.branch, remote: target.remote }),
+      { repoId, remote: target.remote, branch: target.branch },
+    )
+  }
   const sync = (kind: 'pull' | 'push') => {
     if (!repoId) return
-    if (!upstream || !remoteBranch) { onNavigate('sync'); return }
+    if (!upstream || !remoteBranch) {
+      // A local branch without upstream cannot be pushed yet. Publishing is
+      // one decision (push + upstream), so ask it here instead of leaving the
+      // user in the sync panel with fields to fill.
+      const current = head?.kind === 'branch' ? head.name : null
+      const target = remotes.includes('origin') ? 'origin' : remotes[0]
+      if (kind === 'push' && current && target) {
+        setNotice(null)
+        setPublish({ branch: current, remote: target })
+        return
+      }
+      onNavigate('sync')
+      return
+    }
     if (kind === 'push') {
       void run('Push', () => syncPush({ repoId, remote, branch:remoteBranch }), undefined, { repoId, remote, branch: remoteBranch })
       return
@@ -108,7 +139,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
     <div className={styles.gitActions} role="group" aria-label={t('shell.repoBar.gitActions')}>
       <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={t('shell.repoBar.fetchTitle')} onClick={() => repoId && void run('Fetch', () => syncFetch(repoId, remote))}><ToolbarIcon name="fetch" /><span>Fetch</span></button>
       <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={t('shell.repoBar.pullTitle')} onClick={() => sync('pull')}><ToolbarIcon name="pull" /><span>Pull</span></button>
-      <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={t('shell.repoBar.pushTitle')} onClick={() => sync('push')}><ToolbarIcon name="push" /><span>Push</span></button>
+      <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={upstream ? t('shell.repoBar.pushTitle') : t('shell.repoBar.publishTitle')} onClick={() => sync('push')}><ToolbarIcon name="push" /><span>Push</span></button>
       <button type="button" className={styles.action} disabled={!repoId || busy} onClick={onNewBranch} title={t('shell.repoBar.branchTitle')}><ToolbarIcon name="branch" /><span>{t('common.branch')}</span></button>
       <button type="button" className={styles.action} disabled={disabled || stashBlocked} onClick={() => repoId && void run('Stash', () => stashCreate({ repoId, includeUntracked: true }), () => t('commit.stash.createdNotice'))} title={t('shell.repoBar.stashTitle')}><ToolbarIcon name="stash" /><span>Stash</span></button>
       <button type="button" className={styles.action} disabled={disabled || !latestStash || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} title={latestStash ? t('shell.repoBar.popTitle', { message: latestStash.message }) : t('shell.repoBar.noStash')} onClick={() => repoId && latestStash && void run('Pop', () => stashPop(repoId, latestStash.selector))}><ToolbarIcon name="pop" /><span>Pop</span></button>
@@ -154,5 +185,10 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       </ActionMenu>
       <button type="button" className={styles.action} onClick={onOpenPalette} aria-label={t('shell.repoBar.searchCommand')} title={t('shell.repoBar.paletteTitle')}><ToolbarIcon name="search" /><span>{t('shell.repoBar.commands')}</span></button>
     </div>
+    <PublishBranchDialog
+      target={publish}
+      onCancel={() => setPublish(null)}
+      onConfirm={publishBranch}
+    />
   </div>
 }

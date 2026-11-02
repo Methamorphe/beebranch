@@ -94,6 +94,7 @@ import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
 import { ProfilesPanel } from './ProfilesPanel'
+import { PublishBranchDialog, type PublishTarget } from './PublishBranchDialog'
 import { RebasePanel } from './RebasePanel'
 import { RefsAdminPanel } from './RefsAdminPanel'
 import { Resizer } from './Resizer'
@@ -582,6 +583,8 @@ export function Workbench({
     view === 'diff' ? diffRequest : previewDiff
   const [branchTarget, setBranchTarget] = useState<string | null>(null)
   const [branchName, setBranchName] = useState('')
+  /** Branch awaiting its first push, which also records the upstream. */
+  const [publishTarget, setPublishTarget] = useState<PublishTarget | null>(null)
   const [refMenu, setRefMenu] = useState<RefMenuState | null>(null)
   const [pendingTagDelete, setPendingTagDelete] = useState<RefEntry | null>(null)
   const [pendingDelete, setPendingDelete] = useState<RefEntry | null>(null)
@@ -982,13 +985,68 @@ export function Workbench({
     setBranchName('')
   }
 
+  /** Remote that should receive a first push: the remote already carrying a
+   * branch of that name, otherwise `origin`, otherwise the first remote. */
+  const remoteForBranch = useCallback(
+    (name: string) => {
+      const remotes = refs?.remotes ?? []
+      if (remotes.length === 0) return null
+      const tracked = (refs?.entries ?? []).find(
+        (entry) => entry.kind === 'remoteBranch' && entry.name.endsWith(`/${name}`),
+      )
+      return tracked?.remote ?? (remotes.includes('origin') ? 'origin' : remotes[0]!)
+    },
+    [refs?.entries, refs?.remotes],
+  )
+
+  const remoteBranchExists = useCallback(
+    (name: string, remote: string) =>
+      (refs?.entries ?? []).some(
+        (entry) => entry.kind === 'remoteBranch' && entry.name === `${remote}/${name}`,
+      ),
+    [refs?.entries],
+  )
+
   const submitBranchCreate = () => {
     const name = branchName.trim()
     if (!repoId || !branchTarget || name.length === 0) return
     const start = branchTarget
+    const remote = remoteForBranch(name)
+    const alreadyRemote = remote ? remoteBranchExists(name, remote) : true
     cancelBranchCreate()
-    void runAction(t('workbench.notice.branchCreated', { name }), () =>
-      branchCreate({ repoId, name, start, checkout: true }),
+    void (async () => {
+      try {
+        await branchCreate({ repoId, name, start, checkout: true })
+        setActionNotice(t('workbench.notice.branchCreated', { name }))
+        onMutated()
+        // Pushing a branch the remote has never seen needs `--set-upstream`:
+        // offer it right here instead of sending the user to the sync panel.
+        if (remote && !alreadyRemote) {
+          setPublishTarget({ branch: name, remote })
+        }
+      } catch (cause) {
+        setActionError(errorMessage(cause))
+      }
+    })()
+  }
+
+  const confirmPublish = () => {
+    const target = publishTarget
+    setPublishTarget(null)
+    if (!repoId || !target) return
+    void runAction(
+      t('workbench.notice.branchPushed', {
+        branch: target.branch,
+        remote: target.remote,
+      }),
+      () =>
+        syncPush({
+          repoId,
+          remote: target.remote,
+          branch: target.branch,
+          setUpstream: true,
+        }),
+      { repoId, remote: target.remote, branch: target.branch },
     )
   }
 
@@ -1122,6 +1180,12 @@ export function Workbench({
     if (!repoId) return
     const { remote } = pushTarget(entry)
     setRefMenu(null)
+    // A branch without upstream cannot be pushed as-is: ask for the publish
+    // that creates it remotely and records the upstream.
+    if (!entry.upstream && (refs?.remotes ?? []).length > 0) {
+      setPublishTarget({ branch: entry.name, remote })
+      return
+    }
     void runAction(
       t('workbench.notice.branchPushed', { branch: entry.name, remote }),
       () => syncPush({ repoId, remote, branch: entry.name }),
@@ -2809,7 +2873,11 @@ export function Workbench({
                 {action(
                   'push',
                   'sync',
-                  t('workbench.refMenu.pushTo', { target: pushTarget(refMenu.entry).target }),
+                  refMenu.entry.upstream
+                    ? t('workbench.refMenu.pushTo', { target: pushTarget(refMenu.entry).target })
+                    : t('workbench.refMenu.publishTo', {
+                        target: pushTarget(refMenu.entry).target,
+                      }),
                   () => pushBranch(refMenu.entry),
                 )}
                 {expander(
@@ -3190,6 +3258,11 @@ export function Workbench({
         </ContextMenu>
       ) : null}
 
+      <PublishBranchDialog
+        target={publishTarget}
+        onCancel={() => setPublishTarget(null)}
+        onConfirm={confirmPublish}
+      />
       <ConfirmDialog
         open={pendingStashDrop !== null}
         title={t('workbench.stashDrop.title', { selector: pendingStashDrop?.selector ?? '' })}

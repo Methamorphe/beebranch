@@ -182,6 +182,8 @@ const messages = {
   'shell.repoBar.fetchTitle': 'Récupérer les références distantes',
   'shell.repoBar.pullTitle': 'Récupérer et intégrer les commits de la branche distante',
   'shell.repoBar.pushTitle': 'Envoyer les commits de la branche courante',
+  'shell.repoBar.publishTitle':
+    'Publier la branche courante sur le remote et enregistrer son upstream',
   'shell.repoBar.branchTitle': 'Créer une branche dans le graphe',
   'shell.repoBar.stashTitle': 'Créer immédiatement un stash des modifications locales',
   'shell.repoBar.popTitle': 'Réappliquer le dernier stash : {message}',

@@ -182,6 +182,8 @@ const messages = {
   'shell.repoBar.fetchTitle': 'Fetch the remote references',
   'shell.repoBar.pullTitle': 'Fetch and integrate the commits of the remote branch',
   'shell.repoBar.pushTitle': 'Send the commits of the current branch',
+  'shell.repoBar.publishTitle':
+    'Publish the current branch to the remote and record its upstream',
   'shell.repoBar.branchTitle': 'Create a branch in the graph',
   'shell.repoBar.stashTitle': 'Immediately stash local changes',
   'shell.repoBar.popTitle': 'Reapply the last stash: {message}',

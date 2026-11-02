@@ -209,6 +209,11 @@ const messages = {
   'workbench.notice.upstreamSet': 'Upstream de {branch} : {upstream}.',
   'workbench.notice.worktreeCreated': 'Worktree créé : {path}',
 
+  'workbench.publish.title': 'Publier la branche {branch}',
+  'workbench.publish.consequence':
+    'La branche locale n’a pas encore d’upstream. Le push crée ou met à jour {remote}/{branch} et la branche locale la suivra.',
+  'workbench.publish.confirm': 'Pousser et créer {remote}/{branch}',
+
   'workbench.preview.ariaLabel': 'Aperçu des modifications',
   'workbench.preview.closeAriaLabel': 'Fermer l’aperçu',
   'workbench.preview.comparison': 'Comparaison {base} → {target}',
@@ -238,6 +243,7 @@ const messages = {
   'workbench.refMenu.pin': 'Épingler à gauche du graphe',
   'workbench.refMenu.pullFastForwardOnly': 'Pull (fast-forward seulement)',
   'workbench.refMenu.pushTo': 'Pousser vers {target}',
+  'workbench.refMenu.publishTo': 'Publier vers {target}',
   'workbench.refMenu.remoteBranch': 'branche distante',
   'workbench.refMenu.rename': 'Renommer…',
   'workbench.refMenu.renameBranchAria': 'Nouveau nom de branche',

@@ -165,7 +165,7 @@ Every mutation goes through the repository queue and a **preflight**.
 | Rename branch | `git branch -m <old> <new>` | valid name, no collision |
 | Fetch | `git fetch --prune --progress <remote>` | remote exists |
 | Pull | `git pull --progress [--ff-only\|--rebase\|--no-rebase] <remote> <branch>` | clean worktree, upstream; strategy read from `branch.<name>.rebase`, then `pull.rebase`, then `pull.ff`; nonzero exit code = reported failure |
-| Push | `git push --progress <remote> <ref>` | upstream, non-fast-forward detected |
+| Push | `git push --progress [--set-upstream] <remote> <ref>` | branch without upstream: explicit publish confirmation; otherwise upstream, non-fast-forward detected |
 | Force push | `git push --force-with-lease=<ref>:<expected>` | explicit confirmation, old SHA recorded |
 | Merge | `git merge --no-edit [--ff\|--ff-only\|--no-ff] <ref>` | explicit strategy: `--ff` by default, `--ff-only` for a requested fast-forward, `--no-ff` for a merge commit; clean worktree, no operation (branch→branch integration stashes tracked changes) |
 | Rebase | `git rebase <upstream>` | clean worktree, no unhandled merge commits |

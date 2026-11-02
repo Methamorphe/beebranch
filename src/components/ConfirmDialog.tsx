@@ -12,6 +12,8 @@ type Props = {
   /** Exact text the user must type; omit for a simple acknowledgement. */
   typed?: string
   confirmLabel?: string
+  /** Visual weight of the confirming action; destructive dialogs stay red. */
+  tone?: 'danger' | 'primary'
   busy?: boolean
   /** Extra controls (choices) rendered between the consequence and the actions. */
   children?: ReactNode
@@ -26,6 +28,7 @@ export function ConfirmDialog({
   irreversible = false,
   typed,
   confirmLabel,
+  tone = 'danger',
   busy = false,
   children,
   onCancel,
@@ -80,7 +83,7 @@ export function ConfirmDialog({
           </Button>
           <Button
             type="button"
-            variant="danger"
+            variant={tone}
             onClick={() => ready && onConfirm(value)}
             disabled={!ready || busy}
           >

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Publishing a local branch**: creating a branch the remote does not know yet now opens a confirmation dialog instead of leaving the user in the sync panel. Confirming pushes it to `origin/<branch>` with `--set-upstream`. The same dialog appears when pushing a branch without upstream from its menu or the toolbar, so the first push creates the remote branch and records its upstream in one explicit step.
+
 ## [1.4.0] — 2026-11-02
 
 ### Added
