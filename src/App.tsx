@@ -136,6 +136,7 @@ export default function App() {
   const installingUpdateRef = useRef(false)
   const [worktreeRequest, setWorktreeRequest] = useState(0)
   const [branchRequest, setBranchRequest] = useState(0)
+  const [findRequest, setFindRequest] = useState(0)
   const [historyRequest, setHistoryRequest] = useState<Parameters<typeof Workbench>[0]['historyRequest']>(null)
   const [generation, setGeneration] = useState(0)
   const [diffRequest, setDiffRequest] = useState<Parameters<typeof Workbench>[0]['diffRequest']>(null)
@@ -1134,6 +1135,16 @@ export default function App() {
     setPaletteOpen(false)
   }, [])
 
+  /** Opens the in-graph find bar (Mod+F); stays on the history view. */
+  const openFindInGraph = useCallback(() => {
+    if (!repoId) return
+    if (navigationGuard.current?.() === false) return
+    setLauncherOpen(false)
+    setView('graph')
+    setFindRequest((value) => value + 1)
+    setPaletteOpen(false)
+  }, [repoId])
+
   const pickCloneDirectory = useCallback(async (defaultPath?: string) => {
     const selected = await openNativeDialog({
       title: t('shell.dialog.cloneDestination'),
@@ -1248,6 +1259,16 @@ export default function App() {
         contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.repo'),
         run: newBranch,
+      },
+      {
+        id: 'action-find-in-graph',
+        label: t('shell.palette.findInGraph'),
+        group: t('shell.palette.group.actions'),
+        shortcut: displayShortcut(shortcuts.findInGraph),
+        available: Boolean(repoId),
+        contextual: graphContext,
+        unavailableReason: t('shell.palette.unavailable.repo'),
+        run: openFindInGraph,
       },
       {
         id: 'action-rebase',
@@ -1426,7 +1447,7 @@ export default function App() {
       },
     })
     return items
-  }, [navigate, openHistoryAction, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
+  }, [navigate, openHistoryAction, openFindInGraph, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
 
   useZoom()
 
@@ -1435,6 +1456,7 @@ export default function App() {
     settings: () => navigate('profiles'),
     newBranch: () => repoId && newBranch(),
     search: () => repoId && navigate('search'),
+    findInGraph: openFindInGraph,
     openRepo: () => openRepositoryDialog(),
     newTab: openLauncher,
     workspaces: () => setWorkspaceMenuOpen(true),
@@ -1640,6 +1662,7 @@ export default function App() {
                 view={view}
                 worktreeRequest={worktreeRequest}
                 branchRequest={branchRequest}
+                findRequest={findRequest}
                 historyRequest={historyRequest}
                 diffRequest={diffRequest}
                 onOpenDiff={openDiff}

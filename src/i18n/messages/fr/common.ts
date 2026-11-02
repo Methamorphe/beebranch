@@ -96,6 +96,7 @@ const messages = {
   'common.shortcut.settings': 'Profils et réglages',
   'common.shortcut.newBranch': 'Nouvelle branche',
   'common.shortcut.search': 'Recherche approfondie',
+  'common.shortcut.findInGraph': 'Rechercher dans le graphe',
   'common.shortcut.openRepo': 'Ouvrir un dépôt',
   'common.shortcut.newTab': 'Nouvel onglet',
   'common.shortcut.workspaces': 'Sélecteur de workspace',

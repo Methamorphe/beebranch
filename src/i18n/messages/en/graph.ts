@@ -19,6 +19,15 @@ const messages = {
   'graph.canvas.aria': 'History graph, {count} commits loaded',
   'graph.drop.hint': 'Drop onto a branch',
 
+  'graph.find.placeholder': 'Find in commit messages…',
+  'graph.find.aria': 'Find in loaded commit messages',
+  'graph.find.close': 'Close find',
+  'graph.find.next': 'Next match',
+  'graph.find.previous': 'Previous match',
+  'graph.find.count': '{current} of {total}',
+  'graph.find.none': 'No matches',
+  'graph.find.hint': 'Loaded commits only · message, author, SHA',
+
   'graph.ref.kind.active': 'active',
   'graph.ref.kind.local': 'local',
   'graph.ref.kind.remote': 'remote',

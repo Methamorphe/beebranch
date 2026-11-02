@@ -5,6 +5,7 @@ export type ShortcutAction =
   | 'settings'
   | 'newBranch'
   | 'search'
+  | 'findInGraph'
   | 'openRepo'
   | 'newTab'
   | 'workspaces'
@@ -18,6 +19,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   settings: 'Mod+,',
   newBranch: 'Mod+B',
   search: 'Mod+Shift+F',
+  findInGraph: 'Mod+F',
   openRepo: 'Mod+O',
   newTab: 'Mod+T',
   workspaces: 'Mod+Shift+W',
@@ -31,6 +33,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, MessageKey> = {
   settings: 'common.shortcut.settings',
   newBranch: 'common.shortcut.newBranch',
   search: 'common.shortcut.search',
+  findInGraph: 'common.shortcut.findInGraph',
   openRepo: 'common.shortcut.openRepo',
   newTab: 'common.shortcut.newTab',
   workspaces: 'common.shortcut.workspaces',
