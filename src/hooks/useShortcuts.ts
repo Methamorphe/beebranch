@@ -9,6 +9,7 @@ export type ShortcutHandlers = {
   findInGraph: () => void
   openRepo: () => void
   newTab: () => void
+  closeTab: () => void
   workspaces: () => void
   undo: () => void
   redo: () => void
@@ -38,11 +39,12 @@ export function useShortcuts(handlers: ShortcutHandlers, shortcuts: ShortcutMap)
       }
       if (document.querySelector('[aria-modal="true"], [role="menu"]')) return
       if (isEditable(event.target)) {
-        // Cmd/Ctrl+K / T / Shift+F stay global. Mod+F is left to the focused
+        // Cmd/Ctrl+K / T / W / Shift+F stay global. Mod+F is left to the focused
         // field (CodeMirror search, native inputs) so it does not fight them.
         if (
           !matchesShortcut(event, shortcuts.palette) &&
           !matchesShortcut(event, shortcuts.newTab) &&
+          !matchesShortcut(event, shortcuts.closeTab) &&
           !matchesShortcut(event, shortcuts.search)
         ) {
           return

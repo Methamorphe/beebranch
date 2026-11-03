@@ -1459,6 +1459,11 @@ export default function App() {
     findInGraph: openFindInGraph,
     openRepo: () => openRepositoryDialog(),
     newTab: openLauncher,
+    // The launcher is the visible tab when open: close it, not the repo behind.
+    closeTab: () => {
+      if (launcherOpen) setLauncherOpen(false)
+      else if (repoId) requestClose(repoId)
+    },
     workspaces: () => setWorkspaceMenuOpen(true),
     undo: () => void performUndo('undo'),
     redo: () => void performUndo('redo'),

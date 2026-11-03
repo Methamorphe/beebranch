@@ -8,6 +8,7 @@ export type ShortcutAction =
   | 'findInGraph'
   | 'openRepo'
   | 'newTab'
+  | 'closeTab'
   | 'workspaces'
   | 'undo'
   | 'redo'
@@ -22,6 +23,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   findInGraph: 'Mod+F',
   openRepo: 'Mod+O',
   newTab: 'Mod+T',
+  closeTab: 'Mod+W',
   workspaces: 'Mod+Shift+W',
   undo: 'Mod+Z',
   redo: 'Mod+Shift+Z',
@@ -36,6 +38,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, MessageKey> = {
   findInGraph: 'common.shortcut.findInGraph',
   openRepo: 'common.shortcut.openRepo',
   newTab: 'common.shortcut.newTab',
+  closeTab: 'common.shortcut.closeTab',
   workspaces: 'common.shortcut.workspaces',
   undo: 'common.shortcut.undo',
   redo: 'common.shortcut.redo',

@@ -179,6 +179,12 @@ type ContextMenuState = {
   panel: 'checkout' | 'reset' | null
 }
 
+/** Form fields keep Escape for themselves; read-only editors do not. */
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return target.matches('input, textarea, select') || target.isContentEditable
+}
+
 function remoteBranchName(entry: RefEntry | null) {
   if (!entry) return undefined
   const prefix = `${entry.remote ?? entry.name.split('/')[0]}/`
@@ -1152,25 +1158,32 @@ export function Workbench({
     setLocalDiff(null)
   }, [comparison, selected])
 
+  // Escape closes one panel per press: the central editor (diff, tool)
+  // first, through its own close button, then the inspector.
   useEffect(() => {
-    if (!comparison && !selected && !showWorktree) {
-      return
-    }
     const onKey = (event: KeyboardEvent) => {
       if (
         event.key !== 'Escape' ||
         event.defaultPrevented ||
-        !window.matchMedia('(max-width: 1120px)').matches ||
-        document.querySelector('[role="dialog"], [role="alertdialog"], [popover]:popover-open')
+        findOpen ||
+        isEditableTarget(event.target) ||
+        document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [popover]:popover-open')
       ) {
         return
       }
+      const closeCenter = document.querySelector<HTMLButtonElement>('[data-central-close]')
+      if (closeCenter) {
+        event.preventDefault()
+        closeCenter.click()
+        return
+      }
+      if (!comparison && !selected && !showWorktree) return
       event.preventDefault()
       closeInspector()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [closeInspector, comparison, selected, showWorktree])
+  }, [closeInspector, comparison, findOpen, selected, showWorktree])
 
   const openRefMenu = (entry: RefEntry, x: number, y: number) => {
     setRefMenu({ entry, x, y, renaming: false, name: entry.name, panel: null })
@@ -2346,7 +2359,7 @@ export function Workbench({
               <span>{centerTool && toolLabel ? t(toolLabel) : historyTool ? toolTitle : t('workbench.preview.ariaLabel')}</span>
               <code>{previewDiff?.path}</code>
               <button type="button" aria-label={t(previewDiff ? 'workbench.preview.closeAriaLabel' : 'workbench.workspace.closeTool')}
-                onClick={() => {
+                data-central-close onClick={() => {
                   if (centerTool) onNavigate('graph')
                   else if (historyTool) closeHistoryTool()
                   else { setLocalDiff(null); setComparePath(null) }

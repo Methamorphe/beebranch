@@ -99,6 +99,7 @@ const messages = {
   'common.shortcut.findInGraph': 'Find in graph',
   'common.shortcut.openRepo': 'Open repository',
   'common.shortcut.newTab': 'New tab',
+  'common.shortcut.closeTab': 'Close tab',
   'common.shortcut.workspaces': 'Workspace switcher',
   'common.shortcut.undo': 'Undo',
   'common.shortcut.redo': 'Redo',
