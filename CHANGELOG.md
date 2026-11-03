@@ -7,6 +7,7 @@
 - **Notifications**: results and errors of actions now appear as notifications at the bottom of the window instead of banners stacked above the workspace. A success disappears after a few seconds; an error stays until it is closed and keeps its remediation.
 - **Keyboard shortcut reference**: press `?` outside a text field, or use the command palette, to list every shortcut, including the ones you customised.
 - **Relative dates**: commits from the last week show their age (“3 hours ago”, “yesterday”) in the history and the commit detail.
+- **Visible undo**: every action that can be undone is confirmed by a notification with an *Undo* button, and an undo by “Undone: …” with a *Redo* button. When the next undo or redo cannot run, its buttons are disabled and their tooltip says why.
 
 ### Changed
 
@@ -14,6 +15,17 @@
 - The workspaces, GitLab, GitHub, profiles and recovery pages no longer show the repository toolbar and references, which did not apply to them.
 - The repository panel only lists the review requests of the repository's forge (merge requests for GitLab, pull requests for GitHub), or of the connected forges when the repository is not linked.
 - The command palette shows your customised shortcuts instead of the default ones.
+
+### Fixed
+
+- **Undo never discards uncommitted work**: undoing a merge, rebase, cherry-pick or revert is refused while tracked files have uncommitted changes (stash or commit them first), and never overwrites an untracked file.
+- Several commits can be undone in a row; the undone changes stay staged. An undo is no longer blocked by unrelated changes (a new untracked file, an edit elsewhere, a background fetch): undoing a branch, tag or remote operation only checks what it restores.
+- Redo after several undos re-applies the most recent undo first. A change made outside the undo history (stage, discard, pull…) now clears the redo instead of leaving a redo that fails.
+- Undoing the deletion of an annotated tag restores the original tag (same message, tagger and signature) instead of a rebuilt one.
+- Redoing the first commit of a repository works.
+- Pressing undo twice quickly undoes two operations instead of failing. The commit panel's *Undo the commit* only undoes that commit and disappears once another operation is recorded.
+- Undo labels of commits and amends are translated in English.
+- Removing a worktree with local changes is no longer offered as undoable, since its changes cannot be restored; undoing the creation of a worktree also deletes the branch it created.
 
 ## [1.5.0] — 2026-11-03
 

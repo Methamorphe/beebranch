@@ -121,7 +121,7 @@ pub async fn stash_apply(
     request: StashRefRequest,
 ) -> Result<MutationResult<StashOutcome>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let outcome = stash::apply(runner, worktree, &request.selector)?;
         Ok((
@@ -142,7 +142,7 @@ pub async fn stash_pop(
     request: StashRefRequest,
 ) -> Result<MutationResult<StashOutcome>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let outcome = stash::pop(runner, worktree, &request.selector)?;
         Ok((
@@ -174,7 +174,7 @@ pub async fn stash_drop(
         &session.worktree().display().to_string(),
     )?;
     let selector = request.selector.clone();
-    let result = run_mutation(session, move |runner, discovery| {
+    let result = run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let sha = stash::drop(runner, worktree, &selector)?;
         Ok((sha, vec![InvalidationArea::Refs]))

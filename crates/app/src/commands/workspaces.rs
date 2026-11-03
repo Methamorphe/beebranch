@@ -347,11 +347,24 @@ pub async fn workspace_sync(
         return Err(AppError::internal("workspace dépasse sa borne"));
     }
     let strategy = request.strategy.unwrap_or(PullStrategy::Auto);
+    let action = request.action;
     tauri::async_runtime::spawn_blocking(move || {
-        run_sync_workers(runner, registry, rows, request.action, strategy)
+        let results = run_sync_workers(runner, registry, rows, action, strategy);
+        // A pull is not recorded: like any unrecorded mutation it invalidates
+        // the redo branch of every repository it reached, even on failure (a
+        // conflicted pull has changed the repository too).
+        if action == WorkspaceAction::Pull {
+            for repo_id in results
+                .iter()
+                .filter_map(|result| result.repo_id.as_deref())
+            {
+                store.invalidate_redo(repo_id).map_err(store_error)?;
+            }
+        }
+        Ok(results)
     })
     .await
-    .map_err(join_error)
+    .map_err(join_error)?
 }
 
 pub fn run_sync_workers(

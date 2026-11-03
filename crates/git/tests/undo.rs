@@ -508,7 +508,7 @@ fn a_failure_reports_the_step_and_leaves_a_reflog_recovery_sha() {
         &ReversibleAction::RestoreHead {
             target: undo::head_target(&before),
             sha: before.head_sha.clone(),
-            mode: RestoreMode::Soft,
+            mode: RestoreMode::Mixed,
             index_tree: before.index_tree.clone(),
         },
         &mut |step| {

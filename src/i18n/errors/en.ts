@@ -199,6 +199,14 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
   'undo.verify_failed': {
     message: 'The restored state does not match the expected state.',
   },
+  'undo.worktree_dirty': {
+    message: 'Uncommitted local changes would be overwritten.',
+    remediation: 'Commit or stash your changes, then try again. Nothing was changed.',
+  },
+  'undo.stale': {
+    message: 'This operation is no longer the latest one on the stack.',
+    remediation: 'Nothing was changed.',
+  },
   'redo.empty': {
     message: 'There is nothing to redo.',
   },

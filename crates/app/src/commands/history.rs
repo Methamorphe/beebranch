@@ -206,7 +206,7 @@ pub async fn operation_continue(
     request: OperationRequest,
 ) -> Result<MutationResult<HistoryOutcome>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let outcome = history::continue_operation(runner, worktree)?;
         Ok((outcome, history_areas()))
@@ -220,7 +220,7 @@ pub async fn operation_skip(
     request: OperationRequest,
 ) -> Result<MutationResult<HistoryOutcome>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let outcome = history::skip_operation(runner, worktree)?;
         Ok((outcome, history_areas()))
@@ -245,7 +245,7 @@ pub async fn operation_abort(
         &request.repo_id,
         &session.worktree().display().to_string(),
     )?;
-    let result = run_mutation(session, move |runner, discovery| {
+    let result = run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let outcome = history::abort_operation(runner, worktree)?;
         Ok((outcome, history_areas()))
@@ -266,7 +266,7 @@ pub async fn conflict_mark_resolved(
     request: ResolveRequest,
 ) -> Result<MutationResult<()>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         history::mark_resolved(runner, worktree, &request.path)?;
         Ok((
@@ -528,7 +528,7 @@ pub async fn conflict_save(
     request: ConflictSaveRequest,
 ) -> Result<MutationResult<beebranch_git::conflict::ConflictView>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let view = beebranch_git::conflict::save(
             runner,

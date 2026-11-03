@@ -388,6 +388,11 @@ export type UndoEntry = {
   position: number
   undoLabel?: string
   redoLabel?: string
+  /**
+   * Set by `undo_status` when the entry cannot run right now: the error the
+   * undo or redo would return (e.g. `undo.worktree_dirty`).
+   */
+  blocked?: AppError | null
 }
 
 export type UndoStatus = {
@@ -476,6 +481,8 @@ export type MutationResult<T> = {
   data: T
   generation: number
   state: RepoState
+  /** Undo journal entry recorded by a reversible mutation. */
+  undoId?: string
 }
 
 export type Confirmation = {

@@ -340,7 +340,7 @@ pub async fn file_delete(
         &session.worktree().display().to_string(),
     )?;
 
-    let result = run_mutation(session, {
+    let result = run_mutation(state.store.clone(), session, {
         let path = request.path.clone();
         move |_runner, discovery| {
             let worktree = discovery.worktree()?;

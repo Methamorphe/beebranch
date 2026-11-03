@@ -208,6 +208,15 @@ const errors = {
   'undo.verify_failed': {
     message: "L'état restauré ne correspond pas à l'état attendu.",
   },
+  'undo.worktree_dirty': {
+    message: 'Des modifications locales non commitées seraient écrasées.',
+    remediation:
+      "Committez ou remisez (stash) vos modifications, puis réessayez. Aucune modification n'a été appliquée.",
+  },
+  'undo.stale': {
+    message: "Cette opération n'est plus la dernière de la pile.",
+    remediation: "Aucune modification n'a été appliquée.",
+  },
   'redo.empty': {
     message: 'Aucune opération à rétablir.',
   },
