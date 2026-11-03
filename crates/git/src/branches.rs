@@ -65,6 +65,7 @@ fn invalid_name(name: &str) -> AppError {
         ErrorCategory::Input,
         "Le nom de branche est invalide.",
     )
+    .with_remediation("Choisissez un nom sans espace, sans `..` ni caractères spéciaux (~ ^ : ? * [), qui ne commence pas par « - ».")
     .with_detail(name.to_owned())
 }
 

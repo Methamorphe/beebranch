@@ -203,6 +203,7 @@ fn known_path(runner: &GitRunner, worktree: &Path, path: &str) -> Result<PathBuf
             "worktree.unknown",
             "Ce worktree n'appartient pas à ce dépôt.",
         )
+        .with_remediation("Rafraîchissez la liste des worktrees.")
         .with_detail(target.display().to_string()));
     }
     Ok(canonical)
@@ -223,6 +224,7 @@ pub fn add(
             "worktree.path_exists",
             "Le chemin du nouveau worktree existe déjà.",
         )
+        .with_remediation("Choisissez un dossier qui n’existe pas encore.")
         .with_detail(target.display().to_string()));
     }
     if detach && new_branch.is_some() {
@@ -425,7 +427,8 @@ pub fn status_counts(runner: &GitRunner, path: &str) -> Result<(u32, bool), AppE
         return Err(worktree_error(
             "worktree.missing",
             "Le worktree n'est plus présent sur le disque.",
-        ));
+        )
+        .with_remediation("Nettoyez les worktrees pour retirer l’entrée, ou réparez-les si le dossier a été déplacé."));
     }
     let status = read_status(runner, target, Some(500))?;
     Ok((

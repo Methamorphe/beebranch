@@ -163,6 +163,8 @@ where
         environment.insert(canonical_key(text), (name.clone(), value.clone()));
     }
 
+    force_english_messages(&mut environment);
+
     for (name, value) in FORCED {
         environment.insert(
             (*name).to_owned(),
@@ -171,6 +173,24 @@ where
     }
 
     Ok(environment.into_values().collect())
+}
+
+/// Error classification matches Git's English messages, so a translated Git
+/// (`LANG=fr_FR.UTF-8`) would turn every known failure into `git.exit_unknown`.
+/// Only the message language changes: `LC_ALL` would override `LC_MESSAGES`,
+/// so its value moves to `LC_CTYPE` and paths, hooks and editors keep their
+/// character encoding.
+fn force_english_messages(environment: &mut BTreeMap<String, (OsString, OsString)>) {
+    environment.remove("LANGUAGE");
+    if let Some((_, value)) = environment.remove("LC_ALL") {
+        environment
+            .entry("LC_CTYPE".to_owned())
+            .or_insert_with(|| (OsString::from("LC_CTYPE"), value));
+    }
+    environment.insert(
+        "LC_MESSAGES".to_owned(),
+        (OsString::from("LC_MESSAGES"), OsString::from("C")),
+    );
 }
 
 fn canonical_key(name: &str) -> String {
@@ -255,10 +275,6 @@ mod tests {
             find(&environment, "HOME").and_then(|v| v.to_str()),
             Some("/home/test")
         );
-        assert_eq!(
-            find(&environment, "LC_ALL").and_then(|v| v.to_str()),
-            Some("C")
-        );
         assert!(find(&environment, "SSH_AUTH_SOCK").is_some());
         for (name, expected) in [
             ("SSH_ASKPASS", "/usr/bin/custom-askpass"),
@@ -270,6 +286,41 @@ mod tests {
                 Some(expected)
             );
         }
+    }
+
+    #[test]
+    fn git_messages_stay_english_and_keep_the_character_encoding() {
+        let environment = build(
+            pairs(&[
+                ("LANG", "fr_FR.UTF-8"),
+                ("LANGUAGE", "fr:en"),
+                ("LC_ALL", "fr_FR.UTF-8"),
+                ("LC_MESSAGES", "fr_FR.UTF-8"),
+            ]),
+            &[],
+        )
+        .expect("build");
+
+        let value = |name| find(&environment, name).and_then(|v| v.to_str());
+        assert_eq!(value("LC_MESSAGES"), Some("C"));
+        assert_eq!(value("LC_ALL"), None);
+        assert_eq!(value("LANGUAGE"), None);
+        assert_eq!(value("LC_CTYPE"), Some("fr_FR.UTF-8"));
+        assert_eq!(value("LANG"), Some("fr_FR.UTF-8"));
+    }
+
+    #[test]
+    fn an_explicit_lc_ctype_wins_over_lc_all() {
+        let environment = build(
+            pairs(&[("LC_ALL", "fr_FR.UTF-8"), ("LC_CTYPE", "en_US.UTF-8")]),
+            &[],
+        )
+        .expect("build");
+
+        assert_eq!(
+            find(&environment, "LC_CTYPE").and_then(|v| v.to_str()),
+            Some("en_US.UTF-8")
+        );
     }
 
     #[test]

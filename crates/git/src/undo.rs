@@ -1219,6 +1219,7 @@ fn rev_parse(runner: &GitRunner, worktree: &Path, revision: &str) -> Result<Stri
             ErrorCategory::GitState,
             "La révision est introuvable.",
         )
+        .with_remediation("Le commit a peut-être été supprimé par un nettoyage de Git ; cette action ne peut plus être annulée automatiquement.")
         .with_detail(revision.to_owned()));
     }
     Ok(outcome.stdout.text_lossy().trim().to_owned())

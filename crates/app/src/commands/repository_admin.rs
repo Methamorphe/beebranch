@@ -150,6 +150,9 @@ pub async fn tag_delete(
                         ErrorCategory::GitState,
                         "Le tag est introuvable.",
                     )
+                    .with_remediation(
+                        "Rafraîchissez la liste des tags : il a peut-être été supprimé.",
+                    )
                     .with_detail(name.clone())
                 })?;
             refs_admin::delete_tag(runner, worktree, &name)?;

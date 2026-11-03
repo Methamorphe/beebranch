@@ -242,6 +242,9 @@ impl From<GitError> for beebranch_core::AppError {
             .with_detail(detail),
             GitErrorCode::SpawnFailed => {
                 AppError::new("git.spawn_failed", ErrorCategory::Internal, error.message)
+                    .with_remediation(
+                        "Vérifiez que Git est installé et exécutable, puis redémarrez BeeBranch.",
+                    )
                     .with_detail(detail)
             }
             GitErrorCode::Io => {

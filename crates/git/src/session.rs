@@ -122,6 +122,7 @@ impl MutationQueue {
                     ErrorCategory::Repo,
                     "La session de dépôt est fermée.",
                 )
+                .with_remediation("Rouvrez le dépôt depuis l’écran d’accueil.")
             })?;
             sender.send(MutationEnvelope { job, done }).map_err(|_| {
                 AppError::new(
@@ -129,6 +130,7 @@ impl MutationQueue {
                     ErrorCategory::Repo,
                     "La file de mutations est fermée.",
                 )
+                .with_remediation("Rouvrez le dépôt depuis l’écran d’accueil.")
             })?;
         }
         receiver.recv().map_err(|_| {

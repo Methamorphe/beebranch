@@ -212,6 +212,9 @@ pub fn create_tag(
                 ErrorCategory::GitState,
                 "Aucune identité Git n'est configurée pour signer le tag.",
             )
+            .with_remediation(
+                "Configurez user.name et user.email dans un profil, ou avec `git config`.",
+            )
             .with_detail(stderr));
         }
         return Err(AppError::new(
@@ -219,6 +222,7 @@ pub fn create_tag(
             ErrorCategory::GitState,
             "Le tag n'a pas pu être créé.",
         )
+        .with_remediation("Vérifiez que le nom est valide et n’existe pas déjà ; le détail contient la sortie Git.")
         .with_detail(outcome.stderr.redacted()));
     }
     list_tags(runner, worktree)?
@@ -243,6 +247,7 @@ fn tag_commit(runner: &GitRunner, worktree: &Path, name: &str) -> Result<String,
             ErrorCategory::GitState,
             "Le tag est introuvable.",
         )
+        .with_remediation("Rafraîchissez la liste des tags : il a peut-être été supprimé.")
         .with_detail(name.to_owned()));
     }
     Ok(outcome.stdout.text_lossy().trim().to_owned())
@@ -290,6 +295,7 @@ pub fn move_tag(
             ErrorCategory::Input,
             "La cible du tag est introuvable.",
         )
+        .with_remediation("Vérifiez la révision saisie (SHA, branche ou tag).")
         .with_detail(target.to_owned()));
     }
     let next = outcome.stdout.text_lossy().trim().to_owned();
@@ -303,6 +309,7 @@ pub fn move_tag(
                     ErrorCategory::GitState,
                     "Le tag est introuvable.",
                 )
+                .with_remediation("Rafraîchissez la liste des tags : il a peut-être été supprimé.")
                 .with_detail(name.to_owned())
             });
     }
@@ -348,6 +355,9 @@ pub fn delete_tag(runner: &GitRunner, worktree: &Path, name: &str) -> Result<(),
             ErrorCategory::GitState,
             "Le tag n'a pas pu être supprimé.",
         )
+        .with_remediation(
+            "Rafraîchissez la liste des tags puis réessayez ; le détail contient la sortie Git.",
+        )
         .with_detail(outcome.stderr.redacted()));
     }
     Ok(())
@@ -375,6 +385,7 @@ pub fn push_tag(
             ErrorCategory::Network,
             "Le push du tag a échoué.",
         )
+        .with_remediation("Vérifiez la connexion et vos droits sur le remote ; un tag déjà présent sur le remote n’est pas écrasé.")
         .with_detail(outcome.stderr.redacted()));
     }
     Ok(PushReport {
@@ -409,6 +420,7 @@ pub fn delete_tag_remote(
             ErrorCategory::Network,
             "Le tag n'a pas pu être supprimé du remote.",
         )
+        .with_remediation("Vérifiez la connexion et vos droits de suppression sur le remote.")
         .with_detail(outcome.stderr.redacted()));
     }
     Ok(PushReport {
