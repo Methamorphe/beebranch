@@ -6,6 +6,7 @@ use beebranch_core::AppError;
 use serde::{Deserialize, Serialize};
 
 use crate::commit::{read_changed_files, CommitDetail, StashSnapshot, MAX_FILES};
+use crate::diff::validate_relative_path;
 use crate::log::{CommitIdentity, CommitSummary};
 use crate::process::{CaptureLimits, CommandSpec, GitRunner};
 use crate::status::read_status;
@@ -57,12 +58,14 @@ pub struct StashOutcome {
     pub conflicts: Vec<String>,
 }
 
-/// Create a stash, optionally including untracked files.
+/// Create a stash, optionally including untracked files. A non-empty `paths`
+/// stashes only those paths (`git stash push -- <paths>`).
 pub fn create(
     runner: &GitRunner,
     worktree: &Path,
     message: &str,
     include_untracked: bool,
+    paths: &[String],
 ) -> Result<String, AppError> {
     if message.contains('\0') || message.contains('\n') || message.contains('\r') {
         return Err(AppError::invalid_input(
@@ -79,6 +82,10 @@ pub fn create(
         });
     if include_untracked {
         spec = spec.arg("--include-untracked");
+    }
+    for path in paths {
+        validate_relative_path(path)?;
+        spec = spec.path(path);
     }
     let outcome = runner.run(&spec)?.ensure_success()?;
     Ok(outcome.stdout.redacted())

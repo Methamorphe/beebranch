@@ -276,16 +276,52 @@
 }
 
 .tools,
-.modes {
+.toolGroup,
+.navGroup {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
+/* Groups are spaced wider than the buttons inside them. */
 .tools {
   flex: none;
   flex-wrap: wrap;
   justify-content: flex-end;
+  column-gap: 12px;
+  row-gap: 4px;
+}
+
+.navLabel {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Segmented control: the buttons of a group share their borders. */
+.modes {
+  display: flex;
+  align-items: center;
+}
+
+.modes > .mode,
+.modes > .modeActive {
+  border-radius: 0;
+}
+
+.modes > * + * {
+  margin-left: -1px;
+}
+
+.modes > :first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.modes > :last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.modes > .modeActive {
+  position: relative;
 }
 
 .mode,
@@ -308,6 +344,19 @@
   border-color: var(--accent-text);
   color: var(--accent-contrast);
   background: var(--accent);
+}
+
+/* On/off toggles (word wrap) show their state without looking like a mode. */
+.mode[aria-pressed='true'] {
+  border-color: var(--accent-text);
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.stagingBar {
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .fileBar {

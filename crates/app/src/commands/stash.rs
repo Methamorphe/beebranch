@@ -21,6 +21,9 @@ pub struct CreateStashRequest {
     pub message: String,
     #[serde(default)]
     pub include_untracked: bool,
+    /// Restricts the stash to these paths; empty stashes everything.
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,7 +76,13 @@ pub async fn stash_create(
             } else {
                 message
             };
-            let output = stash::create(runner, worktree, &message, request.include_untracked)?;
+            let output = stash::create(
+                runner,
+                worktree,
+                &message,
+                request.include_untracked,
+                &request.paths,
+            )?;
             let entry = stash::list(runner, worktree)?
                 .into_iter()
                 .next()
@@ -154,9 +163,7 @@ pub async fn stash_drop(
     state: State<'_, AppState>,
     request: StashRefRequest,
 ) -> Result<MutationResult<String>, AppError> {
-    request
-        .confirmation
-        .verify(DestructiveAction::StashDrop)?;
+    request.confirmation.verify(DestructiveAction::StashDrop)?;
     let session = state.session(&request.repo_id)?;
     let operation_id = new_operation_id("stash-drop");
     begin_destructive(

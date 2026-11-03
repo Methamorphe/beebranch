@@ -311,6 +311,13 @@ type Props = {
   lineComment?: LineComment
   /** Path to select when the report loads; ignored when missing from the report. */
   initialPath?: string
+  /**
+   * Allows editing worktree files the staging controls do not cover, such as
+   * untracked ones. Falls back to `staging`.
+   */
+  editor?: Pick<Staging, 'repoId' | 'onMutated'>
+  /** Opens this worktree path in the editor on mount. */
+  initialEditPath?: string
 }
 
 /** Index of `path` in the report, or `0` when absent. */
@@ -449,6 +456,8 @@ export function DiffViewer({
   onShowHistory,
   lineComment,
   initialPath,
+  editor = staging,
+  initialEditPath,
 }: Props) {
   const { t, plural } = useI18n()
   const [mode, setMode] = useState<Mode>('inline')
@@ -470,7 +479,7 @@ export function DiffViewer({
   const [busy, setBusy] = useState(false)
   const [rendered, setRendered] = useState(false)
   /** Path open in the in-app editor, or `null` when the editor is closed. */
-  const [editingPath, setEditingPath] = useState<string | null>(null)
+  const [editingPath, setEditingPath] = useState<string | null>(initialEditPath ?? null)
   const [documentState, setDocumentState] = useState<
     | { kind: 'loading' }
     | { kind: 'ready'; value: FileContent }
@@ -630,7 +639,7 @@ export function DiffViewer({
 
   // Editing replaces the whole viewer: no modal, no navigation away from the
   // repository, and the file list cannot silently drop the draft.
-  if (editingPath && staging) {
+  if (editingPath && editor) {
     return (
       <div className={`${styles.root} ${styles.editorMode}`}>
         <Suspense
@@ -638,11 +647,11 @@ export function DiffViewer({
         >
           <FileEditorPane
             key={editingPath}
-            repoId={staging.repoId}
+            repoId={editor.repoId}
             path={editingPath}
             onClose={() => setEditingPath(null)}
             onSaved={() => {
-              staging.onMutated()
+              editor.onMutated()
               setRendered(false)
             }}
           />
@@ -795,6 +804,8 @@ export function DiffViewer({
     }
     return [{ path, hunks }]
   }
+
+  const nothingSelected = hunkSelection.length === 0 && Object.keys(lineSelection).length === 0
 
   const applySelection = async (kind: 'stage' | 'unstage' | 'discard') => {
     if (!staging) {
@@ -1084,6 +1095,7 @@ export function DiffViewer({
           </div>
           ) : null}
           <div className={styles.tools}>
+            <div className={styles.toolGroup}>
             {onShowHistory && documentPath && documentPath !== '/dev/null' ? (
               <button
                 type="button"
@@ -1095,7 +1107,7 @@ export function DiffViewer({
                 {t('diff.history.open')}
               </button>
             ) : null}
-            {staging && documentPath && documentPath !== '/dev/null' ? (
+            {editor && documentPath && documentPath !== '/dev/null' ? (
               <button
                 type="button"
                 className={styles.mode}
@@ -1105,6 +1117,7 @@ export function DiffViewer({
                 {t('editor.open')}
               </button>
             ) : null}
+            </div>
             {markdown ? (
               <div className={styles.modes} role="group" aria-label={t('diff.view.aria')}>
                 <button
@@ -1147,12 +1160,54 @@ export function DiffViewer({
                     </button>
                   ))}
                 </div>
-                <button type="button" className={styles.mode} onClick={() => jump(-1)} aria-label={t('diff.hunk.previous')} title={t('diff.hunk.previous')}>
-                  ↑
-                </button>
-                <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label={t('diff.hunk.next')} title={t('diff.hunk.next')}>
-                  ↓
-                </button>
+                <div className={styles.navGroup}>
+                  <span className={styles.navLabel} aria-hidden="true">{t('diff.hunk.nav')}</span>
+                  <div className={styles.modes} role="group" aria-label={t('diff.hunk.nav')}>
+                    <button type="button" className={styles.mode} onClick={() => jump(-1)} aria-label={t('diff.hunk.previous')} title={t('diff.hunk.previous')}>
+                      ↑
+                    </button>
+                    <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label={t('diff.hunk.next')} title={t('diff.hunk.next')}>
+                      ↓
+                    </button>
+                  </div>
+                </div>
+                {report.files.length > 1 ? (
+                  <div className={styles.navGroup}>
+                    <span className={styles.navLabel} aria-hidden="true">{t('diff.file.nav')}</span>
+                    <div className={styles.modes} role="group" aria-label={t('diff.file.nav')}>
+                      <button
+                        type="button"
+                        className={styles.mode}
+                        disabled={active === 0}
+                        title={t('diff.file.previous')}
+                        aria-label={t('diff.file.previous')}
+                        onClick={() => {
+                          selectFile(Math.max(0, active - 1))
+                          scrollRef.current?.scrollTo({ top: 0 })
+                          setScrollTop(0)
+                        }}
+                      >
+                        ‹
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.mode}
+                        disabled={active >= report.files.length - 1}
+                        title={t('diff.file.next')}
+                        aria-label={t('diff.file.next')}
+                        onClick={() => {
+                          selectFile(
+                            Math.min(report.files.length - 1, active + 1),
+                          )
+                          scrollRef.current?.scrollTo({ top: 0 })
+                          setScrollTop(0)
+                        }}
+                      >
+                        ›
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   className={styles.mode}
@@ -1177,40 +1232,6 @@ export function DiffViewer({
                 >
                   {t('diff.wrap.label')}
                 </button>
-                {report.files.length > 1 ? (
-                  <>
-                    <button
-                      type="button"
-                      className={styles.mode}
-                      disabled={active === 0}
-                      title={t('diff.file.previous')}
-                      aria-label={t('diff.file.previous')}
-                      onClick={() => {
-                        selectFile(Math.max(0, active - 1))
-                        scrollRef.current?.scrollTo({ top: 0 })
-                        setScrollTop(0)
-                      }}
-                    >
-                      ‹
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.mode}
-                      disabled={active >= report.files.length - 1}
-                      title={t('diff.file.next')}
-                      aria-label={t('diff.file.next')}
-                      onClick={() => {
-                        selectFile(
-                          Math.min(report.files.length - 1, active + 1),
-                        )
-                        scrollRef.current?.scrollTo({ top: 0 })
-                        setScrollTop(0)
-                      }}
-                    >
-                      ›
-                    </button>
-                  </>
-                ) : null}
               </>
             ) : null}
           </div>
@@ -1343,14 +1364,14 @@ export function DiffViewer({
         ) : null}
 
         {staging && !file?.binary ? (
-          <div className={shared.row}>
+          <div className={`${shared.row} ${styles.stagingBar}`}>
             <span className={shared.notice}>
               {staging.target === 'worktree' ? t('diff.stage.label') : t('diff.stage.stagedLabel')}
             </span>
             <button
               type="button"
               className={shared.primary}
-              disabled={busy || (hunkSelection.length === 0 && Object.keys(lineSelection).length === 0)}
+              disabled={busy || nothingSelected}
               onClick={() => void applySelection(staging.target === 'worktree' ? 'stage' : 'unstage')}
             >
               {staging.target === 'worktree' ? t('diff.stage.stage') : t('diff.stage.unstage')}
@@ -1359,7 +1380,7 @@ export function DiffViewer({
               <button
                 type="button"
                 className={shared.dangerButton}
-                disabled={busy}
+                disabled={busy || nothingSelected}
                 onClick={() => void applySelection('discard')}
               >
                 {t('diff.stage.discard')}

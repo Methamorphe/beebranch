@@ -26,10 +26,17 @@ const messages = {
   'status.notice.resolved': 'Conflict marked resolved: {path}',
   'status.notice.copiedPath': 'Path copied: {path}',
   'status.notice.deleted': 'File deleted: {path}',
+  'status.notice.ignoredUntracked': 'Added to .gitignore and untracked: {pattern}',
+  'status.notice.diffTool': 'Diff tool opened: {path}',
+  'status.notice.opened': 'File opened: {path}',
+  'status.notice.revealed': 'File shown: {path}',
+  'status.notice.stashed': 'File stashed: {path}',
+  'status.notice.patchSaved': 'Patch saved: {path}',
 
   'status.error.discardUnsupported':
     'An untracked or conflicted file cannot be discarded here.',
   'status.error.clipboardUnavailable': 'Clipboard unavailable.',
+  'status.error.emptyPatch': 'This file has no changes to export as a patch.',
   'status.loading': 'Reading status…',
   'status.empty': 'No status.',
 
@@ -56,14 +63,24 @@ const messages = {
   'status.row.openEditor': 'Open in the editor',
   'status.row.mergeTool': 'Merge tool',
   'status.row.markResolved': 'Mark resolved',
-  'status.row.ignoreFile': 'Ignore the file',
-  'status.row.ignorePattern': 'Ignore {pattern}',
-  'status.row.ignoreDir': 'Ignore the folder',
   'status.row.discardAction': 'Discard changes…',
   'status.row.stageMenu': 'Stage',
   'status.row.unstageMenu': 'Unstage',
   'status.row.copyPath': 'Copy the path',
   'status.row.deleteAction': 'Delete the file…',
+  'status.row.ignoreMenu': 'Ignore',
+  'status.row.ignoreThisFile': 'Ignore this file ({pattern})',
+  'status.row.ignoreName': 'Ignore all “{pattern}” files',
+  'status.row.ignoreExtension': 'Ignore all {pattern} files',
+  'status.row.ignoreFolder': 'Ignore the folder {pattern}',
+  'status.row.stashFile': 'Stash file',
+  'status.row.diffTool': 'Open in external diff tool',
+  'status.row.openDefault': 'Open in default program',
+  'status.row.revealFinder': 'Show in Finder',
+  'status.row.revealFiles': 'Show in file manager',
+  'status.row.createPatch': 'Create patch from file changes…',
+  'status.row.fileHistory': 'File history',
+  'status.row.editFile': 'Edit file',
   'status.menu.aria': 'Actions on the file {path}',
 
   'status.filter.placeholder': 'Filter files…',
@@ -94,6 +111,10 @@ const messages = {
   'status.delete.consequenceOne':
     '“{path}” will be deleted from the working tree. A tracked file can be restored from the index; an untracked file is lost for good.',
   'status.delete.confirm': 'Delete',
+
+  'status.ignoreTracked.title': 'Ignore a tracked file',
+  'status.ignoreTracked.consequence': '{pattern} will be added to .gitignore and {path} will stop being tracked. The file stays on disk; its removal from the repository is staged for the next commit.',
+  'status.ignoreTracked.confirm': 'Ignore and untrack',
 }
 
 export default messages

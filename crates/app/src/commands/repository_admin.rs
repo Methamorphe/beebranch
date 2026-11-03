@@ -125,9 +125,7 @@ pub async fn tag_delete(
     state: State<'_, AppState>,
     request: DeleteTagRequest,
 ) -> Result<MutationResult<Vec<TagInfo>>, AppError> {
-    request
-        .confirmation
-        .verify(DestructiveAction::TagDelete)?;
+    request.confirmation.verify(DestructiveAction::TagDelete)?;
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
     let name = request.name.clone();

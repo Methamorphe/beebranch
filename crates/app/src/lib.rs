@@ -89,6 +89,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::tools::tool_configure,
             commands::tools::tool_open,
             commands::tools::open_external_url,
+            commands::tools::path_open,
             commands::recovery::recovery_list,
             commands::recovery::operation_journal,
             commands::recovery::diagnostics_export,

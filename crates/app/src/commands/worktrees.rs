@@ -142,17 +142,15 @@ pub async fn worktree_remove(
         .await
         .map_err(join_error)??
     };
-    if dirty {
-        if !request.force {
-            return Err(AppError::new(
-                "worktree.dirty",
-                ErrorCategory::GitState,
-                "Ce worktree contient des modifications non commitées.",
-            )
-            .with_remediation(
-                "Committez ou supprimez les modifications, ou utilisez la suppression forcée après confirmation.",
-            ));
-        }
+    if dirty && !request.force {
+        return Err(AppError::new(
+            "worktree.dirty",
+            ErrorCategory::GitState,
+            "Ce worktree contient des modifications non commitées.",
+        )
+        .with_remediation(
+            "Committez ou supprimez les modifications, ou utilisez la suppression forcée après confirmation.",
+        ));
     }
     let store = state.store.clone();
     let path = request.path.clone();

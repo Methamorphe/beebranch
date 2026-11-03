@@ -82,7 +82,7 @@ fn full_daily_workflow_without_external_git_commands() {
 
     // Push the feature branch, then stash unrelated work.
     fixture.write("scratch.txt", "temporary\n");
-    stash::create(fixture.runner(), fixture.path(), "wip scratch", true).expect("stash");
+    stash::create(fixture.runner(), fixture.path(), "wip scratch", true, &[]).expect("stash");
     assert_eq!(fixture.detect().worktree.untracked, 0);
     let stash_entry = stash::list(fixture.runner(), fixture.path())
         .expect("list")

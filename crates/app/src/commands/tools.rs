@@ -76,6 +76,16 @@ pub struct ToolOpenInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PathOpenInput {
+    pub repo_id: String,
+    pub path: String,
+    /// Show the file in the system file manager instead of opening it.
+    #[serde(default)]
+    pub reveal: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UrlInput {
     pub url: String,
 }
@@ -513,6 +523,75 @@ fn sanitize(path: &str) -> String {
         .collect()
 }
 
+/// Opens a worktree file with its default application, or reveals it in the
+/// file manager. The path is validated against the worktree like `tool_open`.
+#[tauri::command]
+pub async fn path_open(state: State<'_, AppState>, input: PathOpenInput) -> Result<(), AppError> {
+    let session = state.session(&input.repo_id)?;
+    let target = validate_worktree_path(session.worktree(), &input.path)?;
+    if std::fs::symlink_metadata(&target).is_err() {
+        return Err(AppError::not_found(format!(
+            "Le fichier {} n'existe pas.",
+            target.display()
+        )));
+    }
+    if input.reveal {
+        reveal_in_file_manager(&target)
+    } else {
+        launch_default(&target.display().to_string(), "ouverture du fichier")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_in_file_manager(target: &Path) -> Result<(), AppError> {
+    spawn_detached(
+        Command::new("open").arg("-R").arg(target),
+        "affichage dans le Finder",
+    )
+}
+
+/// `xdg-open` has no "select" mode: the parent directory is opened instead.
+#[cfg(target_os = "linux")]
+fn reveal_in_file_manager(target: &Path) -> Result<(), AppError> {
+    let directory = target.parent().unwrap_or(target);
+    spawn_detached(
+        Command::new("xdg-open").arg(directory),
+        "ouverture du dossier",
+    )
+}
+
+/// `explorer.exe` splits its arguments on commas, so the path is quoted by
+/// hand; Windows paths cannot contain `"`.
+#[cfg(target_os = "windows")]
+fn reveal_in_file_manager(target: &Path) -> Result<(), AppError> {
+    use std::os::windows::process::CommandExt;
+
+    let path = target.display().to_string().replace('/', "\\");
+    spawn_detached(
+        Command::new("explorer.exe").raw_arg(format!("/select,\"{path}\"")),
+        "affichage dans l'Explorateur",
+    )
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn reveal_in_file_manager(target: &Path) -> Result<(), AppError> {
+    let _ = target;
+    Err(AppError::internal(
+        "affichage dans le gestionnaire de fichiers non pris en charge".to_owned(),
+    ))
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+fn spawn_detached(command: &mut Command, label: &str) -> Result<(), AppError> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| AppError::internal(format!("{label}: {error}")))
+}
+
 #[tauri::command]
 pub fn open_external_url(input: UrlInput) -> Result<(), AppError> {
     let url = input.url.trim();
@@ -527,17 +606,17 @@ pub fn open_external_url(input: UrlInput) -> Result<(), AppError> {
     {
         return Err(AppError::invalid_input("URL invalide".to_owned()));
     }
-    launch_browser(url)
+    launch_default(url, "ouverture du navigateur")
 }
 
-/// Hands the URL to the default browser of the platform.
+/// Hands a URL or a file to its default application on the platform.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn launch_browser(url: &str) -> Result<(), AppError> {
+fn launch_default(target: &str, label: &str) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
     let program = "open";
     #[cfg(target_os = "linux")]
     let program = "xdg-open";
-    spawn_browser(program, url)
+    spawn_detached(Command::new(program).arg(target), label)
 }
 
 /// `explorer.exe` is not a URL opener: it treats every argument as a shell
@@ -546,7 +625,7 @@ fn launch_browser(url: &str) -> Result<(), AppError> {
 /// window on the wrong folder. `ShellExecuteW` hands the URL to the registered
 /// `https` handler without parsing it as a command line.
 #[cfg(target_os = "windows")]
-fn launch_browser(url: &str) -> Result<(), AppError> {
+fn launch_default(target: &str, label: &str) -> Result<(), AppError> {
     use std::os::windows::ffi::OsStrExt;
 
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
@@ -560,9 +639,9 @@ fn launch_browser(url: &str) -> Result<(), AppError> {
     }
 
     let operation = wide("open");
-    let target = wide(url);
-    // SAFETY: both strings are NUL-terminated and outlive the call; the URL was
-    // validated above and no window handle nor working directory is needed.
+    let target = wide(target);
+    // SAFETY: both strings are NUL-terminated and outlive the call; the target
+    // was validated by the caller and no window handle nor working directory is needed.
     let result = unsafe {
         ShellExecuteW(
             std::ptr::null_mut(),
@@ -578,30 +657,16 @@ fn launch_browser(url: &str) -> Result<(), AppError> {
         Ok(())
     } else {
         Err(AppError::internal(format!(
-            "ouverture du navigateur: code {}",
+            "{label}: code {}",
             result as isize
         )))
     }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-fn launch_browser(url: &str) -> Result<(), AppError> {
-    let _ = url;
-    Err(AppError::internal(
-        "ouverture du navigateur non prise en charge".to_owned(),
-    ))
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn spawn_browser(program: &str, url: &str) -> Result<(), AppError> {
-    Command::new(program)
-        .arg(url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| AppError::internal(format!("ouverture du navigateur: {error}")))
+fn launch_default(target: &str, label: &str) -> Result<(), AppError> {
+    let _ = target;
+    Err(AppError::internal(format!("{label}: non pris en charge")))
 }
 
 #[cfg(test)]

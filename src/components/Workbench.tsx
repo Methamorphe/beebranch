@@ -2146,7 +2146,12 @@ export function Workbench({
           </>
         ) : null}
       </div> : null}
-      {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+      {actionError ? (
+        <div className={`${styles.error} ${styles.dismissible}`} role="alert">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)}>{t('common.close')}</button>
+        </div>
+      ) : null}
       {actionNotice ? <div className={styles.actionNotice} role="status">{actionNotice}</div> : null}
 
       {graph.error ? (
@@ -2376,9 +2381,12 @@ export function Workbench({
                 {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
                 {diffLoading ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
                   <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument}
+                    key={localDiff?.edit ? `edit:${localDiff.path}` : undefined}
+                    initialEditPath={localDiff?.edit ? localDiff.path : undefined}
                     onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }}
                     staging={localDiff?.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index')
-                      ? { repoId, target: localDiff.target, onMutated } : undefined} /> : null}
+                      ? { repoId, target: localDiff.target, onMutated } : undefined}
+                    editor={localDiff?.target === 'worktree' || localDiff?.target === 'index' ? { repoId, onMutated } : undefined} /> : null}
               </div> : null)}
             </div>
           </div> : null}
@@ -2435,7 +2443,9 @@ export function Workbench({
                   if (target === 'conflicts' || target === 'stash') openHistoryTool(target)
                   else if (target === 'commit') openWorktree()
                   else onNavigate(target)
-                }} />
+                }}
+                onEditFile={(path) => setLocalDiff({ target: 'worktree', path, edit: true })}
+                onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }} />
               <CommitPanel compact repoId={repoId} generation={generation} onMutated={onMutated} onUndo={onUndo} />
             </aside> : null}
           </div>

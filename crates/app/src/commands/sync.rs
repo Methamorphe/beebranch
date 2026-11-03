@@ -414,9 +414,7 @@ pub async fn sync_push(
     request: PushCommandRequest,
 ) -> Result<MutationResult<SyncOutcome>, AppError> {
     if request.force {
-        request
-            .confirmation
-            .verify(DestructiveAction::ForcePush)?;
+        request.confirmation.verify(DestructiveAction::ForcePush)?;
     }
     let session = state.session(&request.repo_id)?;
     let runner = authenticated_runner(&state, session.runner())?;

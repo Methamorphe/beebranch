@@ -176,7 +176,7 @@ fn with_checkout_stash(
         let previous = stash::list(runner, worktree)?
             .first()
             .map(|entry| entry.sha.clone());
-        stash::create(runner, worktree, &message, true)?;
+        stash::create(runner, worktree, &message, true, &[])?;
         let entry = stash::list(runner, worktree)?
             .into_iter()
             .next()

@@ -9,6 +9,7 @@ const messages = {
 
   'diff.hunk.previous': 'Hunk précédent',
   'diff.hunk.next': 'Hunk suivant',
+  'diff.hunk.nav': 'Hunks',
   'diff.hunk.select': 'Sélectionner le hunk {number}',
   'diff.hunk.count.one': '{count} hunk',
   'diff.hunk.count.other': '{count} hunks',
@@ -34,6 +35,7 @@ const messages = {
     'Indisponible au-delà de {limit} lignes : le rendu virtualisé garde des hauteurs fixes.',
   'diff.file.previous': 'Fichier précédent',
   'diff.file.next': 'Fichier suivant',
+  'diff.file.nav': 'Fichiers',
   'diff.minimap.title': 'Cliquez pour atteindre cette partie du fichier.',
   'diff.line.select': 'Sélectionner cette ligne',
 

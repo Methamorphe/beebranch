@@ -130,6 +130,8 @@ export type DiffRequest = {
   untracked?: boolean
   /** Enables hunk/line staging controls in the diff view. */
   allowActions?: boolean
+  /** UI-only: open `path` in the in-app editor instead of the diff. */
+  edit?: boolean
 }
 
 export function diffGet(
@@ -342,12 +344,14 @@ export function indexDiscard(
   })
 }
 
+/** `untrack` lists tracked paths to drop from the index (kept on disk). */
 export function indexIgnore(
   repoId: string,
   pattern: string,
+  untrack: string[] = [],
 ): Promise<MutationResult<string>> {
   return call<MutationResult<string>>('index_ignore', {
-    request: { repoId, pattern },
+    request: { repoId, pattern, untrack },
   })
 }
 
@@ -575,6 +579,8 @@ export function stashCreate(input: {
   repoId: string
   message?: string
   includeUntracked?: boolean
+  /** Stashes only these paths; omitted stashes everything. */
+  paths?: string[]
 }): Promise<MutationResult<string>> {
   return call<MutationResult<string>>('stash_create', { request: input })
 }
@@ -656,6 +662,15 @@ export function toolOpen(input: {
   base?: string
 }): Promise<void> {
   return call<void>('tool_open', { input })
+}
+
+/** Opens a worktree file with its default application, or reveals it. */
+export function pathOpen(input: {
+  repoId: string
+  path: string
+  reveal?: boolean
+}): Promise<void> {
+  return call<void>('path_open', { input })
 }
 
 export function openExternalUrl(url: string): Promise<void> {

@@ -26,10 +26,17 @@ const messages = {
   'status.notice.resolved': 'Conflit marqué résolu : {path}',
   'status.notice.copiedPath': 'Chemin copié : {path}',
   'status.notice.deleted': 'Fichier supprimé : {path}',
+  'status.notice.ignoredUntracked': 'Ajouté au .gitignore et retiré du suivi : {pattern}',
+  'status.notice.diffTool': 'Outil de diff ouvert : {path}',
+  'status.notice.opened': 'Fichier ouvert : {path}',
+  'status.notice.revealed': 'Fichier affiché : {path}',
+  'status.notice.stashed': 'Fichier remisé : {path}',
+  'status.notice.patchSaved': 'Patch enregistré : {path}',
 
   'status.error.discardUnsupported':
     'Un fichier non suivi ou en conflit ne peut pas être discardé ici.',
   'status.error.clipboardUnavailable': 'Presse-papiers indisponible.',
+  'status.error.emptyPatch': 'Ce fichier n’a aucune modification à exporter en patch.',
   'status.loading': 'Lecture du status…',
   'status.empty': 'Aucun status.',
 
@@ -56,14 +63,24 @@ const messages = {
   'status.row.openEditor': 'Ouvrir dans l’éditeur',
   'status.row.mergeTool': 'Outil de fusion',
   'status.row.markResolved': 'Marquer résolu',
-  'status.row.ignoreFile': 'Ignorer le fichier',
-  'status.row.ignorePattern': 'Ignorer {pattern}',
-  'status.row.ignoreDir': 'Ignorer le dossier',
   'status.row.discardAction': 'Abandonner les modifications…',
   'status.row.stageMenu': 'Préparer',
   'status.row.unstageMenu': 'Retirer de l’index',
   'status.row.copyPath': 'Copier le chemin',
   'status.row.deleteAction': 'Supprimer le fichier…',
+  'status.row.ignoreMenu': 'Ignorer',
+  'status.row.ignoreThisFile': 'Ignorer ce fichier ({pattern})',
+  'status.row.ignoreName': 'Ignorer tous les fichiers « {pattern} »',
+  'status.row.ignoreExtension': 'Ignorer toutes les extensions {pattern}',
+  'status.row.ignoreFolder': 'Ignorer le dossier {pattern}',
+  'status.row.stashFile': 'Remiser le fichier',
+  'status.row.diffTool': 'Ouvrir dans l’outil de diff externe',
+  'status.row.openDefault': 'Ouvrir avec l’application par défaut',
+  'status.row.revealFinder': 'Afficher dans le Finder',
+  'status.row.revealFiles': 'Afficher dans le gestionnaire de fichiers',
+  'status.row.createPatch': 'Créer un patch des modifications…',
+  'status.row.fileHistory': 'Historique du fichier',
+  'status.row.editFile': 'Éditer le fichier',
   'status.menu.aria': 'Actions sur le fichier {path}',
 
   'status.filter.placeholder': 'Filtrer les fichiers…',
@@ -94,6 +111,10 @@ const messages = {
   'status.delete.consequenceOne':
     '“{path}” sera supprimé du worktree. Un fichier suivi peut être restauré depuis l’index ; un fichier non suivi est définitivement perdu.',
   'status.delete.confirm': 'Supprimer',
+
+  'status.ignoreTracked.title': 'Ignorer un fichier suivi',
+  'status.ignoreTracked.consequence': '{pattern} sera ajouté au .gitignore et {path} sera retiré du suivi. Le fichier reste sur le disque ; sa suppression du dépôt est préparée pour le prochain commit.',
+  'status.ignoreTracked.confirm': 'Ignorer et ne plus suivre',
 }
 
 export default messages

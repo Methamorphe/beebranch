@@ -337,7 +337,7 @@ fn stash_worktree(
     worktree: &Path,
     message: &str,
 ) -> Result<StashEntry, AppError> {
-    stash::create(runner, worktree, message, false)?;
+    stash::create(runner, worktree, message, false, &[])?;
     stash::list(runner, worktree)?
         .into_iter()
         .next()

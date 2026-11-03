@@ -200,7 +200,10 @@ mod tests {
 
     #[test]
     fn acknowledgement_is_enough() {
-        for action in [DestructiveAction::BranchDelete, DestructiveAction::ForcePush] {
+        for action in [
+            DestructiveAction::BranchDelete,
+            DestructiveAction::ForcePush,
+        ] {
             assert!(Confirmation::acknowledged().verify(action).is_ok());
         }
     }
