@@ -14,6 +14,8 @@ export type ShortcutHandlers = {
   undo: () => void
   redo: () => void
   close: () => void
+  /** `?` outside a field: the shortcut reference. Not configurable. */
+  help: () => void
 }
 
 function isEditable(target: EventTarget | null): boolean {
@@ -38,6 +40,11 @@ export function useShortcuts(handlers: ShortcutHandlers, shortcuts: ShortcutMap)
         return
       }
       if (document.querySelector('[aria-modal="true"], [role="menu"]')) return
+      if (event.key === '?' && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditable(event.target)) {
+        event.preventDefault()
+        handlers.help()
+        return
+      }
       if (isEditable(event.target)) {
         // Cmd/Ctrl+K / T / W / Shift+F stay global. Mod+F is left to the focused
         // field (CodeMirror search, native inputs) so it does not fight them.
@@ -54,7 +61,7 @@ export function useShortcuts(handlers: ShortcutHandlers, shortcuts: ShortcutMap)
         keyof ShortcutHandlers,
         () => void,
       ][]) {
-        if (action === 'close') {
+        if (action === 'close' || action === 'help') {
           continue
         }
         if (matchesShortcut(event, shortcuts[action])) {

@@ -126,3 +126,6 @@ export const viewDescriptions: Partial<Record<ViewId, MessageKey>> = {
   recovery: 'nav.description.recovery',
   diff: 'nav.description.diff',
 }
+
+/** Pages about the application or the forges, not about the open repository. */
+export const APP_PAGES: readonly ViewId[] = ['profiles', 'workspaces', 'gitlab', 'github', 'recovery']

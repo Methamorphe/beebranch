@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react'
-import { navigationItems, type ViewId } from '../data/navigation'
+import { APP_PAGES, navigationItems, type ViewId } from '../data/navigation'
 import {
   branchCheckout,
   branchCheckoutAt,
@@ -90,6 +90,7 @@ import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
 import { ConfirmBar } from './ConfirmBar'
+import { useToastChannel } from './ui/Toasts'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
@@ -516,8 +517,8 @@ export function Workbench({
       }
     }
   }, [repoId])
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [actionNotice, setActionNotice] = useState<string | null>(null)
+  const setActionError = useToastChannel('workbench-error', 'error')
+  const setActionNotice = useToastChannel('workbench-notice', 'success')
   const [filePath, setFilePath] = useState('')
   const checkoutPending = useRef(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
@@ -1656,6 +1657,9 @@ export function Workbench({
 
   const tool = renderTool()
   const toolLabel = navigationItems.find((item) => item.id === view)?.labelKey
+  // Application pages are not about this repository: its references and
+  // actions stay out of the way while they are open.
+  const appPage = APP_PAGES.includes(view)
   const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'recovery'].includes(view) ? tool : null
   const centerActive = Boolean(previewDiff || centerTool || historyTool)
   const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
@@ -1780,11 +1784,6 @@ export function Workbench({
         {repo.state.conflicts.files.length ? ` · ${formatNumber(repo.state.conflicts.files.length)}` : ''}
       </button>
     </ActionMenu>
-    {operationBlocked ? <button type="button" className={styles.operationChip}
-      onClick={() => openHistoryTool('conflicts')}>
-      <ViewIcon view="conflicts" />{t('workbench.history.operation')}
-      {repo.state.conflicts.files.length ? <span>{formatNumber(repo.state.conflicts.files.length)}</span> : null}
-    </button> : null}
         <select
           value={allRefs ? '__all__' : revision}
           onChange={(event) => {
@@ -2146,13 +2145,6 @@ export function Workbench({
           </>
         ) : null}
       </div> : null}
-      {actionError ? (
-        <div className={`${styles.error} ${styles.dismissible}`} role="alert">
-          <span>{actionError}</span>
-          <button type="button" onClick={() => setActionError(null)}>{t('common.close')}</button>
-        </div>
-      ) : null}
-      {actionNotice ? <div className={styles.actionNotice} role="status">{actionNotice}</div> : null}
 
       {graph.error ? (
         <div className={styles.error} role="alert">
@@ -2160,9 +2152,10 @@ export function Workbench({
         </div>
       ) : null}
       <div className={styles.graphLayout} style={{ '--inspector-width': `${layout.inspector}px` } as CSSProperties}>
+        {appPage ? null : <>
         <RepositoryNavigator name={repo.repo.name} entries={refs?.entries ?? []} stashes={stashEntries}
           current={currentBranch} selected={selected} active={view} tools={navigatorTools}
-          busy={checkoutBusy} onNavigate={onNavigate} gitlabConnected={gitlabConnected} githubConnected={githubConnected}
+          busy={checkoutBusy} onNavigate={onNavigate} gitlabConnected={gitlabConnected} githubConnected={githubConnected} linkProvider={linkProvider}
           onSelect={(sha) => {
             if (!onNavigate('graph')) return
             setHistoryTool(null); setSelected(sha); setReveal((previous) => ({ sha, serial: (previous?.serial ?? 0) + 1 })); setWorktreeSelected(false)
@@ -2186,6 +2179,7 @@ export function Workbench({
         <Resizer className={styles.navigatorResizer} label={t('shell.resizer.navigation')} side="right"
           value={layout.sidebar} min={SIDEBAR_MIN} max={SIDEBAR_MAX}
           onChange={(sidebar) => onLayoutChange({ sidebar })} onReset={() => onLayoutChange({ sidebar: 210 })} />
+        </>}
         <div className={styles.historyMain}>
 
           <div className={styles.graphRegion} hidden={centerActive}>

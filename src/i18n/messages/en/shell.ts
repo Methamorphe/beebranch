@@ -214,7 +214,6 @@ const messages = {
   'shell.statusBar.conflicts.one': '{count} conflict',
   'shell.statusBar.conflicts.other': '{count} conflicts',
   'shell.statusBar.manageOperation': 'Manage the current operation',
-  'shell.statusBar.operation': 'operation: {operation}',
   'shell.statusBar.openGitlab': 'Open the GitLab connection',
   'shell.statusBar.openGithub': 'Open the GitHub connection',
   'shell.statusBar.gitlabConnected': 'GitLab connected',
