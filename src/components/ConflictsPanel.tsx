@@ -471,11 +471,6 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                     </span>
                   ) : null}
                   <span className={p2.spacer} />
-                  <span className={p2.muted}>
-                    {t('ops.conflicts.operation', {
-                      operation: operationLabel(state.operation, t),
-                    })}
-                  </span>
                   <button
                     type="button"
                     className={`${p2.secondary}`}

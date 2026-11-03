@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Notifications**: results and errors of actions now appear as notifications at the bottom of the window instead of banners stacked above the workspace. A success disappears after a few seconds; an error stays until it is closed and keeps its remediation.
+- **Keyboard shortcut reference**: press `?` outside a text field, or use the command palette, to list every shortcut, including the ones you customised.
+- **Relative dates**: commits from the last week show their age (“3 hours ago”, “yesterday”) in the history and the commit detail.
+
+### Changed
+
+- An operation in progress (merge, rebase…) is announced once, by the banner above the workspace, with a single action to resolve or manage it.
+- The workspaces, GitLab, GitHub, profiles and recovery pages no longer show the repository toolbar and references, which did not apply to them.
+- The repository panel only lists the review requests of the repository's forge (merge requests for GitLab, pull requests for GitHub), or of the connected forges when the repository is not linked.
+- The command palette shows your customised shortcuts instead of the default ones.
+
 ### Fixed
 
 - **Git errors on a non-English system**: Git now always reports its messages in English to BeeBranch, so failures are recognised whatever the system language. On a French macOS, for example, a pull refused as non-fast-forward was reported as an unknown Git error. Only the message language changes: the character encoding of paths, hooks and editors is kept.

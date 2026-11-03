@@ -428,6 +428,35 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await screenshot('workspace-conflicts.png')
   await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')
   await check('closing-conflicts-restores-graph', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('[data-central-editor]')`)
+  await check('operation-shown-once', `Array.from(document.querySelectorAll('body *')).filter((element) => element.children.length === 0 && /Opération en cours|opération : merge|Opération : merge/.test(element.textContent) && element.getBoundingClientRect().width > 2).length === 1`)
+
+  // `?` outside a field opens the shortcut reference; Escape closes it.
+  await evaluate(client, `document.activeElement?.blur()`)
+  await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'?', text:'?', windowsVirtualKeyCode:191, modifiers:8 })
+  await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'?', windowsVirtualKeyCode:191, modifiers:8 })
+  await delay(100)
+  await check('shortcut-help-opens', `document.querySelectorAll('[aria-labelledby="shortcut-help-title"] li').length >= 15`)
+  await screenshot('workspace-shortcut-help.png')
+  await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Escape', windowsVirtualKeyCode:27 })
+  await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Escape', windowsVirtualKeyCode:27 })
+  await delay(80)
+  await check('shortcut-help-closes', `!document.querySelector('[aria-labelledby="shortcut-help-title"]')`)
+
+  // A failed action reports through a dismissible toast carrying its remediation.
+  await evaluate(client, `(() => {
+    window.__toastInvoke = window.__TAURI_INTERNALS__.invoke
+    window.__TAURI_INTERNALS__.invoke = (command, args) => command === 'sync_fetch'
+      ? Promise.reject({ code:'auth.failed', category:'auth', message:'L\\'authentification Git a échoué.', remediation:'Vérifiez le token.' })
+      : window.__toastInvoke(command, args)
+    return true
+  })()`)
+  await evaluate(client, `Array.from(document.querySelectorAll('button')).find((button) => button.textContent.trim() === 'Fetch').click()`)
+  await waitFor(client, `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('authentification'))`, 'error toast')
+  await check('error-toast-shows-remediation', `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('Vérifiez le token.'))`)
+  await screenshot('workspace-error-toast.png')
+  await evaluate(client, `(() => { document.querySelectorAll('[data-toasts] button[aria-label="Fermer"]').forEach((button) => button.click()); window.__TAURI_INTERNALS__.invoke = window.__toastInvoke; return true })()`)
+  await delay(60)
+  await check('error-toast-dismisses', `!document.querySelector('[data-toasts] [role="alert"]')`)
   const { runHubsSmoke } = await import('./hubs-smoke.mjs')
   await runHubsSmoke({ client, evaluate, screenshot, waitFor, delay, check, click })
   for (const width of [1440,1024,390]) {

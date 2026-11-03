@@ -16,6 +16,8 @@ type Props = {
   busy: boolean
   gitlabConnected: boolean
   githubConnected: boolean
+  /** Forge this repository is linked to, when one was matched. */
+  linkProvider: 'gitlab' | 'github' | null
   onNavigate: (view: ViewId) => boolean
   onSelect: (sha: string) => void
   onCheckout: (entry: RefEntry) => void
@@ -36,6 +38,12 @@ export function RepositoryNavigator(props: Props) {
   const groups = filterBranches(props.entries, query, props.current)
   const matches = (value: string) => value.toLowerCase().includes(query.trim().toLowerCase())
   const tags = props.entries.filter((entry) => entry.kind === 'tag' && matches(entry.name))
+  // Review requests only appear for the forge of this repository; an unlinked
+  // repository falls back to the connected forges. An open section stays.
+  const showsForge = (provider: 'gitlab' | 'github', view: ViewId) =>
+    props.active === view
+    || props.linkProvider === provider
+    || (props.linkProvider === null && (provider === 'gitlab' ? props.gitlabConnected : props.githubConnected))
   const stashes = props.stashes.filter((entry) => matches(entry.message) || matches(entry.selector))
   // An annotated tag stores a tag object; only the commit it peels to exists as
   // a row of the history, so selecting the tag object opens the detail without
@@ -90,8 +98,8 @@ export function RepositoryNavigator(props: Props) {
       </button>), stashes.length, props.canStash ? props.onCreateStash : undefined)}
       {section('worktrees', 'nav.worktrees', null, undefined, undefined, 'worktrees')}
       {section('submodules', 'nav.submodules', null, undefined, undefined, 'submodules')}
-      {section('mrs', 'nav.mrs', null, undefined, undefined, 'mrs')}
-      {section('prs', 'nav.prs', null, undefined, undefined, 'prs')}
+      {showsForge('gitlab', 'mrs') ? section('mrs', 'nav.mrs', null, undefined, undefined, 'mrs') : null}
+      {showsForge('github', 'prs') ? section('prs', 'nav.prs', null, undefined, undefined, 'prs') : null}
       {section('patches', 'nav.patches', null, undefined, undefined, 'patches')}
       {section('search', 'nav.search', null, undefined, undefined, 'search')}
       {section('operations', 'nav.group.operations', <div className={styles.operations}>

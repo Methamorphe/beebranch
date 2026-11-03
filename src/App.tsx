@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
+import { ShortcutHelp } from './components/ShortcutHelp'
 import { ConfirmBar } from './components/ConfirmBar'
 import { Home } from './components/Home'
 import { InitRepoDialog } from './components/InitRepoDialog'
@@ -13,9 +14,10 @@ import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { UpdateNotice } from './components/UpdateNotice'
 import { ActionBarProvider, ActionBarSlot } from './components/ui/ActionBar'
+import { useToastChannel } from './components/ui/Toasts'
 import { Workbench } from './components/Workbench'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
-import { navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
+import { APP_PAGES, navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
 import { errorMessage } from './ipc/client'
 import { I18nProvider, LANGUAGE_PREFERENCE_KEY, detectLocale, isLocale, plural, setLocale, t, type Locale, type MessageKey } from './i18n'
 import {
@@ -143,7 +145,7 @@ export default function App() {
   const [diffRequest, setDiffRequest] = useState<Parameters<typeof Workbench>[0]['diffRequest']>(null)
   const [recent, setRecent] = useState<RecentRepo[]>([])
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const setError = useToastChannel('app-error', 'error')
   const [pendingClose, setPendingClose] = useState<RepoView | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
@@ -151,6 +153,7 @@ export default function App() {
   const [launcherFocus, setLauncherFocus] = useState(0)
   const [initDialogOpen, setInitDialogOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
   /** Push target whose update Git refused, awaiting the user's decision. */
   const [pushRejected, setPushRejected] = useState<PushRejection | null>(null)
   const [previousView, setPreviousView] = useState<ViewId>('graph')
@@ -160,7 +163,7 @@ export default function App() {
   const [forgeUser, setForgeUser] = useState<string | null>(null)
   const [stashCount, setStashCount] = useState(0)
   const [undoState, setUndoState] = useState<UndoStatus | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const setNotice = useToastChannel('app-notice', 'info')
   const [theme, setTheme] = useState<Theme>('dark')
   const [favourites, setFavourites] = useState<Favourite[]>([])
   /** Guards the persist effect until the stored list has been read back. */
@@ -1225,14 +1228,14 @@ export default function App() {
         id: 'action-open-repo',
         label: t('shell.palette.openRepo'),
         group: t('shell.palette.group.actions'),
-        shortcut: '⌘O',
+        shortcut: displayShortcut(shortcuts.openRepo),
         run: () => openRepositoryDialog(),
       },
       {
         id: 'action-launcher',
         label: t('shell.palette.newTab'),
         group: t('shell.palette.group.actions'),
-        shortcut: '⌘T',
+        shortcut: displayShortcut(shortcuts.newTab),
         run: () => openLauncher(),
       },
       {
@@ -1255,7 +1258,7 @@ export default function App() {
         id: 'action-new-branch',
         label: t('shell.palette.newBranch'),
         group: t('shell.palette.group.git'),
-        shortcut: '⌘B',
+        shortcut: displayShortcut(shortcuts.newBranch),
         available: Boolean(repoId),
         contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.repo'),
@@ -1283,7 +1286,7 @@ export default function App() {
         id: 'action-undo',
         label: undoState?.undo ? undoButtonLabel(undoState.undo, 'undo') : t('shell.palette.undoFallback'),
         group: t('shell.palette.group.git'),
-        shortcut: '⌘Z',
+        shortcut: displayShortcut(shortcuts.undo),
         available: Boolean(repoId && undoState?.undo),
         contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.nothingToUndo'),
@@ -1293,7 +1296,7 @@ export default function App() {
         id: 'action-redo',
         label: undoState?.redo ? undoButtonLabel(undoState.redo, 'redo') : t('shell.palette.redoFallback'),
         group: t('shell.palette.group.git'),
-        shortcut: '⌘⇧Z',
+        shortcut: displayShortcut(shortcuts.redo),
         available: Boolean(repoId && undoState?.redo),
         contextual: graphContext,
         unavailableReason: t('shell.palette.unavailable.nothingToRedo'),
@@ -1377,10 +1380,17 @@ export default function App() {
         run: () => changeTheme(theme === 'light' ? 'dark' : 'light'),
       },
       {
+        id: 'action-shortcut-help',
+        label: t('common.shortcutHelp.palette'),
+        group: t('shell.palette.group.system'),
+        shortcut: '?',
+        run: () => setShortcutHelpOpen(true),
+      },
+      {
         id: 'action-settings',
         label: t('shell.palette.settings'),
         group: t('shell.palette.group.system'),
-        shortcut: '⌘,',
+        shortcut: displayShortcut(shortcuts.settings),
         run: () => navigate('profiles'),
       },
       {
@@ -1471,6 +1481,7 @@ export default function App() {
     close: () => {
       setPaletteOpen(false)
     },
+    help: () => setShortcutHelpOpen(true),
   }, shortcuts)
 
   const showHome =
@@ -1478,6 +1489,9 @@ export default function App() {
   // The launcher is a tab of its own: it shows the same start screen as the
   // empty state without closing the repository tabs.
   const showStart = launcherOpen || showHome
+  // Repository toolbar and operation banner belong to the open repository,
+  // not to the launcher or the application pages (workspaces, forges…).
+  const repoChrome = !showStart && !APP_PAGES.includes(view)
   const branch =
     repo?.state.head?.kind === 'branch' ? repo.state.head.name : null
 
@@ -1486,6 +1500,7 @@ export default function App() {
     <ActionBarProvider>
     <div
       className={styles.app}
+      data-toolbar={repoChrome ? undefined : 'hidden'}
       data-background={background && backgroundUrl ? 'image' : undefined}
       style={{ '--sidebar-width': `${layout.sidebar}px` } as CSSProperties}
     >
@@ -1539,26 +1554,28 @@ export default function App() {
           onDismiss={() => setDismissedUpdate(availableUpdate)}
         />
       ) : null}
-      <RepoBar
-        repo={repo}
-        repos={repos}
-        busy={busy}
-        onActivate={(target) => void activate(target)}
-        onOpenDialog={openRepositoryDialog}
-        onOpenPalette={() => setPaletteOpen(true)}
-        onRefresh={() => void refresh()}
-        onNavigate={(target) => {
-          if (target === 'stash' || target === 'rebase' || target === 'conflicts') openHistoryAction(target)
-          else navigate(target)
-        }}
-        onNewBranch={newBranch}
-        onError={setError}
-        onPushRejected={setPushRejected}
-        undo={undoState?.undo ?? null}
-        redo={undoState?.redo ?? null}
-        onUndo={() => performUndo('undo')}
-        onRedo={() => performUndo('redo')}
-      />
+      {repoChrome ? (
+        <RepoBar
+          repo={repo}
+          repos={repos}
+          busy={busy}
+          onActivate={(target) => void activate(target)}
+          onOpenDialog={openRepositoryDialog}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onRefresh={() => void refresh()}
+          onNavigate={(target) => {
+            if (target === 'stash' || target === 'rebase' || target === 'conflicts') openHistoryAction(target)
+            else navigate(target)
+          }}
+          onNewBranch={newBranch}
+          onError={setError}
+          onPushRejected={setPushRejected}
+          undo={undoState?.undo ?? null}
+          redo={undoState?.redo ?? null}
+          onUndo={() => performUndo('undo')}
+          onRedo={() => performUndo('redo')}
+        />
+      ) : null}
       <div className={styles.body} data-repository={Boolean(repo) && !showStart}>
         {!repo || showStart ? <Sidebar
           active={view}
@@ -1601,7 +1618,7 @@ export default function App() {
 
           <ActionBarSlot />
 
-          {repo &&
+          {repo && repoChrome &&
           (repo.state.operation || repo.state.conflicts.files.length > 0) ? (
             <div className={styles.intermediate} role="status">
               <span>
@@ -1616,28 +1633,9 @@ export default function App() {
                   : ''}
               </span>
               <button type="button" onClick={() => openHistoryAction('conflicts')}>
-                {t('shell.operation.resolve')}
-              </button>
-              <button
-                type="button"
-                onClick={() => openHistoryAction('conflicts')}
-              >
-                {t('shell.operation.manage')}
-              </button>
-            </div>
-          ) : null}
-
-          {notice ? (
-            <div className={styles.busy} role="status" aria-live="polite">
-              {notice}
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className={styles.error} role="alert">
-              <span>{error}</span>
-              <button type="button" onClick={() => setError(null)}>
-                {t('common.close')}
+                {repo.state.conflicts.files.length > 0
+                  ? t('shell.operation.resolve')
+                  : t('shell.operation.manage')}
               </button>
             </div>
           ) : null}
@@ -1738,6 +1736,11 @@ export default function App() {
         open={paletteOpen}
         commands={commands}
         onClose={() => setPaletteOpen(false)}
+      />
+      <ShortcutHelp
+        open={shortcutHelpOpen}
+        shortcuts={shortcuts}
+        onClose={() => setShortcutHelpOpen(false)}
       />
       <ConfirmBar
         open={pendingClose !== null}
