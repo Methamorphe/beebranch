@@ -244,7 +244,7 @@ pub async fn branch_integration_start(
 ) -> Result<MutationResult<beebranch_git::integration::BranchIntegrationOutcome>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::BranchIntegrate, None)?;
+        .verify(DestructiveAction::BranchIntegrate)?;
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
     let branch_to_update = match request.mode {
@@ -604,7 +604,7 @@ pub async fn branch_delete(
 ) -> Result<MutationResult<String>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::BranchDelete, Some(&request.name))?;
+        .verify(DestructiveAction::BranchDelete)?;
     let session = state.session(&request.repo_id)?;
     let preflight = tauri::async_runtime::spawn_blocking({
         let session = session.clone();
@@ -689,7 +689,7 @@ pub async fn branch_delete_remote(
 ) -> Result<MutationResult<()>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::BranchDelete, Some(&request.branch))?;
+        .verify(DestructiveAction::BranchDelete)?;
     let session = state.session(&request.repo_id)?;
     let operation_id = new_operation_id("branch-delete-remote");
     let detail = format!("{}/{}", request.remote, request.branch);
@@ -764,10 +764,9 @@ pub async fn branch_delete_many(
             "aucune branche sélectionnée".to_owned(),
         ));
     }
-    let expected = format!("supprimer {} branches", request.names.len());
     request
         .confirmation
-        .verify(DestructiveAction::BranchDeleteMany, Some(&expected))?;
+        .verify(DestructiveAction::BranchDeleteMany)?;
     let session = state.session(&request.repo_id)?;
     let names = request.names.clone();
     let preflights = tauri::async_runtime::spawn_blocking({

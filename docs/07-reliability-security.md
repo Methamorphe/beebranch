@@ -169,7 +169,7 @@ Hooks are not versioned, but may exist locally. Their output is always displayed
 | Self-signed TLS not imported | TLS error, no bypass |
 | Malicious Markdown | no script executed, no raw HTML |
 | Repository with local filter | warning, no implicit execution |
-| Force push | typed confirmation, previous SHA recorded |
+| Force push | two-step confirmation, previous SHA recorded |
 | Diagnostic export | no token, no URL with credentials |
 | Platforms | same tests on Windows/macOS/Linux |
 

@@ -235,7 +235,7 @@ pub async fn operation_abort(
 ) -> Result<MutationResult<HistoryOutcome>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::AbortOperation, Some("abort"))?;
+        .verify(DestructiveAction::AbortOperation)?;
     let session = state.session(&request.repo_id)?;
     let operation_id = new_operation_id("abort");
     begin_destructive(

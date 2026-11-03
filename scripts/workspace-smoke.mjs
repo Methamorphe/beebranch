@@ -223,6 +223,8 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await evaluate(client, `Array.from(document.querySelectorAll('[role="menu"] button')).find((button) => button.textContent.trim() === 'Supprimer le stash').click()`)
   await waitFor(client, `document.querySelector('[role="alertdialog"]') !== null`, 'stash deletion confirmation')
   await evaluate(client, `Array.from(document.querySelectorAll('[role="alertdialog"] button')).find((button) => button.textContent.trim() === 'Supprimer').click()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Attention') === true`, 'stash deletion warning step')
+  await evaluate(client, `Array.from(document.querySelectorAll('[role="alertdialog"] button')).find((button) => button.textContent.trim() === 'Confirmer').click()`)
   await waitFor(client, `window.__workspaceCalls.some(([name]) => name === 'stash_drop') && !document.querySelector('[data-stash="stash@{0}"]')`, 'direct stash delete')
   await check('stash-delete-keeps-graph', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('[data-central-editor]')`)
 
@@ -281,6 +283,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
       && dialog.innerText.includes('irréversible')
   })()`)
   await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Supprimer')).click()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Attention') === true`, 'file delete warning step')
+  await screenshot('workspace-delete-warning.png')
+  await evaluate(client, `Array.from(document.querySelectorAll('[role="alertdialog"] button')).find((button) => button.textContent.trim() === 'Confirmer').click()`)
   await waitFor(client, `(window.__p1Calls ?? []).some(([action]) => action === 'delete')`, 'file delete call')
   await check('file-delete-call', `(() => {
     const call = (window.__p1Calls ?? []).find(([action]) => action === 'delete')
@@ -315,7 +320,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'publish branch dialog')
   await check('branch-publish-dialog-explains-upstream', `(() => {
     const dialog = document.querySelector('[role="alertdialog"]')
-    return dialog.querySelector('h2')?.textContent.includes('Publier la branche feature')
+    return dialog.innerText.includes('Publier la branche feature')
       && dialog.innerText.includes('origin/feature')
       && dialog.innerText.includes('upstream')
       && !(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'feature')
@@ -341,7 +346,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'publish dialog after branch creation')
   await check('branch-creation-offers-publish', `(() => {
     const dialog = document.querySelector('[role="alertdialog"]')
-    return dialog.querySelector('h2')?.textContent.includes('Publier la branche publish/inline')
+    return dialog.innerText.includes('Publier la branche publish/inline')
       && dialog.innerText.includes('origin/publish/inline')
       && !(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'publish/inline')
   })()`)
@@ -368,7 +373,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `Boolean(document.querySelector('[role="alertdialog"]'))`, 'toolbar publish dialog')
   await check('toolbar-push-asks-to-publish', `(() => {
     const dialog = document.querySelector('[role="alertdialog"]')
-    return dialog.querySelector('h2')?.textContent.includes('Publier la branche main')
+    return dialog.innerText.includes('Publier la branche main')
       && dialog.innerText.includes('origin/main')
   })()`)
   await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.includes('Pousser et créer origin/main'))).click()`)

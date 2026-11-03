@@ -122,7 +122,7 @@ pub async fn worktree_remove(
 ) -> Result<MutationResult<WorktreeReport>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::WorktreeRemove, None)?;
+        .verify(DestructiveAction::WorktreeRemove)?;
     let session = state.session(&request.repo_id)?;
     let dirty = {
         let runner = session.runner().clone();
@@ -151,11 +151,6 @@ pub async fn worktree_remove(
             )
             .with_remediation(
                 "Committez ou supprimez les modifications, ou utilisez la suppression forcée après confirmation.",
-            ));
-        }
-        if request.confirmation.typed.as_deref() != Some(request.path.as_str()) {
-            return Err(AppError::invalid_input(
-                "La suppression forcée d'un worktree sale exige la saisie exacte de son chemin.",
             ));
         }
     }

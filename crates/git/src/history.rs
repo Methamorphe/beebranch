@@ -178,7 +178,7 @@ pub fn skip_operation(runner: &GitRunner, worktree: &Path) -> Result<HistoryOutc
 
 /// Abort the operation currently in progress.
 ///
-/// The caller must enforce a typed confirmation: resolutions are discarded and
+/// The caller must enforce an explicit confirmation: resolutions are discarded and
 /// there is no application backup.
 pub fn abort_operation(runner: &GitRunner, worktree: &Path) -> Result<HistoryOutcome, AppError> {
     let detected = detect_state(runner, worktree)?;

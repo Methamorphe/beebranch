@@ -12,7 +12,7 @@ import { indexDiscard, indexStage, indexUnstage } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
 import { dateFromSeconds, formatDate, formatNumber, useI18n, type MessageKey } from '../i18n'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { Markdown } from './Markdown'
 import shared from './p1.module.css'
 import styles from './DiffViewer.module.css'
@@ -1444,7 +1444,7 @@ export function DiffViewer({
           )}
         </footer>
       </section>
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDiscard !== null}
         title={t('diff.discard.title')}
         consequence={t('diff.discard.consequence', {

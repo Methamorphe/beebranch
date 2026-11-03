@@ -89,12 +89,12 @@ import { ContextMenu } from './ContextMenu'
 import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
 import { ProfilesPanel } from './ProfilesPanel'
-import { PublishBranchDialog, type PublishTarget } from './PublishBranchDialog'
+import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { RebasePanel } from './RebasePanel'
 import { RefsAdminPanel } from './RefsAdminPanel'
 import { Resizer } from './Resizer'
@@ -2708,7 +2708,7 @@ export function Workbench({
         </ContextMenu>
       ) : null}
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingIntegration !== null}
         title={
           pendingIntegration
@@ -2775,7 +2775,7 @@ export function Workbench({
             </label>
           </fieldset>
         ) : null}
-      </ConfirmDialog>
+      </ConfirmBar>
 
       {amendDialog}
 
@@ -3271,12 +3271,12 @@ export function Workbench({
         </ContextMenu>
       ) : null}
 
-      <PublishBranchDialog
+      <PublishBranchBar
         target={publishTarget}
         onCancel={() => setPublishTarget(null)}
         onConfirm={confirmPublish}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingStashDrop !== null}
         title={t('workbench.stashDrop.title', { selector: pendingStashDrop?.selector ?? '' })}
         consequence={t('workbench.stashDrop.consequence', {
@@ -3299,22 +3299,22 @@ export function Workbench({
           )
         }}
       />
-      <ConfirmDialog open={pendingTagDelete !== null}
+      <ConfirmBar open={pendingTagDelete !== null}
         title={t('workbench.repository.deleteTag')}
-        consequence={pendingTagDelete?.name ?? ''} typed={pendingTagDelete?.name} irreversible
+        consequence={pendingTagDelete?.name ?? ''} irreversible
         confirmLabel={t('common.delete')} onCancel={() => setPendingTagDelete(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const entry = pendingTagDelete; setPendingTagDelete(null)
-          if (entry) void runAction(t('workbench.repository.deleteTag'), () => tagDelete({ repoId, name: entry.name, confirmation: { acknowledged: true, typed } }))
+          if (entry) void runAction(t('workbench.repository.deleteTag'), () => tagDelete({ repoId, name: entry.name, confirmation: { acknowledged: true } }))
         }} />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDelete !== null}
         title={t('workbench.deleteLocal.title', { name: pendingDelete?.name ?? '' })}
         consequence={t('workbench.deleteLocal.consequence')}
-        typed={pendingDelete?.name}
+        confirmTwice
         confirmLabel={t('common.delete')}
         onCancel={() => setPendingDelete(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const entry = pendingDelete
           setPendingDelete(null)
           if (repoId && entry) {
@@ -3322,21 +3322,20 @@ export function Workbench({
               branchDelete({
                 repoId,
                 name: entry.name,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               }),
             )
           }
         }}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingRemoteDelete !== null}
         title={t('workbench.deleteRemote.title', { label: remoteDeleteLabel })}
         consequence={t('workbench.deleteRemote.consequence')}
-        typed={remoteDeleteTarget?.branch}
         irreversible
         confirmLabel={t('workbench.deleteRemote.confirm')}
         onCancel={() => setPendingRemoteDelete(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const target = remoteDeleteTarget
           setPendingRemoteDelete(null)
           if (repoId && target) {
@@ -3346,21 +3345,20 @@ export function Workbench({
                 repoId,
                 remote,
                 branch,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               }),
             )
           }
         }}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDeleteBoth !== null}
         title={t('workbench.deleteBoth.title', { name: pendingDeleteBoth?.name ?? '' })}
         consequence={t('workbench.deleteBoth.consequence')}
-        typed={pendingDeleteBoth?.name}
         irreversible
         confirmLabel={t('workbench.deleteBoth.confirm')}
         onCancel={() => setPendingDeleteBoth(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const entry = pendingDeleteBoth
           setPendingDeleteBoth(null)
           const target = entry ? upstreamTarget(entry) : null
@@ -3375,13 +3373,13 @@ export function Workbench({
               await branchDelete({
                 repoId,
                 name: entry.name,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               })
               await branchDeleteRemote({
                 repoId,
                 remote: target.remote,
                 branch: target.branch,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               })
             },
           )

@@ -298,9 +298,8 @@ const messages = {
   'shell.update.install': 'Installer',
   'shell.update.later': 'Plus tard',
 
-  'shell.confirm.typeBefore': 'Saisissez',
-  'shell.confirm.typeAfter': 'pour confirmer',
-  'shell.confirm.typeAria': 'Saisir {value}',
+  'shell.confirm.warnTitle': 'Attention, action destructive : {action}',
+  'shell.confirm.warnBody': 'Vérifiez la cible avant de confirmer.',
   'shell.init.browse': 'Parcourir…',
   'shell.confirm.irreversible': 'Action irréversible : aucune sauvegarde applicative n’est créée.',
   'shell.confirm.busy': 'Exécution…',

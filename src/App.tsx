@@ -2,16 +2,17 @@ import { listen } from '@tauri-apps/api/event'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
-import { ConfirmDialog } from './components/ConfirmDialog'
+import { ConfirmBar } from './components/ConfirmBar'
 import { Home } from './components/Home'
 import { InitRepoDialog } from './components/InitRepoDialog'
-import { PushRejectedDialog } from './components/PushRejectedDialog'
+import { PushRejectedBar } from './components/PushRejectedBar'
 import { RepoBar } from './components/RepoBar'
 import { Resizer } from './components/Resizer'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { UpdateNotice } from './components/UpdateNotice'
+import { ActionBarProvider, ActionBarSlot } from './components/ui/ActionBar'
 import { Workbench } from './components/Workbench'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
@@ -1482,6 +1483,7 @@ export default function App() {
 
   return (
     <I18nProvider locale={locale} onChange={changeLocale}>
+    <ActionBarProvider>
     <div
       className={styles.app}
       data-background={background && backgroundUrl ? 'image' : undefined}
@@ -1596,6 +1598,8 @@ export default function App() {
 
             {busy ? <span className={styles.busy}>{t('shell.viewbar.working')}</span> : null}
           </div>
+
+          <ActionBarSlot />
 
           {repo &&
           (repo.state.operation || repo.state.conflicts.files.length > 0) ? (
@@ -1725,7 +1729,7 @@ export default function App() {
         onCreate={initRepo}
         onPickParent={pickInitParent}
       /> : null}
-      <PushRejectedDialog
+      <PushRejectedBar
         rejection={pushRejected}
         onClose={() => setPushRejected(null)}
         onDone={() => void refresh()}
@@ -1735,7 +1739,7 @@ export default function App() {
         commands={commands}
         onClose={() => setPaletteOpen(false)}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingClose !== null}
         title={t('shell.closeTab.title')}
         consequence={
@@ -1758,6 +1762,7 @@ export default function App() {
         }}
       />
     </div>
+    </ActionBarProvider>
     </I18nProvider>
   )
 }

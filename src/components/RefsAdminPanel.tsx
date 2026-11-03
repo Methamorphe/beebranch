@@ -16,7 +16,7 @@ import {
 import { errorMessage } from '../ipc/client'
 import { useI18n } from '../i18n'
 import type { RemoteInfo, TagInfo } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
@@ -501,7 +501,7 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
         </aside>
       </div>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pending !== null}
         title={
           pending?.kind === 'remote'
@@ -521,11 +521,10 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
               : t('ops.refs.deleteTagConsequence', { name: pending?.name ?? '' })
         }
         irreversible
-        typed={pending?.name}
         confirmLabel={t('common.delete')}
         busy={busy}
         onCancel={() => setPending(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const target = pending
           setPending(null)
           if (!target) {
@@ -536,7 +535,7 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
               tagDelete({
                 repoId,
                 name: target.name,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               }),
             )
           } else if (target.kind === 'tagRemote') {
@@ -550,7 +549,7 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                   repoId,
                   remote: target.remote,
                   name: target.name,
-                  confirmation: { acknowledged: true, typed },
+                  confirmation: { acknowledged: true },
                 }),
             )
           } else {
@@ -558,14 +557,14 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
               remoteRemove({
                 repoId,
                 name: target.name,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               }),
             )
           }
         }}
       />
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pushConfirm}
         title={t('ops.refs.pushTagTitle')}
         consequence={t('ops.refs.pushTagConsequence', { tag: pushTag, remote: pushRemote })}

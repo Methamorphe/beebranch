@@ -19,7 +19,7 @@ import { buildFileTree, flattenFileTree, type FileTreeRow } from '../lib/fileTre
 import { splitPath } from '../lib/paths'
 import type { Fingerprint, StatusEntry, StatusReport } from '../types/git'
 import { ActionMenu } from './ActionMenu'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { ContextMenu } from './ContextMenu'
 import styles from './RepoStatus.module.css'
 
@@ -740,7 +740,7 @@ export function RepoStatus({
           </div>
         </ContextMenu>
       ) : null}
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDiscard !== null}
         title={t('status.discard.title')}
         consequence={pendingDiscard
@@ -757,7 +757,7 @@ export function RepoStatus({
         onCancel={() => setPendingDiscard(null)}
         onConfirm={() => void confirmDiscard()}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDelete !== null}
         title={t('status.delete.title')}
         consequence={pendingDelete

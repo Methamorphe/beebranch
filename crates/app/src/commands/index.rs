@@ -96,7 +96,7 @@ pub async fn index_discard(
     } else {
         DestructiveAction::DiscardFile
     };
-    request.confirmation.verify(action, None)?;
+    request.confirmation.verify(action)?;
 
     let session = state.session(&request.repo_id)?;
     let operation_id = new_operation_id("discard");

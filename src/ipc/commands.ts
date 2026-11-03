@@ -66,7 +66,7 @@ export function repoClose(repoId: string): Promise<boolean> {
 
 export function repoCloseChecked(
   repoId: string,
-  confirmation?: { acknowledged: boolean; typed?: string },
+  confirmation?: { acknowledged: boolean },
 ): Promise<boolean> {
   return call<boolean>('repo_close_checked', { repoId, confirmation })
 }
@@ -893,7 +893,7 @@ export function worktreeRemove(input: {
   force?: boolean
   /** Delete the branch that was checked out in the removed worktree. */
   deleteBranch?: boolean
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: WorktreeReport; generation: number }> {
   return call('worktree_remove', { request: input })
 }
@@ -971,7 +971,7 @@ export function tagCreate(input: {
 export function tagDelete(input: {
   repoId: string
   name: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: TagInfo[]; generation: number }> {
   return call('tag_delete', { request: input })
 }
@@ -990,7 +990,7 @@ export function tagDeleteRemote(input: {
   repoId: string
   remote: string
   name: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: TagPushReport; generation: number }> {
   return call('tag_delete_remote', { request: input })
 }
@@ -1036,7 +1036,7 @@ export function remoteSetUrl(input: {
 export function remoteRemove(input: {
   repoId: string
   name: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: RemoteInfo[]; generation: number }> {
   return call('remote_remove', { request: input })
 }
@@ -1084,7 +1084,7 @@ export function submoduleSync(input: {
 export function submoduleRemove(input: {
   repoId: string
   path: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: SubmoduleReport; generation: number }> {
   return call('submodule_remove', { request: input })
 }

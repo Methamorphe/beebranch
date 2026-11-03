@@ -156,7 +156,7 @@ pub async fn stash_drop(
 ) -> Result<MutationResult<String>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::StashDrop, None)?;
+        .verify(DestructiveAction::StashDrop)?;
     let session = state.session(&request.repo_id)?;
     let operation_id = new_operation_id("stash-drop");
     begin_destructive(

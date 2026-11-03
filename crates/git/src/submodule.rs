@@ -248,7 +248,7 @@ pub fn sync(
 }
 
 /// Remove a submodule: deinitialise it, delete the gitlink and its
-/// `.gitmodules` entry. The caller must require a typed confirmation: the
+/// `.gitmodules` entry. The caller must require an explicit confirmation: the
 /// working tree of the submodule is discarded.
 pub fn remove(
     runner: &GitRunner,

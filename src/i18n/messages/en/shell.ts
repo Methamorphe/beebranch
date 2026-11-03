@@ -298,9 +298,8 @@ const messages = {
   'shell.update.install': 'Install',
   'shell.update.later': 'Later',
 
-  'shell.confirm.typeBefore': 'Type',
-  'shell.confirm.typeAfter': 'to confirm',
-  'shell.confirm.typeAria': 'Type {value}',
+  'shell.confirm.warnTitle': 'Warning, destructive action: {action}',
+  'shell.confirm.warnBody': 'Check the target before confirming.',
   'shell.init.browse': 'Browse…',
   'shell.confirm.irreversible': 'Irreversible action: no application-level backup is created.',
   'shell.confirm.busy': 'Running…',

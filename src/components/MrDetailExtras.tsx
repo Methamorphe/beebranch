@@ -14,7 +14,7 @@ import type {
   GitlabPipeline,
   JobLog,
 } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { DiffViewer } from './DiffViewer'
 import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
@@ -1453,7 +1453,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
         </div>
       </Dialog>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={runAction !== null}
         title={t(
           runAction === 'cancel'
@@ -1477,7 +1477,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
         onConfirm={() => void applyRunAction()}
       />
 
-      <ConfirmDialog
+      <ConfirmBar
         open={jobAction !== null}
         title={t(
           jobAction?.action === 'cancel'
@@ -1501,7 +1501,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
         onConfirm={() => void runJobAction()}
       />
 
-      <ConfirmDialog
+      <ConfirmBar
         open={mergeOpen}
         title={t('forge.detail.mergeTitle', { short: api.short, iid: mr.iid })}
         consequence={t('forge.detail.mergeConsequence', {

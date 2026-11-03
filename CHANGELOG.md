@@ -4,7 +4,12 @@
 
 ### Added
 
-- **Publishing a local branch**: creating a branch the remote does not know yet now opens a confirmation dialog instead of leaving the user in the sync panel. Confirming pushes it to `origin/<branch>` with `--set-upstream`. The same dialog appears when pushing a branch without upstream from its menu or the toolbar, so the first push creates the remote branch and records its upstream in one explicit step.
+- **Action bar for confirmations**: confirmations (force push, push rejection, merge or rebase by drag and drop, branch publication, deletions, discards, aborts…) now appear in a bar above the workspace with their actions inline, instead of a modal dialog. Destructive actions take two steps in the same bar: the action, then an explicit warning with Confirm / Cancel, where focus starts on Cancel. Escape cancels.
+- **Publishing a local branch**: creating a branch the remote does not know yet now asks for confirmation in the action bar instead of leaving the user in the sync panel. Confirming pushes it to `origin/<branch>` with `--set-upstream`. The same confirmation appears when pushing a branch without upstream from its menu or the toolbar, so the first push creates the remote branch and records its upstream in one explicit step.
+
+### Changed
+
+- Destructive actions no longer require typing the branch, tag, path or `abort`: the backend policy only requires an explicit acknowledgement, and the two-step bar replaces the typed text.
 
 ## [1.4.0] — 2026-11-02
 

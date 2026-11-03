@@ -8,7 +8,7 @@ import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
-import { PublishBranchDialog, type PublishTarget } from './PublishBranchDialog'
+import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
 import styles from './RepoBar.module.css'
 
@@ -80,8 +80,8 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       onRefresh()
     }
     catch (cause) {
-      // A refused push is a decision, not an error: the recovery dialog owns
-      // the fetch, the pull and the typed force confirmation.
+      // A refused push is a decision, not an error: the recovery bar owns
+      // the fetch, the pull and the confirmed force push.
       if (pushTarget && isPushRejection(cause)) onPushRejected(pushTarget)
       else onError(errorMessage(cause))
     }
@@ -185,7 +185,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       </ActionMenu>
       <button type="button" className={styles.action} onClick={onOpenPalette} aria-label={t('shell.repoBar.searchCommand')} title={t('shell.repoBar.paletteTitle')}><ToolbarIcon name="search" /><span>{t('shell.repoBar.commands')}</span></button>
     </div>
-    <PublishBranchDialog
+    <PublishBranchBar
       target={publish}
       onCancel={() => setPublish(null)}
       onConfirm={publishBranch}
