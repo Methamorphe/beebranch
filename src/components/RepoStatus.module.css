@@ -26,6 +26,11 @@
 .dirName { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dirCount { flex:none; color:var(--muted); font-size:10px; }
 .select { flex:none; width:13px; height:13px; padding:0; accent-color:var(--accent); }
+/* Row tools stay quiet until the row is hovered, focused or selected; checkboxes all show during a bulk selection. */
+.rowTool { opacity:0; transition:opacity 120ms var(--ease-out); }
+.fileRow:hover .rowTool, .fileRow:focus-within .rowTool, .fileRow[data-selected='true'] .rowTool,
+.fileRow[data-checked='true'] .rowTool, .fileRow[data-menu='true'] .rowTool, .root[data-bulk='true'] .select { opacity:1; }
+@media (hover: none) { .rowTool { opacity:1; } }
 @keyframes file-flash { 0%, 35% { background-color:var(--accent-soft); } 100% { background-color:transparent; } }
 .state { flex:none; width:14px; color:var(--warning); font:11px var(--sans); font-weight:600; }
 .state[data-kind='untracked'] { color:var(--success); }

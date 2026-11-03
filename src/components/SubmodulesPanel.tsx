@@ -16,7 +16,7 @@ import {
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import type { SubmoduleEntry, SubmoduleReport, SubmoduleState } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -380,18 +380,17 @@ export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props
         </aside>
       </div>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingRemove !== null}
         title={t('ops.submodule.removeTitle')}
         consequence={t('ops.submodule.removeConsequence', {
           path: pendingRemove?.path ?? '',
         })}
         irreversible
-        typed={pendingRemove?.path}
         confirmLabel={t('common.delete')}
         busy={busy}
         onCancel={() => setPendingRemove(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const target = pendingRemove
           setPendingRemove(null)
           if (!target) {
@@ -401,7 +400,7 @@ export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props
             submoduleRemove({
               repoId,
               path: target.path,
-              confirmation: { acknowledged: true, typed },
+              confirmation: { acknowledged: true },
             }),
           )
         }}

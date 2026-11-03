@@ -80,7 +80,7 @@ pub struct PushCommandRequest {
     pub branch: String,
     #[serde(default)]
     pub set_upstream: bool,
-    /// Explicit force push. Must be accompanied by a typed confirmation.
+    /// Explicit force push. Must be accompanied by an explicit confirmation.
     #[serde(default)]
     pub force: bool,
     #[serde(default)]
@@ -414,9 +414,7 @@ pub async fn sync_push(
     request: PushCommandRequest,
 ) -> Result<MutationResult<SyncOutcome>, AppError> {
     if request.force {
-        request
-            .confirmation
-            .verify(DestructiveAction::ForcePush, Some(&request.branch))?;
+        request.confirmation.verify(DestructiveAction::ForcePush)?;
     }
     let session = state.session(&request.repo_id)?;
     let runner = authenticated_runner(&state, session.runner())?;

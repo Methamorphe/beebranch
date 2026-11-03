@@ -89,12 +89,12 @@ import { ContextMenu } from './ContextMenu'
 import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
 import { ProfilesPanel } from './ProfilesPanel'
-import { PublishBranchDialog, type PublishTarget } from './PublishBranchDialog'
+import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { RebasePanel } from './RebasePanel'
 import { RefsAdminPanel } from './RefsAdminPanel'
 import { Resizer } from './Resizer'
@@ -177,6 +177,12 @@ type ContextMenuState = {
   y: number
   /** Inline expansion: checkout targets or reset modes, never a nested menu. */
   panel: 'checkout' | 'reset' | null
+}
+
+/** Form fields keep Escape for themselves; read-only editors do not. */
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return target.matches('input, textarea, select') || target.isContentEditable
 }
 
 function remoteBranchName(entry: RefEntry | null) {
@@ -1152,25 +1158,32 @@ export function Workbench({
     setLocalDiff(null)
   }, [comparison, selected])
 
+  // Escape closes one panel per press: the central editor (diff, tool)
+  // first, through its own close button, then the inspector.
   useEffect(() => {
-    if (!comparison && !selected && !showWorktree) {
-      return
-    }
     const onKey = (event: KeyboardEvent) => {
       if (
         event.key !== 'Escape' ||
         event.defaultPrevented ||
-        !window.matchMedia('(max-width: 1120px)').matches ||
-        document.querySelector('[role="dialog"], [role="alertdialog"], [popover]:popover-open')
+        findOpen ||
+        isEditableTarget(event.target) ||
+        document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [popover]:popover-open')
       ) {
         return
       }
+      const closeCenter = document.querySelector<HTMLButtonElement>('[data-central-close]')
+      if (closeCenter) {
+        event.preventDefault()
+        closeCenter.click()
+        return
+      }
+      if (!comparison && !selected && !showWorktree) return
       event.preventDefault()
       closeInspector()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [closeInspector, comparison, selected, showWorktree])
+  }, [closeInspector, comparison, findOpen, selected, showWorktree])
 
   const openRefMenu = (entry: RefEntry, x: number, y: number) => {
     setRefMenu({ entry, x, y, renaming: false, name: entry.name, panel: null })
@@ -2133,7 +2146,12 @@ export function Workbench({
           </>
         ) : null}
       </div> : null}
-      {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+      {actionError ? (
+        <div className={`${styles.error} ${styles.dismissible}`} role="alert">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)}>{t('common.close')}</button>
+        </div>
+      ) : null}
       {actionNotice ? <div className={styles.actionNotice} role="status">{actionNotice}</div> : null}
 
       {graph.error ? (
@@ -2346,7 +2364,7 @@ export function Workbench({
               <span>{centerTool && toolLabel ? t(toolLabel) : historyTool ? toolTitle : t('workbench.preview.ariaLabel')}</span>
               <code>{previewDiff?.path}</code>
               <button type="button" aria-label={t(previewDiff ? 'workbench.preview.closeAriaLabel' : 'workbench.workspace.closeTool')}
-                onClick={() => {
+                data-central-close onClick={() => {
                   if (centerTool) onNavigate('graph')
                   else if (historyTool) closeHistoryTool()
                   else { setLocalDiff(null); setComparePath(null) }
@@ -2363,9 +2381,12 @@ export function Workbench({
                 {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
                 {diffLoading ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
                   <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument}
+                    key={localDiff?.edit ? `edit:${localDiff.path}` : undefined}
+                    initialEditPath={localDiff?.edit ? localDiff.path : undefined}
                     onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }}
                     staging={localDiff?.allowActions && !localDiff.untracked && (localDiff.target === 'worktree' || localDiff.target === 'index')
-                      ? { repoId, target: localDiff.target, onMutated } : undefined} /> : null}
+                      ? { repoId, target: localDiff.target, onMutated } : undefined}
+                    editor={localDiff?.target === 'worktree' || localDiff?.target === 'index' ? { repoId, onMutated } : undefined} /> : null}
               </div> : null)}
             </div>
           </div> : null}
@@ -2422,7 +2443,9 @@ export function Workbench({
                   if (target === 'conflicts' || target === 'stash') openHistoryTool(target)
                   else if (target === 'commit') openWorktree()
                   else onNavigate(target)
-                }} />
+                }}
+                onEditFile={(path) => setLocalDiff({ target: 'worktree', path, edit: true })}
+                onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }} />
               <CommitPanel compact repoId={repoId} generation={generation} onMutated={onMutated} onUndo={onUndo} />
             </aside> : null}
           </div>
@@ -2695,7 +2718,7 @@ export function Workbench({
         </ContextMenu>
       ) : null}
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingIntegration !== null}
         title={
           pendingIntegration
@@ -2762,7 +2785,7 @@ export function Workbench({
             </label>
           </fieldset>
         ) : null}
-      </ConfirmDialog>
+      </ConfirmBar>
 
       {amendDialog}
 
@@ -3258,12 +3281,12 @@ export function Workbench({
         </ContextMenu>
       ) : null}
 
-      <PublishBranchDialog
+      <PublishBranchBar
         target={publishTarget}
         onCancel={() => setPublishTarget(null)}
         onConfirm={confirmPublish}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingStashDrop !== null}
         title={t('workbench.stashDrop.title', { selector: pendingStashDrop?.selector ?? '' })}
         consequence={t('workbench.stashDrop.consequence', {
@@ -3286,22 +3309,22 @@ export function Workbench({
           )
         }}
       />
-      <ConfirmDialog open={pendingTagDelete !== null}
+      <ConfirmBar open={pendingTagDelete !== null}
         title={t('workbench.repository.deleteTag')}
-        consequence={pendingTagDelete?.name ?? ''} typed={pendingTagDelete?.name} irreversible
+        consequence={pendingTagDelete?.name ?? ''} irreversible
         confirmLabel={t('common.delete')} onCancel={() => setPendingTagDelete(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const entry = pendingTagDelete; setPendingTagDelete(null)
-          if (entry) void runAction(t('workbench.repository.deleteTag'), () => tagDelete({ repoId, name: entry.name, confirmation: { acknowledged: true, typed } }))
+          if (entry) void runAction(t('workbench.repository.deleteTag'), () => tagDelete({ repoId, name: entry.name, confirmation: { acknowledged: true } }))
         }} />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDelete !== null}
         title={t('workbench.deleteLocal.title', { name: pendingDelete?.name ?? '' })}
         consequence={t('workbench.deleteLocal.consequence')}
-        typed={pendingDelete?.name}
+        confirmTwice
         confirmLabel={t('common.delete')}
         onCancel={() => setPendingDelete(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const entry = pendingDelete
           setPendingDelete(null)
           if (repoId && entry) {
@@ -3309,21 +3332,20 @@ export function Workbench({
               branchDelete({
                 repoId,
                 name: entry.name,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               }),
             )
           }
         }}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingRemoteDelete !== null}
         title={t('workbench.deleteRemote.title', { label: remoteDeleteLabel })}
         consequence={t('workbench.deleteRemote.consequence')}
-        typed={remoteDeleteTarget?.branch}
         irreversible
         confirmLabel={t('workbench.deleteRemote.confirm')}
         onCancel={() => setPendingRemoteDelete(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const target = remoteDeleteTarget
           setPendingRemoteDelete(null)
           if (repoId && target) {
@@ -3333,21 +3355,20 @@ export function Workbench({
                 repoId,
                 remote,
                 branch,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               }),
             )
           }
         }}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDeleteBoth !== null}
         title={t('workbench.deleteBoth.title', { name: pendingDeleteBoth?.name ?? '' })}
         consequence={t('workbench.deleteBoth.consequence')}
-        typed={pendingDeleteBoth?.name}
         irreversible
         confirmLabel={t('workbench.deleteBoth.confirm')}
         onCancel={() => setPendingDeleteBoth(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const entry = pendingDeleteBoth
           setPendingDeleteBoth(null)
           const target = entry ? upstreamTarget(entry) : null
@@ -3362,13 +3383,13 @@ export function Workbench({
               await branchDelete({
                 repoId,
                 name: entry.name,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               })
               await branchDeleteRemote({
                 repoId,
                 remote: target.remote,
                 branch: target.branch,
-                confirmation: { acknowledged: true, typed },
+                confirmation: { acknowledged: true },
               })
             },
           )

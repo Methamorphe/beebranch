@@ -14,7 +14,7 @@ import {
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import type { ConflictView, InProgressOperation, RepoState } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -526,23 +526,22 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
         </div>
       ) : null}
 
-      <ConfirmDialog
+      <ConfirmBar
         open={abortOpen && controllable}
         title={t('ops.conflicts.abortTitle')}
         consequence={t('ops.conflicts.abortConsequence')}
-        typed="abort"
         irreversible
         confirmLabel={t('ops.conflicts.abort')}
         busy={busy}
         onCancel={() => setAbortOpen(false)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           if (pending.current || !controllable) return
           pending.current = true
           request.current += 1
           setLoading(false)
           setAbortOpen(false)
           setBusy(true)
-          void operationAbort(repoId, { acknowledged: true, typed })
+          void operationAbort(repoId, { acknowledged: true })
             .then(() => {
               if (!mounted.current) return
               dirtyRef.current = false

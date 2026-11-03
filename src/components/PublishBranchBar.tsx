@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 
 /** A local branch without upstream, and the remote that should receive it. */
 export type PublishTarget = { branch: string; remote: string }
@@ -12,17 +12,17 @@ type Props = {
 
 /**
  * Offers the one action Git needs before a local branch can be shared: the
- * first push creates `remote/branch` and records it as the upstream. A dialog
- * rather than a detour through the sync panel keeps that decision in front of
- * the user, where the branch was just created or pushed.
+ * first push creates `remote/branch` and records it as the upstream. An action
+ * bar rather than a detour through the sync panel keeps that decision in front
+ * of the user, where the branch was just created or pushed.
  */
-export function PublishBranchDialog({ target, onCancel, onConfirm }: Props) {
+export function PublishBranchBar({ target, onCancel, onConfirm }: Props) {
   const { t } = useI18n()
   if (!target) {
     return null
   }
   return (
-    <ConfirmDialog
+    <ConfirmBar
       open
       title={t('workbench.publish.title', { branch: target.branch })}
       consequence={t('workbench.publish.consequence', {

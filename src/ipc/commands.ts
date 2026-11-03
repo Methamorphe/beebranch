@@ -66,7 +66,7 @@ export function repoClose(repoId: string): Promise<boolean> {
 
 export function repoCloseChecked(
   repoId: string,
-  confirmation?: { acknowledged: boolean; typed?: string },
+  confirmation?: { acknowledged: boolean },
 ): Promise<boolean> {
   return call<boolean>('repo_close_checked', { repoId, confirmation })
 }
@@ -130,6 +130,8 @@ export type DiffRequest = {
   untracked?: boolean
   /** Enables hunk/line staging controls in the diff view. */
   allowActions?: boolean
+  /** UI-only: open `path` in the in-app editor instead of the diff. */
+  edit?: boolean
 }
 
 export function diffGet(
@@ -342,12 +344,14 @@ export function indexDiscard(
   })
 }
 
+/** `untrack` lists tracked paths to drop from the index (kept on disk). */
 export function indexIgnore(
   repoId: string,
   pattern: string,
+  untrack: string[] = [],
 ): Promise<MutationResult<string>> {
   return call<MutationResult<string>>('index_ignore', {
-    request: { repoId, pattern },
+    request: { repoId, pattern, untrack },
   })
 }
 
@@ -575,6 +579,8 @@ export function stashCreate(input: {
   repoId: string
   message?: string
   includeUntracked?: boolean
+  /** Stashes only these paths; omitted stashes everything. */
+  paths?: string[]
 }): Promise<MutationResult<string>> {
   return call<MutationResult<string>>('stash_create', { request: input })
 }
@@ -656,6 +662,15 @@ export function toolOpen(input: {
   base?: string
 }): Promise<void> {
   return call<void>('tool_open', { input })
+}
+
+/** Opens a worktree file with its default application, or reveals it. */
+export function pathOpen(input: {
+  repoId: string
+  path: string
+  reveal?: boolean
+}): Promise<void> {
+  return call<void>('path_open', { input })
 }
 
 export function openExternalUrl(url: string): Promise<void> {
@@ -893,7 +908,7 @@ export function worktreeRemove(input: {
   force?: boolean
   /** Delete the branch that was checked out in the removed worktree. */
   deleteBranch?: boolean
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: WorktreeReport; generation: number }> {
   return call('worktree_remove', { request: input })
 }
@@ -971,7 +986,7 @@ export function tagCreate(input: {
 export function tagDelete(input: {
   repoId: string
   name: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: TagInfo[]; generation: number }> {
   return call('tag_delete', { request: input })
 }
@@ -990,7 +1005,7 @@ export function tagDeleteRemote(input: {
   repoId: string
   remote: string
   name: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: TagPushReport; generation: number }> {
   return call('tag_delete_remote', { request: input })
 }
@@ -1036,7 +1051,7 @@ export function remoteSetUrl(input: {
 export function remoteRemove(input: {
   repoId: string
   name: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: RemoteInfo[]; generation: number }> {
   return call('remote_remove', { request: input })
 }
@@ -1084,7 +1099,7 @@ export function submoduleSync(input: {
 export function submoduleRemove(input: {
   repoId: string
   path: string
-  confirmation: { acknowledged: boolean; typed?: string }
+  confirmation: { acknowledged: boolean }
 }): Promise<{ data: SubmoduleReport; generation: number }> {
   return call('submodule_remove', { request: input })
 }

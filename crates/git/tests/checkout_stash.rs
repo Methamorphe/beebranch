@@ -14,7 +14,7 @@ fn checkout_saves_staged_unstaged_and_untracked_work() {
     repo.add_all();
     repo.write("a.txt", "unstaged\n");
     repo.write("new.txt", "new work\n");
-    stash::create(repo.runner(), repo.path(), "older stash", true).unwrap();
+    stash::create(repo.runner(), repo.path(), "older stash", true, &[]).unwrap();
     repo.write("a.txt", "staged\n");
     repo.add_all();
     repo.write("a.txt", "unstaged\n");

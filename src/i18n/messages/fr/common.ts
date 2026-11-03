@@ -99,6 +99,7 @@ const messages = {
   'common.shortcut.findInGraph': 'Rechercher dans le graphe',
   'common.shortcut.openRepo': 'Ouvrir un dépôt',
   'common.shortcut.newTab': 'Nouvel onglet',
+  'common.shortcut.closeTab': 'Fermer l’onglet',
   'common.shortcut.workspaces': 'Sélecteur de workspace',
   'common.shortcut.undo': 'Annuler',
   'common.shortcut.redo': 'Rétablir',

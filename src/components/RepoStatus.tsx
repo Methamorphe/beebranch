@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
 import {
   conflictMarkResolved,
   diffGet,
@@ -7,8 +8,12 @@ import {
   indexIgnore,
   indexStage,
   indexUnstage,
+  patchCreate,
+  patchSave,
+  pathOpen,
   preferenceGet,
   preferenceSet,
+  stashCreate,
   statusGet,
   toolOpen,
   type DiffRequest,
@@ -19,8 +24,8 @@ import { buildFileTree, flattenFileTree, type FileTreeRow } from '../lib/fileTre
 import { splitPath } from '../lib/paths'
 import type { Fingerprint, StatusEntry, StatusReport } from '../types/git'
 import { ActionMenu } from './ActionMenu'
-import { ConfirmDialog } from './ConfirmDialog'
-import { ContextMenu } from './ContextMenu'
+import { ConfirmBar } from './ConfirmBar'
+import { ContextMenu, ContextSubmenu } from './ContextMenu'
 import styles from './RepoStatus.module.css'
 
 type Props = {
@@ -30,6 +35,9 @@ type Props = {
   onSelectDiff: (request: DiffRequest) => void
   onMutated: () => void
   onNavigate: (view: 'commit' | 'sync' | 'stash' | 'conflicts') => void
+  /** Opens the file in the in-app editor of the central preview. */
+  onEditFile: (path: string) => void
+  onShowHistory: (path: string) => void
   selectedPath?: string
 }
 
@@ -66,9 +74,32 @@ function extPattern(path: string): string | null {
   return `*${name.slice(index)}`
 }
 
-function dirPattern(path: string): string {
-  const index = path.lastIndexOf('/')
-  return index > 0 ? `${path.slice(0, index + 1)}` : `${path}/`
+/**
+ * `.gitignore` patterns covering `path`, most specific first. A leading `/`
+ * anchors the pattern at the repository root; a bare name matches anywhere.
+ */
+function ignoreChoices(path: string): { key: string; pattern: string; kind: 'file' | 'name' | 'extension' | 'folder' }[] {
+  const segments = path.split('/')
+  const name = segments.pop() ?? path
+  const choices: { key: string; pattern: string; kind: 'file' | 'name' | 'extension' | 'folder' }[] = [
+    { key: 'ignore-file', pattern: `/${path}`, kind: 'file' },
+    { key: 'ignore-name', pattern: name, kind: 'name' },
+  ]
+  const extension = extPattern(path)
+  if (extension) {
+    choices.push({ key: 'ignore-extension', pattern: extension, kind: 'extension' })
+  }
+  for (let depth = segments.length; depth > 0; depth -= 1) {
+    choices.push({ key: `ignore-folder-${depth}`, pattern: `/${segments.slice(0, depth).join('/')}/`, kind: 'folder' })
+  }
+  return choices
+}
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent)
+
+type PendingIgnore = {
+  entry: StatusEntry
+  pattern: string
 }
 
 type PendingDiscard = {
@@ -84,6 +115,8 @@ type RowAction = {
   disabled?: boolean
   dividerBefore?: boolean
   run: () => void
+  /** Opens a submenu in the right-click menu; listed inline in the popover. */
+  children?: RowAction[]
 }
 
 type FileMenu = {
@@ -100,6 +133,8 @@ export function RepoStatus({
   onSelectDiff,
   onMutated,
   onNavigate,
+  onEditFile,
+  onShowHistory,
   selectedPath,
 }: Props) {
   const { t, plural } = useI18n()
@@ -115,6 +150,7 @@ export function RepoStatus({
   const [refresh, setRefresh] = useState(0)
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null)
   const [pendingDelete, setPendingDelete] = useState<StatusEntry | null>(null)
+  const [pendingIgnore, setPendingIgnore] = useState<PendingIgnore | null>(null)
   const [fileMenu, setFileMenu] = useState<FileMenu | null>(null)
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set())
   const [flashPaths, setFlashPaths] = useState<Set<string>>(() => new Set())
@@ -349,8 +385,31 @@ export function RepoStatus({
     setSelectedKeys(new Set())
   }
 
-  const ignore = (pattern: string) =>
-    run(t('status.notice.ignored', { pattern }), () => indexIgnore(repoId, pattern))
+  const ignore = (pattern: string, untrack: string[] = []) =>
+    run(
+      untrack.length > 0
+        ? t('status.notice.ignoredUntracked', { pattern })
+        : t('status.notice.ignored', { pattern }),
+      () => indexIgnore(repoId, pattern, untrack),
+    )
+
+  /** A tracked file stays tracked despite `.gitignore`: confirm untracking it. */
+  const requestIgnore = (entry: StatusEntry, pattern: string) => {
+    if (entry.kind === 'untracked') {
+      void ignore(pattern)
+    } else {
+      setPendingIgnore({ entry, pattern })
+    }
+  }
+
+  const confirmIgnore = async () => {
+    if (!pendingIgnore) {
+      return
+    }
+    // Only the current path: a rename source is no longer in the index.
+    await ignore(pendingIgnore.pattern, [pendingIgnore.entry.path])
+    setPendingIgnore(null)
+  }
 
   const openTool = (entry: StatusEntry, kind: 'editor' | 'merge') =>
     run(
@@ -359,6 +418,60 @@ export function RepoStatus({
         : t('status.notice.editor', { path: entry.path }),
       () => toolOpen({ repoId, kind, path: entry.path }),
     )
+
+  /** The external tool compares the worktree file with the side shown. */
+  const openDiffTool = (entry: StatusEntry, staged: boolean) =>
+    run(t('status.notice.diffTool', { path: entry.path }), () =>
+      toolOpen({
+        repoId,
+        kind: 'diff',
+        path: entry.path,
+        base: entry.kind === 'untracked' ? 'empty' : staged ? 'head' : 'index',
+      }),
+    )
+
+  const openPath = (entry: StatusEntry, reveal: boolean) =>
+    run(
+      reveal
+        ? t('status.notice.revealed', { path: entry.path })
+        : t('status.notice.opened', { path: entry.path }),
+      () => pathOpen({ repoId, path: entry.path, reveal }),
+    )
+
+  const stashFile = (entry: StatusEntry) => {
+    markFlash(entryPaths(entry))
+    return run(t('status.notice.stashed', { path: entry.path }), () =>
+      stashCreate({
+        repoId,
+        includeUntracked: entry.kind === 'untracked',
+        paths: entryPaths(entry),
+      }),
+    )
+  }
+
+  const createPatch = async (entry: StatusEntry, staged: boolean) => {
+    setError(null)
+    setNotice(null)
+    try {
+      const patch = await patchCreate({
+        repoId,
+        source: { kind: staged ? 'index' : 'worktree', paths: entryPaths(entry) },
+      })
+      if (!patch.text.trim()) {
+        setError(t('status.error.emptyPatch'))
+        return
+      }
+      const name = entry.path.split('/').pop() ?? 'changes'
+      const path = await saveNativeDialog({ defaultPath: `${name}.patch` })
+      if (!path) {
+        return
+      }
+      await patchSave(path, patch.text)
+      setNotice(t('status.notice.patchSaved', { path }))
+    } catch (cause) {
+      setError(errorMessage(cause))
+    }
+  }
 
   const resolve = (entry: StatusEntry) =>
     run(t('status.notice.resolved', { path: entry.path }), () =>
@@ -413,125 +526,125 @@ export function RepoStatus({
   const rowActions = (entry: StatusEntry, staged: boolean): RowAction[] => {
     const actions: RowAction[] = []
     const isDirectory = entry.path.endsWith('/')
-    if (entry.kind === 'unmerged') {
-      actions.push({
-        key: 'resolve',
-        label: t('status.row.resolve'),
-        disabled: busy,
-        run: () => onNavigate('conflicts'),
-      })
-    } else if (entry.kind !== 'ignored') {
-      actions.push(staged
-        ? {
-            key: 'unstage',
-            label: t('status.row.unstageMenu'),
-            disabled: busy,
-            run: () => void unstage(entry),
-          }
-        : {
-            key: 'stage',
-            label: t('status.row.stageMenu'),
-            disabled: busy,
-            run: () => void stage(entry),
-          })
+    const unmerged = entry.kind === 'unmerged'
+    const ignored = entry.kind === 'ignored'
+    const untracked = entry.kind === 'untracked'
+    // A deleted file has no worktree copy to open, edit or reveal.
+    const onDisk = !isDirectory && entry.worktree !== 'D' && !(staged && entry.index === 'D')
+    const changes = !ignored && !unmerged && !entry.submodule
+    let divider = false
+    const group = () => {
+      divider = actions.length > 0
     }
-    if (!isDirectory) {
-      actions.push({
-        key: 'editor',
-        label: t('status.row.openEditor'),
-        disabled: busy,
-        run: () => void openTool(entry, 'editor'),
-      })
+    const push = (action: RowAction) => {
+      actions.push(divider ? { ...action, dividerBefore: true } : action)
+      divider = false
     }
-    if (entry.kind === 'unmerged') {
-      actions.push(
-        {
-          key: 'merge-tool',
-          label: t('status.row.mergeTool'),
-          disabled: busy,
-          run: () => void openTool(entry, 'merge'),
-        },
-        {
-          key: 'mark-resolved',
-          label: t('status.row.markResolved'),
-          disabled: busy,
-          run: () => void resolve(entry),
-        },
-      )
+
+    if (unmerged) {
+      push({ key: 'resolve', label: t('status.row.resolve'), disabled: busy, run: () => onNavigate('conflicts') })
+      push({ key: 'merge-tool', label: t('status.row.mergeTool'), disabled: busy, run: () => void openTool(entry, 'merge') })
+      push({ key: 'mark-resolved', label: t('status.row.markResolved'), disabled: busy, run: () => void resolve(entry) })
+    } else if (!ignored) {
+      push(staged
+        ? { key: 'unstage', label: t('status.row.unstageMenu'), disabled: busy, run: () => void unstage(entry) }
+        : { key: 'stage', label: t('status.row.stageMenu'), disabled: busy, run: () => void stage(entry) })
     }
-    if (entry.kind === 'untracked') {
-      actions.push({
-        key: 'ignore-file',
-        label: t('status.row.ignoreFile'),
+    if (changes && !isDirectory) {
+      push({
+        key: 'ignore',
+        label: t('status.row.ignoreMenu'),
         disabled: busy,
-        run: () => void ignore(entry.path),
+        run: () => undefined,
+        children: ignoreChoices(entry.path).map((choice) => ({
+          key: choice.key,
+          label: choice.kind === 'file'
+            ? t('status.row.ignoreThisFile', { pattern: choice.pattern })
+            : choice.kind === 'name'
+              ? t('status.row.ignoreName', { pattern: choice.pattern })
+              : choice.kind === 'extension'
+                ? t('status.row.ignoreExtension', { pattern: choice.pattern })
+                : t('status.row.ignoreFolder', { pattern: choice.pattern }),
+          disabled: busy,
+          run: () => requestIgnore(entry, choice.pattern),
+        })),
       })
-      const pattern = extPattern(entry.path)
-      if (pattern) {
-        actions.push({
-          key: 'ignore-extension',
-          label: t('status.row.ignorePattern', { pattern }),
-          disabled: busy,
-          run: () => void ignore(pattern),
-        })
-      }
-      if (entry.path.includes('/')) {
-        actions.push({
-          key: 'ignore-directory',
-          label: t('status.row.ignoreDir'),
-          disabled: busy,
-          run: () => void ignore(dirPattern(entry.path)),
-        })
-      }
+      push({ key: 'stash', label: t('status.row.stashFile'), disabled: busy, run: () => void stashFile(entry) })
     }
     if (!staged && entry.kind === 'ordinary') {
-      actions.push({
-        key: 'discard',
-        label: t('status.row.discardAction'),
-        danger: true,
-        disabled: busy,
-        run: () => void requestDiscard([entry]),
+      push({ key: 'discard', label: t('status.row.discardAction'), danger: true, disabled: busy, run: () => void requestDiscard([entry]) })
+    }
+
+    group()
+    if (changes && onDisk) {
+      push({ key: 'diff-tool', label: t('status.row.diffTool'), disabled: busy, run: () => void openDiffTool(entry, staged) })
+    }
+    if (onDisk) {
+      push({ key: 'editor', label: t('status.row.openEditor'), disabled: busy, run: () => void openTool(entry, 'editor') })
+      push({ key: 'open-default', label: t('status.row.openDefault'), disabled: busy, run: () => void openPath(entry, false) })
+    }
+    if (!isDirectory || ignored) {
+      push({
+        key: 'reveal',
+        label: IS_MAC ? t('status.row.revealFinder') : t('status.row.revealFiles'),
+        disabled: busy || (!onDisk && !isDirectory),
+        run: () => void openPath(entry, true),
       })
     }
-    actions.push({
-      key: 'copy-path',
-      label: t('status.row.copyPath'),
-      dividerBefore: true,
-      run: () => void copyPath(entry),
-    })
-    if (!isDirectory && !entry.submodule && entry.kind !== 'unmerged') {
-      actions.push({
-        key: 'delete',
-        label: t('status.row.deleteAction'),
-        danger: true,
-        dividerBefore: true,
-        disabled: busy,
-        run: () => setPendingDelete(entry),
-      })
+
+    group()
+    push({ key: 'copy-path', label: t('status.row.copyPath'), run: () => void copyPath(entry) })
+    if (changes && !untracked && !isDirectory) {
+      push({ key: 'patch', label: t('status.row.createPatch'), disabled: busy, run: () => void createPatch(entry, staged) })
+    }
+    if (!untracked && !ignored && !isDirectory) {
+      push({ key: 'history', label: t('status.row.fileHistory'), run: () => onShowHistory(entry.path) })
+    }
+
+    group()
+    if (onDisk && !entry.submodule) {
+      push({ key: 'edit', label: t('status.row.editFile'), disabled: busy, run: () => onEditFile(entry.path) })
+    }
+    if (!isDirectory && !entry.submodule && !unmerged) {
+      push({ key: 'delete', label: t('status.row.deleteAction'), danger: true, disabled: busy, run: () => setPendingDelete(entry) })
     }
     return actions
   }
 
   const menuItems = (entry: StatusEntry, staged: boolean, variant: 'popover' | 'context') =>
-    rowActions(entry, staged).map((action) =>
-      variant === 'popover' ? (
+    rowActions(entry, staged).map((action) => {
+      const separator = action.dividerBefore ? <div className={styles.menuSeparator} role="separator" /> : null
+      if (variant === 'popover') {
+        const items = action.children ?? [action]
+        return (
+          <Fragment key={action.key}>
+            {separator}
+            {items.map((item) => (
+              <button key={item.key} type="button" className={item.danger ? styles.danger : undefined}
+                disabled={item.disabled} onClick={item.run}>{item.label}</button>
+            ))}
+          </Fragment>
+        )
+      }
+      const button = (item: RowAction) => (
+        <button key={item.key} type="button" role="menuitem"
+          className={item.danger ? `${styles.menuAction} ${styles.danger}` : styles.menuAction}
+          disabled={item.disabled} onClick={() => {
+            setFileMenu(null)
+            item.run()
+          }}>{item.label}</button>
+      )
+      return (
         <Fragment key={action.key}>
-          {action.dividerBefore ? <div className={styles.menuSeparator} role="separator" /> : null}
-          <button type="button" className={action.danger ? styles.danger : undefined}
-            disabled={action.disabled} onClick={action.run}>{action.label}</button>
+          {separator}
+          {action.children ? (
+            <ContextSubmenu label={action.label} className={styles.menuAction} disabled={action.disabled}>
+              <div className={styles.menuActions}>{action.children.map(button)}</div>
+            </ContextSubmenu>
+          ) : button(action)}
         </Fragment>
-      ) : (
-        <Fragment key={action.key}>
-          {action.dividerBefore ? <div className={styles.menuSeparator} role="separator" /> : null}
-          <button type="button" role="menuitem"
-            className={action.danger ? `${styles.menuAction} ${styles.danger}` : styles.menuAction}
-            disabled={action.disabled} onClick={() => {
-              setFileMenu(null)
-              action.run()
-            }}>{action.label}</button>
-        </Fragment>
-      ),
-    )
+      )
+    })
 
   const select = (entry: StatusEntry, staged: boolean) => onSelectDiff({
     target: staged ? 'index' : 'worktree', path: entry.path,
@@ -639,7 +752,7 @@ export function RepoStatus({
         }}>
         <input
           type="checkbox"
-          className={styles.select}
+          className={`${styles.select} ${styles.rowTool}`}
           checked={selectedKeys.has(selectionKey)}
           disabled={!selectable || busy}
           aria-label={t('status.row.select', { path: entry.path })}
@@ -654,15 +767,15 @@ export function RepoStatus({
           disabled={entry.kind === 'ignored'} onClick={() => entry.kind === 'unmerged' ? onNavigate('conflicts') : select(entry, staged)}>
           {fileView === 'tree' ? <span className={styles.filename}>{name}</span> : <><span className={styles.folder}>{directory}</span><span className={styles.filename}>{name}</span></>}
         </button>
-        {entry.kind === 'unmerged' ? <button type="button" className={styles.stage} onClick={() => onNavigate('conflicts')}>{t('status.row.resolve')}</button> : entry.kind !== 'ignored' ? <button type="button" className={styles.stage} disabled={busy} title={staged ? t('status.row.unstageTitle') : t('status.row.stageTitle')} aria-label={staged ? t('status.row.unstageAria', { path: entry.path }) : t('status.row.stageAria', { path: entry.path })} onClick={() => void (staged ? unstage(entry) : stage(entry))}>{staged ? '−' : '+'}</button> : null}
-        <ActionMenu label={t('status.row.actionsAria', { path: entry.path })}>
+        {entry.kind === 'unmerged' ? <button type="button" className={styles.stage} onClick={() => onNavigate('conflicts')}>{t('status.row.resolve')}</button> : entry.kind !== 'ignored' ? <button type="button" className={`${styles.stage} ${styles.rowTool}`} disabled={busy} title={staged ? t('status.row.unstageTitle') : t('status.row.stageTitle')} aria-label={staged ? t('status.row.unstageAria', { path: entry.path }) : t('status.row.stageAria', { path: entry.path })} onClick={() => void (staged ? unstage(entry) : stage(entry))}>{staged ? '−' : '+'}</button> : null}
+        <ActionMenu label={t('status.row.actionsAria', { path: entry.path })} triggerClassName={styles.rowTool}>
           {menuItems(entry, staged, 'popover')}
         </ActionMenu>
       </div>
     )
   }
   return (
-    <div className={styles.root} aria-busy={busy || loading}>
+    <div className={styles.root} aria-busy={busy || loading} data-bulk={selectedKeys.size > 0}>
       <div className={styles.meta}>
         <input className={styles.filter} value={filter} onChange={(event) => {
           setFilter(event.target.value)
@@ -740,7 +853,7 @@ export function RepoStatus({
           </div>
         </ContextMenu>
       ) : null}
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDiscard !== null}
         title={t('status.discard.title')}
         consequence={pendingDiscard
@@ -757,7 +870,18 @@ export function RepoStatus({
         onCancel={() => setPendingDiscard(null)}
         onConfirm={() => void confirmDiscard()}
       />
-      <ConfirmDialog
+      <ConfirmBar
+        open={pendingIgnore !== null}
+        title={t('status.ignoreTracked.title')}
+        consequence={pendingIgnore
+          ? t('status.ignoreTracked.consequence', { path: pendingIgnore.entry.path, pattern: pendingIgnore.pattern })
+          : ''}
+        confirmLabel={t('status.ignoreTracked.confirm')}
+        busy={busy}
+        onCancel={() => setPendingIgnore(null)}
+        onConfirm={() => void confirmIgnore()}
+      />
+      <ConfirmBar
         open={pendingDelete !== null}
         title={t('status.delete.title')}
         consequence={pendingDelete

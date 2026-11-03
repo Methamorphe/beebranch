@@ -9,6 +9,7 @@ const messages = {
 
   'diff.hunk.previous': 'Previous hunk',
   'diff.hunk.next': 'Next hunk',
+  'diff.hunk.nav': 'Hunks',
   'diff.hunk.select': 'Select hunk {number}',
   'diff.hunk.count.one': '{count} hunk',
   'diff.hunk.count.other': '{count} hunks',
@@ -34,6 +35,7 @@ const messages = {
     'Unavailable beyond {limit} lines: the virtualised renderer keeps fixed row heights.',
   'diff.file.previous': 'Previous file',
   'diff.file.next': 'Next file',
+  'diff.file.nav': 'Files',
   'diff.minimap.title': 'Click to jump to that part of the file.',
   'diff.line.select': 'Select this line',
 

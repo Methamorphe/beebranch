@@ -362,7 +362,7 @@ pub async fn repo_close_checked(
     let journal_id = if needs_confirmation {
         confirmation
             .unwrap_or_default()
-            .verify(beebranch_core::DestructiveAction::CloseTabInProgress, None)?;
+            .verify(beebranch_core::DestructiveAction::CloseTabInProgress)?;
         let id = crate::commands::util::new_operation_id("close-tab");
         crate::commands::util::begin_destructive(
             &state,

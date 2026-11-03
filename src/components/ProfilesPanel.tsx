@@ -42,7 +42,7 @@ import {
   type ShortcutAction,
   type ShortcutMap,
 } from '../lib/shortcuts'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { Markdown } from './Markdown'
 import p2 from './p2.module.css'
 import styles from './ProfilesPanel.module.css'
@@ -881,7 +881,7 @@ export function ProfilesPanel({
         {notice ? <p className={p2.notice} role="status">{notice}</p> : null}
       </div>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingInstall}
         title={t('settings.updates.installTitle', { version: available?.version ?? '' })}
         consequence={t('settings.updates.installConsequence')}
@@ -906,7 +906,7 @@ export function ProfilesPanel({
             .finally(() => setUpdateBusy(false))
         }}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingRollback}
         title={t('settings.updates.rollbackTitle')}
         consequence={t('settings.updates.rollbackConsequence')}
@@ -930,7 +930,7 @@ export function ProfilesPanel({
             .finally(() => setUpdateBusy(false))
         }}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDelete !== null}
         title={t('settings.profiles.deleteTitle')}
         consequence={t('settings.profiles.deleteConsequence', { name: pendingDelete?.name ?? '' })}

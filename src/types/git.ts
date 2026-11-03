@@ -480,7 +480,6 @@ export type MutationResult<T> = {
 
 export type Confirmation = {
   acknowledged: boolean
-  typed?: string
 }
 
 export type CommitConfigView = {

@@ -8,6 +8,8 @@ pub mod commands;
 pub mod error;
 pub mod forge_cache;
 pub mod logging;
+#[cfg(target_os = "macos")]
+pub mod menu;
 pub mod setup;
 pub mod splash;
 pub mod state;
@@ -16,7 +18,10 @@ pub mod state;
 ///
 /// `src-tauri` owns the generated context; this crate owns the shell behaviour.
 pub fn builder() -> tauri::Builder<tauri::Wry> {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(menu::build);
+    builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(setup::setup)
         .invoke_handler(tauri::generate_handler![
@@ -84,6 +89,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::tools::tool_configure,
             commands::tools::tool_open,
             commands::tools::open_external_url,
+            commands::tools::path_open,
             commands::recovery::recovery_list,
             commands::recovery::operation_journal,
             commands::recovery::diagnostics_export,

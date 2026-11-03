@@ -327,7 +327,7 @@ pub async fn file_delete(
     request: FileDeleteRequest,
 ) -> Result<MutationResult<String>, AppError> {
     let action = DestructiveAction::FileDelete;
-    request.confirmation.verify(action, None)?;
+    request.confirmation.verify(action)?;
 
     let session = state.session(&request.repo_id)?;
     let operation_id = new_operation_id("delete");

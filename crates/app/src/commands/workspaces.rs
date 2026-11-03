@@ -318,7 +318,7 @@ pub async fn workspace_sync(
         // Pull modifies working trees; the policy is explicit.
         request
             .confirmation
-            .verify(DestructiveAction::WorkspaceSync, None)?;
+            .verify(DestructiveAction::WorkspaceSync)?;
     }
     let runner = state.runner()?.clone();
     let registry = state.sessions.clone();

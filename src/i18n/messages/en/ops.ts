@@ -402,7 +402,6 @@ const messages = {
   'ops.sync.recovery.forcePush': 'Force push…',
   'ops.sync.recovery.forceWarning':
     'A force push replaces {remote}/{branch} with the local branch: remote commits missing locally become unreachable. The expected remote SHA is read right before sending (--force-with-lease) and recorded in the journal.',
-  'ops.sync.recovery.back': 'Back',
   'ops.sync.recovery.confirmForce': 'Force push',
 
   // Recovery after an interruption

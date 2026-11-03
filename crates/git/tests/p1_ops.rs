@@ -723,7 +723,7 @@ fn merge_abort_restores_the_previous_state() {
 fn stash_create_pop_and_drop_keep_work_recoverable() {
     let fixture = dirty_fixture();
     fixture.write("a.txt", "stashed change\n");
-    stash::create(fixture.runner(), fixture.path(), "wip", false).expect("stash");
+    stash::create(fixture.runner(), fixture.path(), "wip", false, &[]).expect("stash");
     assert_eq!(fixture.detect().worktree.unstaged, 0);
     let entries = stash::list(fixture.runner(), fixture.path()).expect("list");
     assert_eq!(entries.len(), 1);
@@ -739,7 +739,7 @@ fn stash_create_pop_and_drop_keep_work_recoverable() {
         .unwrap()
         .is_empty());
 
-    stash::create(fixture.runner(), fixture.path(), "again", false).expect("stash again");
+    stash::create(fixture.runner(), fixture.path(), "again", false, &[]).expect("stash again");
     let entry = stash::list(fixture.runner(), fixture.path())
         .unwrap()
         .remove(0);
@@ -751,7 +751,7 @@ fn stash_create_pop_and_drop_keep_work_recoverable() {
 fn stash_pop_conflict_leaves_the_stash_intact() {
     let fixture = dirty_fixture();
     fixture.write("a.txt", "stashed\n");
-    stash::create(fixture.runner(), fixture.path(), "conflict", false).expect("stash");
+    stash::create(fixture.runner(), fixture.path(), "conflict", false, &[]).expect("stash");
     fixture.write("a.txt", "committed\n");
     fixture.add_all();
     fixture.commit_staged("conflicting");
@@ -810,6 +810,58 @@ fn ignore_pattern_is_written_once() {
     let content = std::fs::read_to_string(fixture.path().join(".gitignore")).unwrap();
     assert_eq!(content.matches("*.log").count(), 1);
     assert!(index::add_ignore_pattern(fixture.path(), "../escape").is_err());
+    assert!(index::add_ignore_pattern(fixture.path(), "//absolute").is_err());
+    index::add_ignore_pattern(fixture.path(), "/build/").expect("anchored pattern");
+}
+
+#[test]
+fn ignoring_a_tracked_file_untracks_it_and_keeps_it_on_disk() {
+    let fixture = dirty_fixture();
+    fixture.commit("config/.DS_Store", "junk\n", "track junk");
+    index::add_ignore_pattern(fixture.path(), "/config/.DS_Store").expect("ignore");
+    index::untrack(
+        fixture.runner(),
+        fixture.path(),
+        &["config/.DS_Store".to_owned()],
+    )
+    .expect("untrack");
+    assert!(fixture.path().join("config/.DS_Store").exists());
+    let tracked = fixture
+        .runner()
+        .run(&CommandSpec::new(GitSubcommand::LsFiles, fixture.path()).path("config"))
+        .expect("ls-files")
+        .stdout
+        .text_lossy();
+    assert!(tracked.trim().is_empty(), "still tracked: {tracked}");
+    assert!(index::untrack(fixture.runner(), fixture.path(), &["../x".to_owned()]).is_err());
+}
+
+#[test]
+fn stash_create_can_target_a_single_path() {
+    let fixture = dirty_fixture();
+    fixture.commit("b.txt", "b\n", "b");
+    fixture.write("a.txt", "kept\n");
+    fixture.write("b.txt", "stashed\n");
+    stash::create(
+        fixture.runner(),
+        fixture.path(),
+        "only b",
+        false,
+        &["b.txt".to_owned()],
+    )
+    .expect("stash");
+    assert_eq!(
+        std::fs::read_to_string(fixture.path().join("a.txt")).unwrap(),
+        "kept\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.path().join("b.txt")).unwrap(),
+        "b\n"
+    );
+    assert_eq!(
+        stash::list(fixture.runner(), fixture.path()).unwrap().len(),
+        1
+    );
 }
 
 #[test]

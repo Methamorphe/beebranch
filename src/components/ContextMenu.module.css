@@ -2,3 +2,7 @@
 .heading { display:flex; flex-direction:column; gap:4px; padding:8px 9px 10px; margin-bottom:4px; border-bottom:1px solid var(--border); }
 .heading code { color:var(--muted); font-size:10px; }
 .heading span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:600; }
+.submenu { z-index:61; width:auto; min-width:200px; max-width:min(360px, calc(100vw - 16px)); }
+.submenuTrigger { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.submenuTrigger[aria-expanded="true"] { background:var(--surface-raised); }
+.chevron { color:var(--muted); font-size:15px; line-height:1; }

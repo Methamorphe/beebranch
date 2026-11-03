@@ -9,7 +9,7 @@ import {
 import { errorMessage } from '../ipc/client'
 import { formatDateTime, dateFromSeconds, useI18n } from '../i18n'
 import type { StashEntry } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import shared from './p1.module.css'
 
 type Props = {
@@ -189,7 +189,7 @@ export function StashPanel({ repoId, generation, onMutated }: Props) {
         </div>
       </section>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDrop !== null}
         title={t('commit.stash.deleteTitle', { selector: pendingDrop?.selector ?? '' })}
         consequence={t('commit.stash.deleteConsequence', {

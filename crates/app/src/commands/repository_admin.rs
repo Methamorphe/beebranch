@@ -125,9 +125,7 @@ pub async fn tag_delete(
     state: State<'_, AppState>,
     request: DeleteTagRequest,
 ) -> Result<MutationResult<Vec<TagInfo>>, AppError> {
-    request
-        .confirmation
-        .verify(DestructiveAction::TagDelete, Some(&request.name))?;
+    request.confirmation.verify(DestructiveAction::TagDelete)?;
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
     let name = request.name.clone();
@@ -397,7 +395,7 @@ pub async fn remote_remove(
 ) -> Result<MutationResult<Vec<RemoteInfo>>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::RemoteRemove, Some(&request.name))?;
+        .verify(DestructiveAction::RemoteRemove)?;
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
     let name = request.name.clone();
@@ -596,7 +594,7 @@ pub async fn submodule_remove(
 ) -> Result<MutationResult<SubmoduleReport>, AppError> {
     request
         .confirmation
-        .verify(DestructiveAction::SubmoduleRemove, Some(&request.path))?;
+        .verify(DestructiveAction::SubmoduleRemove)?;
     let session = state.session(&request.repo_id)?;
     run_mutation(session, move |runner, discovery| {
         let worktree = discovery.worktree()?;

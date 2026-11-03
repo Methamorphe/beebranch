@@ -145,7 +145,9 @@ pub fn add_ignore_pattern(worktree: &Path, pattern: &str) -> Result<String, AppE
             "motif d'ignorance invalide".to_owned(),
         ));
     }
-    if pattern.starts_with('/') || pattern.contains("..") {
+    // A single leading `/` anchors the pattern at the repository root; it is
+    // written into `.gitignore`, never resolved as a filesystem path.
+    if pattern.starts_with("//") || pattern == "/" || pattern.contains("..") {
         return Err(AppError::invalid_input(
             "le motif doit rester relatif au dépôt".to_owned(),
         ));
@@ -182,6 +184,24 @@ pub fn add_ignore_pattern(worktree: &Path, pattern: &str) -> Result<String, AppE
     file.sync_all()
         .map_err(|error| AppError::internal(format!(".gitignore: {error}")))?;
     Ok(pattern.to_owned())
+}
+
+/// Stop tracking `paths` (`git rm --cached -r`): the files stay on disk and
+/// their removal from the repository is staged.
+pub fn untrack(runner: &GitRunner, worktree: &Path, paths: &[String]) -> Result<(), AppError> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut spec = CommandSpec::new(GitSubcommand::Rm, worktree)
+        .arg("--cached")
+        .arg("-r")
+        .arg("-q");
+    for path in paths {
+        validate_relative_path(path)?;
+        spec = spec.path(path);
+    }
+    runner.run(&spec)?.ensure_success()?;
+    Ok(())
 }
 
 /// SHA-256 of a worktree file, or `None` when it does not exist.

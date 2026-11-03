@@ -22,7 +22,7 @@ import type {
   StatusReport,
   SyncOutcome,
 } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -172,9 +172,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
                 branch,
                 setUpstream,
                 force,
-                confirmation: force
-                  ? { acknowledged: true, typed: branch }
-                  : undefined,
+                confirmation: force ? { acknowledged: true } : undefined,
               })
       setOutcome(result.data)
       if (result.data.output) {
@@ -183,8 +181,8 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
       setForce(false)
       onMutated()
     } catch (cause) {
-      // A refused push is not a dead end: the recovery dialog fetches, then
-      // offers pull-then-push or a typed force push. The Git output stays in
+      // A refused push is not a dead end: the recovery bar fetches, then
+      // offers pull-then-push or a confirmed force push. The Git output stays in
       // the console so the reason is still visible.
       if (kind === 'push' && isPushRejection(cause)) {
         const detail = errorDetail(cause)
@@ -484,19 +482,15 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
         </aside>
       </div>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingForce}
         title="Force push"
         consequence={t('ops.sync.forcePushConsequence', { remote, branch })}
         irreversible
-        typed={branch}
         confirmLabel="Force push"
         busy={busy}
         onCancel={() => setPendingForce(false)}
-        onConfirm={(typed) => {
-          if (typed !== branch) {
-            return
-          }
+        onConfirm={() => {
           setPendingForce(false)
           void run('push')
         }}

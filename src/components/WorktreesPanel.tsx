@@ -11,7 +11,7 @@ import {
 import { errorMessage } from '../ipc/client'
 import { t, useI18n } from '../i18n'
 import type { WorktreeEntry, WorktreePruneEntry, WorktreeReport } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { Dialog } from './ui/Dialog'
 import p2 from './p2.module.css'
 
@@ -407,12 +407,11 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
         </div>
       </Dialog>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingRemove !== null}
         title={t('ops.worktree.removeTitle')}
         consequence={t('ops.worktree.removeConsequence', { path: pendingRemove?.path ?? '' })}
         irreversible
-        typed={pendingRemove?.dirty ? pendingRemove.path : undefined}
         confirmLabel={t('ops.worktree.remove')}
         busy={busy}
         children={
@@ -428,7 +427,7 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
           ) : null
         }
         onCancel={() => setPendingRemove(null)}
-        onConfirm={(typed) => {
+        onConfirm={() => {
           const target = pendingRemove
           const deleteBranch = removeBranch
           setPendingRemove(null)
@@ -446,16 +445,13 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
                 path: target.path,
                 force: Boolean(target.dirty),
                 deleteBranch,
-                confirmation: {
-                  acknowledged: true,
-                  typed: target.dirty ? typed : undefined,
-                },
+                confirmation: { acknowledged: true },
               }),
           )
         }}
       />
 
-      <ConfirmDialog
+      <ConfirmBar
         open={pruneOpen}
         title={t('ops.worktree.pruneTitle')}
         consequence={t('ops.worktree.pruneConsequence')}

@@ -250,7 +250,7 @@ pub fn add(
     list(runner, worktree, true)
 }
 
-/// Remove a worktree. A dirty worktree requires `force` plus a typed
+/// Remove a worktree. A dirty worktree requires `force` plus an explicit
 /// confirmation in the command layer.
 ///
 /// With `delete_branch`, the branch that was checked out there is deleted

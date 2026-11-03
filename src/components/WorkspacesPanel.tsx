@@ -20,7 +20,7 @@ import type {
   WorkspaceRepoStatus,
   WorkspaceSyncResult,
 } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import { Dialog } from './ui/Dialog'
 import shared from './p1.module.css'
 import styles from './WorkspacesPanel.module.css'
@@ -636,7 +636,7 @@ export function WorkspacesPanel({
 
       </div>
       </div>
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingDelete}
         title={t('workspaces.panel.deleteTitle', { name: selected?.name ?? '' })}
         consequence={t('workspaces.panel.deleteConsequence')}
@@ -653,7 +653,7 @@ export function WorkspacesPanel({
           })
         }}
       />
-      <ConfirmDialog
+      <ConfirmBar
         open={pendingPull}
         title={t('workspaces.panel.pullTitle', {
           count: selectedPaths.length || (selected?.repos.length ?? 0),

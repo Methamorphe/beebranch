@@ -33,6 +33,10 @@ pub struct DiscardRequest {
 pub struct IgnoreRequest {
     pub repo_id: String,
     pub pattern: String,
+    /// Tracked paths the pattern now covers; they leave the index but stay on
+    /// disk, otherwise Git would keep tracking them despite the pattern.
+    #[serde(default)]
+    pub untrack: Vec<String>,
 }
 
 #[tauri::command]
@@ -96,7 +100,7 @@ pub async fn index_discard(
     } else {
         DestructiveAction::DiscardFile
     };
-    request.confirmation.verify(action, None)?;
+    request.confirmation.verify(action)?;
 
     let session = state.session(&request.repo_id)?;
     let operation_id = new_operation_id("discard");
@@ -156,10 +160,17 @@ pub async fn index_ignore(
     request: IgnoreRequest,
 ) -> Result<MutationResult<String>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |_runner, discovery| {
+    run_mutation(session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let pattern = patch::add_ignore_pattern(worktree, &request.pattern)?;
-        Ok((pattern, vec![InvalidationArea::Worktree]))
+        if request.untrack.is_empty() {
+            return Ok((pattern, vec![InvalidationArea::Worktree]));
+        }
+        patch::untrack(runner, worktree, &request.untrack)?;
+        Ok((
+            pattern,
+            vec![InvalidationArea::Index, InvalidationArea::Worktree],
+        ))
     })
     .await
 }

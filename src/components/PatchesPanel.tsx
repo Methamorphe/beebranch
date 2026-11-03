@@ -3,7 +3,7 @@ import { formatNumber, useI18n, type MessageKey } from '../i18n'
 import { patchApply, patchCreate, patchSave } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import type { PatchReport, PatchSource } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -289,7 +289,7 @@ export function PatchesPanel({ repoId, onMutated }: Props) {
         </aside>
       </div>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={applyOpen}
         title={t('ops.patch.applyTitle')}
         consequence={t('ops.patch.applyConsequence', {

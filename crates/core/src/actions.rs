@@ -2,9 +2,9 @@
 //!
 //! The policy is data, not UI text sprinkled across commands: every
 //! destructive operation declares whether it requires an explicit
-//! confirmation, whether it is reversible by Git, and whether the user must
-//! type the target name. The backend enforces the policy; the frontend only
-//! renders it.
+//! confirmation and whether it is reversible by Git. The backend enforces the
+//! policy; the frontend only renders it (two-step confirmation for
+//! destructive actions).
 
 use serde::{Deserialize, Serialize};
 
@@ -123,20 +123,6 @@ impl DestructiveAction {
                 | Self::CloseTabInProgress
         )
     }
-
-    /// True when the user must type the target name (branch, remote, `abort`).
-    pub const fn requires_typed_confirmation(self) -> bool {
-        matches!(
-            self,
-            Self::BranchDelete
-                | Self::BranchDeleteMany
-                | Self::ForcePush
-                | Self::TagDelete
-                | Self::TagDeleteRemote
-                | Self::SubmoduleRemove
-                | Self::AbortOperation
-        )
-    }
 }
 
 /// User confirmation payload sent with a destructive command.
@@ -145,52 +131,19 @@ impl DestructiveAction {
 pub struct Confirmation {
     /// The user explicitly acknowledged the consequences.
     pub acknowledged: bool,
-    /// Text typed by the user when the policy requires it.
-    pub typed: Option<String>,
 }
 
 impl Confirmation {
     pub fn acknowledged() -> Self {
-        Self {
-            acknowledged: true,
-            typed: None,
-        }
-    }
-
-    pub fn typed(value: impl Into<String>) -> Self {
-        Self {
-            acknowledged: true,
-            typed: Some(value.into()),
-        }
+        Self { acknowledged: true }
     }
 
     /// Enforce the policy for `action`.
-    ///
-    /// `expected` is the exact text the user must type (target name), when the
-    /// action requires it.
-    pub fn verify(
-        &self,
-        action: DestructiveAction,
-        expected: Option<&str>,
-    ) -> Result<(), AppError> {
+    pub fn verify(&self, action: DestructiveAction) -> Result<(), AppError> {
         if !self.acknowledged {
             return Err(error(action)
                 .with_detail("confirmation absente")
                 .with_remediation("Confirmez explicitement l'action et ses conséquences."));
-        }
-        if action.requires_typed_confirmation() {
-            let expected = expected.ok_or_else(|| {
-                AppError::internal(format!(
-                    "politique {} sans texte de confirmation attendu",
-                    action.code()
-                ))
-            })?;
-            if self.typed.as_deref() != Some(expected) {
-                return Err(error(action).with_detail(format!(
-                    "saisie attendue : {expected:?}, reçue : {:?}",
-                    self.typed.as_deref().unwrap_or("")
-                )));
-            }
         }
         Ok(())
     }
@@ -239,30 +192,19 @@ mod tests {
     #[test]
     fn rejects_missing_confirmation() {
         let error = Confirmation::default()
-            .verify(DestructiveAction::DiscardFile, None)
+            .verify(DestructiveAction::DiscardFile)
             .expect_err("must reject");
         assert_eq!(error.code, "confirmation.required");
         assert!(error.message.contains("irréversible"));
     }
 
     #[test]
-    fn typed_confirmation_must_match() {
-        let action = DestructiveAction::BranchDelete;
-        assert!(Confirmation::typed("feature")
-            .verify(action, Some("feature"))
-            .is_ok());
-        assert!(Confirmation::typed("main")
-            .verify(action, Some("feature"))
-            .is_err());
-        assert!(Confirmation::acknowledged()
-            .verify(action, Some("feature"))
-            .is_err());
-    }
-
-    #[test]
-    fn reversible_actions_do_not_require_typing() {
-        assert!(Confirmation::acknowledged()
-            .verify(DestructiveAction::StashDrop, None)
-            .is_ok());
+    fn acknowledgement_is_enough() {
+        for action in [
+            DestructiveAction::BranchDelete,
+            DestructiveAction::ForcePush,
+        ] {
+            assert!(Confirmation::acknowledged().verify(action).is_ok());
+        }
     }
 }

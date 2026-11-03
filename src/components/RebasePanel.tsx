@@ -9,7 +9,7 @@ import type {
   RefEntry,
   RepoState,
 } from '../types/git'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmBar } from './ConfirmBar'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -494,7 +494,7 @@ function RebaseWorkspace({
         </div>
       </div>
 
-      <ConfirmDialog
+      <ConfirmBar
         open={confirmOpen && validPlan && !blocked && !dirtyWorktree}
         title={t('ops.rebase.confirmTitle')}
         consequence={t('ops.rebase.consequence', {

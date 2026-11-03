@@ -2017,6 +2017,9 @@ try {
       && dialog.innerText.includes('irréversible')
   })()`))
   await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Discard')).click()`)
+  assertUI('multi-file-discard-two-step', await evaluate(client, `!(window.__p1Calls ?? []).some(([action]) => action === 'discard')`))
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Attention') === true`, 'bulk discard warning step')
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Confirmer')).click()`)
   await waitFor(client, `(window.__p1Calls ?? []).some(([action, args]) => action === 'discard' && args.request.selections.length === 2)`, 'bulk discard call')
   assertUI('multi-file-discard-bulk', await evaluate(client, `(window.__p1Calls ?? []).some(([action, args]) => action === 'discard' && args.request.selections.map((selection) => selection.path).sort().join(',') === 'src/module-2.ts,src/module-4.ts')`))
   await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'bulk discard closed')
@@ -2136,6 +2139,9 @@ try {
   assertUI('confirm-escape', await evaluate(client, `!document.querySelector('[role="alertdialog"]') && document.querySelector('textarea') !== null`))
   await evaluate(client, `document.querySelector('button[aria-label="Fermer beebranch-demo"]').click()`)
   await delay(80)
+  await evaluate(client, `(() => { const dialog = document.querySelector('[role="alertdialog"]'); [...dialog.querySelectorAll('button')].at(-1).click() })()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Attention') === true`, 'close warning step')
+  assertUI('confirm-warning-focuses-cancel', await evaluate(client, `document.activeElement?.textContent.trim() === 'Annuler'`))
   await evaluate(client, `(() => { const dialog = document.querySelector('[role="alertdialog"]'); [...dialog.querySelectorAll('button')].at(-1).click() })()`)
   await waitFor(client, `Boolean(document.querySelector('[aria-label="Dépôts récents"]'))`, 'home after closing')
   await screenshot(client, 'ux-home.png')
@@ -2436,12 +2442,11 @@ try {
   assertUI('push-rejection-fetches-before-deciding', await evaluate(client, `window.__pushCalls.some(([command]) => command === 'sync_fetch') && window.__pushCalls.some(([command, args]) => command === 'branch_compare' && args.base === 'origin/main' && args.target === 'main')`))
   await screenshot(client, 'push-rejection.png')
   await evaluate(client, `${dialogButtons}.find((entry) => entry.textContent.includes('Force push')).click()`)
-  await waitFor(client, `document.querySelector('[role="alertdialog"] input') !== null`, 'typed force confirmation')
-  assertUI('push-force-needs-typed-confirmation', await evaluate(client, `(() => { const button = ${dialogButtons}.find((entry) => entry.textContent.trim() === 'Force push'); return Boolean(button) && button.disabled })()`))
-  await fill('[role="alertdialog"] input', 'main')
-  await evaluate(client, `${dialogButtons}.find((entry) => entry.textContent.trim() === 'Force push').click()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Attention') === true`, 'force push warning step')
+  assertUI('push-force-needs-second-confirmation', await evaluate(client, `!window.__pushCalls.some(([command, args]) => command === 'sync_push' && args.request.force === true) && document.activeElement?.textContent.trim() === 'Annuler'`))
+  await evaluate(client, `${dialogButtons}.find((entry) => entry.textContent.trim() === 'Confirmer').click()`)
   await waitFor(client, `document.querySelector('[role="alertdialog"]') === null`, 'force push sent')
-  assertUI('push-force-sends-lease-confirmation', await evaluate(client, `window.__pushCalls.some(([command, args]) => command === 'sync_push' && args.request.force === true && args.request.confirmation.typed === 'main' && args.request.branch === 'main')`))
+  assertUI('push-force-sends-lease-confirmation', await evaluate(client, `window.__pushCalls.some(([command, args]) => command === 'sync_push' && args.request.force === true && args.request.confirmation.acknowledged === true && args.request.branch === 'main')`))
   // The recommended path integrates the remote commits instead of rewriting them.
   await clickToolbar('Push')
   await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Pull --rebase puis push') === true`, 'push rejection dialog again')
@@ -2754,17 +2759,13 @@ try {
 
   await openRefMenu(12)
   await evaluate(client, `(() => { [...document.querySelector('[role="menu"]').querySelectorAll('button')].find((b) => b.textContent.includes('Supprimer')).click() })()`)
-  await waitFor(client, `document.querySelector('[aria-labelledby="confirm-title"]') !== null`, 'delete confirmation')
-  assertUI('graph-ref-delete-requires-typed-name', await evaluate(client, `(() => { const dialog = document.querySelector('[aria-labelledby="confirm-title"]'); const confirm = [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Supprimer'); return Boolean(dialog) && confirm.disabled })()`))
-  await evaluate(client, `(() => {
-    const input = document.querySelector('[aria-labelledby="confirm-title"] input')
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
-    setter.call(input, 'feature')
-    input.dispatchEvent(new Event('input', { bubbles:true }))
-  })()`)
-  await evaluate(client, `(() => { const dialog = document.querySelector('[aria-labelledby="confirm-title"]'); [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Supprimer').click() })()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') !== null`, 'delete confirmation')
+  await evaluate(client, `(() => { const dialog = document.querySelector('[role="alertdialog"]'); [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Supprimer').click() })()`)
+  await delay(60)
+  assertUI('graph-ref-delete-two-step', await evaluate(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Attention') === true && !(window.__toolbarCalls ?? []).some(([name]) => name === 'branch_delete')`))
+  await evaluate(client, `(() => { const dialog = document.querySelector('[role="alertdialog"]'); [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Confirmer').click() })()`)
   await delay(120)
-  assertUI('graph-ref-delete-connected', await evaluate(client, `(window.__toolbarCalls ?? []).some(([name, args]) => name === 'branch_delete' && args.request.name === 'feature' && args.request.confirmation.typed === 'feature')`))
+  assertUI('graph-ref-delete-connected', await evaluate(client, `(window.__toolbarCalls ?? []).some(([name, args]) => name === 'branch_delete' && args.request.name === 'feature' && args.request.confirmation.acknowledged === true)`))
   await screenshot(client, 'p3-graph-branches.png')
 
   // Right-click parity: every action of the reference and commit menus. The
@@ -2987,9 +2988,9 @@ try {
   assertUI('graph-drop-fast-forward', dropMenu.text.includes('Avancer main sur feature'))
   await screenshot(client, 'p3-graph-drop-menu.png')
   await evaluate(client, `(() => { [...document.querySelector('[role="menu"]').querySelectorAll('button')].find((b) => b.textContent.includes('Fusionner feature dans main')).click() })()`)
-  await waitFor(client, `document.querySelector('[aria-labelledby="confirm-title"]') !== null`, 'integration confirmation')
+  await waitFor(client, `document.querySelector('[role="alertdialog"]') !== null`, 'integration confirmation')
   const integrationDialog = await evaluate(client, `(() => {
-    const dialog = document.querySelector('[aria-labelledby="confirm-title"]')
+    const dialog = document.querySelector('[role="alertdialog"]')
     return { text: dialog.innerText, preview: (window.__p3Calls ?? []).filter(([name]) => name === 'branch_integration_preview').map(([, args]) => args.request) }
   })()`)
   assertUI('graph-integration-preview', integrationDialog.text.includes('3 commit(s) de feature') && integrationDialog.text.includes('0 commit(s) de retard') && integrationDialog.text.includes('sans mutation avant confirmation') && integrationDialog.preview.some((request) => request.mode === 'merge' && request.source === 'feature' && request.target === 'main'))
@@ -2998,13 +2999,13 @@ try {
     integrationDialog.text.includes('Avance rapide, sans commit de fusion') &&
       integrationDialog.text.includes('Commit de fusion') &&
       await evaluate(client, `(() => {
-        const dialog = document.querySelector('[aria-labelledby="confirm-title"]')
+        const dialog = document.querySelector('[role="alertdialog"]')
         const checked = dialog.querySelector('input[value="only"]')
         return checked !== null && checked.checked && !checked.disabled
       })()`),
   )
   await screenshot(client, 'p3-graph-integration-strategy.png')
-  await evaluate(client, `(() => { const dialog = document.querySelector('[aria-labelledby="confirm-title"]'); [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Fusionner').click() })()`)
+  await evaluate(client, `(() => { const dialog = document.querySelector('[role="alertdialog"]'); [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Fusionner').click() })()`)
   await waitFor(client, `(window.__p3Calls ?? []).some(([name]) => name === 'branch_integration_start')`, 'integration start')
   assertUI('graph-integration-start', await evaluate(client, `(() => {
     const call = (window.__p3Calls ?? []).find(([name]) => name === 'branch_integration_start')
