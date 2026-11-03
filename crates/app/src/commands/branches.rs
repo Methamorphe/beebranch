@@ -135,10 +135,12 @@ fn integration_undo(
         None => actions.push(match (auto_stash, &before.head_sha) {
             // The staged state lives in the stash; the index must stay equal to
             // HEAD so that `stash apply --index` can run.
+            // `reset --hard` is safe only here: the local changes it discards
+            // are re-applied from the stash commit right after.
             (Some(_), Some(head)) => ReversibleAction::RestoreHead {
                 target: undo::head_target(before),
                 sha: Some(head.clone()),
-                mode: RestoreMode::Hard,
+                mode: RestoreMode::HardBeforeStash,
                 index_tree: Some(head.clone()),
             },
             _ => undo::restore_to(before, RestoreMode::Hard),
@@ -700,7 +702,7 @@ pub async fn branch_delete_remote(
         &request.repo_id,
         &session.worktree().display().to_string(),
     )?;
-    let result = run_mutation(session, move |runner, discovery| {
+    let result = run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         branches::delete_remote(runner, worktree, &request.remote, &request.branch)?;
         Ok(((), vec![InvalidationArea::Refs]))
@@ -716,7 +718,7 @@ pub async fn branch_upstream(
     request: UpstreamRequest,
 ) -> Result<MutationResult<()>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         match request.upstream.as_deref() {
             Some(upstream) => {

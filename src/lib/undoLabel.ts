@@ -49,8 +49,16 @@ const MATCHERS: Matcher[] = [
   { pattern: /^stash « (.*) »$/, render: (p) => t('shell.undo.label.stash', p) },
   { pattern: /^reset (.+)$/, render: (p) => t('shell.undo.label.reset', p) },
   { pattern: /^checkout (.+)$/, render: (p) => t('shell.undo.label.checkout', p) },
-  { pattern: /^amend du commit$/, render: () => t('shell.undo.label.commitAmend', {}) },
-  { pattern: /^commit$/, render: () => t('shell.undo.label.commit', {}) },
+  // `commit {short}` / `amend du commit {short}` (commit.rs); older records
+  // carry no SHA.
+  {
+    pattern: /^amend du commit(?: (\S+))?$/,
+    render: (p) => (p.sha ? t('shell.undo.label.commitAmendSha', p) : t('shell.undo.label.commitAmend', {})),
+  },
+  {
+    pattern: /^commit(?: (\S+))?$/,
+    render: (p) => (p.sha ? t('shell.undo.label.commitSha', p) : t('shell.undo.label.commit', {})),
+  },
 ]
 
 /** Field order of each matcher, matching its capture groups. */
@@ -76,8 +84,8 @@ const PARAM_NAMES: string[][] = [
   ['message'],
   ['revision'],
   ['ref'],
-  [],
-  [],
+  ['sha'],
+  ['sha'],
 ]
 
 /**
@@ -109,6 +117,11 @@ export function undoButtonLabel(record: UndoEntry, direction: 'undo' | 'redo'): 
   return t(direction === 'undo' ? 'shell.undo.action' : 'shell.undo.redoAction', {
     action: undoActionLabel(record),
   })
+}
+
+/** Confirmation after a recorded action, offered with an "Undo" button. */
+export function undoOfferNotice(record: UndoEntry): string {
+  return t('shell.undo.offer', { action: undoActionLabel(record) })
 }
 
 /** Confirmation notice after a successful undo or redo. */

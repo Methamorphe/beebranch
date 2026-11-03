@@ -49,7 +49,7 @@ pub async fn patch_apply(
     request: PatchApplyRequest,
 ) -> Result<MutationResult<PatchApplyReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = patch::apply(
             runner,

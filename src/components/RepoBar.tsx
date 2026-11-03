@@ -70,6 +70,9 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const changes = repo?.state.worktree
   const stashBlocked = !changes || !(changes.staged || changes.unstaged || changes.untracked) || head?.kind === 'unborn' || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)
   const disabled = !repoId || busy || pending !== null
+  // A blocked undo/redo stays visible but disabled, with the reason as tooltip.
+  const undoBlocked = undo?.blocked ? errorMessage(undo.blocked) : null
+  const redoBlocked = redo?.blocked ? errorMessage(redo.blocked) : null
   const run = async <T,>(label: string, action: () => Promise<T>, describe?: (result: T) => string | null, pushTarget?: PushRejection) => {
     if (!repoId) return
     setPending(label); setNotice(null)
@@ -148,8 +151,8 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       <button
         type="button"
         className={`${styles.action} ${styles.wideOnly}`}
-        disabled={!repoId || busy || pending !== null || !undo}
-        title={undo ? undoButtonLabel(undo, 'undo') : t('shell.undo.nothingToUndo')}
+        disabled={!repoId || busy || pending !== null || !undo || Boolean(undoBlocked)}
+        title={undo ? [undoButtonLabel(undo, 'undo'), undoBlocked].filter(Boolean).join(' — ') : t('shell.undo.nothingToUndo')}
         aria-keyshortcuts="Meta+Z Control+Z"
         onClick={() => void run(t('shell.undo.pending'), onUndo, () => null)}
       >
@@ -158,8 +161,8 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       <button
         type="button"
         className={`${styles.action} ${styles.wideOnly}`}
-        disabled={!repoId || busy || pending !== null || !redo}
-        title={redo ? undoButtonLabel(redo, 'redo') : t('shell.undo.nothingToRedo')}
+        disabled={!repoId || busy || pending !== null || !redo || Boolean(redoBlocked)}
+        title={redo ? [undoButtonLabel(redo, 'redo'), redoBlocked].filter(Boolean).join(' — ') : t('shell.undo.nothingToRedo')}
         aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z"
         onClick={() => void run(t('shell.redo.pending'), onRedo, () => null)}
       >
@@ -170,10 +173,10 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
     <div className={styles.utilities}>
       <span className={styles.notice} role="status">{pending ? `${pending}…` : null}</span>
       <ActionMenu label={t('shell.repoBar.otherActions')} triggerClassName={styles.action} triggerContent={<><ToolbarIcon name="actions" /><span>{t('common.actions')}</span></>}>
-        <button type="button" disabled={!repoId || busy || pending !== null || !undo} onClick={() => void run(t('shell.undo.pending'), onUndo, () => null)}>
+        <button type="button" disabled={!repoId || busy || pending !== null || !undo || Boolean(undoBlocked)} title={undoBlocked ?? undefined} onClick={() => void run(t('shell.undo.pending'), onUndo, () => null)}>
           {undo ? undoButtonLabel(undo, 'undo') : t('shell.undo.action', { action: t('shell.undo.none') })}
         </button>
-        <button type="button" disabled={!repoId || busy || pending !== null || !redo} onClick={() => void run(t('shell.redo.pending'), onRedo, () => null)}>
+        <button type="button" disabled={!repoId || busy || pending !== null || !redo || Boolean(redoBlocked)} title={redoBlocked ?? undefined} onClick={() => void run(t('shell.redo.pending'), onRedo, () => null)}>
           {redo ? undoButtonLabel(redo, 'redo') : t('shell.undo.redoAction', { action: t('shell.undo.none') })}
         </button>
         <button type="button" disabled={disabled} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }), () => null)}>

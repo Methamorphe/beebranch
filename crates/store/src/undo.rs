@@ -102,11 +102,7 @@ impl Store {
                 |row| row.get(0),
             )?;
             // A new operation invalidates the redo branch.
-            transaction.execute(
-                "UPDATE undo_records SET state = 'evicted', updated_at = ?2
-                 WHERE repo_id = ?1 AND state = 'consumed'",
-                params![input.repo_id, now],
-            )?;
+            evict_redo(&transaction, input.repo_id, now)?;
             transaction.execute(
                 "INSERT INTO undo_records
                     (id, repo_id, position, kind, label, undo_json, redo_json,
@@ -193,6 +189,38 @@ impl Store {
                 )
                 .optional()
                 .map_err(StoreError::from)
+        })
+    }
+
+    /// Next record to redo: the lowest consumed record above the last
+    /// available one, so successive redos replay undos in reverse order and
+    /// the stack stays contiguous.
+    pub fn next_redo(&self, repo_id: &str) -> Result<Option<UndoRecord>, StoreError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, repo_id, position, kind, label, undo_json, redo_json,
+                            before_json, after_json, touched_refs, state, step, command,
+                            detail, recovery_sha, created_at, updated_at
+                     FROM undo_records
+                     WHERE repo_id = ?1 AND state = 'consumed'
+                       AND position > COALESCE(
+                         (SELECT MAX(position) FROM undo_records
+                          WHERE repo_id = ?1 AND state = 'available'), 0)
+                     ORDER BY position ASC LIMIT 1",
+                    params![repo_id],
+                    map_record,
+                )
+                .optional()
+                .map_err(StoreError::from)
+        })
+    }
+
+    /// Invalidate the redo branch after a mutation that is not recorded
+    /// (stage, discard, pull…): its `before` state no longer holds.
+    pub fn invalidate_redo(&self, repo_id: &str) -> Result<usize, StoreError> {
+        self.with_connection(|connection| {
+            evict_redo(connection, repo_id, beebranch_core::now_unix()).map_err(StoreError::from)
         })
     }
 
@@ -290,6 +318,18 @@ impl Store {
     }
 }
 
+fn evict_redo(
+    connection: &rusqlite::Connection,
+    repo_id: &str,
+    now: i64,
+) -> rusqlite::Result<usize> {
+    connection.execute(
+        "UPDATE undo_records SET state = 'evicted', updated_at = ?2
+         WHERE repo_id = ?1 AND state = 'consumed'",
+        params![repo_id, now],
+    )
+}
+
 fn unique_id(now: i64) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -360,6 +400,37 @@ mod tests {
             .expect("redo");
         assert!(redo.is_none(), "a new operation must invalidate redo");
         assert!(third.position > second.position);
+    }
+
+    #[test]
+    fn redo_replays_the_most_recent_undo_first() {
+        let store = Store::open_in_memory().expect("store");
+        let first = record(&store, "repo", "one");
+        let second = record(&store, "repo", "two");
+        for undone in [&second, &first] {
+            store
+                .set_undo_state(&undone.id, UndoState::Consumed, None, None, None, None)
+                .expect("consume");
+        }
+        let redo = store.next_redo("repo").expect("redo").expect("record");
+        assert_eq!(redo.id, first.id, "the last undo is redone first");
+        store
+            .set_undo_state(&first.id, UndoState::Available, None, None, None, None)
+            .expect("redo");
+        let redo = store.next_redo("repo").expect("redo").expect("record");
+        assert_eq!(redo.id, second.id);
+
+        assert_eq!(store.invalidate_redo("repo").expect("invalidate"), 1);
+        assert!(store.next_redo("repo").expect("redo").is_none());
+        assert_eq!(
+            store
+                .undo_record(&first.id)
+                .expect("read")
+                .expect("record")
+                .state,
+            UndoState::Available,
+            "invalidation keeps the undo stack"
+        );
     }
 
     #[test]

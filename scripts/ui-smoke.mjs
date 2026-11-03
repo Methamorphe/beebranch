@@ -284,6 +284,9 @@ function mockScript(commits, rows, diffLines) {
         },
         generation: 2,
         state: repo.state,
+        // Same record as the mocked undo_status top, so the commit panel
+        // offers to undo exactly this commit.
+        undoId: 'undo_1',
       };
     },
     index_stage: (args) => { (window.__p1Calls ??= []).push(['stage', args]); return { data: { files: ['src/module-1.ts'], hunks: 1, patchBytes: 42 }, generation: 2, state: repo.state }; },
