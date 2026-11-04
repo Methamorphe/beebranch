@@ -13,7 +13,7 @@ import {
   operationSkip,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
-import type { ConflictView, InProgressOperation, RepoState } from '../types/git'
+import type { ConflictRegion, ConflictView, InProgressOperation, RepoState } from '../types/git'
 import { ConfirmBar } from './ConfirmBar'
 import p2 from './p2.module.css'
 
@@ -53,6 +53,47 @@ function combine(view: ConflictView | null): string {
   return `${parts.join('\n\n')}\n`
 }
 
+type RegionChoice = { ours: boolean[]; theirs: boolean[]; base: boolean }
+
+function defaultChoices(regions: ConflictRegion[]): Record<number, RegionChoice> {
+  return Object.fromEntries(
+    regions.map((region) => [
+      region.index,
+      {
+        ours: region.ours.map(() => true),
+        theirs: region.theirs.map(() => false),
+        base: false,
+      },
+    ]),
+  )
+}
+
+/** Working file with every marker block replaced by the chosen lines. */
+function assembleRegions(
+  view: ConflictView | null,
+  choices: Record<number, RegionChoice>,
+): string {
+  const lines = (view?.working?.content ?? '').split('\n')
+  const regions = view?.regions ?? []
+  const out: string[] = []
+  let cursor = 0
+  for (const region of regions) {
+    out.push(...lines.slice(cursor, region.start - 1))
+    const choice = choices[region.index]
+    if (!choice) {
+      out.push(...lines.slice(region.start - 1, region.end))
+    } else if (choice.base) {
+      out.push(...region.base)
+    } else {
+      out.push(...region.ours.filter((_, index) => choice.ours[index]))
+      out.push(...region.theirs.filter((_, index) => choice.theirs[index]))
+    }
+    cursor = region.end
+  }
+  out.push(...lines.slice(cursor))
+  return out.join('\n')
+}
+
 /** The conflict a draft was written against: same path and same three sides. */
 function conflictSignature(view: ConflictView | null): string {
   if (!view) return ''
@@ -74,6 +115,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
   const [allowMarkers, setAllowMarkers] = useState(false)
+  const [regionChoices, setRegionChoices] = useState<Record<number, RegionChoice>>({})
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const request = useRef(0)
@@ -93,6 +135,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
 
   useEffect(() => {
     viewRef.current = view
+    setRegionChoices(defaultChoices(view?.regions ?? []))
   }, [view])
 
   useEffect(() => {
@@ -418,6 +461,89 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                   <pre className={p2.sideCode}>{view?.theirs?.content ?? '—'}</pre>
                 </div>
               </div>
+              {view?.regions?.length ? (
+                <div className={p2.regions} aria-label={t('ops.conflicts.regionsAria')}>
+                  {view.regions.map((region) => {
+                    const choice = regionChoices[region.index] ?? {
+                      ours: region.ours.map(() => true),
+                      theirs: region.theirs.map(() => false),
+                      base: false,
+                    }
+                    const update = (next: RegionChoice) => {
+                      const choices = { ...regionChoices, [region.index]: next }
+                      setRegionChoices(choices)
+                      setContent(assembleRegions(view, choices))
+                      dirtyRef.current = true
+                      setDirty(true)
+                    }
+                    return (
+                      <details key={region.index} className={p2.region} open={view.regions.length <= 2}>
+                        <summary>
+                          {t('ops.conflicts.region.title', {
+                            index: formatNumber(region.index + 1),
+                            start: formatNumber(region.start),
+                            end: formatNumber(region.end),
+                          })}
+                        </summary>
+                        <div className={p2.regionActions}>
+                          <button type="button" className={p2.ghost} disabled={!editable}
+                            onClick={() => update({ ...choice, ours: region.ours.map(() => true), theirs: region.theirs.map(() => false), base: false })}>
+                            {t('ops.conflicts.region.takeOurs')}
+                          </button>
+                          <button type="button" className={p2.ghost} disabled={!editable}
+                            onClick={() => update({ ...choice, ours: region.ours.map(() => false), theirs: region.theirs.map(() => true), base: false })}>
+                            {t('ops.conflicts.region.takeTheirs')}
+                          </button>
+                          <button type="button" className={p2.ghost} disabled={!editable}
+                            onClick={() => update({ ...choice, ours: region.ours.map(() => true), theirs: region.theirs.map(() => true), base: false })}>
+                            {t('ops.conflicts.region.takeBoth')}
+                          </button>
+                          {region.base.length ? (
+                            <button type="button" className={p2.ghost} disabled={!editable}
+                              onClick={() => update({ ...choice, base: true })}>
+                              {t('ops.conflicts.region.takeBase')}
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className={p2.regionSides}>
+                          <div className={p2.regionSide}>
+                            <span className={p2.good}>{t('ops.conflicts.side.ours')}</span>
+                            {region.ours.length ? region.ours.map((line, index) => (
+                              <label key={`ours-${index}`} className={p2.regionLine}>
+                                <input type="checkbox" disabled={!editable || choice.base} checked={choice.ours[index]}
+                                  onChange={(event) => {
+                                    const ours = choice.ours.map((value, position) => position === index ? event.target.checked : value)
+                                    update({ ...choice, ours, base: false })
+                                  }} />
+                                <code>{line || ' '}</code>
+                              </label>
+                            )) : <span className={p2.muted}>{t('ops.conflicts.region.empty')}</span>}
+                          </div>
+                          <div className={p2.regionSide}>
+                            <span style={{ color: 'var(--info)' }}>{t('ops.conflicts.side.theirs')}</span>
+                            {region.theirs.length ? region.theirs.map((line, index) => (
+                              <label key={`theirs-${index}`} className={p2.regionLine}>
+                                <input type="checkbox" disabled={!editable || choice.base} checked={choice.theirs[index]}
+                                  onChange={(event) => {
+                                    const theirs = choice.theirs.map((value, position) => position === index ? event.target.checked : value)
+                                    update({ ...choice, theirs, base: false })
+                                  }} />
+                                <code>{line || ' '}</code>
+                              </label>
+                            )) : <span className={p2.muted}>{t('ops.conflicts.region.empty')}</span>}
+                          </div>
+                          {region.base.length ? (
+                            <div className={p2.regionSide}>
+                              <span className={p2.muted}>{t('ops.conflicts.side.base')}</span>
+                              <pre className={p2.regionBase}>{region.base.join('\n')}</pre>
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+                    )
+                  })}
+                </div>
+              ) : null}
               <div className={p2.resolve}>
                 <div className={p2.resolveHeader}>
                   <strong style={{ color: 'var(--text)' }}>

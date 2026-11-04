@@ -61,6 +61,21 @@ pub struct ConflictSide {
     pub truncated: bool,
 }
 
+/// One marker-delimited conflict block of the working file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictRegion {
+    /// Zero-based position in `ConflictView::regions`.
+    pub index: u32,
+    /// 1-based line of the `<<<<<<<` marker.
+    pub start: u32,
+    /// 1-based line of the `>>>>>>>` marker.
+    pub end: u32,
+    pub ours: Vec<String>,
+    pub base: Vec<String>,
+    pub theirs: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictView {
@@ -76,6 +91,8 @@ pub struct ConflictView {
     /// True when the working file still contains conflict markers.
     pub has_markers: bool,
     pub marker_lines: Vec<u32>,
+    /// Marker blocks, parsed so the UI can resolve them one by one.
+    pub regions: Vec<ConflictRegion>,
     pub resolved: bool,
 }
 
@@ -163,6 +180,67 @@ pub fn marker_lines(content: &str) -> Vec<u32> {
     markers
 }
 
+/// Parse marker blocks into ours/base/theirs regions.
+///
+/// Accepts both the two-way (`<<<<<<<` / `=======` / `>>>>>>>`) and the diff3
+/// (`|||||||`) forms. An unterminated block is ignored: Git always writes the
+/// closing marker, so a truncated parse must not invent a region.
+pub fn conflict_regions(content: &str) -> Vec<ConflictRegion> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut regions = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        if !lines[index].starts_with("<<<<<<< ") {
+            index += 1;
+            continue;
+        }
+        let start = index + 1;
+        let mut ours = Vec::new();
+        let mut base = Vec::new();
+        let mut theirs = Vec::new();
+        let mut section = 0;
+        let mut cursor = index + 1;
+        let mut closed = false;
+        while cursor < lines.len() {
+            let line = lines[cursor];
+            if section == 0 && line.starts_with("||||||| ") {
+                section = 1;
+                cursor += 1;
+                continue;
+            }
+            if section != 2 && (line == "=======" || line.starts_with("=======\r")) {
+                section = 2;
+                cursor += 1;
+                continue;
+            }
+            if line.starts_with(">>>>>>> ") {
+                closed = true;
+                break;
+            }
+            match section {
+                0 => ours.push(line.to_owned()),
+                1 => base.push(line.to_owned()),
+                _ => theirs.push(line.to_owned()),
+            }
+            cursor += 1;
+        }
+        if closed {
+            regions.push(ConflictRegion {
+                index: regions.len() as u32,
+                start: start as u32,
+                end: (cursor + 1) as u32,
+                ours,
+                base,
+                theirs,
+            });
+            index = cursor + 1;
+        } else {
+            index += 1;
+        }
+    }
+    regions
+}
+
 /// Read base/ours/theirs and the working file for one conflicted path.
 pub fn read(runner: &GitRunner, worktree: &Path, path: &str) -> Result<ConflictView, AppError> {
     validate(path)?;
@@ -200,6 +278,10 @@ pub fn read(runner: &GitRunner, worktree: &Path, path: &str) -> Result<ConflictV
         .as_ref()
         .map(|side| marker_lines(&side.content))
         .unwrap_or_default();
+    let regions = working
+        .as_ref()
+        .map(|side| conflict_regions(&side.content))
+        .unwrap_or_default();
     Ok(ConflictView {
         path: path.to_owned(),
         base: stages.base.as_deref().and_then(decode_side),
@@ -211,6 +293,7 @@ pub fn read(runner: &GitRunner, worktree: &Path, path: &str) -> Result<ConflictV
         eol,
         has_markers: !markers.is_empty(),
         marker_lines: markers,
+        regions,
         resolved: false,
     })
 }
@@ -317,5 +400,37 @@ mod tests {
         );
         assert_eq!(LineEnding::Crlf.normalize("a\nb\r\n"), "a\r\nb\r\n");
         assert_eq!(LineEnding::Lf.normalize("a\r\nb"), "a\nb");
+    }
+
+    #[test]
+    fn parses_two_way_and_diff3_regions() {
+        let two_way =
+            "top\n<<<<<<< HEAD\nours 1\nours 2\n=======\ntheirs\n>>>>>>> feature\nbottom\n";
+        let regions = conflict_regions(two_way);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].start, 2);
+        assert_eq!(regions[0].end, 7);
+        assert_eq!(regions[0].ours, vec!["ours 1", "ours 2"]);
+        assert!(regions[0].base.is_empty());
+        assert_eq!(regions[0].theirs, vec!["theirs"]);
+
+        let diff3 =
+            "a\n<<<<<<< ours\nleft\n||||||| base\noriginal\n=======\nright\n>>>>>>> theirs\nb\n";
+        let regions = conflict_regions(diff3);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].base, vec!["original"]);
+        assert_eq!(regions[0].ours, vec!["left"]);
+        assert_eq!(regions[0].theirs, vec!["right"]);
+    }
+
+    #[test]
+    fn ignores_unterminated_or_nested_markers() {
+        assert!(conflict_regions("<<<<<<< HEAD\nours\n=======\ntheirs\n").is_empty());
+        let two =
+            "x\n<<<<<<< A\n1\n=======\n2\n>>>>>>> B\ny\n<<<<<<< A\n3\n=======\n4\n>>>>>>> B\n";
+        let regions = conflict_regions(two);
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[1].index, 1);
+        assert_eq!(regions[1].start, 8);
     }
 }

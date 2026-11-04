@@ -1313,3 +1313,68 @@
   .toolbar button, .entryActions button, .asideSection > button { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
   .actionRowControls { min-width:0; flex-wrap:wrap; justify-content:flex-start; }
 }
+
+/* Per-region conflict resolution. */
+.regions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  padding: 8px 12px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+
+.region {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.region summary {
+  padding: 6px 8px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.regionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 6px;
+}
+
+.regionSides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  padding: 0 8px 8px;
+}
+
+.regionSide {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.regionLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.regionLine code {
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.regionBase {
+  max-height: 120px;
+  margin: 0;
+  overflow: auto;
+  font-size: 12px;
+}

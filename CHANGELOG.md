@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Per-region conflict resolution**: a conflicted file whose working copy still has markers is split into regions. Each region offers ours, theirs, both or the base, and every line of either side can be checked individually; the result written to the editor contains no markers. Whole-file accept and free-form editing remain available.
 - **Image diffs**: an image (PNG, JPEG, GIF, WebP, AVIF, BMP) now shows both revisions side by side with their dimensions and size instead of only “binary file”. The bytes are read at the diff revision through the same worktree-scoped, size-bounded path as text files; the renderer receives a `data:` URL already allowed by the CSP, never filesystem access.
 - **Editable WIP node**: the draft commit message is edited directly in the graph's `// WIP` row. Typing there or in the commit panel edits the same draft, so the message written in the graph is the one committed; the badge still opens the panel.
 - **Summary before an operation**: pull, push, merge, rebase, cherry-pick, reset, stash pop and checkout now ask once in the action bar. The bar shows the commits, files and lines involved, predicts conflicts with `git merge-tree`, names the files that would conflict, and explains why the operation would refuse. Cancelling changes nothing.
