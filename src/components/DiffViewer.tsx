@@ -277,6 +277,15 @@ type CommitContext = {
 /** Loads one file at the revision the current diff was computed for. */
 export type DocumentReader = (path: string) => Promise<FileContent>
 
+/** Both sides of an image diff, `null` when the path is absent. */
+export type ImageSides = {
+  before: FileContent | null
+  after: FileContent | null
+}
+
+/** Loads an image at the two revisions the current diff compares. */
+export type ImageReader = (path: string) => Promise<ImageSides>
+
 /** One comment anchored on a diff line, ready for the provider. */
 export type LineCommentRequest = {
   /** Path on the old side; a rename differs from {@link newPath}. */
@@ -305,6 +314,8 @@ type Props = {
   onAmend?: () => void
   /** Present when the caller can resolve files at the diff revision. */
   readDocument?: DocumentReader
+  /** Present when the caller can load both sides of an image. */
+  readImage?: ImageReader
   /** Opens the file history for the visible file. */
   onShowHistory?: (path: string) => void
   /** Present when the diff is a review request accepting line comments. */
@@ -346,6 +357,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 const MARKDOWN_PATH = /\.(md|markdown|mdown|mkd|mdx)$/i
+
+const IMAGE_PATH = /\.(png|jpe?g|gif|webp|avif|bmp)$/i
 
 const MODE_LABELS: Record<Mode, MessageKey> = {
   hunk: 'diff.mode.hunk',
@@ -453,6 +466,7 @@ export function DiffViewer({
   embedded = false,
   onAmend,
   readDocument,
+  readImage,
   onShowHistory,
   lineComment,
   initialPath,
@@ -487,6 +501,16 @@ export function DiffViewer({
     | null
   >(null)
   const documentCache = useRef<WeakMap<DiffReport, Map<string, FileContent>>>(new WeakMap())
+  const [imageState, setImageState] = useState<
+    | { kind: 'loading' }
+    | { kind: 'ready'; sides: ImageSides }
+    | { kind: 'error'; message: string }
+    | null
+  >(null)
+  const [imageSizes, setImageSizes] = useState<
+    Record<'before' | 'after', { width: number; height: number } | null>
+  >({ before: null, after: null })
+  const imageCache = useRef<WeakMap<DiffReport, Map<string, ImageSides>>>(new WeakMap())
   const [pendingDiscard, setPendingDiscard] = useState<{
     selection: PathSelection
     path: string
@@ -515,6 +539,7 @@ export function DiffViewer({
       : file.newPath
     : ''
   const markdown = Boolean(readDocument && documentPath && MARKDOWN_PATH.test(documentPath))
+  const imageMode = Boolean(readImage && documentPath && file?.binary && IMAGE_PATH.test(documentPath))
 
   useEffect(() => {
     if (!rendered || !readDocument || !markdown) {
@@ -548,6 +573,39 @@ export function DiffViewer({
       cancelled = true
     }
   }, [documentPath, markdown, readDocument, rendered, report])
+
+  useEffect(() => {
+    if (!readImage || !imageMode) {
+      setImageState(null)
+      setImageSizes({ before: null, after: null })
+      return
+    }
+    let cache = imageCache.current.get(report)
+    if (!cache) {
+      cache = new Map()
+      imageCache.current.set(report, cache)
+    }
+    const scopedCache = cache
+    const cached = scopedCache.get(documentPath)
+    if (cached) {
+      setImageState({ kind: 'ready', sides: cached })
+      return
+    }
+    let cancelled = false
+    setImageState({ kind: 'loading' })
+    setImageSizes({ before: null, after: null })
+    readImage(documentPath)
+      .then((sides) => {
+        scopedCache.set(documentPath, sides)
+        if (!cancelled) setImageState({ kind: 'ready', sides })
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setImageState({ kind: 'error', message: errorMessage(cause) })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [documentPath, imageMode, readImage, report])
 
   useEffect(() => {
     setActive(indexForPath(report.files, initialPath))
@@ -1013,13 +1071,17 @@ export function DiffViewer({
   }
 
   return (
-    <div className={`${styles.root} ${report.files.length === 1 ? styles.singleFile : ''}`}>
+    <div
+      className={`${styles.root} ${report.files.length === 1 ? styles.singleFile : ''}`}
+      data-image={imageMode || undefined}
+    >
       {report.files.length > 1 ? <aside ref={filesRef} className={styles.files} aria-label={t('diff.files.aria')}>
         {report.files.map((entry, index) => (
           <button
             key={`${entry.oldPath}->${entry.newPath}`}
             type="button"
             className={index === active ? styles.fileActive : styles.file}
+            data-diff-file={entry.newPath === '/dev/null' ? entry.oldPath : entry.newPath}
             aria-current={index === active ? 'true' : undefined}
             onClick={() => {
               selectFile(index)
@@ -1318,7 +1380,55 @@ export function DiffViewer({
           </span>
         </div>
         ) : null}
-        {rendered && markdown ? (
+        {imageMode ? (
+          <div className={styles.imageDiff} data-image-view={documentPath}>
+            {imageState?.kind === 'loading' ? (
+              <p className={styles.empty} role="status">{t('diff.image.loading')}</p>
+            ) : null}
+            {imageState?.kind === 'error' ? (
+              <p className={shared.danger} role="alert">{imageState.message}</p>
+            ) : null}
+            {imageState?.kind === 'ready' ? (
+              <div className={styles.imagePair}>
+                {(['before', 'after'] as const).map((side) => {
+                  const item = imageState.sides[side]
+                  const size = imageSizes[side]
+                  const label = t(side === 'before' ? 'diff.image.before' : 'diff.image.after')
+                  return (
+                    <figure key={side} className={styles.imageFigure}>
+                      <figcaption>
+                        <span>{label}</span>
+                        {item ? (
+                          <span className={styles.imageMeta}>
+                            {t('diff.image.size', { bytes: formatNumber(item.bytes) })}
+                            {size
+                              ? ` · ${t('diff.image.dimensions', { width: formatNumber(size.width), height: formatNumber(size.height) })}`
+                              : ''}
+                          </span>
+                        ) : null}
+                      </figcaption>
+                      {item?.dataUrl ? (
+                        <img
+                          src={item.dataUrl}
+                          alt={label}
+                          onLoad={(event) => {
+                            const width = event.currentTarget.naturalWidth
+                            const height = event.currentTarget.naturalHeight
+                            setImageSizes((current) => ({ ...current, [side]: { width, height } }))
+                          }}
+                        />
+                      ) : (
+                        <p className={styles.empty}>
+                          {item?.truncated ? t('diff.image.tooLarge') : t('diff.image.missing')}
+                        </p>
+                      )}
+                    </figure>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : rendered && markdown ? (
           <div className={styles.document} data-markdown-view={documentPath}>
             {documentState?.kind === 'loading' ? (
               <p className={styles.empty} role="status">{t('diff.document.loading')}</p>
@@ -1359,7 +1469,7 @@ export function DiffViewer({
             {t('diff.banner.truncated')}
           </p>
         ) : null}
-        {file?.binary ? (
+        {file?.binary && !imageMode ? (
           <p className={styles.banner}>{t('diff.document.binary')}</p>
         ) : null}
 

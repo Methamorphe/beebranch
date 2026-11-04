@@ -61,6 +61,13 @@ const messages = {
   'diff.view.rendered': 'Rendered',
   'diff.view.renderedTitle': 'Show the rendered Markdown',
 
+  'diff.image.after': 'After',
+  'diff.image.before': 'Before',
+  'diff.image.dimensions': '{width} × {height} px',
+  'diff.image.loading': 'Loading the images…',
+  'diff.image.missing': 'Image missing at this revision.',
+  'diff.image.size': '{bytes} bytes',
+  'diff.image.tooLarge': 'Image too large to display.',
   'diff.document.loading': 'Loading the file…',
   'diff.document.truncated': 'File truncated at the read limit; the rendering is partial.',
   'diff.document.missing': 'File missing at this revision.',
