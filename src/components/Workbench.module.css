@@ -165,3 +165,11 @@
 .centralEditor { position:relative; }
 .centralEditor:is([data-central-editor='gitlab'], [data-central-editor='github'], [data-central-editor='workspaces']) > .previewHeading { position:absolute; top:12px; right:12px; z-index:2; border:0; padding:0; }
 .centralEditor:is([data-central-editor='gitlab'], [data-central-editor='github'], [data-central-editor='workspaces']) > .previewHeading > :is(span, code) { display:none; }
+
+/* The WIP message is editable in the graph; the badge keeps opening the panel. */
+.wipOpen { display:grid; grid-template-columns:var(--refs-width,0px) var(--graph-width,40px); align-items:center; height:100%; padding:0; border:0; background:transparent; color:inherit; cursor:pointer; text-align:left; }
+.wipOpen:focus-visible { outline:2px solid var(--accent-text); outline-offset:-2px; }
+.wipInput { flex:1 1 auto; min-width:0; height:22px; padding:0 4px; border:0; border-bottom:1px dashed transparent; border-radius:0; background:transparent; color:var(--text); font:inherit; font-size:12px; }
+.wipInput::placeholder { color:var(--muted); }
+.wipInput:hover { border-bottom-color:var(--border-strong); }
+.wipInput:focus-visible { outline:none; border-bottom-color:var(--accent-text); }

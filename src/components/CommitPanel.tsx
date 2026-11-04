@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { commitConfig, commitCreate, statusGet } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
+import { useCommitDraft } from '../lib/commitDraft'
 import { useI18n } from '../i18n'
 import { SUBJECT_LIMIT, subjectRemaining } from '../lib/commitMessage'
 import type { CommitConfigView, CommitOutcome, OperationProgress, StatusReport, UndoEntry } from '../types/git'
@@ -19,12 +20,9 @@ type Props = {
   compact?: boolean
 }
 
-const drafts = new Map<string, string>()
-
 export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = null, compact = false }: Props) {
   const { t, plural } = useI18n()
-  const [message, setDraftMessage] = useState(() => drafts.get(repoId) ?? '')
-  const setMessage = (next: string) => { drafts.set(repoId, next); setDraftMessage(next) }
+  const [message, setMessage] = useCommitDraft(repoId)
   const [amend, setAmend] = useState(false)
   const [keepMessage, setKeepMessage] = useState(false)
   const [allowEmpty, setAllowEmpty] = useState(false)

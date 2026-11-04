@@ -60,6 +60,7 @@ import {
 } from '../lib/layout'
 import { pipelineState } from '../lib/pipeline'
 import { useGraph } from '../hooks/useGraph'
+import { useCommitDraft } from '../lib/commitDraft'
 import type {
   BranchIntegrationPreview,
   CommitDetail,
@@ -399,6 +400,7 @@ export function Workbench({
   }
 
   const repoId = repo?.repo.repoId ?? null
+  const [commitDraft, setCommitDraft] = useCommitDraft(repoId ?? '')
   const [localDiff, setLocalDiff] = useState<DiffRequest | null>(null)
   const [revision, setRevision] = useState('')
   const [allRefs, setAllRefs] = useState(true)
@@ -1890,19 +1892,31 @@ export function Workbench({
     ...(repo.state.worktree.conflicted > 0 ? [{ kind: 'conflicted', count: repo.state.worktree.conflicted, label: plural('shell.statusBar.conflicts.one', 'shell.statusBar.conflicts.other', repo.state.worktree.conflicted, { count: formatNumber(repo.state.worktree.conflicted) }), icon: 'm8 2 7 12H1zM8 6v3M8 11v.1' }] : []),
   ]
   const worktreeSummary = `${t('workbench.graph.worktreeTitle')} · ${worktreeStats.map((stat) => stat.label).join(' · ')}`
+  const toggleWorktree = () => {
+    if ((tool || historyTool) && !onNavigate('graph')) return
+    setHistoryTool(null)
+    setSelected(undefined); setComparison(null); setComparePath(null); setLocalDiff(null)
+    setWorktreeSelected((current) => !current || Boolean(tool || historyTool))
+  }
   const worktreeRow = hasChanges ? (
-    <button type="button" className={styles.worktreeRow} data-role="worktree" data-active={showWorktree} aria-pressed={showWorktree}
-      aria-label={worktreeSummary} title={worktreeSummary}
-      onClick={() => {
-        if ((tool || historyTool) && !onNavigate('graph')) return
-        setHistoryTool(null)
-        setSelected(undefined); setComparison(null); setComparePath(null); setLocalDiff(null)
-        setWorktreeSelected((current) => !current || Boolean(tool || historyTool))
-      }}>
-      <span className={styles.wipRef} aria-hidden="true"><span>// WIP</span></span>
-      <span className={styles.wipMarker} aria-hidden="true" />
-      <span className={styles.wipMessage} aria-hidden="true">
-        <strong>{t('workbench.graph.worktreeTitle')}</strong>
+    <div className={styles.worktreeRow} data-role="worktree" data-active={showWorktree}
+      aria-label={worktreeSummary}>
+      <button type="button" className={styles.wipOpen} aria-pressed={showWorktree}
+        title={worktreeSummary} onClick={toggleWorktree}>
+        <span className={styles.wipRef} aria-hidden="true"><span>// WIP</span></span>
+        <span className={styles.wipMarker} aria-hidden="true" />
+      </button>
+      <span className={styles.wipMessage}>
+        <input
+          className={styles.wipInput}
+          value={commitDraft}
+          placeholder={t('workbench.graph.worktreeTitle')}
+          aria-label={t('commit.panel.messageAria')}
+          onChange={(event) => setCommitDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
+        />
         <span className={styles.wipStats}>
           {worktreeStats.map((stat) => (
             <span key={stat.kind} className={styles.wipStat} data-kind={stat.kind} data-empty={stat.count === 0} title={stat.label}>
@@ -1913,7 +1927,7 @@ export function Workbench({
           ))}
         </span>
       </span>
-    </button>
+    </div>
   ) : null
 
   const openContextMenu = (
