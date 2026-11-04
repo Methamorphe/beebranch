@@ -133,6 +133,8 @@ function mockScript(commits, rows, diffLines) {
           section: 'fn main', lines: lines.map((content, index) => ({
             kind: 'added', oldLineno: null, newLineno: index + 1, content,
             noNewline: false })) }] },
+      { oldPath: 'assets/logo.png', newPath: 'assets/logo.png', kind: 'modified',
+        binary: true, additions: 0, deletions: 0, truncated: false, hunks: [] },
     ],
     truncated: false,
   };
@@ -214,6 +216,18 @@ function mockScript(commits, rows, diffLines) {
     },
     file_content_get: (args) => {
       (window.__contentCalls ??= []).push(args)
+      if (args.request.dataUrl && /\.png$/i.test(args.request.path)) {
+        return {
+          path: args.request.path,
+          revision: args.request.revision ?? 'worktree',
+          content: null,
+          bytes: 68,
+          truncated: false,
+          binary: true,
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        }
+      }
       return {
         path: args.request.path,
         revision: args.request.revision ?? 'worktree',

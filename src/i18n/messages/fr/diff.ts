@@ -61,6 +61,13 @@ const messages = {
   'diff.view.rendered': 'Rendu',
   'diff.view.renderedTitle': 'Afficher le Markdown rendu',
 
+  'diff.image.after': 'Après',
+  'diff.image.before': 'Avant',
+  'diff.image.dimensions': '{width} × {height} px',
+  'diff.image.loading': 'Chargement des images…',
+  'diff.image.missing': 'Image absente à cette révision.',
+  'diff.image.size': '{bytes} octets',
+  'diff.image.tooLarge': 'Image trop volumineuse pour être affichée.',
   'diff.document.loading': 'Chargement du fichier…',
   'diff.document.truncated': 'Fichier tronqué au plafond de lecture ; le rendu est partiel.',
   'diff.document.missing': 'Fichier absent à cette révision.',

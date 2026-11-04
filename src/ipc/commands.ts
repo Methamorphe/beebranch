@@ -151,6 +151,8 @@ export function fileContentGet(input: {
   path: string
   revision?: string
   maxBytes?: number
+  /** Inline supported images as a `data:` URL for the diff. */
+  dataUrl?: boolean
 }): Promise<FileContent> {
   return call<FileContent>('file_content_get', {
     repoId: input.repoId,
@@ -158,6 +160,7 @@ export function fileContentGet(input: {
       path: input.path,
       revision: input.revision,
       maxBytes: input.maxBytes,
+      dataUrl: input.dataUrl,
     },
   })
 }

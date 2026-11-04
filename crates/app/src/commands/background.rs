@@ -24,7 +24,7 @@ const SUPPORTED: &[(&str, &str)] = &[
     ("bmp", "image/bmp"),
 ];
 
-fn mime_for(path: &Path) -> Option<&'static str> {
+pub(crate) fn mime_for(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     SUPPORTED
         .iter()

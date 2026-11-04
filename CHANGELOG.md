@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Image diffs**: an image (PNG, JPEG, GIF, WebP, AVIF, BMP) now shows both revisions side by side with their dimensions and size instead of only “binary file”. The bytes are read at the diff revision through the same worktree-scoped, size-bounded path as text files; the renderer receives a `data:` URL already allowed by the CSP, never filesystem access.
+
+
+## [Unreleased]
+
+### Added
+
 - **Notifications**: results and errors of actions now appear as notifications at the bottom of the window instead of banners stacked above the workspace. A success disappears after a few seconds; an error stays until it is closed and keeps its remediation.
 - **Keyboard shortcut reference**: press `?` outside a text field, or use the command palette, to list every shortcut, including the ones you customised.
 - **Relative dates**: commits from the last week show their age (“3 hours ago”, “yesterday”) in the history and the commit detail.

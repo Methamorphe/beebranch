@@ -239,6 +239,10 @@ export type FileContent = {
   binary: boolean
   /** SHA-256 of the returned bytes; the editor sends it back to detect external edits. */
   sha256?: string
+  /** Image MIME type when the path has a supported image extension. */
+  mime?: string
+  /** Self-contained image URL, only when the read asked for it. */
+  dataUrl?: string
 }
 
 export type FileWriteReport = {

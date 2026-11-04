@@ -104,7 +104,7 @@ import { WorktreesPanel } from './WorktreesPanel'
 import { WorkspacesPanel } from './WorkspacesPanel'
 import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import { CommitPanel } from './CommitPanel'
-import { DiffViewer, type DocumentReader } from './DiffViewer'
+import { DiffViewer, type DocumentReader, type ImageReader } from './DiffViewer'
 import { GitlabPanel } from './GitlabPanel'
 import { GithubPanel } from './GithubPanel'
 import { githubForge, gitlabForge } from '../lib/forge'
@@ -578,6 +578,45 @@ export function Workbench({
     },
     [repoId],
   )
+  /**
+   * Both revisions of an image. The before side mirrors the diff target:
+   * index for the worktree, HEAD for the index, the parent for a commit and
+   * the range base otherwise.
+   */
+  const imageReader = useCallback(
+    (request: DiffRequest | null): ImageReader | undefined => {
+      if (!repoId || !request) return undefined
+      const after =
+        request.target === 'worktree'
+          ? 'worktree'
+          : request.target === 'index'
+            ? 'index'
+            : request.target === 'commit'
+              ? request.base
+              : request.targetRef ?? 'HEAD'
+      if (!after) return undefined
+      const before =
+        request.target === 'worktree'
+          ? 'index'
+          : request.target === 'index'
+            ? 'head'
+            : request.target === 'commit'
+              ? request.base
+                ? `${request.base}^`
+                : null
+              : request.base ?? null
+      return async (path: string) => {
+        const [beforeFile, afterFile] = await Promise.all([
+          before
+            ? fileContentGet({ repoId, path, revision: before, dataUrl: true }).catch(() => null)
+            : Promise.resolve(null),
+          fileContentGet({ repoId, path, revision: after, dataUrl: true }).catch(() => null),
+        ])
+        return { before: beforeFile, after: afterFile }
+      }
+    },
+    [repoId],
+  )
   const readPreviewDocument = useMemo(
     () => documentReader(previewDiff),
     [documentReader, previewDiff],
@@ -585,6 +624,14 @@ export function Workbench({
   const readDiffDocument = useMemo(
     () => documentReader(diffRequest),
     [documentReader, diffRequest],
+  )
+  const readPreviewImage = useMemo(
+    () => imageReader(previewDiff),
+    [imageReader, previewDiff],
+  )
+  const readDiffImage = useMemo(
+    () => imageReader(diffRequest),
+    [imageReader, diffRequest],
   )
   const activeDiff =
     view === 'diff' ? diffRequest : previewDiff
@@ -1600,6 +1647,7 @@ export function Workbench({
             <DiffViewer
               report={report}
               source={source}
+              readImage={readDiffImage}
               initialPath={diffRequest?.focusPath ?? diffRequest?.path}
               commit={
                 diffCommit
@@ -2374,7 +2422,7 @@ export function Workbench({
                   aria-label={t('workbench.preview.ariaLabel')} aria-busy={diffLoading}>
                 {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
                 {diffLoading ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
-                  <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument}
+                  <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument} readImage={readPreviewImage}
                     key={localDiff?.edit ? `edit:${localDiff.path}` : undefined}
                     initialEditPath={localDiff?.edit ? localDiff.path : undefined}
                     onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }}

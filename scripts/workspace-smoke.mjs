@@ -231,6 +231,13 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
 
   await evaluate(client, `Array.from(document.querySelectorAll('aside[aria-label="Détail du commit"] button')).find((button) => button.textContent.includes('Voir le diff complet')).click()`)
   await waitFor(client, `document.querySelector('aside[aria-label="Fichiers modifiés"]') !== null`, 'multi-file diff')
+  await waitFor(client, `document.querySelector('[data-diff-file="assets/logo.png"]') !== null`, 'image file in the diff list')
+  await evaluate(client, `document.querySelector('[data-diff-file="assets/logo.png"]').click()`)
+  await waitFor(client, `document.querySelectorAll('[data-image-view] img').length === 2`, 'image diff sides')
+  await check('image-diff-shows-both-sides', `(() => {
+    const captions = [...document.querySelectorAll('[data-image-view] figcaption')].map((node) => node.textContent)
+    return captions.length === 2 && captions.some((text) => text.includes('Avant')) && captions.some((text) => text.includes('Après'))
+  })()`)
   await check('diff-file-list-compact', `(() => {
     const list = document.querySelector('aside[aria-label="Fichiers modifiés"]')
     return list.getBoundingClientRect().width <= 230 && list.getBoundingClientRect().width <= list.parentElement.getBoundingClientRect().width * .25

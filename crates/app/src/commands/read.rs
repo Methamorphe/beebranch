@@ -170,6 +170,10 @@ pub struct FileContentRequestDto {
     /// `worktree` (default), `index`, `head`, or any revision such as a SHA.
     pub revision: Option<String>,
     pub max_bytes: Option<usize>,
+    /// Also return a `data:` URL for a supported image, so the diff can show
+    /// it without a filesystem protocol.
+    #[serde(default)]
+    pub data_url: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,6 +190,13 @@ pub struct FileContentDto {
     /// buffer never overwrites a file changed outside the application.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// Image MIME type, when the path has a supported image extension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    /// Self-contained image URL; `None` unless `data_url` was requested and the
+    /// whole image fits the byte budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -514,6 +525,13 @@ fn read_file_content(
         ),
     };
     let raw_sha256 = bytes.as_deref().map(sha256_hex);
+    let mime = crate::commands::background::mime_for(Path::new(path)).map(str::to_owned);
+    let data_url = image_data_url(
+        bytes.as_deref(),
+        truncated,
+        mime.as_deref(),
+        request.data_url,
+    );
     let (content, binary) = decode_content(bytes, truncated, encoding);
 
     Ok(FileContentDto {
@@ -524,7 +542,25 @@ fn read_file_content(
         truncated,
         binary,
         sha256: raw_sha256,
+        mime,
+        data_url,
     })
+}
+
+/// Inline a complete image as a `data:` URL. A truncated read is a corrupt
+/// image, so the renderer gets no URL and reports the size instead.
+fn image_data_url(
+    bytes: Option<&[u8]>,
+    truncated: bool,
+    mime: Option<&str>,
+    requested: bool,
+) -> Option<String> {
+    if !requested || truncated {
+        return None;
+    }
+    let (bytes, mime) = (bytes?, mime?);
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
 fn read_worktree_file(
@@ -880,6 +916,16 @@ mod tests {
             path: path.to_owned(),
             revision: revision.map(str::to_owned),
             max_bytes,
+            data_url: false,
+        }
+    }
+
+    fn image_request(path: &str, data_url: bool) -> FileContentRequestDto {
+        FileContentRequestDto {
+            path: path.to_owned(),
+            revision: None,
+            max_bytes: None,
+            data_url,
         }
     }
 
@@ -1010,6 +1056,39 @@ mod tests {
         assert!(truncated.truncated);
         assert_eq!(truncated.bytes, 4096);
         assert_eq!(truncated.content.as_deref().map(str::len), Some(1024));
+    }
+
+    #[test]
+    fn file_content_inlines_images_only_when_asked() {
+        let dir = tempfile::tempdir().expect("repo");
+        let runner = GitRunner::detect().expect("git");
+        repository(dir.path(), &runner);
+        let session =
+            RepoSession::open(&runner, dir.path(), SessionOptions::default()).expect("session");
+
+        // 1×1 PNG, NUL bytes included: binary to the text decoder.
+        let png: &[u8] =
+            b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
+        std::fs::write(dir.path().join("logo.png"), png).expect("write");
+
+        let view =
+            read_file_content(&session, &image_request("logo.png", true), "utf8").expect("image");
+        assert_eq!(view.mime.as_deref(), Some("image/png"));
+        assert!(view.binary);
+        assert_eq!(view.bytes, png.len() as u64);
+        let url = view.data_url.expect("data url");
+        assert!(url.starts_with("data:image/png;base64,"));
+        assert!(url.len() > "data:image/png;base64,".len());
+
+        let text_only =
+            read_file_content(&session, &image_request("logo.png", false), "utf8").expect("no url");
+        assert!(text_only.data_url.is_none());
+        assert!(text_only.mime.is_some());
+
+        let text =
+            read_file_content(&session, &image_request("a.txt", true), "utf8").expect("text");
+        assert!(text.mime.is_none());
+        assert!(text.data_url.is_none());
     }
 
     #[test]
