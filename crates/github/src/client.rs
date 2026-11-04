@@ -569,6 +569,38 @@ impl GithubClient {
             .collect())
     }
 
+    /// Actions runs attached to a commit, newest first.
+    ///
+    /// Each run is a pipeline: it carries the workflow name and a run id that
+    /// the jobs and re-run calls address, which check runs do not.
+    pub async fn workflow_runs_for_sha(
+        &self,
+        repo: &RepoRef,
+        head_sha: &str,
+        per_page: u32,
+    ) -> Result<Vec<GithubPipeline>, GithubError> {
+        let per_page = per_page.clamp(1, MAX_PER_PAGE);
+        let mut url = self.repo_endpoint(repo, &["actions", "runs"])?;
+        url.query_pairs_mut()
+            .append_pair("head_sha", head_sha)
+            .append_pair("per_page", &per_page.to_string())
+            .append_pair("page", "1");
+        let fetched = self.fetch(&url).await?;
+        let runs: WireWorkflowRuns = decode(&fetched.body)?;
+        Ok(runs
+            .workflow_runs
+            .into_iter()
+            .map(|run| GithubPipeline {
+                id: run.id,
+                status: normalize_status(&run.status, run.conclusion.as_deref()).to_owned(),
+                detailed_status: Some(run.name),
+                ref_name: None,
+                sha: run.head_sha,
+                web_url: run.html_url,
+            })
+            .collect())
+    }
+
     /// Create a pull request. Mutations are never retried.
     pub async fn create_pull_request(
         &self,

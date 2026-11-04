@@ -1,0 +1,39 @@
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.error {
+  margin: 8px 12px 0;
+  color: var(--error);
+  font-size: 12px;
+}
+
+.host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 8px;
+}
+
+.host :global(.xterm) {
+  height: 100%;
+}
+
+.host :global(.xterm-viewport) {
+  background: transparent !important;
+}

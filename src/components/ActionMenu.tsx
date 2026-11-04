@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import styles from './ActionMenu.module.css'
 
-export function ActionMenu({ label, children, triggerContent, triggerClassName, disabled = false, onOpen }: { label: string; children: ReactNode; triggerContent?: ReactNode; triggerClassName?: string; disabled?: boolean; onOpen?: () => void }) {
+export function ActionMenu({ label, children, triggerContent, triggerClassName, menuClassName, disabled = false, onOpen, closeOnAction = true }: { label: string; children: ReactNode; triggerContent?: ReactNode; triggerClassName?: string; menuClassName?: string; disabled?: boolean; onOpen?: () => void; closeOnAction?: boolean }) {
   const id = useId()
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
@@ -23,7 +23,7 @@ export function ActionMenu({ label, children, triggerContent, triggerClassName, 
   }, [])
   return <>
     <button ref={trigger} type="button" onClick={(event) => event.currentTarget.focus()} disabled={disabled} className={`${styles.trigger} ${triggerClassName ?? ''}`} popoverTarget={id} aria-label={label} title={triggerContent ? label : 'Autres actions'}>{triggerContent ?? '···'}</button>
-    <div ref={menu} id={id} popover="auto" className={styles.menu} aria-label={label}
+    <div ref={menu} id={id} popover="auto" className={`${styles.menu} ${menuClassName ?? ''}`} aria-label={label}
       onToggle={(event) => {
         if (event.newState !== 'open' || !trigger.current) return
         onOpen?.()
@@ -31,7 +31,7 @@ export function ActionMenu({ label, children, triggerContent, triggerClassName, 
         window.requestAnimationFrame(position)
       }}
       onClick={(event) => {
-        if (event.target instanceof Element && event.target.closest('button:not(:disabled)')) event.currentTarget.hidePopover()
+        if (closeOnAction && event.target instanceof Element && event.target.closest('button:not(:disabled)')) event.currentTarget.hidePopover()
       }}>
       {children}
     </div>

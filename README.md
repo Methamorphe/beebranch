@@ -113,6 +113,11 @@ example), [build from source](#development).
 | Merge requests (mine, to review, assigned, project), detail, creation | Pull requests, detail, creation                                                                   |
 | Pipelines, CI badge, repository ↔ project matching                    | Reviews and approvals, review comments, CI checks and Actions logs, repository ↔ project matching |
 
+- **Commit CI in the toolbar**: the repository toolbar shows the CI state of
+  the commit you have checked out (GitLab pipelines, GitHub Actions runs),
+  with the finished/total count; the badge opens each pipeline, its jobs and
+  the forge page. It refreshes every 30 seconds and stays hidden until the
+  repository is linked to a connected forge.
 - Personal Access Token authentication, stored in the OS keychain.
 - **"Use my Git credentials"**: reuses `git credential fill` (macOS Keychain,
   Windows Credential Manager, `gh auth git-credential`) without copying the

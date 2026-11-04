@@ -25,3 +25,29 @@ export function pipelineState(status: string | undefined): PipelineState {
       return 'unknown'
   }
 }
+
+/**
+ * Worst state of a set of pipelines: one failing job shows a red indicator
+ * even when every other workflow passed. Running and pending outrank unknown
+ * so a rebuild in flight is never masked by a stale entry.
+ */
+export function aggregatePipelineState(statuses: (string | undefined)[]): PipelineState {
+  if (statuses.length === 0) {
+    return 'unknown'
+  }
+  const states = statuses.map(pipelineState)
+  for (const candidate of ['failed', 'canceled', 'running', 'pending'] as const) {
+    if (states.includes(candidate)) {
+      return candidate
+    }
+  }
+  if (states.includes('unknown')) {
+    return 'unknown'
+  }
+  return states.includes('success') ? 'success' : 'neutral'
+}
+
+/** Pipelines that will not change anymore, for the `done/total` progress. */
+export function isSettled(state: PipelineState): boolean {
+  return state !== 'running' && state !== 'pending'
+}

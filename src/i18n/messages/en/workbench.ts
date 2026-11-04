@@ -317,6 +317,8 @@ const messages = {
   'workbench.operationPreview.title.reset': 'Reset to {revision}?',
   'workbench.operationPreview.title.stashPop': 'Reapply {selector}?',
   'workbench.operationPreview.upstreamMissing': 'the remote branch does not exist yet',
+  'terminal.opening': 'Opening the shell…',
+  'terminal.shell': '{shell} — repository folder',
   'workbench.squash.submit': 'Squash',
   'workbench.squash.running': 'Squashing…',
   'workbench.notice.squashed': 'Commits squashed.',

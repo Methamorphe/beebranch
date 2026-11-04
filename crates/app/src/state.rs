@@ -124,6 +124,8 @@ pub struct AppState {
     pub github_device_flow: Mutex<Option<GithubDeviceFlowPending>>,
     /// Cancel flags for long-running operations, keyed by operation id.
     pub operations: OperationRegistry,
+    /// PTY sessions of the built-in terminal.
+    pub terminals: crate::commands::terminal::TerminalRegistry,
 }
 
 impl std::fmt::Debug for AppState {
@@ -261,6 +263,7 @@ fn build_state_inner(
         github_secrets,
         github_device_flow: Mutex::new(None),
         operations: Arc::new(Mutex::new(HashMap::new())),
+        terminals: Arc::new(Mutex::new(HashMap::new())),
     }
 }
 

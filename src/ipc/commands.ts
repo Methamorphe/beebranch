@@ -15,6 +15,7 @@ import type {
   GithubSession,
   GraphPage,
   OperationPreview,
+  TerminalOpened,
   OperationRecord,
   Paged,
   RecentRepo,
@@ -300,6 +301,8 @@ import type {
   MergeFastForward,
   MutationResult,
   PathSelection,
+  PipelineJob,
+  PipelineOverview,
   PullStrategy,
   RemoteFetchOutcome,
   RepoLink,
@@ -468,6 +471,29 @@ export function branchIntegrationPreview(input: {
   return call<BranchIntegrationPreview>('branch_integration_preview', {
     request: input,
   })
+}
+
+/** Open a PTY in the repository worktree. */
+export function terminalOpen(input: {
+  repoId: string
+  sessionId: string
+  rows: number
+  cols: number
+}): Promise<TerminalOpened> {
+  return call<TerminalOpened>('terminal_open', { request: input })
+}
+
+/** Send keyboard input to the PTY (base64-encoded UTF-8). */
+export function terminalWrite(sessionId: string, data: string): Promise<void> {
+  return call<void>('terminal_write', { sessionId, data })
+}
+
+export function terminalResize(sessionId: string, rows: number, cols: number): Promise<void> {
+  return call<void>('terminal_resize', { sessionId, rows, cols })
+}
+
+export function terminalClose(sessionId: string): Promise<void> {
+  return call<void>('terminal_close', { sessionId })
 }
 
 /** Commits, files and conflict risk before an operation runs. */
@@ -1389,6 +1415,16 @@ export function gitlabPipelineJobs(
   pipelineId: number,
 ): Promise<JobsDto> {
   return call<JobsDto>('gitlab_pipeline_jobs', { input, pipelineId })
+}
+
+/** CI state of the commit checked out in the repository, if a forge is linked. */
+export function pipelineOverview(repoId: string): Promise<PipelineOverview | null> {
+  return call<PipelineOverview | null>('pipeline_overview', { repoId })
+}
+
+/** Jobs of one pipeline (GitLab pipeline id or GitHub Actions run id). */
+export function pipelineJobs(repoId: string, pipelineId: number): Promise<PipelineJob[]> {
+  return call<PipelineJob[]>('pipeline_jobs', { repoId, pipelineId })
 }
 
 export function gitlabJobCancel(input: {

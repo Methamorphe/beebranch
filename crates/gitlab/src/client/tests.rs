@@ -570,6 +570,39 @@ async fn lists_merge_request_pipelines() {
     assert_eq!(pipelines[1].status, "future-status");
 }
 
+#[tokio::test]
+async fn lists_pipelines_for_one_sha_newest_first() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/7/pipelines"))
+        .and(query_param("sha", "head-sha"))
+        .and(query_param("per_page", "20"))
+        .and(query_param("order_by", "id"))
+        .and(query_param("sort", "desc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "id": 51,
+                "status": "running",
+                "ref": "main",
+                "sha": "head-sha",
+                "web_url": "https://gitlab.example.com/p/51"
+            },
+            {"id": 50, "status": "success", "ref": "main", "sha": "head-sha", "web_url": null}
+        ])))
+        .mount(&server)
+        .await;
+
+    let pipelines = client(&server)
+        .pipelines_for_sha(7, "head-sha", 20)
+        .await
+        .expect("pipelines");
+
+    assert_eq!(pipelines.len(), 2);
+    assert_eq!(pipelines[0].id, 51);
+    assert_eq!(pipelines[0].ref_name.as_deref(), Some("main"));
+    assert_eq!(pipelines[1].status, "success");
+}
+
 fn position() -> GitlabPosition {
     GitlabPosition {
         base_sha: "a".repeat(40),

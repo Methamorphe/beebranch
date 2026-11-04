@@ -282,6 +282,19 @@ function mockScript(commits, rows, diffLines) {
       theirs: { content: 'theirs\\n', bytes: 7, truncated: false },
       working: { content: '<<<<<<< HEAD\\nours\\n=======\\ntheirs\\n>>>>>>> theirs\\n', bytes: 43, truncated: false },
       regions: [{ index: 0, start: 1, end: 5, ours: ['ours'], base: [], theirs: ['theirs'] }] }),
+    terminal_open: (args) => {
+      (window.__terminalCalls ??= []).push(['open', args])
+      return { sessionId: args.request.sessionId, shell: '/bin/sh', cwd: '/tmp/beebranch-demo' }
+    },
+    terminal_write: (args) => {
+      (window.__terminalCalls ??= []).push(['write', args])
+      return null
+    },
+    terminal_resize: () => null,
+    terminal_close: (args) => {
+      (window.__terminalCalls ??= []).push(['close', args])
+      return null
+    },
     search_paths: () => ({ items: [{ path: 'src/main.rs' }], truncated: false, limit: 300 }),
     search_content: () => ({ items: [{ path: 'src/main.rs', line: 1, text: 'fn main()' }], truncated: false, limit: 300 }),
     search_commits: () => ({ commits: [commits[0]], generation: 1, depth: 5000, truncated: false, mode: 'message' }),

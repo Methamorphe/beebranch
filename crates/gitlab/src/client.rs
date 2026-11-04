@@ -454,6 +454,32 @@ impl GitlabClient {
         decode(&fetched.body)
     }
 
+    /// Pipelines run for one commit, newest first.
+    ///
+    /// Filtering by `sha` (instead of `ref`) reports the state of the commit
+    /// actually checked out, so a stale branch pipeline never stands in for
+    /// the current HEAD.
+    pub async fn pipelines_for_sha(
+        &self,
+        project_id: u64,
+        sha: &str,
+        per_page: u32,
+    ) -> Result<Vec<GitlabPipeline>, GitlabError> {
+        let project = project_id.to_string();
+        let per_page = per_page.clamp(1, MAX_PER_PAGE);
+        let mut url = self.endpoint(&["projects", &project, "pipelines"])?;
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs
+                .append_pair("sha", sha)
+                .append_pair("per_page", &per_page.to_string())
+                .append_pair("order_by", "id")
+                .append_pair("sort", "desc");
+        }
+        let fetched = self.fetch(&url).await?;
+        decode(&fetched.body)
+    }
+
     /// Diff anchors (`diff_refs`) of the current merge request version.
     pub async fn merge_request_diff_refs(
         &self,
