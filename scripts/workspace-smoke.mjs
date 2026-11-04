@@ -270,6 +270,8 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `!document.querySelector('aside[aria-label="Fichiers modifiés"]')`, 'single-file diff uses full width')
   await check('single-file-diff-no-redundant-list', `Boolean(document.querySelector('[data-central-editor]')) && !document.querySelector('aside[aria-label="Fichiers modifiés"]')`)
   await screenshot('workspace-single-file-diff.png')
+  // The region choice leaves an unsaved draft: the discard prompt is accepted
+  // by the smoke's dialog handler, as a user would.
   await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')
   await evaluate(client, `(() => { window.__workspaceSingleDiff = false; return true })()`)
 
@@ -473,6 +475,10 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `document.body.innerText.includes('Opération en cours :')`, 'merge conflict state')
   await evaluate(client, `Array.from(document.querySelectorAll('main button')).find((button) => button.textContent.trim() === 'Résoudre').click()`)
   await waitFor(client, `document.querySelector('[data-central-editor] input, [data-central-editor] textarea') !== null`, 'central conflict editor')
+  await waitFor(client, `document.querySelector('[aria-label="Résoudre les conflits par région"]') !== null`, 'conflict regions')
+  await check('conflict-region-listed', `document.querySelector('[aria-label="Résoudre les conflits par région"]').innerText.includes('Conflit 1')`)
+  await evaluate(client, `Array.from(document.querySelectorAll('[aria-label="Résoudre les conflits par région"] button')).find((button) => button.textContent.trim() === 'Prendre les leurs').click()`)
+  await check('conflict-region-choice-writes-marker-free-result', `document.querySelector('textarea[aria-label="Résolution du conflit"]')?.value.trimEnd() === 'theirs'`)
   await check('conflicts-replace-center', `document.querySelector('canvas').closest('[hidden]') !== null && !document.querySelector('[class*="historyTool"]')`)
   await screenshot('workspace-conflicts.png')
   await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')

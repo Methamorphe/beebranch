@@ -280,7 +280,8 @@ function mockScript(commits, rows, diffLines) {
     conflict_get: () => ({ path: 'src/main.rs', eol: 'lf', hasMarkers: true, markerLines: [1, 3, 5], resolved: false, binary: false, tooLarge: false,
       ours: { content: 'ours\\n', bytes: 5, truncated: false },
       theirs: { content: 'theirs\\n', bytes: 7, truncated: false },
-      working: { content: '<<<<<<< HEAD\\nours\\n=======\\ntheirs\\n>>>>>>> theirs\\n', bytes: 43, truncated: false } }),
+      working: { content: '<<<<<<< HEAD\\nours\\n=======\\ntheirs\\n>>>>>>> theirs\\n', bytes: 43, truncated: false },
+      regions: [{ index: 0, start: 1, end: 5, ours: ['ours'], base: [], theirs: ['theirs'] }] }),
     search_paths: () => ({ items: [{ path: 'src/main.rs' }], truncated: false, limit: 300 }),
     search_content: () => ({ items: [{ path: 'src/main.rs', line: 1, text: 'fn main()' }], truncated: false, limit: 300 }),
     search_commits: () => ({ commits: [commits[0]], generation: 1, depth: 5000, truncated: false, mode: 'message' }),
@@ -594,6 +595,10 @@ async function connect(port, state) {
   const pending = new Map()
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data)
+    // Native confirms block the renderer; the smoke accepts them like a user.
+    if (message.method === 'Page.javascriptDialogOpening') {
+      void send('Page.handleJavaScriptDialog', { accept: true })
+    }
     if (message.id && pending.has(message.id)) {
       const { resolve: done, reject } = pending.get(message.id)
       pending.delete(message.id)

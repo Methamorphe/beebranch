@@ -858,6 +858,17 @@ export type ConflictSide = {
   truncated: boolean
 }
 
+export type ConflictRegion = {
+  index: number
+  /** 1-based line of the opening marker in the working file. */
+  start: number
+  /** 1-based line of the closing marker. */
+  end: number
+  ours: string[]
+  base: string[]
+  theirs: string[]
+}
+
 export type ConflictView = {
   path: string
   base?: ConflictSide
@@ -869,6 +880,8 @@ export type ConflictView = {
   eol: LineEnding
   hasMarkers: boolean
   markerLines: number[]
+  /** Marker blocks, parsed for per-region resolution. */
+  regions: ConflictRegion[]
   resolved: boolean
 }
 
