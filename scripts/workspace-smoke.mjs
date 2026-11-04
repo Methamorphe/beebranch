@@ -275,13 +275,19 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')
   await evaluate(client, `(() => { window.__workspaceSingleDiff = false; return true })()`)
 
-  await click('[data-role="worktree"] button')
+  await click('[data-role="worktree"]')
   await waitFor(client, `document.querySelector('button[title="src/module-1.ts"]') !== null`, 'working files')
+  await check('worktree-single-click-opens-files', `document.querySelector('textarea[aria-label="Message de commit"]') !== null`)
+  await check('wip-message-not-editable-until-double-click', `!document.querySelector('[data-role="worktree"] input')`)
+  await evaluate(client, `document.querySelector('[data-wip-draft]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`)
+  await waitFor(client, `document.querySelector('[data-role="worktree"] input') !== null`, 'wip message field')
+  await check('wip-message-double-click-edits', `document.activeElement === document.querySelector('[data-role="worktree"] input')`)
   await evaluate(client, `(() => {
     const input = document.querySelector('[data-role="worktree"] input')
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
     setter.call(input, 'Message depuis le graphe')
     input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     return true
   })()`)
   await check('wip-message-syncs-with-commit-panel', `document.querySelector('textarea[aria-label="Message de commit"]')?.value === 'Message depuis le graphe'`)
@@ -292,7 +298,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     area.dispatchEvent(new Event('input', { bubbles: true }))
     return true
   })()`)
-  await check('commit-panel-syncs-with-wip', `document.querySelector('[data-role="worktree"] input')?.value === 'Depuis le panneau'`)
+  await check('commit-panel-syncs-with-wip', `document.querySelector('[data-wip-draft]')?.textContent === 'Depuis le panneau'`)
   await evaluate(client, `(() => {
     const area = document.querySelector('textarea[aria-label="Message de commit"]')
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set

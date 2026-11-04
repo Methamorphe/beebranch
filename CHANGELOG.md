@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- The commit message in the graph's `// WIP` row is now edited on double-click; a single click anywhere on the row opens the changed files, so selecting the row never lands in a text field.
+
 ## [1.6.0] — 2026-11-04
 
 ### Added

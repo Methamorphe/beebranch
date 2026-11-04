@@ -324,6 +324,7 @@ const messages = {
   'workbench.operationPreview.upstreamMissing': 'la branche distante n’existe pas encore',
   'terminal.opening': 'Ouverture du shell…',
   'terminal.shell': '{shell} — dossier du dépôt',
+  'workbench.wip.editMessage': 'Double-cliquez pour écrire le message de commit',
   'workbench.squash.submit': 'Combiner',
   'workbench.squash.running': 'Combinaison…',
   'workbench.notice.squashed': 'Commits combinés.',
