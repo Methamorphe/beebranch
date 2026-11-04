@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Git errors on a non-English system**: Git now always reports its messages in English to BeeBranch, so failures are recognised whatever the system language. On a French macOS, for example, a pull refused as non-fast-forward was reported as an unknown Git error. Only the message language changes: the character encoding of paths, hooks and editors is kept.
+- **Error messages**: 23 error codes had no English wording and showed French text in the English interface. Errors on branches, tags, worktrees, squash, fetch-all and Git start-up now say what to do next.
+
 ## [1.5.0] — 2026-11-03
 
 ### Added

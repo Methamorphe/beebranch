@@ -439,7 +439,8 @@ pub fn rebase_interactive(
             "rebase.nothing_to_do",
             ErrorCategory::GitState,
             "Aucun commit ne peut être rebasé sur cette base.",
-        ));
+        )
+        .with_remediation("La branche contient déjà cette base : choisissez une autre base."));
     }
     validate_plan(&candidates, plan)?;
 
@@ -933,6 +934,7 @@ fn summaries(
             ErrorCategory::Input,
             "Les commits de la sélection n'ont pas pu être lus.",
         )
+        .with_remediation("Rafraîchissez l’historique puis refaites la sélection.")
         .with_detail(outcome.stderr.redacted()));
     }
     let parsed = crate::log::parse_log(&outcome.stdout.text_lossy())

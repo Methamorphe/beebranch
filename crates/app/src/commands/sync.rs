@@ -193,7 +193,8 @@ pub async fn sync_fetch_all(
             "sync.fetch_all_failed",
             ErrorCategory::Network,
             "Aucun remote n'a pu être récupéré.",
-        ));
+        )
+        .with_remediation("Vérifiez la connexion réseau et l’authentification de chaque remote."));
     }
     if failed > 0 {
         tracing::warn!(failed, total = outcomes.len(), "fetch all partially failed");

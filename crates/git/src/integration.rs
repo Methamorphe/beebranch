@@ -122,12 +122,18 @@ pub fn preview(
             ErrorCategory::Input,
             format!("La branche source {source} n'existe pas."),
         )
+        .with_remediation(
+            "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
+        )
     })?;
     let target_entry = find(target).ok_or_else(|| {
         AppError::new(
             "branch.target_missing",
             ErrorCategory::Input,
             format!("La branche cible {target} n'existe pas."),
+        )
+        .with_remediation(
+            "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
         )
     })?;
 
