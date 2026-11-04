@@ -29,6 +29,7 @@ pub mod init;
 pub mod integration;
 pub mod log;
 pub mod patch;
+pub mod preview;
 pub mod process;
 mod program;
 pub mod redaction;

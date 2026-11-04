@@ -7,6 +7,12 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     results[name] = Boolean(await evaluate(client, expression))
     if (!results[name]) throw new Error('Repository workspace: ' + name)
   }
+  /** Confirm the pre-operation bar opened by the last action. */
+  const confirmPreview = async () => {
+    await waitFor(client, `(() => { const bar = document.querySelector('[role="alertdialog"]'); const button = bar ? [...bar.querySelectorAll('button')].at(-1) : null; return Boolean(button) && !button.disabled })()`, 'operation preview')
+    await evaluate(client, `(() => { const bar = document.querySelector('[role="alertdialog"]'); [...bar.querySelectorAll('button')].at(-1).click(); return true })()`)
+    await delay(60)
+  }
   const click = async (selector) => {
     const clicked = await evaluate(client, `(() => { const element = document.querySelector(${JSON.stringify(selector)}); element?.click(); return Boolean(element) })()`)
     if (!clicked) throw new Error('Missing action: ' + selector)
@@ -145,6 +151,13 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   })()`)
   await waitFor(client, `!document.body.innerText.includes('Opération en cours :')`, 'clean branch checkout state')
   await evaluate(client, `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/feature"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Basculer sur feature') === true`, 'checkout preview')
+  await check('checkout-preview-read-first', `(window.__workspaceCalls ?? []).some(([name]) => name === 'operation_preview')`)
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Annuler')).click()`)
+  await delay(60)
+  await check('checkout-preview-cancel-does-nothing', `!(window.__workspaceCalls ?? []).some(([name]) => name === 'branch_checkout')`)
+  await evaluate(client, `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/feature"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
+  await confirmPreview()
   await waitFor(client, `window.__workspaceCalls.some(([name]) => name === 'branch_checkout')`, 'direct branch checkout')
   await check('checkout-keeps-workspace', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('[data-central-editor]')`)
 
@@ -215,6 +228,12 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'stash graph menu')
   await check('stash-actions-in-graph', `document.querySelector('[role="menu"]').textContent.includes('Appliquer et supprimer le stash')`)
   await evaluate(client, `Array.from(document.querySelectorAll('[role="menu"] button')).find((button) => button.textContent.includes('Appliquer et supprimer')).click()`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('src/main.rs') === true`, 'stash pop preview lists conflicts')
+  await check('stash-pop-preview-summary', `(() => {
+    const bar = document.querySelector('[role="alertdialog"]')
+    return bar.innerText.includes('conflit') && bar.innerText.includes('2 fichiers')
+  })()`)
+  await confirmPreview()
   await waitFor(client, `window.__workspaceCalls.some(([name]) => name === 'stash_pop') && !document.querySelector('[data-stash="stash@{0}"]')`, 'direct stash pop')
   await click('[data-repository-section="stash"] button[aria-label="Stash +"]')
   await waitFor(client, `window.__workspaceCalls.some(([name]) => name === 'stash_create') && Boolean(document.querySelector('[data-stash="stash@{0}"]'))`, 'direct stash create')

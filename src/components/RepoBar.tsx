@@ -8,6 +8,7 @@ import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
+import { useOperationConfirm } from './OperationConfirm'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
 import { useToastChannel } from './ui/Toasts'
@@ -41,6 +42,7 @@ function branchLabel(repo: RepoView | null, t: I18n['t']) {
 
 export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo }: Props) {
   const { t } = useI18n()
+  const confirmOperation = useOperationConfirm()
   const [pending, setPending] = useState<string | null>(null)
   const setNotice = useToastChannel('repobar-notice', 'success')
   const [branches, setBranches] = useState<string[]>([])
@@ -119,14 +121,28 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       return
     }
     if (kind === 'push') {
-      void run('Push', () => syncPush({ repoId, remote, branch:remoteBranch }), undefined, { repoId, remote, branch: remoteBranch })
+      void confirmOperation({
+        title: t('workbench.operationPreview.title.push', { branch: remoteBranch, remote }),
+        confirmLabel: t('workbench.operationPreview.action.push'),
+        operation: { kind: 'push', remote, branch: remoteBranch },
+      }).then((confirmed) => {
+        if (!confirmed) return
+        void run('Push', () => syncPush({ repoId, remote, branch: remoteBranch }), undefined, { repoId, remote, branch: remoteBranch })
+      })
       return
     }
-    void run(
-      'Pull',
-      () => syncPull({ repoId, remote, branch:remoteBranch }),
-      (result) => pullNotice(result.data),
-    )
+    void confirmOperation({
+      title: t('workbench.operationPreview.title.pull', { branch: remoteBranch, remote }),
+      confirmLabel: t('workbench.operationPreview.action.pull'),
+      operation: { kind: 'pull', remote, branch: remoteBranch },
+    }).then((confirmed) => {
+      if (!confirmed) return
+      void run(
+        'Pull',
+        () => syncPull({ repoId, remote, branch: remoteBranch }),
+        (result) => pullNotice(result.data),
+      )
+    })
   }
   return <div className={styles.root} role="region" aria-label={t('shell.repoBar.aria')} onFocusCapture={(event) => { if (event.target instanceof HTMLElement && !event.target.closest('[popover]')) event.target.scrollIntoView({ block:'nearest', inline:'nearest' }) }}>
     <div className={styles.identity}>
@@ -136,7 +152,11 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       </ActionMenu>
       <span className={styles.contextSeparator} aria-hidden="true">›</span>
       <ActionMenu label={t('shell.repoBar.chooseBranch')} triggerClassName={styles.selector} disabled={!repoId || busy || pending !== null} triggerContent={<><span className={styles.caption}>{t('shell.repoBar.branchCaption')}</span><span className={styles.value}><span className={styles.contextName}>{branchLabel(repo, t)}</span><ToolbarIcon name="chevron" /></span></>}>
-        {branches.map((name) => <button key={name} type="button" disabled={name === branchLabel(repo, t) || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} aria-current={name === branchLabel(repo, t) ? 'true' : undefined} onClick={() => repoId && void run('Checkout', () => branchCheckout({ repoId, name }))}>{name === branchLabel(repo, t) ? '✓ ' : ''}{name}</button>)}
+        {branches.map((name) => <button key={name} type="button" disabled={name === branchLabel(repo, t) || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} aria-current={name === branchLabel(repo, t) ? 'true' : undefined} onClick={() => repoId && void confirmOperation({
+          title: t('workbench.operationPreview.title.checkout', { target: name }),
+          confirmLabel: t('workbench.operationPreview.action.checkout'),
+          operation: { kind: 'checkout', name },
+        }).then((confirmed) => { if (confirmed) void run('Checkout', () => branchCheckout({ repoId, name })) })}>{name === branchLabel(repo, t) ? '✓ ' : ''}{name}</button>)}
         <button type="button" onClick={onNewBranch}>{t('shell.action.createBranchInGraph')}</button>
       </ActionMenu>
     </div>
@@ -146,7 +166,11 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={upstream ? t('shell.repoBar.pushTitle') : t('shell.repoBar.publishTitle')} onClick={() => sync('push')}><ToolbarIcon name="push" /><span>Push</span></button>
       <button type="button" className={styles.action} disabled={!repoId || busy} onClick={onNewBranch} title={t('shell.repoBar.branchTitle')}><ToolbarIcon name="branch" /><span>{t('common.branch')}</span></button>
       <button type="button" className={styles.action} disabled={disabled || stashBlocked} onClick={() => repoId && void run('Stash', () => stashCreate({ repoId, includeUntracked: true }), () => t('commit.stash.createdNotice'))} title={t('shell.repoBar.stashTitle')}><ToolbarIcon name="stash" /><span>Stash</span></button>
-      <button type="button" className={styles.action} disabled={disabled || !latestStash || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} title={latestStash ? t('shell.repoBar.popTitle', { message: latestStash.message }) : t('shell.repoBar.noStash')} onClick={() => repoId && latestStash && void run('Pop', () => stashPop(repoId, latestStash.selector))}><ToolbarIcon name="pop" /><span>Pop</span></button>
+      <button type="button" className={styles.action} disabled={disabled || !latestStash || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} title={latestStash ? t('shell.repoBar.popTitle', { message: latestStash.message }) : t('shell.repoBar.noStash')} onClick={() => repoId && latestStash && void confirmOperation({
+        title: t('workbench.operationPreview.title.stashPop', { selector: latestStash.selector }),
+        confirmLabel: t('workbench.operationPreview.action.stashPop'),
+        operation: { kind: 'stashPop', selector: latestStash.selector },
+      }).then((confirmed) => { if (confirmed) void run('Pop', () => stashPop(repoId, latestStash.selector)) })}><ToolbarIcon name="pop" /><span>Pop</span></button>
       <span className={styles.divider} aria-hidden="true" />
       <button
         type="button"

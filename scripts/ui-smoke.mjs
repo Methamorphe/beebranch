@@ -422,6 +422,23 @@ function mockScript(commits, rows, diffLines) {
         createdAt: 1700000000, position: 1, undoLabel: 'Annuler commit abc123.' },
         generation: 3, state: repo.state, message: 'Rétabli : commit abc123.' }
     },
+    operation_preview: (args) => {
+      (window.__previewCalls ??= []).push(['operation_preview', args])
+      const kind = args.request.operation.kind
+      const conflict = kind === 'stashPop'
+      return {
+        commits: kind === 'checkout' || kind === 'push' ? 0 : 1,
+        behind: 0,
+        files: kind === 'checkout' ? 0 : 2,
+        additions: kind === 'checkout' ? 0 : 3,
+        deletions: kind === 'checkout' ? 0 : 1,
+        conflictCheck: conflict ? 'conflicts' : 'clean',
+        conflictedFiles: conflict ? ['src/main.rs'] : [],
+        stashesLocalChanges: false,
+        upstreamMissing: false,
+        blockedReason: null,
+      }
+    },
     branch_integration_preview: (args) => {
       (window.__p3Calls ??= []).push(['branch_integration_preview', args])
       const fastForward = args.request.mode === 'merge' && args.request.target === 'main'

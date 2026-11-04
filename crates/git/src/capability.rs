@@ -69,6 +69,8 @@ pub struct GitFeatures {
     pub switch_restore: bool,
     pub worktree_porcelain: bool,
     pub rebase_update_refs: bool,
+    /// `git merge-tree --write-tree`, which reports conflicts without writing.
+    pub merge_tree_write: bool,
 }
 
 impl GitFeatures {
@@ -78,6 +80,7 @@ impl GitFeatures {
             switch_restore: version >= GitVersion::new(2, 23, 0),
             worktree_porcelain: version >= GitVersion::new(2, 7, 0),
             rebase_update_refs: version >= GitVersion::new(2, 38, 0),
+            merge_tree_write: version >= GitVersion::new(2, 38, 0),
         }
     }
 }

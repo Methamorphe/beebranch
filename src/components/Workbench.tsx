@@ -92,6 +92,7 @@ import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
 import { ConfirmBar } from './ConfirmBar'
+import { useOperationConfirm } from './OperationConfirm'
 import { useToastChannel } from './ui/Toasts'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
@@ -286,6 +287,7 @@ export function Workbench({
   onPushRejected,
 }: Props) {
   const { t, plural } = useI18n()
+  const confirmOperation = useOperationConfirm()
 
   /** Why a fast-forward is unavailable, in the user's terms. */
   const fastForwardReason = (preview: BranchIntegrationPreview) => {
@@ -1254,11 +1256,18 @@ export function Workbench({
       setPublishTarget({ branch: entry.name, remote })
       return
     }
-    void runAction(
-      t('workbench.notice.branchPushed', { branch: entry.name, remote }),
-      () => syncPush({ repoId, remote, branch: entry.name }),
-      { repoId, remote, branch: entry.name },
-    )
+    void confirmOperation({
+      title: t('workbench.operationPreview.title.push', { branch: entry.name, remote }),
+      confirmLabel: t('workbench.operationPreview.action.push'),
+      operation: { kind: 'push', remote, branch: entry.name },
+    }).then((confirmed) => {
+      if (!confirmed) return
+      void runAction(
+        t('workbench.notice.branchPushed', { branch: entry.name, remote }),
+        () => syncPush({ repoId, remote, branch: entry.name }),
+        { repoId, remote, branch: entry.name },
+      )
+    })
   }
 
   const applyUpstream = (branch: RefEntry, upstream: string) => {
@@ -1738,6 +1747,18 @@ export function Workbench({
       setActionError(t('workbench.error.checkoutBlocked'))
       return
     }
+    const confirmed = await confirmOperation({
+      title:
+        entry.kind === 'branch'
+          ? t('workbench.operationPreview.title.checkout', { target: entry.name })
+          : t('workbench.operationPreview.title.checkoutDetached', { target: entry.name }),
+      confirmLabel: t('workbench.operationPreview.action.checkout'),
+      operation:
+        entry.kind === 'branch'
+          ? { kind: 'checkout', name: entry.name }
+          : { kind: 'checkout', detachedAt: entry.targetOid },
+    })
+    if (!confirmed) return
     checkoutPending.current = true
     setCheckoutBusy(true)
     setActionError(null)
@@ -2008,7 +2029,13 @@ export function Workbench({
     if (!repoId || !currentBranch) return
     closeMenu()
     setRefMenu(null)
-    void runAction(
+    void confirmOperation({
+      title: t('workbench.operationPreview.title.reset', { revision: sha.slice(0, 10) }),
+      confirmLabel: t('workbench.operationPreview.action.reset'),
+      operation: { kind: 'reset', revision: sha },
+    }).then((confirmed) => {
+      if (!confirmed) return
+      void runAction(
       t('workbench.notice.branchReset', {
         branch: currentBranch,
         mode:
@@ -2018,7 +2045,8 @@ export function Workbench({
         sha: sha.slice(0, 10),
       }),
       () => historyReset({ repoId, revision: sha, mode }),
-    )
+      )
+    })
   }
 
   const togglePin = (entry: RefEntry) => {
@@ -2187,9 +2215,21 @@ export function Workbench({
               onClick={() => {
                 const shas = [...picked]
                 setPicked([])
-                void runAction(t('workbench.notice.cherryPickDone'), () =>
-                  historyCherryPick(repoId, shas),
-                )
+                void confirmOperation({
+                  title: plural(
+                    'workbench.operationPreview.title.cherryPick.one',
+                    'workbench.operationPreview.title.cherryPick.other',
+                    shas.length,
+                    { count: shas.length },
+                  ),
+                  confirmLabel: t('workbench.operationPreview.action.cherryPick'),
+                  operation: { kind: 'cherryPick', shas },
+                }).then((confirmed) => {
+                  if (!confirmed) return
+                  void runAction(t('workbench.notice.cherryPickDone'), () =>
+                    historyCherryPick(repoId, shas),
+                  )
+                })
               }}
             >
               {t('workbench.action.cherryPick')}
@@ -2527,9 +2567,16 @@ export function Workbench({
                   const selector = contextMenu.stash!
                   closeMenu()
                   if (!repoId) return
-                  void runAction(t('workbench.notice.stashAppliedRemoved', { selector }), () =>
-                    stashPop(repoId, selector),
-                  )
+                  void confirmOperation({
+                    title: t('workbench.operationPreview.title.stashPop', { selector }),
+                    confirmLabel: t('workbench.operationPreview.action.stashPop'),
+                    operation: { kind: 'stashPop', selector },
+                  }).then((confirmed) => {
+                    if (!confirmed) return
+                    void runAction(t('workbench.notice.stashAppliedRemoved', { selector }), () =>
+                      stashPop(repoId, selector),
+                    )
+                  })
                 })}
                 {separator('stash-copy')}
                 {action('copy-sha', 'patches', t('workbench.menu.copySha'), () => {
@@ -2577,9 +2624,18 @@ export function Workbench({
                 {action('checkout-detached', 'graph', t('workbench.menu.detachedHead'), () => {
                   const sha = contextMenu.commit.sha
                   closeMenu()
-                  void runAction(t('workbench.notice.detachedCheckout'), () =>
-                    branchCheckout({ repoId, detachedAt: sha }),
-                  )
+                  void confirmOperation({
+                    title: t('workbench.operationPreview.title.checkoutDetached', {
+                      target: sha.slice(0, 10),
+                    }),
+                    confirmLabel: t('workbench.operationPreview.action.checkout'),
+                    operation: { kind: 'checkout', detachedAt: sha },
+                  }).then((confirmed) => {
+                    if (!confirmed) return
+                    void runAction(t('workbench.notice.detachedCheckout'), () =>
+                      branchCheckout({ repoId, detachedAt: sha }),
+                    )
+                  })
                 })}
               </>
             ) : null}
@@ -2598,9 +2654,16 @@ export function Workbench({
             {action('cherry-pick', 'commit', t('workbench.menu.cherryPickCommit'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
-              void runAction(t('workbench.notice.cherryPickDone'), () =>
-                historyCherryPick(repoId, [sha]),
-              )
+              void confirmOperation({
+                title: t('workbench.operationPreview.title.cherryPick.one', { count: 1 }),
+                confirmLabel: t('workbench.operationPreview.action.cherryPick'),
+                operation: { kind: 'cherryPick', shas: [sha] },
+              }).then((confirmed) => {
+                if (!confirmed) return
+                void runAction(t('workbench.notice.cherryPickDone'), () =>
+                  historyCherryPick(repoId, [sha]),
+                )
+              })
             })}
             {currentBranch
               ? expander(
@@ -2944,14 +3007,25 @@ export function Workbench({
                   ? action('pull', 'sync', t('workbench.refMenu.pullFastForwardOnly'), () => {
                       const entry = refMenu.entry
                       setRefMenu(null)
-                      void runAction(t('workbench.notice.pulledFastForward', { branch: entry.name }), () =>
-                        syncPull({
-                          repoId,
-                          remote: pushTarget(entry).remote,
+                      const remote = pushTarget(entry).remote
+                      void confirmOperation({
+                        title: t('workbench.operationPreview.title.pull', {
                           branch: entry.name,
-                          strategy: 'ffOnly',
+                          remote,
                         }),
-                      )
+                        confirmLabel: t('workbench.operationPreview.action.pull'),
+                        operation: { kind: 'pull', remote, branch: entry.name },
+                      }).then((confirmed) => {
+                        if (!confirmed) return
+                        void runAction(t('workbench.notice.pulledFastForward', { branch: entry.name }), () =>
+                          syncPull({
+                            repoId,
+                            remote,
+                            branch: entry.name,
+                            strategy: 'ffOnly',
+                          }),
+                        )
+                      })
                     })
                   : null}
                 {action(
@@ -3073,9 +3147,16 @@ export function Workbench({
             {action('cherry-pick', 'commit', t('workbench.menu.cherryPickCommit'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
-              void runAction(t('workbench.notice.cherryPickDone'), () =>
-                historyCherryPick(repoId, [sha]),
-              )
+              void confirmOperation({
+                title: t('workbench.operationPreview.title.cherryPick.one', { count: 1 }),
+                confirmLabel: t('workbench.operationPreview.action.cherryPick'),
+                operation: { kind: 'cherryPick', shas: [sha] },
+              }).then((confirmed) => {
+                if (!confirmed) return
+                void runAction(t('workbench.notice.cherryPickDone'), () =>
+                  historyCherryPick(repoId, [sha]),
+                )
+              })
             })}
             {currentBranch
               ? expander(
