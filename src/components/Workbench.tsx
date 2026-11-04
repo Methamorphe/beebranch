@@ -404,6 +404,8 @@ export function Workbench({
 
   const repoId = repo?.repo.repoId ?? null
   const [commitDraft, setCommitDraft] = useCommitDraft(repoId ?? '')
+  /** The WIP message is a label until a double-click turns it into a field. */
+  const [editingWipMessage, setEditingWipMessage] = useState(false)
   const [localDiff, setLocalDiff] = useState<DiffRequest | null>(null)
   const [revision, setRevision] = useState('')
   const [allRefs, setAllRefs] = useState(true)
@@ -1929,23 +1931,52 @@ export function Workbench({
   }
   const worktreeRow = hasChanges ? (
     <div className={styles.worktreeRow} data-role="worktree" data-active={showWorktree}
-      aria-label={worktreeSummary}>
+      data-editing={editingWipMessage || undefined}
+      aria-label={worktreeSummary} onClick={toggleWorktree}>
       <button type="button" className={styles.wipOpen} aria-pressed={showWorktree}
-        title={worktreeSummary} onClick={toggleWorktree}>
+        title={worktreeSummary}>
         <span className={styles.wipRef} aria-hidden="true"><span>// WIP</span></span>
         <span className={styles.wipMarker} aria-hidden="true" />
       </button>
       <span className={styles.wipMessage}>
-        <input
-          className={styles.wipInput}
-          value={commitDraft}
-          placeholder={t('workbench.graph.worktreeTitle')}
-          aria-label={t('commit.panel.messageAria')}
-          onChange={(event) => setCommitDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-          }}
-        />
+        {editingWipMessage ? (
+          <input
+            className={styles.wipInput}
+            value={commitDraft}
+            autoFocus
+            placeholder={t('workbench.graph.worktreeTitle')}
+            aria-label={t('commit.panel.messageAria')}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setCommitDraft(event.target.value)}
+            onBlur={() => setEditingWipMessage(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === 'Escape') {
+                event.currentTarget.blur()
+              }
+            }}
+          />
+        ) : (
+          <span
+            className={commitDraft.trim() ? styles.wipDraft : styles.wipDraftEmpty}
+            data-wip-draft
+            tabIndex={0}
+            title={t('workbench.wip.editMessage')}
+            onDoubleClick={(event) => {
+              event.stopPropagation()
+              setEditingWipMessage(true)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === 'F2') {
+                event.preventDefault()
+                setEditingWipMessage(true)
+              }
+            }}
+          >
+            {commitDraft.trim()
+              ? commitDraft.split('\n')[0]
+              : t('workbench.graph.worktreeTitle')}
+          </span>
+        )}
         <span className={styles.wipStats}>
           {worktreeStats.map((stat) => (
             <span key={stat.kind} className={styles.wipStat} data-kind={stat.kind} data-empty={stat.count === 0} title={stat.label}>
