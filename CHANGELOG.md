@@ -26,6 +26,7 @@
 - Undoing the deletion of an annotated tag restores the original tag (same message, tagger and signature) instead of a rebuilt one.
 - Redoing the first commit of a repository works.
 - Pressing undo twice quickly undoes two operations instead of failing. The commit panel's *Undo the commit* only undoes that commit and disappears once another operation is recorded.
+- An undo blocked by an untracked file is now refused before it runs, with the file names and a way out, instead of being recorded as a failed restoration. Undoing a mixed reset no longer greys out late: the button state matches what the undo will do.
 - Undo labels of commits and amends are translated in English.
 - Removing a worktree with local changes is no longer offered as undoable, since its changes cannot be restored; undoing the creation of a worktree also deletes the branch it created. Redoing a worktree removal never forces it (edits made in the restored worktree are kept) and deletes the branch again when the removal did.
 - Undoing a branch drop that stashed local changes, or an operation stopped on conflicts, is refused once those files were edited again (including a conflict resolution in progress), instead of losing the edits. The automatic stash is dropped by its commit, so a stash pushed in between is never removed.

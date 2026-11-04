@@ -214,20 +214,61 @@ pub fn check_preconditions(
 }
 
 /// [`check_preconditions`] without any write, for a status shown outside the
-/// mutation queue: `git write-tree` takes the index lock, so the index tree is
-/// not recomputed and the status comparison (which covers staged entries)
-/// stands for it. The real undo re-checks everything inside the queue.
+/// mutation queue: `git write-tree` takes the index lock, so the recorded tree
+/// is compared with `git diff --cached` instead. The real undo re-checks
+/// everything again inside the queue.
 pub fn preview_preconditions(
     runner: &GitRunner,
     discovery: &RepoDiscovery,
     action: &ReversibleAction,
     expected: &Fingerprint,
 ) -> Result<(), AppError> {
-    let guard = Guard {
-        index: false,
-        ..Guard::of(action)
-    };
-    check(runner, discovery, action, guard, expected)
+    let guard = Guard::of(action);
+    check(
+        runner,
+        discovery,
+        action,
+        Guard {
+            index: false,
+            ..guard
+        },
+        expected,
+    )?;
+    // `git write-tree` takes the index lock, but `git diff --cached <tree>`
+    // compares the index to the recorded tree without writing: a staged
+    // change is reported here exactly as the real check reports it.
+    if guard.index {
+        if let Some(tree) = expected.index_tree.as_deref() {
+            if !index_matches(runner, discovery.worktree()?, tree)? {
+                return Err(precondition_error("L'index a changé depuis l'opération."));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether the index reproduces `tree` exactly, without locking the index.
+fn index_matches(runner: &GitRunner, worktree: &Path, tree: &str) -> Result<bool, AppError> {
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::Diff, worktree)
+            .arg("--cached")
+            .arg("--name-only")
+            .arg("-z")
+            .arg("--no-renames")
+            .arg(tree),
+    )?;
+    let outcome = outcome.ensure_success()?;
+    Ok(outcome.stdout.text_lossy().is_empty())
+}
+
+fn precondition_error(detail: impl Into<String>) -> AppError {
+    AppError::new(
+        "undo.precondition",
+        ErrorCategory::GitState,
+        "Le dépôt a changé depuis cette opération.",
+    )
+    .with_detail(detail)
+    .with_remediation("Aucune modification n'a été appliquée.")
 }
 
 fn check(
@@ -251,16 +292,28 @@ fn check(
     let touched: Vec<String> = expected.refs.keys().cloned().collect();
     let affected: Vec<String> = expected.affected_files.keys().cloned().collect();
     let current = capture_with(runner, discovery, &touched, &affected, guard)?;
-    Fingerprint::compare_with(expected, &current, guard).map_err(|reason| {
-        AppError::new(
-            "undo.precondition",
-            ErrorCategory::GitState,
-            "Le dépôt a changé depuis cette opération.",
-        )
-        .with_detail(reason)
-        .with_remediation("Aucune modification n'a été appliquée.")
-    })?;
+    Fingerprint::compare_with(expected, &current, guard).map_err(precondition_error)?;
     if guard.clean {
+        // `reset --keep` refuses to overwrite an untracked file. Git then
+        // changes nothing, so this is a refusal, not a failed restoration.
+        let blocked = untracked_blockers(runner, discovery, action)?;
+        if !blocked.is_empty() {
+            let shown: Vec<&str> = blocked.iter().take(10).map(String::as_str).collect();
+            return Err(AppError::new(
+                "undo.untracked_conflict",
+                ErrorCategory::GitState,
+                "Des fichiers non suivis seraient écrasés par la restauration.",
+            )
+            .with_detail(format!(
+                "{} fichier(s) non suivi(s) : {}{}",
+                blocked.len(),
+                shown.join(", "),
+                if blocked.len() > shown.len() { ", …" } else { "" }
+            ))
+            .with_remediation(
+                "Déplacez, renommez ou committez ces fichiers, puis réessayez. Aucune modification n'a été appliquée.",
+            ));
+        }
         let dirty = tracked_changes(runner, discovery.worktree()?)?;
         if !dirty.is_empty() {
             let shown: Vec<&str> = dirty.iter().take(10).map(String::as_str).collect();
@@ -1803,8 +1856,102 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Trees a `reset --keep` inverse would check out, resolved to commits.
+fn keep_targets(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+) -> Vec<String> {
+    match action {
+        ReversibleAction::Sequence { actions } => actions
+            .iter()
+            .flat_map(|part| keep_targets(runner, discovery, part))
+            .collect(),
+        ReversibleAction::RestoreHead {
+            target, sha, mode, ..
+        } if *mode == RestoreMode::Hard => {
+            let Ok(worktree) = discovery.worktree() else {
+                return Vec::new();
+            };
+            let resolved = match sha {
+                Some(sha) => Some(sha.clone()),
+                None => match target {
+                    HeadTarget::Branch { name } => {
+                        rev_parse(runner, worktree, &format!("refs/heads/{name}")).ok()
+                    }
+                    HeadTarget::Detached { sha } => Some(sha.clone()),
+                    HeadTarget::Unborn { .. } => None,
+                },
+            };
+            resolved.into_iter().collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Every path tracked by `sha`'s tree.
+fn tree_paths(runner: &GitRunner, worktree: &Path, sha: &str) -> Result<Vec<String>, AppError> {
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::LsTree, worktree)
+            .arg("-r")
+            .arg("-z")
+            .arg("--name-only")
+            .arg(sha),
+    )?;
+    let outcome = outcome.ensure_success()?;
+    Ok(outcome
+        .stdout
+        .text_lossy()
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
+/// Paths Git reports as untracked, one entry per file.
+fn untracked_paths(runner: &GitRunner, worktree: &Path) -> Result<Vec<String>, AppError> {
+    let outcome = runner.run(&CommandSpec::new(GitSubcommand::Status, worktree).args([
+        "--porcelain=v2",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+        "--no-renames",
+    ]))?;
+    let outcome = outcome.ensure_success()?;
+    let text = outcome.stdout.text_lossy();
+    Ok(text
+        .split('\0')
+        .filter_map(|entry| entry.strip_prefix("? "))
+        .map(str::to_owned)
+        .collect())
+}
+
+/// Untracked files `reset --keep` would refuse to overwrite; Git then leaves
+/// the repository untouched, so the undo must be refused, not marked failed.
+fn untracked_blockers(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+) -> Result<Vec<String>, AppError> {
+    let targets = keep_targets(runner, discovery, action);
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let worktree = discovery.worktree()?;
+    let untracked = untracked_paths(runner, worktree)?;
+    let mut blocked: Vec<String> = Vec::new();
+    for sha in targets {
+        for path in tree_paths(runner, worktree, &sha)? {
+            if untracked.contains(&path) && !blocked.contains(&path) {
+                blocked.push(path);
+            }
+        }
+    }
+    Ok(blocked)
+}
+
 /// Tracked paths with staged or unstaged modifications (untracked files are
-/// not listed: `reset --keep` refuses to overwrite them by itself).
+/// listed by [`untracked_blockers`] instead).
 fn tracked_changes(runner: &GitRunner, worktree: &Path) -> Result<Vec<String>, AppError> {
     let outcome = runner.run(&CommandSpec::new(GitSubcommand::Status, worktree).args([
         "--porcelain=v2",

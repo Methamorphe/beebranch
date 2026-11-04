@@ -20,6 +20,7 @@ pub enum GitSubcommand {
     UpdateRef,
     CheckRefFormat,
     LsFiles,
+    LsTree,
     Init,
     Clone,
     FastImport,
@@ -69,6 +70,7 @@ impl GitSubcommand {
             Self::UpdateRef => "update-ref",
             Self::CheckRefFormat => "check-ref-format",
             Self::LsFiles => "ls-files",
+            Self::LsTree => "ls-tree",
             Self::Init => "init",
             Self::Clone => "clone",
             Self::FastImport => "fast-import",
@@ -117,6 +119,7 @@ impl GitSubcommand {
                 | Self::RevList
                 | Self::CheckRefFormat
                 | Self::LsFiles
+                | Self::LsTree
                 | Self::Status
                 | Self::ForEachRef
                 | Self::Log
@@ -273,6 +276,16 @@ impl GitSubcommand {
                         flag("--others"),
                         flag("--ignored"),
                         inline("--exclude-standard"),
+                    ]
+                }
+            }
+            Self::LsTree => {
+                const {
+                    &[
+                        flag("-r"),
+                        flag("-z"),
+                        flag("--name-only"),
+                        flag("--full-tree"),
                     ]
                 }
             }

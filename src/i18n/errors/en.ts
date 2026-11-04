@@ -593,6 +593,7 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
   'undo.operation_in_progress': { message: 'A Git operation is in progress.', remediation: 'Finish or explicitly abort the operation before undoing.' },
   'undo.remote_missing': { message: 'The remote was not found.' },
   'undo.stash_not_exact': { message: 'The applied stash does not exactly match the expected state; it was not dropped.' },
+  'undo.untracked_conflict': { message: 'Untracked files would be overwritten by the restoration.', remediation: 'Move, rename or commit these files, then try again. Nothing was applied.' },
   'undo.unsupported': { message: 'Aborting a bisect cannot be undone.' },
   'worktree.missing': { message: 'The worktree is no longer present on disk.', remediation: 'Prune the worktrees to remove the entry, or repair them if the folder was moved.' },
   'worktree.path_exists': { message: 'The new worktree path already exists.', remediation: 'Choose a folder that does not exist yet.' },

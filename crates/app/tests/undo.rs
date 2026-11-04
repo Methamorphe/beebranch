@@ -41,6 +41,15 @@ fn repository(dir: &Path, runner: &GitRunner) -> String {
         &["user.name", "Alice"],
         &[],
     );
+    // Windows defaults to core.autocrlf=true; the fixtures assert raw bytes.
+    git(
+        runner,
+        dir,
+        GitSubcommand::Config,
+        &["core.autocrlf", "false"],
+        &[],
+    );
+    git(runner, dir, GitSubcommand::Config, &["core.eol", "lf"], &[]);
     std::fs::write(dir.join("a.txt"), "one\n").expect("write");
     git(runner, dir, GitSubcommand::Add, &["-A"], &[]);
     git(runner, dir, GitSubcommand::Commit, &["-F", "-"], b"first\n");
@@ -280,6 +289,9 @@ mod reliability {
             git(repo.path(), &["init", "-q", "--initial-branch=main"]);
             git(repo.path(), &["config", "user.email", "a@b.c"]);
             git(repo.path(), &["config", "user.name", "Alice"]);
+            // Fixtures assert raw bytes; Windows defaults to core.autocrlf=true.
+            git(repo.path(), &["config", "core.autocrlf", "false"]);
+            git(repo.path(), &["config", "core.eol", "lf"]);
             init(repo.path());
             let runner = GitRunner::detect().expect("git");
             let store = Arc::new(Store::open_in_memory().expect("store"));
@@ -635,16 +647,89 @@ mod reliability {
                 git(dir, &["commit", "-qm", "remove gone"]);
                 git(dir, &["switch", "-q", "main"]);
             });
+            let before = head(env.dir());
             record_merge(&env).await;
             let merged = head(env.dir());
             assert!(!env.dir().join("gone.txt").exists());
             // Untracked after the merge; the undo would write it back.
             std::fs::write(env.dir().join("gone.txt"), "MINE\n").expect("write");
 
+            let status = status_now(&env.state, &env.id()).await.expect("status");
+            let blocked = status
+                .undo
+                .and_then(|entry| entry.blocked)
+                .expect("blocked");
+            assert_eq!(blocked.code, "undo.untracked_conflict");
+
             let error = env.undo().await.expect_err("untracked file in the way");
+            assert_eq!(error.code, "undo.untracked_conflict");
             assert_eq!(read(env.dir(), "gone.txt"), "MINE\n");
             assert_ne!(error.code, "undo.worktree_dirty", "{error:?}");
             assert_eq!(head(env.dir()), merged);
+            // A refusal leaves the entry undoable, unlike a failed restore.
+            let after = status_now(&env.state, &env.id()).await.expect("status");
+            let entry = after.undo.expect("entry still available");
+            assert_eq!(entry.state, "available");
+            assert_eq!(
+                entry.blocked.expect("still blocked").code,
+                "undo.untracked_conflict"
+            );
+
+            // Once the file is out of the way, the undo runs.
+            git(env.dir(), &["stash", "-q", "--include-untracked"]);
+            env.undo().await.expect("undo once the file is moved");
+            assert_eq!(head(env.dir()), before);
+            assert_eq!(read(env.dir(), "gone.txt"), "tracked\n");
+        });
+    }
+
+    #[test]
+    fn a_mixed_reset_undo_is_reported_blocked_once_the_index_changes() {
+        run(async {
+            let env = Env::new(base);
+            let first = head(env.dir());
+            let reset_to = first.clone();
+            std::fs::write(env.dir().join("c.txt"), "cee\n").expect("write");
+            git(env.dir(), &["add", "-A"]);
+            git(env.dir(), &["commit", "-qm", "second"]);
+            env.record(
+                Vec::new(),
+                move |dir| {
+                    let runner = GitRunner::detect().expect("git");
+                    beebranch_git::history::reset(
+                        &runner,
+                        dir,
+                        &reset_to,
+                        beebranch_git::history::ReversibleResetMode::Mixed,
+                    )
+                    .expect("reset");
+                },
+                |before, after| {
+                    (
+                        undo::restore_to(before, RestoreMode::Mixed),
+                        Some(undo::restore_to(after, RestoreMode::Mixed)),
+                    )
+                },
+            )
+            .await;
+            assert_eq!(head(env.dir()), first);
+
+            // The undo restores the index of `before`; staging a change after
+            // the operation must disable the button, not fail on click.
+            std::fs::write(env.dir().join("c.txt"), "staged after\n").expect("write");
+            git(env.dir(), &["add", "c.txt"]);
+
+            let status = status_now(&env.state, &env.id()).await.expect("status");
+            let blocked = status
+                .undo
+                .and_then(|entry| entry.blocked)
+                .expect("blocked");
+            assert_eq!(blocked.code, "undo.precondition");
+
+            let error = env.undo().await.expect_err("index changed");
+            assert_eq!(error.code, "undo.precondition");
+            assert_eq!(read(env.dir(), "c.txt"), "staged after\n");
+            assert_eq!(head(env.dir()), first);
         });
     }
 
