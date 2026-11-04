@@ -210,6 +210,22 @@ const errors = {
   'undo.verify_failed': {
     message: "L'état restauré ne correspond pas à l'état attendu.",
   },
+  'undo.worktree_dirty': {
+    message: 'Des modifications locales non commitées seraient écrasées.',
+    remediation:
+      "Committez ou remisez (stash) vos modifications, puis réessayez. Aucune modification n'a été appliquée.",
+  },
+  'undo.stale': {
+    message: "Cette opération n'est plus la dernière de la pile.",
+    remediation: "Aucune modification n'a été appliquée.",
+  },
+  'undo.stash_missing': {
+    message: 'Le stash enregistré pour cette opération est introuvable.',
+    remediation: "Aucune modification n'a été appliquée. Inspectez `git stash list`.",
+  },
+  'undo.object_missing': {
+    message: "L'objet Git de ce tag n'existe plus.",
+  },
   'redo.empty': {
     message: 'Aucune opération à rétablir.',
   },
@@ -594,6 +610,7 @@ const errors = {
   'undo.operation_in_progress': { message: 'Une opération Git est en cours.', remediation: 'Terminez ou abandonnez explicitement l’opération avant d’annuler.' },
   'undo.remote_missing': { message: 'Le remote est introuvable.' },
   'undo.stash_not_exact': { message: 'Le stash appliqué ne correspond pas exactement à l’état attendu ; il n’a pas été supprimé.' },
+  'undo.untracked_conflict': { message: 'Des fichiers non suivis seraient écrasés par la restauration.', remediation: 'Déplacez, renommez ou committez ces fichiers, puis réessayez. Aucune modification n’a été appliquée.' },
   'undo.unsupported': { message: 'L’abandon d’un bisect n’est pas annulable.' },
   'worktree.missing': { message: 'Le worktree n’est plus présent sur le disque.', remediation: 'Nettoyez les worktrees pour retirer l’entrée, ou réparez-les si le dossier a été déplacé.' },
   'worktree.path_exists': { message: 'Le chemin du nouveau worktree existe déjà.', remediation: 'Choisissez un dossier qui n’existe pas encore.' },

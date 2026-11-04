@@ -754,12 +754,16 @@ export function undoAcknowledge(id: string): Promise<boolean> {
   return call<boolean>('undo_acknowledge', { id })
 }
 
-export function undoApply(repoId: string): Promise<UndoOutcome> {
-  return call<UndoOutcome>('undo_apply', { repoId })
+/**
+ * Undo the latest operation. With `expectedId`, the backend refuses
+ * (`undo.stale`) unless that record is still the top of the stack.
+ */
+export function undoApply(repoId: string, expectedId?: string): Promise<UndoOutcome> {
+  return call<UndoOutcome>('undo_apply', { repoId, expectedId: expectedId ?? null })
 }
 
-export function redoApply(repoId: string): Promise<UndoOutcome> {
-  return call<UndoOutcome>('redo_apply', { repoId })
+export function redoApply(repoId: string, expectedId?: string): Promise<UndoOutcome> {
+  return call<UndoOutcome>('redo_apply', { repoId, expectedId: expectedId ?? null })
 }
 
 export function updateStatus(): Promise<UpdateStatus> {

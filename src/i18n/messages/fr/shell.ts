@@ -171,6 +171,11 @@ const messages = {
   'shell.undo.label.revert.other': 'revert de {count} commits',
   'shell.undo.label.commitAmend': 'amend du commit',
   'shell.undo.label.commit': 'commit',
+  'shell.undo.label.commitSha': 'commit {sha}',
+  'shell.undo.label.commitAmendSha': 'amend du commit {sha}',
+  'shell.undo.offer': 'Effectué : {action}.',
+  'shell.undo.undoButton': 'Annuler',
+  'shell.undo.redoButton': 'Rétablir',
 
   'shell.repoBar.aria': 'Actions du dépôt',
   'shell.repoBar.chooseRepo': 'Choisir un dépôt',

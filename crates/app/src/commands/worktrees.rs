@@ -56,13 +56,16 @@ pub async fn worktree_add(
     let reference = request.reference.clone();
     let new_branch = request.new_branch.clone();
     let detach = request.detach;
+    // A branch created with the worktree is part of the operation: the undo
+    // deletes it again, and refuses once commits moved it.
+    let created_ref = new_branch.as_ref().map(|name| format!("refs/heads/{name}"));
     run_undoable_mutation(
         session,
         store,
         UndoMeta {
             kind: "worktree.add",
             label: format!("création du worktree {path}"),
-            touched_refs: Vec::new(),
+            touched_refs: created_ref.iter().cloned().collect(),
             affected_files: Vec::new(),
         },
         move |runner, discovery| {
@@ -76,13 +79,28 @@ pub async fn worktree_add(
                 detach,
             )?;
             let label = format!("création du worktree {path}");
-            let builder = Box::new(
-                move |_before: &Fingerprint, _after: &Fingerprint| UndoDraft {
+            let builder = Box::new(move |_before: &Fingerprint, after: &Fingerprint| {
+                // `git worktree remove` without `--force` refuses a worktree
+                // with local changes, so the undo never discards them.
+                let mut undo = vec![ReversibleAction::RemoveWorktree {
+                    path: path.clone(),
+                    force: false,
+                }];
+                if let Some(reference) = &created_ref {
+                    if let Some(sha) = after.refs.get(reference).filter(|sha| *sha != "absent") {
+                        undo.push(ReversibleAction::DeleteRef {
+                            reference: reference.clone(),
+                            expected: sha.clone(),
+                        });
+                    }
+                }
+                UndoDraft {
                     kind: "worktree.add".to_owned(),
                     label,
-                    undo: ReversibleAction::RemoveWorktree {
-                        path: path.clone(),
-                        force: false,
+                    undo: if undo.len() == 1 {
+                        undo.remove(0)
+                    } else {
+                        ReversibleAction::Sequence { actions: undo }
                     },
                     redo: Some(ReversibleAction::AddWorktree {
                         path: path.clone(),
@@ -90,8 +108,8 @@ pub async fn worktree_add(
                         new_branch: new_branch.clone(),
                         detach,
                     }),
-                },
-            );
+                }
+            });
             Ok((
                 report,
                 vec![InvalidationArea::Refs, InvalidationArea::State],
@@ -124,20 +142,17 @@ pub async fn worktree_remove(
         .confirmation
         .verify(DestructiveAction::WorktreeRemove)?;
     let session = state.session(&request.repo_id)?;
-    let dirty = {
+    let (dirty, branch) = {
         let runner = session.runner().clone();
         let worktree = session.worktree().to_path_buf();
         let path = request.path.clone();
         tauri::async_runtime::spawn_blocking(move || {
             let report = worktree::list(&runner, &worktree, true)?;
-            Ok::<bool, AppError>(
-                report
-                    .entries
-                    .iter()
-                    .find(|entry| entry.path == path)
-                    .and_then(|entry| entry.dirty)
-                    .unwrap_or(false),
-            )
+            let entry = report.entries.iter().find(|entry| entry.path == path);
+            Ok::<(bool, Option<String>), AppError>((
+                entry.and_then(|entry| entry.dirty).unwrap_or(false),
+                entry.and_then(|entry| entry.branch.clone()),
+            ))
         })
         .await
         .map_err(join_error)??
@@ -156,13 +171,32 @@ pub async fn worktree_remove(
     let path = request.path.clone();
     let force = request.force;
     let delete_branch = request.delete_branch;
+    if dirty {
+        // The forced removal discards those changes for good: it is not
+        // offered as undoable, since re-adding the worktree would not bring
+        // them back.
+        return run_mutation(state.store.clone(), session, move |runner, discovery| {
+            let worktree = discovery.worktree()?;
+            let report = worktree::remove(runner, worktree, &path, force, delete_branch)?;
+            Ok((
+                report,
+                vec![InvalidationArea::Refs, InvalidationArea::State],
+            ))
+        })
+        .await;
+    }
     run_undoable_mutation(
         session,
         store,
         UndoMeta {
             kind: "worktree.remove",
             label: format!("suppression du worktree {path}"),
-            touched_refs: Vec::new(),
+            // The undo re-adds the worktree on this branch: it must still be
+            // where it was (or still absent when it was deleted with it).
+            touched_refs: branch
+                .iter()
+                .map(|name| format!("refs/heads/{name}"))
+                .collect(),
             affected_files: Vec::new(),
         },
         move |runner, discovery| {
@@ -175,7 +209,7 @@ pub async fn worktree_remove(
                 .cloned();
             let report = worktree::remove(runner, worktree, &path, force, delete_branch)?;
             let label = format!("suppression du worktree {path}");
-            let builder = Box::new(move |_before: &Fingerprint, _after: &Fingerprint| {
+            let builder = Box::new(move |before: &Fingerprint, _after: &Fingerprint| {
                 // When the branch was deleted with the worktree, the undo must
                 // recreate it at the recorded head, not check out a missing ref.
                 let (reference, detach, new_branch) = match &entry {
@@ -194,6 +228,22 @@ pub async fn worktree_remove(
                     },
                     None => ("HEAD".to_owned(), true, None),
                 };
+                // Never `--force` on redo: edits made in the re-added worktree
+                // make Git refuse instead of being destroyed.
+                let mut redo = vec![ReversibleAction::RemoveWorktree {
+                    path: path.clone(),
+                    force: false,
+                }];
+                // The removal also deleted the branch: so does its redo.
+                if let Some(branch) = new_branch.as_ref() {
+                    let reference = format!("refs/heads/{branch}");
+                    if let Some(sha) = before.refs.get(&reference).filter(|sha| *sha != "absent") {
+                        redo.push(ReversibleAction::DeleteRef {
+                            reference,
+                            expected: sha.clone(),
+                        });
+                    }
+                }
                 UndoDraft {
                     kind: "worktree.remove".to_owned(),
                     label,
@@ -203,9 +253,10 @@ pub async fn worktree_remove(
                         new_branch,
                         detach,
                     },
-                    redo: Some(ReversibleAction::RemoveWorktree {
-                        path: path.clone(),
-                        force,
+                    redo: Some(if redo.len() == 1 {
+                        redo.remove(0)
+                    } else {
+                        ReversibleAction::Sequence { actions: redo }
                     }),
                 }
             });
@@ -233,7 +284,7 @@ pub async fn worktree_lock(
     request: WorktreeLockRequest,
 ) -> Result<MutationResult<WorktreeReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = worktree::lock(runner, worktree, &request.path, request.reason.as_deref())?;
         Ok((report, vec![InvalidationArea::Refs]))
@@ -247,7 +298,7 @@ pub async fn worktree_unlock(
     request: WorktreeLockRequest,
 ) -> Result<MutationResult<WorktreeReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = worktree::unlock(runner, worktree, &request.path)?;
         Ok((report, vec![InvalidationArea::Refs]))
@@ -271,7 +322,7 @@ pub async fn worktree_prune(
     request: WorktreePruneRequest,
 ) -> Result<MutationResult<WorktreePruneReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = worktree::prune(runner, worktree, request.dry_run, request.expire.as_deref())?;
         let areas = if request.dry_run {
@@ -298,7 +349,7 @@ pub async fn worktree_repair(
     request: WorktreeRepairRequest,
 ) -> Result<MutationResult<WorktreeReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = worktree::repair(runner, worktree, request.path.as_deref())?;
         Ok((report, vec![InvalidationArea::Refs]))

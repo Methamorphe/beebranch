@@ -70,6 +70,7 @@ import type {
   RefsSnapshot,
   RepoView,
   StashEntry,
+  UndoEntry,
   Workspace,
 } from '../types/git'
 import { matchGraphCommits, stepGraphFind } from '../lib/graphFind'
@@ -134,7 +135,10 @@ type Props = {
   onOpenDiff: (request: DiffRequest) => void
   onOpenRepo: (path: string) => void
   onMutated: () => void
-  onUndo: () => Promise<unknown>
+  /** Undo the latest operation, or only `expectedId` when it is still the latest. */
+  onUndo: (expectedId?: string) => Promise<unknown>
+  /** Next operation to undo, so a panel can offer to undo its own action only. */
+  undoTop?: UndoEntry | null
   onNavigate: (view: ViewId) => boolean
   onRegisterNavigationGuard: (guard: (() => boolean) | null) => void
   gitlabConnected: boolean
@@ -255,6 +259,7 @@ export function Workbench({
   onOpenRepo,
   onMutated,
   onUndo,
+  undoTop = null,
   onNavigate,
   onRegisterNavigationGuard,
   gitlabConnected,
@@ -2440,7 +2445,7 @@ export function Workbench({
                 }}
                 onEditFile={(path) => setLocalDiff({ target: 'worktree', path, edit: true })}
                 onShowHistory={(path) => { setFilePath(path); onNavigate('fileHistory') }} />
-              <CommitPanel compact repoId={repoId} generation={generation} onMutated={onMutated} onUndo={onUndo} />
+              <CommitPanel compact repoId={repoId} generation={generation} onMutated={onMutated} onUndo={onUndo} undoTop={undoTop} />
             </aside> : null}
           </div>
         ) : null}

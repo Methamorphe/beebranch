@@ -83,11 +83,7 @@ pub async fn tag_create(
             let label = format!("création du tag {}", tag.name);
             let name = tag.name.clone();
             let object = tag.oid.clone();
-            let target = tag.target_oid.clone().unwrap_or_else(|| tag.oid.clone());
-            let message = tag.message.clone();
-            let tagger = tag.tagger.clone();
-            let tagger_email = tag.tagger_email.clone();
-            let tagger_time = tag.tagger_time;
+            let restore = restore_tag(&tag);
             let builder = Box::new(
                 move |_before: &Fingerprint, _after: &Fingerprint| UndoDraft {
                     kind: "tag.create".to_owned(),
@@ -96,20 +92,30 @@ pub async fn tag_create(
                         name: name.clone(),
                         expected: object.clone(),
                     },
-                    redo: Some(ReversibleAction::CreateTag {
-                        name: name.clone(),
-                        object: target.clone(),
-                        message: message.clone(),
-                        tagger: tagger.clone(),
-                        tagger_email: tagger_email.clone(),
-                        tagger_time,
-                    }),
+                    redo: Some(restore.clone()),
                 },
             );
             Ok((tag, vec![InvalidationArea::Refs], builder))
         },
     )
     .await
+}
+
+/// Inverse that brings a deleted tag back.
+///
+/// The tag object survives the deletion: pointing the ref back at it keeps
+/// its id, message, tagger and signature. The captured fields are only a
+/// fallback for an annotated tag whose object Git has since pruned.
+fn restore_tag(tag: &TagInfo) -> ReversibleAction {
+    ReversibleAction::RestoreTag {
+        name: tag.name.clone(),
+        object: tag.oid.clone(),
+        target: tag.target_oid.clone(),
+        message: tag.message.clone(),
+        tagger: tag.tagger.clone(),
+        tagger_email: tag.tagger_email.clone(),
+        tagger_time: tag.tagger_time,
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -162,17 +168,7 @@ pub async fn tag_delete(
                 move |_before: &Fingerprint, _after: &Fingerprint| UndoDraft {
                     kind: "tag.delete".to_owned(),
                     label,
-                    undo: ReversibleAction::CreateTag {
-                        name: previous.name.clone(),
-                        object: previous
-                            .target_oid
-                            .clone()
-                            .unwrap_or_else(|| previous.oid.clone()),
-                        message: previous.message.clone(),
-                        tagger: previous.tagger.clone(),
-                        tagger_email: previous.tagger_email.clone(),
-                        tagger_time: previous.tagger_time,
-                    },
+                    undo: restore_tag(&previous),
                     redo: Some(ReversibleAction::DeleteTag {
                         name: previous.name.clone(),
                         expected: previous.oid.clone(),
@@ -201,7 +197,7 @@ pub async fn tag_push(
 ) -> Result<MutationResult<refs_admin::PushReport>, AppError> {
     require_explicit(&request.confirmation, "le push du tag vers le remote")?;
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = refs_admin::push_tag(runner, worktree, &request.remote, &request.name)?;
         Ok((report, vec![InvalidationArea::Refs]))
@@ -224,7 +220,7 @@ pub async fn tag_annotate(
     request: AnnotateTagRequest,
 ) -> Result<MutationResult<refs_admin::TagInfo>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let tag = refs_admin::annotate_tag(runner, worktree, &request.name, &request.message)?;
         Ok((tag, vec![InvalidationArea::Refs]))
@@ -247,7 +243,7 @@ pub async fn tag_move(
     request: MoveTagRequest,
 ) -> Result<MutationResult<refs_admin::TagInfo>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let tag = refs_admin::move_tag(runner, worktree, &request.name, &request.target)?;
         Ok((tag, vec![InvalidationArea::Refs]))
@@ -272,7 +268,7 @@ pub async fn tag_delete_remote(
 ) -> Result<MutationResult<refs_admin::PushReport>, AppError> {
     require_explicit(&request.confirmation, "la suppression du tag sur le remote")?;
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report =
             refs_admin::delete_tag_remote(runner, worktree, &request.remote, &request.name)?;
@@ -369,7 +365,7 @@ pub async fn remote_set_url(
     request: RemoteWriteRequest,
 ) -> Result<MutationResult<Vec<RemoteInfo>>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let remotes = refs_admin::set_remote_url(
             runner,
@@ -453,7 +449,7 @@ pub async fn remote_prune(
     request: RemotePruneRequest,
 ) -> Result<MutationResult<Vec<RemoteInfo>>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let remotes = refs_admin::prune_remote(runner, worktree, &request.name)?;
         Ok((remotes, vec![InvalidationArea::Refs]))
@@ -494,7 +490,7 @@ pub async fn submodule_add(
     request: SubmoduleAddRequest,
 ) -> Result<MutationResult<SubmoduleReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = submodule::add(
             runner,
@@ -535,7 +531,7 @@ pub async fn submodule_update(
     request: SubmoduleUpdateRequest,
 ) -> Result<MutationResult<SubmoduleReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = submodule::update(
             runner,
@@ -572,7 +568,7 @@ pub async fn submodule_sync(
     request: SubmoduleSyncRequest,
 ) -> Result<MutationResult<SubmoduleReport>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = submodule::sync(runner, worktree, request.recursive, request.path.as_deref())?;
         Ok((report, vec![InvalidationArea::State]))
@@ -599,7 +595,7 @@ pub async fn submodule_remove(
         .confirmation
         .verify(DestructiveAction::SubmoduleRemove)?;
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let report = submodule::remove(runner, worktree, &request.path)?;
         Ok((

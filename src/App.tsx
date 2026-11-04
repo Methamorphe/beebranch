@@ -14,7 +14,7 @@ import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { UpdateNotice } from './components/UpdateNotice'
 import { ActionBarProvider, ActionBarSlot } from './components/ui/ActionBar'
-import { useToastChannel } from './components/ui/Toasts'
+import { useToastChannel, useToasts } from './components/ui/Toasts'
 import { Workbench } from './components/Workbench'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { APP_PAGES, navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
@@ -82,8 +82,8 @@ import {
   type ShortcutMap,
 } from './lib/shortcuts'
 import { normalizeRepoPath } from './lib/workspace'
-import { undoActionLabel, undoButtonLabel, undoNotice } from './lib/undoLabel'
-import type { ChangeEvent, RecentRepo, RepoView, UndoStatus, Workspace } from './types/git'
+import { undoActionLabel, undoButtonLabel, undoNotice, undoOfferNotice } from './lib/undoLabel'
+import type { ChangeEvent, RecentRepo, RepoView, UndoOutcome, UndoStatus, Workspace } from './types/git'
 import type { CloneInput, InitInput } from './ipc/commands'
 import styles from './App.module.css'
 
@@ -162,8 +162,50 @@ export default function App() {
   const [githubConnected, setGithubConnected] = useState(false)
   const [forgeUser, setForgeUser] = useState<string | null>(null)
   const [stashCount, setStashCount] = useState(0)
-  const [undoState, setUndoState] = useState<UndoStatus | null>(null)
+  const [undoState, setUndoStateRaw] = useState<UndoStatus | null>(null)
   const setNotice = useToastChannel('app-notice', 'info')
+  const toasts = useToasts()
+  /** Highest journal position seen per repository, to spot new records. */
+  const undoSeen = useRef(new Map<string, number>())
+  /** One undo/redo at a time, whatever triggered it. */
+  const undoInFlight = useRef(false)
+  /** Latest `performUndo`, for toast buttons created by an earlier render. */
+  const performUndoRef = useRef<(direction: 'undo' | 'redo', expectedId?: string) => Promise<UndoOutcome | null>>(
+    async () => null,
+  )
+  /**
+   * Store the journal status of `target` and, when it shows a record newer
+   * than any seen for that repository, confirm the action with an "Undo"
+   * button. The first status of a repository only sets the baseline, and an
+   * undo/redo never creates a newer record, so nothing is announced twice.
+   */
+  const setUndoState = useCallback(
+    (target: string, next: UndoStatus | null) => {
+      setUndoStateRaw(next)
+      if (!next) return
+      const newest = next.recent[0]
+      const seen = undoSeen.current.get(target)
+      undoSeen.current.set(target, Math.max(seen ?? 0, newest?.position ?? 0))
+      if (seen === undefined || !newest || newest.position <= seen) return
+      if (newest.state !== 'available' || next.undo?.id !== newest.id) return
+      // The offer replaces the generic "done" notice of the action itself.
+      toasts.dismiss('workbench-notice')
+      toasts.dismiss('repobar-notice')
+      toasts.show({
+        channel: 'undo-offer',
+        tone: 'success',
+        message: undoOfferNotice(newest),
+        // A blocked undo is not offered: its toolbar tooltip explains why.
+        action: next.undo.blocked
+          ? undefined
+          : {
+              label: t('shell.undo.undoButton'),
+              run: () => void performUndoRef.current('undo', newest.id),
+            },
+      })
+    },
+    [toasts],
+  )
   const [theme, setTheme] = useState<Theme>('dark')
   const [favourites, setFavourites] = useState<Favourite[]>([])
   /** Guards the persist effect until the stored list has been read back. */
@@ -659,21 +701,21 @@ export default function App() {
 
   useEffect(() => {
     if (!repoId) {
-      setUndoState(null)
+      setUndoStateRaw(null)
       return
     }
     let cancelled = false
     void undoStatus(repoId)
       .then((next) => {
-        if (!cancelled) setUndoState(next)
+        if (!cancelled) setUndoState(repoId, next)
       })
       .catch(() => {
-        if (!cancelled) setUndoState(null)
+        if (!cancelled) setUndoState(repoId, null)
       })
     return () => {
       cancelled = true
     }
-  }, [repoId, generation])
+  }, [repoId, generation, setUndoState])
 
   const openRepo = useCallback(
     async (path: string) => {
@@ -969,32 +1011,59 @@ export default function App() {
       const refreshed = await repoRefresh(repoId)
       upsert(refreshed, false)
       setGeneration(refreshed.generation)
-      setUndoState(await undoStatus(repoId).catch(() => null))
+      setUndoState(repoId, await undoStatus(repoId).catch(() => null))
     } finally {
       setBusy(false)
     }
   }
 
-  const performUndo = async (direction: 'undo' | 'redo') => {
-    if (!repoId) {
-      return
+  /**
+   * Single entry point of every undo/redo trigger (⌘Z, palette, toolbar,
+   * status bar, commit panel, toast buttons). It never rejects: the failure is
+   * reported here, so callers can fire and forget. A trigger arriving while
+   * one runs is ignored instead of racing it. With `expectedId`, the backend
+   * only acts if that record is still the next one to undo/redo.
+   */
+  const performUndo = async (
+    direction: 'undo' | 'redo',
+    expectedId?: string,
+  ): Promise<UndoOutcome | null> => {
+    if (!repoId || undoInFlight.current) {
+      return null
     }
+    const target = repoId
+    undoInFlight.current = true
     setError(null)
     setNotice(null)
     try {
       const outcome =
-        direction === 'undo' ? await undoApply(repoId) : await redoApply(repoId)
-      setNotice(undoNotice(outcome.record, direction))
-      const fresh = await repoGetState(repoId)
+        direction === 'undo' ? await undoApply(target, expectedId) : await redoApply(target, expectedId)
+      const reverse = direction === 'undo' ? 'redo' : 'undo'
+      toasts.show({
+        channel: 'undo-offer',
+        tone: 'success',
+        message: undoNotice(outcome.record, direction),
+        action: {
+          label: t(reverse === 'redo' ? 'shell.undo.redoButton' : 'shell.undo.undoButton'),
+          run: () => void performUndoRef.current(reverse, outcome.record.id),
+        },
+      })
+      const fresh = await repoGetState(target)
       upsert(fresh, false)
       setGeneration(fresh.generation)
-      setUndoState(await undoStatus(repoId))
+      return outcome
     } catch (cause) {
+      toasts.dismiss('undo-offer')
       setError(errorMessage(cause))
-      setUndoState(await undoStatus(repoId).catch(() => null))
-      throw cause
+      return null
+    } finally {
+      setUndoState(target, await undoStatus(target).catch(() => null))
+      undoInFlight.current = false
     }
   }
+  useEffect(() => {
+    performUndoRef.current = performUndo
+  })
 
   const removeRepo = async (target: string, confirmed = false) => {
     try {
@@ -1287,9 +1356,11 @@ export default function App() {
         label: undoState?.undo ? undoButtonLabel(undoState.undo, 'undo') : t('shell.palette.undoFallback'),
         group: t('shell.palette.group.git'),
         shortcut: displayShortcut(shortcuts.undo),
-        available: Boolean(repoId && undoState?.undo),
+        available: Boolean(repoId && undoState?.undo && !undoState.undo.blocked),
         contextual: graphContext,
-        unavailableReason: t('shell.palette.unavailable.nothingToUndo'),
+        unavailableReason: undoState?.undo?.blocked
+          ? errorMessage(undoState.undo.blocked)
+          : t('shell.palette.unavailable.nothingToUndo'),
         run: () => void performUndo('undo'),
       },
       {
@@ -1297,9 +1368,11 @@ export default function App() {
         label: undoState?.redo ? undoButtonLabel(undoState.redo, 'redo') : t('shell.palette.redoFallback'),
         group: t('shell.palette.group.git'),
         shortcut: displayShortcut(shortcuts.redo),
-        available: Boolean(repoId && undoState?.redo),
+        available: Boolean(repoId && undoState?.redo && !undoState.redo.blocked),
         contextual: graphContext,
-        unavailableReason: t('shell.palette.unavailable.nothingToRedo'),
+        unavailableReason: undoState?.redo?.blocked
+          ? errorMessage(undoState.redo.blocked)
+          : t('shell.palette.unavailable.nothingToRedo'),
         run: () => void performUndo('redo'),
       },
       {
@@ -1675,7 +1748,8 @@ export default function App() {
                 onOpenDiff={openDiff}
                 onOpenRepo={(path) => void openRepo(path)}
                 onMutated={() => void refresh()}
-                onUndo={() => performUndo('undo')}
+                undoTop={undoState?.undo ?? null}
+                onUndo={(expectedId) => performUndo('undo', expectedId)}
                 onNavigate={navigate}
                 onRegisterNavigationGuard={registerNavigationGuard}
                 gitlabConnected={gitlabConnected}
@@ -1712,7 +1786,7 @@ export default function App() {
         gitlabConnected={gitlabConnected}
         githubConnected={githubConnected}
         lastOperation={undoState?.undo ? undoActionLabel(undoState.undo) : null}
-        canUndo={Boolean(undoState?.undo)}
+        canUndo={Boolean(undoState?.undo && !undoState.undo.blocked)}
         onNavigate={navigate}
         onCheckoutBranch={checkoutBranch}
         onNewBranch={newBranch}

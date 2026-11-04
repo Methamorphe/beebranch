@@ -57,7 +57,7 @@ pub async fn index_stage(
     request: StageRequest,
 ) -> Result<MutationResult<IndexResult>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let result = patch::stage(runner, worktree, &request.selections)?;
         Ok((
@@ -74,7 +74,7 @@ pub async fn index_unstage(
     request: StageRequest,
 ) -> Result<MutationResult<IndexResult>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let result = patch::unstage(runner, worktree, &request.selections)?;
         Ok((
@@ -127,7 +127,7 @@ pub async fn index_discard(
         &session.worktree().display().to_string(),
     )?;
 
-    let result = run_mutation(session.clone(), {
+    let result = run_mutation(state.store.clone(), session.clone(), {
         let selections = request.selections.clone();
         let expected = request.expected.clone();
         move |runner, discovery| {
@@ -160,7 +160,7 @@ pub async fn index_ignore(
     request: IgnoreRequest,
 ) -> Result<MutationResult<String>, AppError> {
     let session = state.session(&request.repo_id)?;
-    run_mutation(session, move |runner, discovery| {
+    run_mutation(state.store.clone(), session, move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let pattern = patch::add_ignore_pattern(worktree, &request.pattern)?;
         if request.untrack.is_empty() {

@@ -39,6 +39,12 @@ pub struct Fingerprint {
     pub index_tree: Option<String>,
     /// SHA-256 of `git status --porcelain=v2 -z`.
     pub status_hash: String,
+    /// SHA-256 of the working-tree content of every path the status lists
+    /// (modified, unmerged, untracked). The status alone does not change when
+    /// an already-modified file is edited again. `None` in records written
+    /// before it existed, and when the guard does not need it.
+    #[serde(default)]
+    pub content_hash: Option<String>,
     pub operation: Option<InProgressOperation>,
     /// Touched refs, with `absent` when they did not exist.
     pub refs: BTreeMap<String, String>,
@@ -49,9 +55,16 @@ pub struct Fingerprint {
 impl Fingerprint {
     /// Explain the first meaningful divergence between two fingerprints.
     pub fn compare(expected: &Self, current: &Self) -> Result<(), String> {
-        if expected.head_branch != current.head_branch
-            || expected.head_sha != current.head_sha
-            || expected.detached != current.detached
+        Self::compare_with(expected, current, Guard::FULL)
+    }
+
+    /// Compare only what `guard` protects. Touched refs, the in-progress
+    /// operation and affected files are always compared.
+    pub fn compare_with(expected: &Self, current: &Self, guard: Guard) -> Result<(), String> {
+        if guard.head
+            && (expected.head_branch != current.head_branch
+                || expected.head_sha != current.head_sha
+                || expected.detached != current.detached)
         {
             return Err(format!(
                 "HEAD a changé (attendu {:?}/{:?}, actuel {:?}/{:?}).",
@@ -61,11 +74,21 @@ impl Fingerprint {
                 current.head_sha.as_deref().unwrap_or("aucun")
             ));
         }
-        if expected.index_tree != current.index_tree {
+        if guard.index && expected.index_tree != current.index_tree {
             return Err("L'index a changé depuis l'opération.".to_owned());
         }
-        if expected.status_hash != current.status_hash {
+        if guard.status && expected.status_hash != current.status_hash {
             return Err("Le worktree a changé depuis l'opération.".to_owned());
+        }
+        if guard.status {
+            if let (Some(expected), Some(current)) = (&expected.content_hash, &current.content_hash)
+            {
+                if expected != current {
+                    return Err(
+                        "Le contenu de fichiers modifiés a changé depuis l'opération.".to_owned(),
+                    );
+                }
+            }
         }
         if expected.operation != current.operation {
             return Err("Une autre opération Git est en cours.".to_owned());
@@ -89,6 +112,302 @@ impl Fingerprint {
         }
         Ok(())
     }
+}
+
+/// What an inverse needs to stay unchanged since the operation.
+///
+/// The guard is derived from the inverse itself (docs/04-undo-redo.md §3/§4):
+/// a ref-only inverse only checks its refs, so unrelated work in the worktree
+/// never blocks it; an inverse that rewrites tracked files requires a clean
+/// worktree. Touched refs, the in-progress operation and affected files are
+/// always checked.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Guard {
+    /// HEAD (branch, commit, detached state) must match.
+    pub head: bool,
+    /// The index tree must match: the inverse rewrites the index.
+    pub index: bool,
+    /// No tracked file may be modified (staged or not): the inverse rewrites
+    /// tracked working-tree content.
+    pub clean: bool,
+    /// The whole status must match: the inverse re-applies captured local
+    /// changes (stash) or owns an in-progress operation.
+    pub status: bool,
+}
+
+impl Guard {
+    /// Every check; used for comparisons that must be exact.
+    pub const FULL: Self = Self {
+        head: true,
+        index: true,
+        clean: false,
+        status: true,
+    };
+
+    pub fn of(action: &ReversibleAction) -> Self {
+        match action {
+            ReversibleAction::Sequence { actions } => {
+                actions
+                    .iter()
+                    .map(Self::of)
+                    .fold(Self::default(), |a, b| Self {
+                        head: a.head || b.head,
+                        index: a.index || b.index,
+                        clean: a.clean || b.clean,
+                        status: a.status || b.status,
+                    })
+            }
+            ReversibleAction::RestoreHead { mode, .. } => match mode {
+                // `reset --soft` keeps the index and the worktree.
+                RestoreMode::Soft => Self {
+                    head: true,
+                    ..Self::default()
+                },
+                // `read-tree` replaces the index: staged work must be unchanged.
+                RestoreMode::Mixed => Self {
+                    head: true,
+                    index: true,
+                    ..Self::default()
+                },
+                RestoreMode::Hard => Self {
+                    head: true,
+                    clean: true,
+                    ..Self::default()
+                },
+                // The local changes are re-applied from the recorded stash:
+                // they must be exactly those observed after the operation.
+                RestoreMode::HardBeforeStash => Self::FULL,
+            },
+            // `git switch` itself refuses to overwrite local changes.
+            ReversibleAction::Checkout { .. } | ReversibleAction::CheckoutReset { .. } => Self {
+                head: true,
+                ..Self::default()
+            },
+            ReversibleAction::AbortOperation { .. } | ReversibleAction::ApplyStash { .. } => {
+                Self::FULL
+            }
+            ReversibleAction::UpdateRef { .. }
+            | ReversibleAction::CreateRef { .. }
+            | ReversibleAction::DeleteRef { .. }
+            | ReversibleAction::RenameRef { .. }
+            | ReversibleAction::CreateTag { .. }
+            | ReversibleAction::RestoreTag { .. }
+            | ReversibleAction::DeleteTag { .. }
+            | ReversibleAction::AddRemote { .. }
+            | ReversibleAction::RemoveRemote { .. }
+            | ReversibleAction::AddWorktree { .. }
+            | ReversibleAction::RemoveWorktree { .. } => Self::default(),
+        }
+    }
+}
+
+/// Verify that `action` can run on the current state, `expected` being the
+/// fingerprint the repository must still match (`after` for an undo, `before`
+/// for a redo). Runs inside the mutation queue, right before restoring.
+pub fn check_preconditions(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+    expected: &Fingerprint,
+) -> Result<(), AppError> {
+    check(runner, discovery, action, Guard::of(action), expected)
+}
+
+/// [`check_preconditions`] without any write, for a status shown outside the
+/// mutation queue: `git write-tree` takes the index lock, so the recorded tree
+/// is compared with `git diff --cached` instead. The real undo re-checks
+/// everything again inside the queue.
+pub fn preview_preconditions(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+    expected: &Fingerprint,
+) -> Result<(), AppError> {
+    let guard = Guard::of(action);
+    check(
+        runner,
+        discovery,
+        action,
+        Guard {
+            index: false,
+            ..guard
+        },
+        expected,
+    )?;
+    // `git write-tree` takes the index lock, but `git diff --cached <tree>`
+    // compares the index to the recorded tree without writing: a staged
+    // change is reported here exactly as the real check reports it.
+    if guard.index {
+        if let Some(tree) = expected.index_tree.as_deref() {
+            if !index_matches(runner, discovery.worktree()?, tree)? {
+                return Err(precondition_error("L'index a changé depuis l'opération."));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether the index reproduces `tree` exactly, without locking the index.
+fn index_matches(runner: &GitRunner, worktree: &Path, tree: &str) -> Result<bool, AppError> {
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::Diff, worktree)
+            .arg("--cached")
+            .arg("--name-only")
+            .arg("-z")
+            .arg("--no-renames")
+            .arg(tree),
+    )?;
+    let outcome = outcome.ensure_success()?;
+    Ok(outcome.stdout.text_lossy().is_empty())
+}
+
+fn precondition_error(detail: impl Into<String>) -> AppError {
+    AppError::new(
+        "undo.precondition",
+        ErrorCategory::GitState,
+        "Le dépôt a changé depuis cette opération.",
+    )
+    .with_detail(detail)
+    .with_remediation("Aucune modification n'a été appliquée.")
+}
+
+fn check(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+    guard: Guard,
+    expected: &Fingerprint,
+) -> Result<(), AppError> {
+    // A stash the inverse re-applies must still exist before anything is
+    // reset; one it drops must still be listed (it may have been popped).
+    let worktree = discovery.worktree()?;
+    for (sha, drop) in stashes(action) {
+        if !object_exists(runner, worktree, &format!("{sha}^{{commit}}")) {
+            return Err(stash_missing(&sha));
+        }
+        if drop && crate::stash::find(runner, worktree, &sha)?.is_none() {
+            return Err(stash_missing(&sha));
+        }
+    }
+    let touched: Vec<String> = expected.refs.keys().cloned().collect();
+    let affected: Vec<String> = expected.affected_files.keys().cloned().collect();
+    let current = capture_with(runner, discovery, &touched, &affected, guard)?;
+    Fingerprint::compare_with(expected, &current, guard).map_err(precondition_error)?;
+    if guard.clean {
+        // `reset --keep` refuses to overwrite an untracked file. Git then
+        // changes nothing, so this is a refusal, not a failed restoration.
+        let blocked = untracked_blockers(runner, discovery, action)?;
+        if !blocked.is_empty() {
+            let shown: Vec<&str> = blocked.iter().take(10).map(String::as_str).collect();
+            return Err(AppError::new(
+                "undo.untracked_conflict",
+                ErrorCategory::GitState,
+                "Des fichiers non suivis seraient écrasés par la restauration.",
+            )
+            .with_detail(format!(
+                "{} fichier(s) non suivi(s) : {}{}",
+                blocked.len(),
+                shown.join(", "),
+                if blocked.len() > shown.len() { ", …" } else { "" }
+            ))
+            .with_remediation(
+                "Déplacez, renommez ou committez ces fichiers, puis réessayez. Aucune modification n'a été appliquée.",
+            ));
+        }
+        let dirty = tracked_changes(runner, discovery.worktree()?)?;
+        if !dirty.is_empty() {
+            let shown: Vec<&str> = dirty.iter().take(10).map(String::as_str).collect();
+            return Err(AppError::new(
+                "undo.worktree_dirty",
+                ErrorCategory::GitState,
+                "Des modifications locales non commitées seraient écrasées.",
+            )
+            .with_detail(format!(
+                "{} fichier(s) suivi(s) modifié(s) : {}{}",
+                dirty.len(),
+                shown.join(", "),
+                if dirty.len() > shown.len() { ", …" } else { "" }
+            ))
+            .with_remediation(
+                "Committez ou remisez (stash) vos modifications, puis réessayez. Aucune modification n'a été appliquée.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Stash commits re-applied by an inverse, with whether it drops them.
+fn stashes(action: &ReversibleAction) -> Vec<(String, bool)> {
+    match action {
+        ReversibleAction::Sequence { actions } => actions.iter().flat_map(stashes).collect(),
+        ReversibleAction::ApplyStash {
+            expected_sha, drop, ..
+        } => vec![(expected_sha.clone(), *drop)],
+        _ => Vec::new(),
+    }
+}
+
+/// Tags an inverse may have rebuilt (their original object was pruned), with
+/// the commit they must peel to.
+fn rebuilt_tags(action: &ReversibleAction) -> Vec<(String, String)> {
+    match action {
+        ReversibleAction::Sequence { actions } => actions.iter().flat_map(rebuilt_tags).collect(),
+        ReversibleAction::RestoreTag {
+            name,
+            target: Some(target),
+            ..
+        } => vec![(format!("refs/tags/{name}"), target.clone())],
+        _ => Vec::new(),
+    }
+}
+
+fn object_exists(runner: &GitRunner, worktree: &Path, object: &str) -> bool {
+    runner
+        .run(
+            &CommandSpec::new(GitSubcommand::CatFile, worktree)
+                .arg("-e")
+                .arg(object),
+        )
+        .map(|outcome| outcome.success())
+        .unwrap_or(false)
+}
+
+/// Verify, after `action` ran, that the repository matches `target` on what
+/// the inverse controls.
+pub fn verify_restored(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+    target: &Fingerprint,
+) -> Result<(), AppError> {
+    // `clean` is a precondition, not something the inverse restores.
+    let guard = Guard {
+        clean: false,
+        ..Guard::of(action)
+    };
+    let touched: Vec<String> = target.refs.keys().cloned().collect();
+    let affected: Vec<String> = target.affected_files.keys().cloned().collect();
+    let mut fresh = capture_with(runner, discovery, &touched, &affected, guard)?;
+    // A rebuilt tag has a new object id; it is correct when it peels to the
+    // original commit.
+    let worktree = discovery.worktree()?;
+    for (reference, commit) in rebuilt_tags(action) {
+        if fresh.refs.get(&reference) != target.refs.get(&reference)
+            && rev_parse(runner, worktree, &format!("{reference}^{{commit}}")).ok() == Some(commit)
+        {
+            if let Some(expected) = target.refs.get(&reference) {
+                fresh.refs.insert(reference, expected.clone());
+            }
+        }
+    }
+    Fingerprint::compare_with(target, &fresh, guard).map_err(|reason| {
+        AppError::new(
+            "undo.verify_failed",
+            ErrorCategory::GitState,
+            "L'état restauré ne correspond pas à l'état attendu.",
+        )
+        .with_detail(reason)
+    })
 }
 
 /// Head target described by a fingerprint.
@@ -122,14 +441,35 @@ pub fn capture(
     touched_refs: &[String],
     affected_files: &[String],
 ) -> Result<Fingerprint, AppError> {
+    capture_with(runner, discovery, touched_refs, affected_files, Guard::FULL)
+}
+
+/// Capture only what `guard` compares: the index tree and the status hash are
+/// left empty when the guard ignores them, which keeps `undo_status` cheap.
+fn capture_with(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    touched_refs: &[String],
+    affected_files: &[String],
+    guard: Guard,
+) -> Result<Fingerprint, AppError> {
     let worktree = discovery.worktree()?;
     let head_sha = rev_parse(runner, worktree, "HEAD").ok();
     let head_branch = current_head(runner, worktree)
         .and_then(|(kind, value)| (kind == "branch").then_some(value))
         .filter(|_| head_sha.is_some());
     let detached = head_sha.is_some() && head_branch.is_none();
-    let index_tree = write_tree(runner, worktree).ok();
-    let status_hash = status_hash(runner, worktree)?;
+    let index_tree = if guard.index {
+        write_tree(runner, worktree).ok()
+    } else {
+        None
+    };
+    let (status_hash, content_hash) = if guard.status {
+        let (status, content) = status_hashes(runner, worktree)?;
+        (status, Some(content))
+    } else {
+        (String::new(), None)
+    };
     let operation = detect(runner, discovery, Some(1))
         .map(|detected| detected.state.operation)
         .unwrap_or(None);
@@ -151,6 +491,7 @@ pub fn capture(
         detached,
         index_tree,
         status_hash,
+        content_hash,
         operation,
         refs,
         affected_files: files,
@@ -217,13 +558,21 @@ pub enum HeadTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RestoreMode {
-    /// `reset --soft` + index tree: commits and index only.
+    /// `reset --soft`: moves the branch only. The current index is kept, so
+    /// an undone commit reappears as staged changes and successive undos do
+    /// not depend on an index snapshot.
     Soft,
     /// `reset --mixed` + index tree: index only, worktree untouched.
     Mixed,
-    /// `reset --hard` + index tree: typed inverse for history operations that
-    /// changed tracked working-tree content (merge, rebase, cherry-pick).
+    /// Typed inverse for history operations that changed tracked
+    /// working-tree content (merge, rebase, cherry-pick, revert). Requires a
+    /// clean tracked worktree ([`Guard::clean`]) and runs `reset --keep`,
+    /// which also refuses to overwrite an untracked file.
     Hard,
+    /// `reset --hard` + index tree, only inside a sequence that re-applies the
+    /// discarded local changes from a recorded stash commit (branch
+    /// integration with automatic stash). Guarded by an exact status match.
+    HardBeforeStash,
 }
 
 /// Typed inverse of a recorded operation.
@@ -276,6 +625,20 @@ pub enum ReversibleAction {
     CreateTag {
         name: String,
         object: String,
+        message: Option<String>,
+        tagger: Option<String>,
+        tagger_email: Option<String>,
+        tagger_time: Option<i64>,
+    },
+    /// Point `refs/tags/<name>` back at `object`: the original tag object
+    /// (annotated) or commit (lightweight), which keeps id, message, tagger
+    /// and signature. When Git has pruned that object, an annotated tag is
+    /// rebuilt on `target` from the captured fields instead.
+    RestoreTag {
+        name: String,
+        object: String,
+        /// Commit the tag peels to; `None` for a lightweight tag.
+        target: Option<String>,
         message: Option<String>,
         tagger: Option<String>,
         tagger_email: Option<String>,
@@ -532,6 +895,67 @@ pub fn apply(
             *tagger_time,
             on_step,
         ),
+        ReversibleAction::RestoreTag {
+            name,
+            object,
+            target,
+            message,
+            tagger,
+            tagger_email,
+            tagger_time,
+        } => {
+            if object_exists(runner, worktree, object) {
+                let reference = format!("refs/tags/{name}");
+                if rev_parse(runner, worktree, &reference).is_ok() {
+                    return Err(failure(
+                        "restore-tag",
+                        format!("git update-ref {reference} {object}"),
+                        Some(object.clone()),
+                        AppError::new(
+                            "undo.precondition",
+                            ErrorCategory::GitState,
+                            "Le tag existe déjà.",
+                        )
+                        .with_detail(name.clone()),
+                    ));
+                }
+                return exec(
+                    runner,
+                    CommandSpec::new(GitSubcommand::UpdateRef, worktree)
+                        .arg(&reference)
+                        .arg(object)
+                        .arg(""),
+                    "restore-tag",
+                    format!("git update-ref {reference} {object}"),
+                    Some(object.clone()),
+                    on_step,
+                );
+            }
+            match (target, message) {
+                (Some(target), Some(_)) => create_tag(
+                    runner,
+                    worktree,
+                    name,
+                    target,
+                    message.as_deref(),
+                    tagger.as_deref(),
+                    tagger_email.as_deref(),
+                    *tagger_time,
+                    on_step,
+                ),
+                _ => Err(failure(
+                    "restore-tag",
+                    format!("git update-ref refs/tags/{name} {object}"),
+                    Some(object.clone()),
+                    AppError::new(
+                        "undo.object_missing",
+                        ErrorCategory::GitState,
+                        "L'objet Git de ce tag n'existe plus.",
+                    )
+                    .with_detail(object.clone()),
+                )),
+            }
+        }
         ReversibleAction::DeleteTag { name, expected } => {
             let current =
                 rev_parse(runner, worktree, &format!("refs/tags/{name}")).map_err(|_| {
@@ -626,7 +1050,39 @@ fn restore_head(
 ) -> Result<(), RestoreFailure> {
     match target {
         HeadTarget::Branch { name } => {
-            if current_head(runner, worktree) != Some(("branch".to_owned(), name.clone())) {
+            let current = current_head(runner, worktree);
+            if current == Some(("branch".to_owned(), name.clone())) {
+                // Already on the branch.
+            } else if let (None, Some(sha)) = (&current, sha) {
+                // Unborn branch (redo of a first commit): there is nothing to
+                // switch to, so create the branch HEAD already points at.
+                let reference = unborn_branch(runner, worktree)
+                    .filter(|reference| reference == &format!("refs/heads/{name}"))
+                    .ok_or_else(|| {
+                        failure(
+                            "restore-head",
+                            format!("git update-ref refs/heads/{name} {sha}"),
+                            Some(sha.to_owned()),
+                            AppError::new(
+                                "undo.precondition",
+                                ErrorCategory::GitState,
+                                "HEAD ne pointe pas sur la branche attendue.",
+                            )
+                            .with_detail(name.clone()),
+                        )
+                    })?;
+                exec(
+                    runner,
+                    CommandSpec::new(GitSubcommand::UpdateRef, worktree)
+                        .arg(&reference)
+                        .arg(sha)
+                        .arg(""),
+                    "restore-head",
+                    format!("git update-ref {reference} {sha}"),
+                    Some(sha.to_owned()),
+                    on_step,
+                )?;
+            } else {
                 checkout_target(
                     runner,
                     worktree,
@@ -673,7 +1129,11 @@ fn restore_head(
                     on_step,
                 )?;
             }
-            return restore_index(runner, worktree, index_tree, on_step, "restore-index");
+            // Soft keeps the staged content of the undone first commit.
+            return match mode {
+                RestoreMode::Soft => Ok(()),
+                _ => restore_index(runner, worktree, index_tree, on_step, "restore-index"),
+            };
         }
     }
 
@@ -682,39 +1142,94 @@ fn restore_head(
         None => rev_parse(runner, worktree, "HEAD")
             .map_err(|error| failure("restore-head", "git reset".to_owned(), None, error))?,
     };
+    let flag = match mode {
+        RestoreMode::Soft => "--soft",
+        RestoreMode::Mixed => "--mixed",
+        RestoreMode::Hard => "--keep",
+        RestoreMode::HardBeforeStash => "--hard",
+    };
+    // `reset --hard` discards local changes the sequence re-applies from the
+    // recorded stash. Snapshot them first so a failure later in the sequence
+    // still leaves them reachable; the snapshot is the step's recovery SHA.
+    let snapshot = match mode {
+        RestoreMode::HardBeforeStash => safety_snapshot(runner, worktree, on_step)?,
+        _ => None,
+    };
+    exec(
+        runner,
+        CommandSpec::new(GitSubcommand::Reset, worktree)
+            .arg(flag)
+            .arg(&sha),
+        "restore-head",
+        match &snapshot {
+            Some(snapshot) => {
+                format!("git reset {flag} {sha} (modifications locales : {snapshot})")
+            }
+            None => format!("git reset {flag} {sha}"),
+        },
+        snapshot.or_else(|| Some(sha.clone())),
+        on_step,
+    )?;
     match mode {
-        RestoreMode::Soft => exec(
-            runner,
-            CommandSpec::new(GitSubcommand::Reset, worktree)
-                .arg("--soft")
-                .arg(&sha),
-            "restore-head",
-            format!("git reset --soft {sha}"),
-            Some(sha.clone()),
-            on_step,
-        )?,
-        RestoreMode::Mixed => exec(
-            runner,
-            CommandSpec::new(GitSubcommand::Reset, worktree)
-                .arg("--mixed")
-                .arg(&sha),
-            "restore-head",
-            format!("git reset --mixed {sha}"),
-            Some(sha.clone()),
-            on_step,
-        )?,
-        RestoreMode::Hard => exec(
-            runner,
-            CommandSpec::new(GitSubcommand::Reset, worktree)
-                .arg("--hard")
-                .arg(&sha),
-            "restore-head",
-            format!("git reset --hard {sha}"),
-            Some(sha.clone()),
-            on_step,
-        )?,
+        // The index is the user's: never replaced by a snapshot.
+        RestoreMode::Soft => Ok(()),
+        // `reset --keep` leaves index and worktree equal to the target commit;
+        // re-reading an older index snapshot would desynchronise them.
+        RestoreMode::Hard => Ok(()),
+        RestoreMode::Mixed | RestoreMode::HardBeforeStash => {
+            restore_index(runner, worktree, index_tree, on_step, "restore-index")
+        }
     }
-    restore_index(runner, worktree, index_tree, on_step, "restore-index")
+}
+
+/// `git stash create`: a commit of the local changes that touches neither the
+/// worktree nor the stash list. `None` when there is nothing to save.
+fn safety_snapshot(
+    runner: &GitRunner,
+    worktree: &Path,
+    on_step: &mut dyn FnMut(&RestoreStep) -> Result<(), AppError>,
+) -> Result<Option<String>, RestoreFailure> {
+    let command = "git stash create".to_owned();
+    let step = RestoreStep {
+        step: "safety-snapshot".to_owned(),
+        command: command.clone(),
+        sha: None,
+    };
+    on_step(&step).map_err(|error| failure("safety-snapshot", command.clone(), None, error))?;
+    let outcome = runner
+        .run(&CommandSpec::new(GitSubcommand::Stash, worktree).arg("create"))
+        .map_err(|error| {
+            failure(
+                "safety-snapshot",
+                command.clone(),
+                None,
+                AppError::from(error),
+            )
+        })?;
+    if !outcome.success() {
+        let detail = format!("{}{}", outcome.stdout.redacted(), outcome.stderr.redacted());
+        let error = beebranch_core::classify_git_failure(outcome.exit_code(), &detail);
+        return Err(failure(
+            "safety-snapshot",
+            command,
+            None,
+            error.with_detail(detail),
+        ));
+    }
+    let sha = outcome.stdout.text_lossy().trim().to_owned();
+    Ok((!sha.is_empty()).then_some(sha))
+}
+
+/// Full ref of the unborn branch HEAD points at, `None` when HEAD resolves.
+fn unborn_branch(runner: &GitRunner, worktree: &Path) -> Option<String> {
+    if rev_parse(runner, worktree, "HEAD").is_ok() {
+        return None;
+    }
+    let outcome = runner
+        .run(&CommandSpec::new(GitSubcommand::Branch, worktree).arg("--show-current"))
+        .ok()?;
+    let name = outcome.stdout.text_lossy().trim().to_owned();
+    (outcome.success() && !name.is_empty()).then(|| format!("refs/heads/{name}"))
 }
 
 fn checkout_target(
@@ -1083,18 +1598,40 @@ fn apply_stash(
                 ));
             }
         }
+        // Drop the entry holding this exact commit, never a positional
+        // selector: another stash may have been pushed since.
+        let entry = crate::stash::find(runner, worktree, expected_sha)
+            .map_err(|error| failure("stash-drop", "git stash list", None, error))?
+            .ok_or_else(|| {
+                failure(
+                    "stash-drop",
+                    format!("git stash drop {selector}"),
+                    Some(expected_sha.to_owned()),
+                    stash_missing(expected_sha),
+                )
+            })?;
         exec(
             runner,
             CommandSpec::new(GitSubcommand::Stash, worktree)
                 .arg("drop")
-                .arg(selector),
+                .arg(&entry.selector),
             "stash-drop",
-            format!("git stash drop {selector}"),
+            format!("git stash drop {}", entry.selector),
             Some(expected_sha.to_owned()),
             on_step,
         )?;
     }
     Ok(())
+}
+
+fn stash_missing(sha: &str) -> AppError {
+    AppError::new(
+        "undo.stash_missing",
+        ErrorCategory::GitState,
+        "Le stash enregistré pour cette opération est introuvable.",
+    )
+    .with_detail(sha.to_owned())
+    .with_remediation("Aucune modification n'a été appliquée. Inspectez `git stash list`.")
 }
 
 fn add_worktree(
@@ -1238,17 +1775,204 @@ fn write_tree(runner: &GitRunner, worktree: &Path) -> Result<String, AppError> {
 }
 
 fn status_hash(runner: &GitRunner, worktree: &Path) -> Result<String, AppError> {
+    Ok(status_hashes(runner, worktree)?.0)
+}
+
+/// Hashes of the status and of the working-tree content it points at.
+///
+/// The status (porcelain v2) carries the index object ids, so staged content
+/// is covered; it does not carry worktree content, so every listed path is
+/// read and hashed too. Read-only: no index refresh, no lock.
+fn status_hashes(runner: &GitRunner, worktree: &Path) -> Result<(String, String), AppError> {
     let outcome = runner.run(&CommandSpec::new(GitSubcommand::Status, worktree).args([
         "--porcelain=v2",
         "-z",
-        "--branch",
+        // No `--branch`: HEAD is compared separately, and the ahead/behind
+        // counts change on every fetch without touching local work.
         "--untracked-files=all",
         "--ignore-submodules=none",
         "--find-renames",
     ]))?;
     let outcome = outcome.ensure_success()?;
-    let digest = Sha256::digest(outcome.stdout.bytes());
-    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+    let status = hex(&Sha256::digest(outcome.stdout.bytes()));
+    let text = outcome.stdout.text_lossy();
+    let mut content = Sha256::new();
+    let mut entries = text.split('\0');
+    while let Some(entry) = entries.next() {
+        let path = match entry.as_bytes().first() {
+            // `1 XY sub mH mI mW hH hI path`
+            Some(b'1') => entry.splitn(9, ' ').nth(8),
+            // `2 XY sub mH mI mW hH hI Xscore path`, then the original path.
+            Some(b'2') => {
+                let path = entry.splitn(10, ' ').nth(9);
+                entries.next();
+                path
+            }
+            // `u XY sub m1 m2 m3 mW h1 h2 h3 path`
+            Some(b'u') => entry.splitn(11, ' ').nth(10),
+            // `? path`
+            Some(b'?') => entry.get(2..),
+            _ => None,
+        };
+        let Some(path) = path else { continue };
+        content.update(path.as_bytes());
+        content.update([0]);
+        content.update(content_of(&worktree.join(path))?.as_bytes());
+        content.update([0]);
+    }
+    Ok((status, hex(&content.finalize())))
+}
+
+/// Hash of one working-tree entry: file bytes, link target, or a marker.
+fn content_of(path: &Path) -> Result<String, AppError> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok("absent".to_owned())
+        }
+        Err(error) => return Err(unreadable(path, error)),
+    };
+    if metadata.file_type().is_symlink() {
+        let target = std::fs::read_link(path).map_err(|error| unreadable(path, error))?;
+        return Ok(format!("link:{}", target.display()));
+    }
+    if metadata.is_dir() {
+        // A submodule: its own state is reported by the status line.
+        return Ok("dir".to_owned());
+    }
+    hash_file(path.to_path_buf())
+}
+
+fn unreadable(path: &Path, error: std::io::Error) -> AppError {
+    AppError::new(
+        "undo.file_unreadable",
+        ErrorCategory::Permission,
+        "Un fichier affecté n'a pas pu être lu.",
+    )
+    .with_detail(format!("{}: {error}", path.display()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Trees a `reset --keep` inverse would check out, resolved to commits.
+fn keep_targets(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+) -> Vec<String> {
+    match action {
+        ReversibleAction::Sequence { actions } => actions
+            .iter()
+            .flat_map(|part| keep_targets(runner, discovery, part))
+            .collect(),
+        ReversibleAction::RestoreHead {
+            target, sha, mode, ..
+        } if *mode == RestoreMode::Hard => {
+            let Ok(worktree) = discovery.worktree() else {
+                return Vec::new();
+            };
+            let resolved = match sha {
+                Some(sha) => Some(sha.clone()),
+                None => match target {
+                    HeadTarget::Branch { name } => {
+                        rev_parse(runner, worktree, &format!("refs/heads/{name}")).ok()
+                    }
+                    HeadTarget::Detached { sha } => Some(sha.clone()),
+                    HeadTarget::Unborn { .. } => None,
+                },
+            };
+            resolved.into_iter().collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Every path tracked by `sha`'s tree.
+fn tree_paths(runner: &GitRunner, worktree: &Path, sha: &str) -> Result<Vec<String>, AppError> {
+    let outcome = runner.run(
+        &CommandSpec::new(GitSubcommand::LsTree, worktree)
+            .arg("-r")
+            .arg("-z")
+            .arg("--name-only")
+            .arg(sha),
+    )?;
+    let outcome = outcome.ensure_success()?;
+    Ok(outcome
+        .stdout
+        .text_lossy()
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
+/// Paths Git reports as untracked, one entry per file.
+fn untracked_paths(runner: &GitRunner, worktree: &Path) -> Result<Vec<String>, AppError> {
+    let outcome = runner.run(&CommandSpec::new(GitSubcommand::Status, worktree).args([
+        "--porcelain=v2",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+        "--no-renames",
+    ]))?;
+    let outcome = outcome.ensure_success()?;
+    let text = outcome.stdout.text_lossy();
+    Ok(text
+        .split('\0')
+        .filter_map(|entry| entry.strip_prefix("? "))
+        .map(str::to_owned)
+        .collect())
+}
+
+/// Untracked files `reset --keep` would refuse to overwrite; Git then leaves
+/// the repository untouched, so the undo must be refused, not marked failed.
+fn untracked_blockers(
+    runner: &GitRunner,
+    discovery: &RepoDiscovery,
+    action: &ReversibleAction,
+) -> Result<Vec<String>, AppError> {
+    let targets = keep_targets(runner, discovery, action);
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let worktree = discovery.worktree()?;
+    let untracked = untracked_paths(runner, worktree)?;
+    let mut blocked: Vec<String> = Vec::new();
+    for sha in targets {
+        for path in tree_paths(runner, worktree, &sha)? {
+            if untracked.contains(&path) && !blocked.contains(&path) {
+                blocked.push(path);
+            }
+        }
+    }
+    Ok(blocked)
+}
+
+/// Tracked paths with staged or unstaged modifications (untracked files are
+/// listed by [`untracked_blockers`] instead).
+fn tracked_changes(runner: &GitRunner, worktree: &Path) -> Result<Vec<String>, AppError> {
+    let outcome = runner.run(&CommandSpec::new(GitSubcommand::Status, worktree).args([
+        "--porcelain=v2",
+        "-z",
+        "--untracked-files=normal",
+        "--ignore-submodules=none",
+        "--no-renames",
+    ]))?;
+    let outcome = outcome.ensure_success()?;
+    let text = outcome.stdout.text_lossy();
+    Ok(text
+        .split('\0')
+        .filter_map(|entry| match entry.as_bytes().first() {
+            // `1 XY sub mH mI mW hH hI path`
+            Some(b'1') => entry.splitn(9, ' ').nth(8),
+            // `u XY sub m1 m2 m3 mW h1 h2 h3 path`
+            Some(b'u') => entry.splitn(11, ' ').nth(10),
+            _ => None,
+        })
+        .map(str::to_owned)
+        .collect())
 }
 
 fn hash_file(path: PathBuf) -> Result<String, AppError> {

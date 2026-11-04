@@ -54,7 +54,7 @@ where
         + 'static,
 {
     tauri::async_runtime::spawn_blocking(move || {
-        let slot: Arc<Mutex<Option<T>>> = Arc::new(Mutex::new(None));
+        let slot: Arc<Mutex<Option<(T, String)>>> = Arc::new(Mutex::new(None));
         let writer = slot.clone();
         let repo_id = session.id().as_str().to_owned();
         let generation = session.mutate(move |runner, discovery| {
@@ -77,7 +77,7 @@ where
                 .map_err(|error| AppError::internal(format!("sérialisation empreinte: {error}")))?;
             let refs_json = serde_json::to_string(&meta.touched_refs)
                 .map_err(|error| AppError::internal(format!("sérialisation refs: {error}")))?;
-            store
+            let record = store
                 .record_undo(NewUndoRecord {
                     repo_id: &repo_id,
                     kind: &draft.kind,
@@ -90,11 +90,11 @@ where
                 })
                 .map_err(store_error)?;
             if let Ok(mut slot) = writer.lock() {
-                *slot = Some(data);
+                *slot = Some((data, record.id));
             }
             Ok(areas)
         })?;
-        let data = slot
+        let (data, undo_id) = slot
             .lock()
             .map_err(|_| AppError::internal("verrou de résultat de mutation"))?
             .take()
@@ -104,6 +104,7 @@ where
             data,
             generation,
             state,
+            undo_id: Some(undo_id),
         })
     })
     .await
@@ -129,11 +130,58 @@ pub struct MutationResult<T> {
     pub data: T,
     pub generation: u64,
     pub state: RepoState,
+    /// Journal entry recorded by a reversible mutation, so a caller can offer
+    /// to undo exactly this operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undo_id: Option<String>,
 }
 
-/// Run a mutation on the repository queue, capture its data, refresh the
-/// structural state and return the new generation.
+/// Run a mutation that is not recorded in the undo journal (stage, discard,
+/// pull…) on the repository queue, capture its data, refresh the structural
+/// state and return the new generation.
+///
+/// The mutation invalidates the redo branch, exactly like a new recorded
+/// operation: the state a redo starts from no longer holds. This happens even
+/// when the job fails, since a failed job may still have written (a pull that
+/// stops on conflicts).
 pub async fn run_mutation<T, F>(
+    store: Arc<Store>,
+    session: Arc<RepoSession>,
+    job: F,
+) -> Result<MutationResult<T>, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce(
+            &GitRunner,
+            &beebranch_git::discover::RepoDiscovery,
+        ) -> Result<(T, Vec<InvalidationArea>), AppError>
+        + Send
+        + 'static,
+{
+    run_mutation_inner(Some(store), session, job).await
+}
+
+/// Like [`run_mutation`] for operations that only touch the remote side or
+/// remote-tracking refs (fetch, push): they cannot change what a redo
+/// restores, so the redo branch is kept.
+pub async fn run_mutation_keeping_redo<T, F>(
+    session: Arc<RepoSession>,
+    job: F,
+) -> Result<MutationResult<T>, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce(
+            &GitRunner,
+            &beebranch_git::discover::RepoDiscovery,
+        ) -> Result<(T, Vec<InvalidationArea>), AppError>
+        + Send
+        + 'static,
+{
+    run_mutation_inner(None, session, job).await
+}
+
+async fn run_mutation_inner<T, F>(
+    store: Option<Arc<Store>>,
     session: Arc<RepoSession>,
     job: F,
 ) -> Result<MutationResult<T>, AppError>
@@ -149,8 +197,14 @@ where
     tauri::async_runtime::spawn_blocking(move || {
         let slot: Arc<Mutex<Option<T>>> = Arc::new(Mutex::new(None));
         let writer = slot.clone();
+        let repo_id = session.id().as_str().to_owned();
         let generation = session.mutate(move |runner, discovery| {
-            let (data, areas) = job(runner, discovery)?;
+            let result = job(runner, discovery);
+            // Inside the queue, so no undo/redo can interleave.
+            if let Some(store) = &store {
+                store.invalidate_redo(&repo_id).map_err(store_error)?;
+            }
+            let (data, areas) = result?;
             if let Ok(mut slot) = writer.lock() {
                 *slot = Some(data);
             }
@@ -166,6 +220,7 @@ where
             data,
             generation,
             state,
+            undo_id: None,
         })
     })
     .await

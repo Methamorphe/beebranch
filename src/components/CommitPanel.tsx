@@ -4,7 +4,7 @@ import { commitConfig, commitCreate, statusGet } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
 import { useI18n } from '../i18n'
 import { SUBJECT_LIMIT, subjectRemaining } from '../lib/commitMessage'
-import type { CommitConfigView, CommitOutcome, OperationProgress, StatusReport } from '../types/git'
+import type { CommitConfigView, CommitOutcome, OperationProgress, StatusReport, UndoEntry } from '../types/git'
 import shared from './p1.module.css'
 import styles from './CommitPanel.module.css'
 
@@ -12,13 +12,16 @@ type Props = {
   repoId: string
   generation: number
   onMutated: () => void
-  onUndo?: () => Promise<unknown>
+  /** Undo `expectedId` only; resolves to a falsy value when nothing was undone. */
+  onUndo?: (expectedId: string) => Promise<unknown>
+  /** Next operation to undo: the button only targets this panel's commit. */
+  undoTop?: UndoEntry | null
   compact?: boolean
 }
 
 const drafts = new Map<string, string>()
 
-export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = false }: Props) {
+export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = null, compact = false }: Props) {
   const { t, plural } = useI18n()
   const [message, setDraftMessage] = useState(() => drafts.get(repoId) ?? '')
   const setMessage = (next: string) => { drafts.set(repoId, next); setDraftMessage(next) }
@@ -29,6 +32,8 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
   const [config, setConfig] = useState<CommitConfigView | null>(null)
   const [status, setStatus] = useState<StatusReport | null>(null)
   const [outcome, setOutcome] = useState<CommitOutcome | null>(null)
+  /** Journal entry of `outcome`, the only record the undo button may target. */
+  const [undoId, setUndoId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [errorOutput, setErrorOutput] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -99,6 +104,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
     setError(null)
     setErrorOutput(null)
     setOutcome(null)
+    setUndoId(null)
     setCopied(false)
     setHookLog([])
     hooking.current = true
@@ -112,6 +118,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
         skipHooks,
       })
       setOutcome(result.data)
+      setUndoId(result.undoId ?? null)
       setMessage('')
       setAmend(false)
       setKeepMessage(false)
@@ -139,16 +146,21 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
     }
   }
 
+  // Offered only while this commit is still the next operation to undo: once
+  // anything else is recorded, undone or redone, the button disappears.
+  const canUndoCommit = Boolean(onUndo && undoId && undoTop?.id === undoId && !undoTop.blocked)
+
   const undoCommit = async () => {
-    if (!onUndo) {
+    if (!onUndo || !undoId) {
       return
     }
     setUndoing(true)
     try {
-      await onUndo()
-      setOutcome(null)
-    } catch {
-      // App owns the user-facing error for a failed undo.
+      // App reports the outcome and the error; it never rejects.
+      if (await onUndo(undoId)) {
+        setOutcome(null)
+        setUndoId(null)
+      }
     } finally {
       setUndoing(false)
     }
@@ -277,7 +289,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, compact = f
                 <button type="button" className={shared.secondary} onClick={() => void copySha()}>
                   {copied ? t('commit.panel.shaCopied') : t('commit.panel.copySha')}
                 </button>
-                {onUndo ? (
+                {canUndoCommit ? (
                   <button type="button" className={shared.secondary} disabled={undoing} onClick={() => void undoCommit()}>
                     {undoing ? t('commit.panel.undoing') : t('commit.panel.undoCommit')}
                   </button>

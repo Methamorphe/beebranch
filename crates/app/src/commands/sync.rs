@@ -8,7 +8,8 @@ use tauri::{AppHandle, State};
 
 use crate::commands::util::{
     announce_hooks, begin_destructive, begin_operation, emit_operation, finish_destructive,
-    finish_operation, new_operation_id, operation_progress, run_mutation, MutationResult,
+    finish_operation, new_operation_id, operation_progress, run_mutation,
+    run_mutation_keeping_redo, MutationResult,
 };
 use crate::state::AppState;
 
@@ -203,6 +204,7 @@ pub async fn sync_fetch_all(
         data: outcomes,
         generation: session.generation(),
         state: session.state(),
+        undo_id: None,
     })
 }
 
@@ -243,7 +245,7 @@ async fn fetch_remote(
     let owned_id = operation_id.clone();
     let owned_remote = remote.to_owned();
     let owned_repo = repo_id.to_owned();
-    let result = run_mutation(session.clone(), {
+    let result = run_mutation_keeping_redo(session.clone(), {
         let app = app_handle;
         let repo_id = owned_repo.clone();
         move |_, discovery| {
@@ -298,7 +300,7 @@ pub async fn sync_fetch(
         &session.worktree().display().to_string(),
     )?;
     let operations = state.operations.clone();
-    let result = run_mutation(session.clone(), {
+    let result = run_mutation_keeping_redo(session.clone(), {
         let operation_id = operation_id.clone();
         let remote = request.remote.clone();
         let app = app.clone();
@@ -358,7 +360,7 @@ pub async fn sync_pull(
         &session.worktree().display().to_string(),
     )?;
     let operations = state.operations.clone();
-    let result = run_mutation(session, {
+    let result = run_mutation(state.store.clone(), session, {
         let operation_id = operation_id.clone();
         let app = app.clone();
         move |_, discovery| {
@@ -476,7 +478,7 @@ pub async fn sync_push(
     // lookup needlessly authenticates again and could silently authorize
     // overwriting a newer tip than the one recorded above.
     let force_with_lease = journal_id.as_ref().map(|(_, _, sha)| sha.clone());
-    let result = run_mutation(session, {
+    let result = run_mutation_keeping_redo(session, {
         let operation_id = operation_id.clone();
         let app = app.clone();
         move |_, discovery| {
