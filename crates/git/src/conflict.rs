@@ -74,6 +74,19 @@ pub struct ConflictRegion {
     pub ours: Vec<String>,
     pub base: Vec<String>,
     pub theirs: Vec<String>,
+    /// Text after `<<<<<<< ` (e.g. `HEAD`, `Updated upstream`).
+    pub ours_label: String,
+    /// Text after `>>>>>>> ` (e.g. a branch name, `Stashed changes`).
+    pub theirs_label: String,
+}
+
+/// The label Git writes after a marker, without the line's carriage return.
+fn marker_label(line: &str) -> String {
+    line.get(8..)
+        .unwrap_or("")
+        .trim_end_matches('\r')
+        .trim()
+        .to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,6 +208,7 @@ pub fn conflict_regions(content: &str) -> Vec<ConflictRegion> {
             continue;
         }
         let start = index + 1;
+        let ours_label = marker_label(lines[index]);
         let mut ours = Vec::new();
         let mut base = Vec::new();
         let mut theirs = Vec::new();
@@ -232,6 +246,8 @@ pub fn conflict_regions(content: &str) -> Vec<ConflictRegion> {
                 ours,
                 base,
                 theirs,
+                ours_label,
+                theirs_label: marker_label(lines[cursor]),
             });
             index = cursor + 1;
         } else {
@@ -413,6 +429,8 @@ mod tests {
         assert_eq!(regions[0].ours, vec!["ours 1", "ours 2"]);
         assert!(regions[0].base.is_empty());
         assert_eq!(regions[0].theirs, vec!["theirs"]);
+        assert_eq!(regions[0].ours_label, "HEAD");
+        assert_eq!(regions[0].theirs_label, "feature");
 
         let diff3 =
             "a\n<<<<<<< ours\nleft\n||||||| base\noriginal\n=======\nright\n>>>>>>> theirs\nb\n";
@@ -432,5 +450,14 @@ mod tests {
         assert_eq!(regions.len(), 2);
         assert_eq!(regions[1].index, 1);
         assert_eq!(regions[1].start, 8);
+    }
+
+    #[test]
+    fn keeps_stash_marker_labels_without_carriage_returns() {
+        let stash = "<<<<<<< Updated upstream\r\na\r\n=======\r\nb\r\n>>>>>>> Stashed changes\r\n";
+        let regions = conflict_regions(stash);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].ours_label, "Updated upstream");
+        assert_eq!(regions[0].theirs_label, "Stashed changes");
     }
 }

@@ -477,7 +477,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await waitFor(client, `document.querySelector('[data-central-editor] input, [data-central-editor] textarea') !== null`, 'central conflict editor')
   await waitFor(client, `document.querySelector('[aria-label="Résoudre les conflits par région"]') !== null`, 'conflict regions')
   await check('conflict-region-listed', `document.querySelector('[aria-label="Résoudre les conflits par région"]').innerText.includes('Conflit 1')`)
-  await evaluate(client, `Array.from(document.querySelectorAll('[aria-label="Résoudre les conflits par région"] button')).find((button) => button.textContent.trim() === 'Prendre les leurs').click()`)
+  await evaluate(client, `Array.from(document.querySelectorAll('[aria-label="Résoudre les conflits par région"] button')).find((button) => button.textContent.trim() === 'Garder theirs').click()`)
   await check('conflict-region-choice-writes-marker-free-result', `document.querySelector('textarea[aria-label="Résolution du conflit"]')?.value.trimEnd() === 'theirs'`)
   await check('conflicts-replace-center', `document.querySelector('canvas').closest('[hidden]') !== null && !document.querySelector('[class*="historyTool"]')`)
   await screenshot('workspace-conflicts.png')

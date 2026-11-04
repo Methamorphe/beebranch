@@ -281,7 +281,7 @@ function mockScript(commits, rows, diffLines) {
       ours: { content: 'ours\\n', bytes: 5, truncated: false },
       theirs: { content: 'theirs\\n', bytes: 7, truncated: false },
       working: { content: '<<<<<<< HEAD\\nours\\n=======\\ntheirs\\n>>>>>>> theirs\\n', bytes: 43, truncated: false },
-      regions: [{ index: 0, start: 1, end: 5, ours: ['ours'], base: [], theirs: ['theirs'] }] }),
+      regions: [{ index: 0, start: 1, end: 5, ours: ['ours'], base: [], theirs: ['theirs'], oursLabel: 'HEAD', theirsLabel: 'theirs' }] }),
     terminal_open: (args) => {
       (window.__terminalCalls ??= []).push(['open', args])
       return { sessionId: args.request.sessionId, shell: '/bin/sh', cwd: '/tmp/beebranch-demo' }
@@ -1396,7 +1396,7 @@ try {
   })()`)
   await delay(150)
   await evaluate(client, `(() => {
-    const accept = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Accepter')
+    const accept = document.querySelector('[aria-label="Résoudre les conflits par région"] button[aria-pressed]')
     if (accept) accept.click()
   })()`)
   await delay(100)
@@ -3236,7 +3236,7 @@ try {
   await waitFor(client, `document.querySelector('section[aria-label="Conflits et opération"] textarea') !== null`, 'history operation panel')
   await waitFor(client, `!document.querySelector('section[aria-label="Conflits et opération"] textarea').disabled`, 'conflict loaded')
   assertUI('history-continue-blocked-until-resolved', await evaluate(client, `[...document.querySelectorAll('section[aria-label="Conflits et opération"] button')].find((button) => button.textContent.trim() === 'Continuer').disabled`))
-  await evaluate(client, `[...document.querySelectorAll('section[aria-label="Conflits et opération"] button')].find((button) => button.textContent.trim() === 'Accepter').click()`)
+  await evaluate(client, `document.querySelector('section[aria-label="Conflits et opération"] [aria-label="Résoudre les conflits par région"] button[aria-pressed]').click()`)
   await evaluate(client, `[...document.querySelectorAll('section[aria-label="Conflits et opération"] button')].find((button) => button.textContent.includes('Marquer résolu')).click()`)
   await waitFor(client, `!document.querySelector('section[aria-label="Conflits et opération"] textarea')`, 'last conflict resolved')
   assertUI('history-last-conflict-keeps-operation-controls', await evaluate(client, `(() => {

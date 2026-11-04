@@ -15,6 +15,16 @@ import {
 import { errorMessage } from '../ipc/client'
 import type { ConflictRegion, ConflictView, InProgressOperation, RepoState } from '../types/git'
 import { ConfirmBar } from './ConfirmBar'
+import {
+  assembleRegions,
+  choiceKind,
+  countMarkers,
+  presetChoice,
+  sideNames,
+  type Choices,
+  type PresetKind,
+  type RegionChoice,
+} from './conflictResolution'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -43,57 +53,6 @@ function operationLabel(
   return operation.kind
 }
 
-function combine(view: ConflictView | null): string {
-  if (!view) {
-    return ''
-  }
-  const parts = [view.ours?.content, view.theirs?.content]
-    .map((value) => value?.trimEnd())
-    .filter((value): value is string => Boolean(value))
-  return `${parts.join('\n\n')}\n`
-}
-
-type RegionChoice = { ours: boolean[]; theirs: boolean[]; base: boolean }
-
-function defaultChoices(regions: ConflictRegion[]): Record<number, RegionChoice> {
-  return Object.fromEntries(
-    regions.map((region) => [
-      region.index,
-      {
-        ours: region.ours.map(() => true),
-        theirs: region.theirs.map(() => false),
-        base: false,
-      },
-    ]),
-  )
-}
-
-/** Working file with every marker block replaced by the chosen lines. */
-function assembleRegions(
-  view: ConflictView | null,
-  choices: Record<number, RegionChoice>,
-): string {
-  const lines = (view?.working?.content ?? '').split('\n')
-  const regions = view?.regions ?? []
-  const out: string[] = []
-  let cursor = 0
-  for (const region of regions) {
-    out.push(...lines.slice(cursor, region.start - 1))
-    const choice = choices[region.index]
-    if (!choice) {
-      out.push(...lines.slice(region.start - 1, region.end))
-    } else if (choice.base) {
-      out.push(...region.base)
-    } else {
-      out.push(...region.ours.filter((_, index) => choice.ours[index]))
-      out.push(...region.theirs.filter((_, index) => choice.theirs[index]))
-    }
-    cursor = region.end
-  }
-  out.push(...lines.slice(cursor))
-  return out.join('\n')
-}
-
 /** The conflict a draft was written against: same path and same three sides. */
 function conflictSignature(view: ConflictView | null): string {
   if (!view) return ''
@@ -115,13 +74,17 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
   const [allowMarkers, setAllowMarkers] = useState(false)
-  const [regionChoices, setRegionChoices] = useState<Record<number, RegionChoice>>({})
+  const [regionChoices, setRegionChoices] = useState<Choices>({})
+  /** The result was typed by hand: a per-conflict choice would rewrite it. */
+  const [manualEdit, setManualEdit] = useState(false)
+  const [lineMode, setLineMode] = useState<Record<number, boolean>>({})
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const request = useRef(0)
   const pending = useRef(false)
   const mounted = useRef(true)
   const editorPath = useRef<string | null>(null)
+  const regionsRef = useRef<HTMLDivElement | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [abortOpen, setAbortOpen] = useState(false)
@@ -132,11 +95,18 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
   const skippable = controllable && state.operation?.kind !== 'merge'
   const editable = Boolean(selected && files.includes(selected) && view?.path === selected
     && !busy && !loading && !stale && !view?.binary && !view?.tooLarge)
+  const signature = conflictSignature(view)
 
   useEffect(() => {
     viewRef.current = view
-    setRegionChoices(defaultChoices(view?.regions ?? []))
   }, [view])
+
+  // Choices describe one conflict: a refresh of the same conflict keeps them.
+  useEffect(() => {
+    setRegionChoices({})
+    setLineMode({})
+    setManualEdit(false)
+  }, [signature])
 
   useEffect(() => {
     onDirtyChange?.(dirty || stale)
@@ -173,7 +143,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
         if (token !== request.current || !mounted.current) return
         if (!dirtyRef.current) {
           setView(next)
-          setContent(next.working?.content ?? combine(next))
+          setContent(next.working?.content ?? '')
         }
       } catch (cause) {
         if (token !== request.current || !mounted.current) return
@@ -242,19 +212,58 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
     setSelected(files[next] ?? null)
   }
 
-  const accept = (side: 'ours' | 'theirs' | 'both') => {
-    if (!view || !editable) {
-      return
-    }
-    const next =
-      side === 'ours'
-        ? view.ours?.content ?? ''
-        : side === 'theirs'
-          ? view.theirs?.content ?? ''
-          : combine(view)
-    setContent(next)
+  const markDirty = () => {
     dirtyRef.current = true
     setDirty(true)
+  }
+
+  const regions = view?.regions ?? []
+  const working = view?.working?.content ?? ''
+  const names = sideNames(view, state.head, state.operation)
+  const oursName = names.ours
+    ?? t(names.source === 'rebase' ? 'ops.conflicts.name.onto' : 'ops.conflicts.name.current')
+  const theirsName = names.source === 'stash'
+    ? t('ops.conflicts.name.stash')
+    : names.theirs ?? t('ops.conflicts.name.incoming')
+  const decided = regions.filter((region) => regionChoices[region.index]).length
+  const markersLeft = countMarkers(content)
+  const pendingRegions = manualEdit ? 0 : regions.length - decided
+
+  const choose = (region: ConflictRegion, next: RegionChoice) => {
+    if (!editable) return
+    if (manualEdit && !window.confirm(t('ops.conflicts.manualOverwrite'))) return
+    const choices = { ...regionChoices, [region.index]: next }
+    setRegionChoices(choices)
+    setContent(assembleRegions(working, regions, choices))
+    setManualEdit(false)
+    markDirty()
+  }
+
+  /** Whole-file versions, offered only when there are no marker blocks to pick from. */
+  const takeWholeFile = (side: 'ours' | 'theirs') => {
+    if (!view || !editable) return
+    setContent((side === 'ours' ? view.ours?.content : view.theirs?.content) ?? '')
+    markDirty()
+  }
+
+  const startOver = () => {
+    if (!editable) return
+    if (dirty && !window.confirm(t('ops.conflicts.discardConfirm'))) return
+    setRegionChoices({})
+    setLineMode({})
+    setManualEdit(false)
+    setAllowMarkers(false)
+    setContent(working)
+    dirtyRef.current = false
+    setDirty(false)
+  }
+
+  const scrollToNextPending = () => {
+    const target = regions.find((region) => !regionChoices[region.index])
+    if (!target) return
+    regionsRef.current
+      ?.querySelector(`[data-region="${target.index}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const reload = async () => {
@@ -268,7 +277,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
       const next = await conflictGet(repoId, selected)
       if (!mounted.current) return
       setView(next)
-      setContent(next.working?.content ?? combine(next))
+      setContent(next.working?.content ?? '')
       dirtyRef.current = false
       setDirty(false)
       setStale(false)
@@ -281,8 +290,10 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
     }
   }
 
+  const canSave = editable && (markersLeft === 0 || allowMarkers)
+
   const save = async () => {
-    if (!selected || !editable || pending.current) {
+    if (!selected || !canSave || pending.current) {
       return
     }
     pending.current = true
@@ -342,6 +353,58 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
     }
   }
 
+  const contextLine = view && !view.binary && !view.tooLarge
+    ? t(`ops.conflicts.context.${names.source}`, { ours: oursName, theirs: theirsName })
+    : null
+
+  const presets: { kind: PresetKind; label: string }[] = [
+    { kind: 'ours', label: t('ops.conflicts.choice.keep', { name: oursName }) },
+    { kind: 'theirs', label: t('ops.conflicts.choice.keep', { name: theirsName }) },
+    { kind: 'both', label: t('ops.conflicts.choice.both', { first: oursName, second: theirsName }) },
+  ]
+
+  const blockedReason = !editable
+    ? null
+    : pendingRegions > 0
+      ? t('ops.conflicts.pendingLeft', { count: formatNumber(pendingRegions) })
+      : markersLeft > 0 && !allowMarkers
+        ? t('ops.conflicts.markersRemaining', { count: formatNumber(markersLeft) })
+        : null
+
+  const renderLines = (
+    region: ConflictRegion,
+    side: 'ours' | 'theirs',
+    choice: RegionChoice | undefined,
+  ) => {
+    const lines = region[side]
+    if (!lines.length) {
+      return <span className={`${p2.muted} ${p2.small}`}>{t('ops.conflicts.region.empty')}</span>
+    }
+    if (!lineMode[region.index]) {
+      return <pre className={p2.conflictCode}>{lines.join('\n')}</pre>
+    }
+    const empty: RegionChoice = {
+      ours: region.ours.map(() => false),
+      theirs: region.theirs.map(() => false),
+      base: false,
+    }
+    return lines.map((line, position) => (
+      <label key={`${side}-${position}`} className={p2.regionLine}>
+        <input
+          type="checkbox"
+          disabled={!editable || Boolean(choice?.base)}
+          checked={Boolean(choice?.[side][position])}
+          onChange={(event) => {
+            const from = choice ?? empty
+            const flags = from[side].map((value, at) => at === position ? event.target.checked : value)
+            choose(region, { ...from, [side]: flags, base: false })
+          }}
+        />
+        <code>{line || ' '}</code>
+      </label>
+    ))
+  }
+
   return (
     <div className={`${p2.screen} ${p2.conflictsScreen}`}>
       {error ? <p className={p2.alert} role="alert">{error}</p> : null}
@@ -360,56 +423,77 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
           <p>{t(controllable ? 'ops.conflicts.readyBody' : 'ops.conflicts.emptyBody')}</p>
         </div>
       ) : (
-      <div className={p2.threeColumns}>
-        <div className={p2.fileList}>
-          <div className={`${p2.between} ${p2.small} ${p2.muted}`} style={{ padding: '4px 6px' }}>
-            <span>{t('ops.conflicts.filesHeader')}</span>
-            <span>{formatNumber(files.length)}</span>
+      <div className={files.length > 1 ? p2.threeColumns : p2.oneColumn}>
+        {files.length > 1 ? (
+          <div className={p2.fileList}>
+            <div className={`${p2.between} ${p2.small} ${p2.muted}`} style={{ padding: '4px 6px' }}>
+              <span>{t('ops.conflicts.filesHeader')}</span>
+              <span>{formatNumber(files.length)}</span>
+            </div>
+            {files.map((path) => (
+              <button
+                key={path}
+                type="button"
+                className={`${selected === path ? p2.listItemOn : p2.listItem} ${p2.conflictFile}`}
+                disabled={busy}
+                title={path}
+                onClick={() => {
+                  if (path === selected) return
+                  if ((dirty || stale) && !window.confirm(t('ops.conflicts.discardConfirm'))) {
+                    return
+                  }
+                  dirtyRef.current = false
+                  setDirty(false)
+                  setSelected(path)
+                }}
+              >
+                <span className={p2.warn} aria-hidden="true">●</span>
+                <span className={p2.listSub} style={{ color: 'var(--text)' }}>{path}</span>
+              </button>
+            ))}
           </div>
-          {files.map((path) => (
-            <button
-              key={path}
-              type="button"
-              className={selected === path ? p2.listItemOn : p2.listItem}
-              disabled={busy}
-              onClick={() => {
-                if (path === selected) return
-                if ((dirty || stale) && !window.confirm(t('ops.conflicts.discardConfirm'))) {
-                  return
-                }
-                dirtyRef.current = false
-                setDirty(false)
-                setSelected(path)
-              }}
-            >
-              <span className={p2.warn}>!</span>
-              <span className={p2.listSub} style={{ color: 'var(--text)' }}>
-                {path}
+        ) : null}
+
+        <div className={p2.conflictMain}>
+          <div className={`${p2.footer} ${p2.small}`} style={{ borderTop: 0 }}>
+            <strong className={p2.mono} style={{ color: 'var(--text)' }}>{selected}</strong>
+            {regions.length ? (
+              <span className={`${p2.chip} ${decided === regions.length ? p2.chipGood : p2.chipWarn}`}>
+                {t('ops.conflicts.progress', {
+                  done: formatNumber(decided),
+                  total: formatNumber(regions.length),
+                })}
               </span>
-            </button>
-          ))}
-          <div className={`${p2.card} ${p2.small} ${p2.muted}`} style={{ marginTop: 10 }}>
-            <div>{t('ops.conflicts.step.compare')}</div>
-            <div>{t('ops.conflicts.step.choose')}</div>
-            <div>{t('ops.conflicts.step.resolve')}</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
-          <div className={`${p2.footer} ${p2.mono} ${p2.small}`} style={{ borderTop: 0 }}>
-            <span>{selected}</span>
+            ) : null}
             <span className={p2.spacer} />
-            <button type="button" className={p2.ghost} onClick={() => move(-1)}>
-              {t('ops.conflicts.previous')}
-            </button>
-            <span className={p2.muted}>
-              {formatNumber(index + 1)} / {formatNumber(files.length)}
-            </span>
-            <button type="button" className={p2.ghost} onClick={() => move(1)}>
-              {t('ops.conflicts.next')}
-            </button>
+            {pendingRegions > 0 && regions.length > 1 ? (
+              <button type="button" className={p2.ghost} onClick={scrollToNextPending}>
+                {t('ops.conflicts.nextPending')}
+              </button>
+            ) : null}
+            {files.length > 1 ? (
+              <>
+                <button type="button" className={p2.ghost} onClick={() => move(-1)}>
+                  {t('ops.conflicts.previousFile')}
+                </button>
+                <span className={p2.muted}>
+                  {formatNumber(index + 1)} / {formatNumber(files.length)}
+                </span>
+                <button type="button" className={p2.ghost} onClick={() => move(1)}>
+                  {t('ops.conflicts.nextFile')}
+                </button>
+              </>
+            ) : null}
           </div>
 
+          {contextLine ? (
+            <div className={p2.conflictContext}>
+              <span>{contextLine}</span>
+              {names.source === 'stash' ? (
+                <span className={p2.muted}>{t('ops.conflicts.context.stashHint')}</span>
+              ) : null}
+            </div>
+          ) : null}
 
           {view?.binary ? (
             <div className={p2.empty}>
@@ -424,147 +508,112 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
             </div>
           ) : (
             <div className={p2.conflictGrid}>
-              <div
-                className={p2.sides}
-                style={{
-                  gridTemplateColumns: view?.base ? '1fr 1fr 1fr' : '1fr 1fr',
-                }}
-              >
-                {view?.base ? (
-                  <div className={p2.side}>
-                    <div className={p2.sideHeader}>
-                      <span className={p2.muted}>{t('ops.conflicts.side.base')}</span>
-                    </div>
-                    <pre className={p2.sideCode}>{view.base.content}</pre>
-                  </div>
-                ) : null}
-                <div className={p2.side}>
-                  <div className={p2.sideHeader}>
-                    <span className={p2.good}>{t('ops.conflicts.side.ours')}</span>
-                    <span className={p2.spacer} />
-                    <button type="button" className={p2.ghost} disabled={!editable} onClick={() => accept('ours')}>
-                      {t('ops.conflicts.accept')}
-                    </button>
-                  </div>
-                  <pre className={p2.sideCode}>{view?.ours?.content ?? '—'}</pre>
-                </div>
-                <div className={p2.side}>
-                  <div className={p2.sideHeader}>
-                    <span style={{ color: 'var(--info)' }}>
-                      {t('ops.conflicts.side.theirs')}
-                    </span>
-                    <span className={p2.spacer} />
-                    <button type="button" className={p2.ghost} disabled={!editable} onClick={() => accept('theirs')}>
-                      {t('ops.conflicts.accept')}
-                    </button>
-                  </div>
-                  <pre className={p2.sideCode}>{view?.theirs?.content ?? '—'}</pre>
-                </div>
-              </div>
-              {view?.regions?.length ? (
-                <div className={p2.regions} aria-label={t('ops.conflicts.regionsAria')}>
-                  {view.regions.map((region) => {
-                    const choice = regionChoices[region.index] ?? {
-                      ours: region.ours.map(() => true),
-                      theirs: region.theirs.map(() => false),
-                      base: false,
-                    }
-                    const update = (next: RegionChoice) => {
-                      const choices = { ...regionChoices, [region.index]: next }
-                      setRegionChoices(choices)
-                      setContent(assembleRegions(view, choices))
-                      dirtyRef.current = true
-                      setDirty(true)
-                    }
+              {regions.length ? (
+                <div ref={regionsRef} className={p2.regions} aria-label={t('ops.conflicts.regionsAria')}>
+                  {regions.map((region) => {
+                    const choice = regionChoices[region.index]
+                    const kind = choice ? choiceKind(choice) : null
                     return (
-                      <details key={region.index} className={p2.region} open={view.regions.length <= 2}>
-                        <summary>
-                          {t('ops.conflicts.region.title', {
-                            index: formatNumber(region.index + 1),
-                            start: formatNumber(region.start),
-                            end: formatNumber(region.end),
-                          })}
-                        </summary>
+                      <section key={region.index} data-region={region.index} className={p2.region}>
+                        <div className={p2.regionHeader}>
+                          <strong>
+                            {t('ops.conflicts.region.title', {
+                              index: formatNumber(region.index + 1),
+                              total: formatNumber(regions.length),
+                              start: formatNumber(region.start),
+                              end: formatNumber(region.end),
+                            })}
+                          </strong>
+                          <span className={`${p2.chip} ${kind ? p2.chipGood : p2.chipWarn}`}>
+                            {t(kind === 'custom'
+                              ? 'ops.conflicts.region.custom'
+                              : kind ? 'ops.conflicts.region.decided' : 'ops.conflicts.region.pending')}
+                          </span>
+                          <span className={p2.spacer} />
+                          <label className={`${p2.checkbox} ${p2.small}`}>
+                            <input
+                              type="checkbox"
+                              disabled={!editable}
+                              checked={Boolean(lineMode[region.index])}
+                              onChange={(event) => setLineMode({ ...lineMode, [region.index]: event.target.checked })}
+                            />
+                            {t('ops.conflicts.choice.lines')}
+                          </label>
+                        </div>
+                        <div className={p2.regionSides}>
+                          <div className={`${p2.regionSide} ${kind === 'ours' || kind === 'both' ? p2.regionSideOn : ''}`}>
+                            <span className={p2.regionSideTitle}>
+                              <span className={p2.good}>{oursName}</span>
+                              <span className={p2.muted}>{t('ops.conflicts.side.ours')}</span>
+                            </span>
+                            {renderLines(region, 'ours', choice)}
+                          </div>
+                          <div className={`${p2.regionSide} ${kind === 'theirs' || kind === 'both' ? p2.regionSideOn : ''}`}>
+                            <span className={p2.regionSideTitle}>
+                              <span style={{ color: 'var(--info)' }}>{theirsName}</span>
+                              <span className={p2.muted}>{t('ops.conflicts.side.theirs')}</span>
+                            </span>
+                            {renderLines(region, 'theirs', choice)}
+                          </div>
+                        </div>
+                        {region.base.length ? (
+                          <details className={p2.regionBaseBox}>
+                            <summary className={p2.muted}>{t('ops.conflicts.side.base')}</summary>
+                            <pre className={p2.conflictCode}>{region.base.join('\n')}</pre>
+                          </details>
+                        ) : null}
                         <div className={p2.regionActions}>
-                          <button type="button" className={p2.ghost} disabled={!editable}
-                            onClick={() => update({ ...choice, ours: region.ours.map(() => true), theirs: region.theirs.map(() => false), base: false })}>
-                            {t('ops.conflicts.region.takeOurs')}
-                          </button>
-                          <button type="button" className={p2.ghost} disabled={!editable}
-                            onClick={() => update({ ...choice, ours: region.ours.map(() => false), theirs: region.theirs.map(() => true), base: false })}>
-                            {t('ops.conflicts.region.takeTheirs')}
-                          </button>
-                          <button type="button" className={p2.ghost} disabled={!editable}
-                            onClick={() => update({ ...choice, ours: region.ours.map(() => true), theirs: region.theirs.map(() => true), base: false })}>
-                            {t('ops.conflicts.region.takeBoth')}
-                          </button>
+                          {presets.map((preset) => (
+                            <button
+                              key={preset.kind}
+                              type="button"
+                              className={kind === preset.kind ? p2.choiceOn : p2.secondary}
+                              aria-pressed={kind === preset.kind}
+                              disabled={!editable}
+                              onClick={() => choose(region, presetChoice(region, preset.kind))}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
                           {region.base.length ? (
-                            <button type="button" className={p2.ghost} disabled={!editable}
-                              onClick={() => update({ ...choice, base: true })}>
-                              {t('ops.conflicts.region.takeBase')}
+                            <button
+                              type="button"
+                              className={kind === 'base' ? p2.choiceOn : p2.secondary}
+                              aria-pressed={kind === 'base'}
+                              disabled={!editable}
+                              onClick={() => choose(region, presetChoice(region, 'base'))}
+                            >
+                              {t('ops.conflicts.choice.base')}
                             </button>
                           ) : null}
                         </div>
-                        <div className={p2.regionSides}>
-                          <div className={p2.regionSide}>
-                            <span className={p2.good}>{t('ops.conflicts.side.ours')}</span>
-                            {region.ours.length ? region.ours.map((line, index) => (
-                              <label key={`ours-${index}`} className={p2.regionLine}>
-                                <input type="checkbox" disabled={!editable || choice.base} checked={choice.ours[index]}
-                                  onChange={(event) => {
-                                    const ours = choice.ours.map((value, position) => position === index ? event.target.checked : value)
-                                    update({ ...choice, ours, base: false })
-                                  }} />
-                                <code>{line || ' '}</code>
-                              </label>
-                            )) : <span className={p2.muted}>{t('ops.conflicts.region.empty')}</span>}
-                          </div>
-                          <div className={p2.regionSide}>
-                            <span style={{ color: 'var(--info)' }}>{t('ops.conflicts.side.theirs')}</span>
-                            {region.theirs.length ? region.theirs.map((line, index) => (
-                              <label key={`theirs-${index}`} className={p2.regionLine}>
-                                <input type="checkbox" disabled={!editable || choice.base} checked={choice.theirs[index]}
-                                  onChange={(event) => {
-                                    const theirs = choice.theirs.map((value, position) => position === index ? event.target.checked : value)
-                                    update({ ...choice, theirs, base: false })
-                                  }} />
-                                <code>{line || ' '}</code>
-                              </label>
-                            )) : <span className={p2.muted}>{t('ops.conflicts.region.empty')}</span>}
-                          </div>
-                          {region.base.length ? (
-                            <div className={p2.regionSide}>
-                              <span className={p2.muted}>{t('ops.conflicts.side.base')}</span>
-                              <pre className={p2.regionBase}>{region.base.join('\n')}</pre>
-                            </div>
-                          ) : null}
-                        </div>
-                      </details>
+                      </section>
                     )
                   })}
+                </div>
+              ) : view ? (
+                <div className={p2.regionActions} style={{ padding: '8px 12px' }}>
+                  <span className={`${p2.muted} ${p2.small}`}>{t('ops.conflicts.noRegions')}</span>
+                  <span className={p2.spacer} />
+                  <button type="button" className={p2.secondary} disabled={!editable || !view.ours}
+                    onClick={() => takeWholeFile('ours')}>
+                    {t('ops.conflicts.useFile', { name: oursName })}
+                  </button>
+                  <button type="button" className={p2.secondary} disabled={!editable || !view.theirs}
+                    onClick={() => takeWholeFile('theirs')}>
+                    {t('ops.conflicts.useFile', { name: theirsName })}
+                  </button>
                 </div>
               ) : null}
               <div className={p2.resolve}>
                 <div className={p2.resolveHeader}>
-                  <strong style={{ color: 'var(--text)' }}>
-                    {t('ops.conflicts.result')}
-                  </strong>
-                  <span className={p2.pill}>{t('ops.conflicts.editable')}</span>
+                  <strong style={{ color: 'var(--text)' }}>{t('ops.conflicts.result')}</strong>
+                  <span className={p2.muted}>
+                    {manualEdit ? t('ops.conflicts.manualEdited') : t('ops.conflicts.resultHint')}
+                  </span>
                   <span className={p2.spacer} />
-                  <button type="button" className={p2.ghost} disabled={!editable} onClick={() => accept('both')}>
-                    {t('ops.conflicts.combine')}
-                  </button>
-                  <button
-                    type="button"
-                    className={p2.ghost}
-                    disabled={!editable}
-                    onClick={() => {
-                      setContent(view?.working?.content ?? '')
-                      dirtyRef.current = true
-                      setDirty(true)
-                    }}
-                  >
-                    {t('ops.conflicts.rawMarkers')}
+                  <button type="button" className={p2.ghost} disabled={!editable || !dirty} onClick={startOver}>
+                    {t('ops.conflicts.startOver')}
                   </button>
                 </div>
                 <textarea
@@ -572,35 +621,29 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                   disabled={!editable}
                   onChange={(event) => {
                     setContent(event.target.value)
-                    dirtyRef.current = true
-                    setDirty(true)
+                    setManualEdit(true)
+                    markDirty()
                   }}
                   spellCheck={false}
                   aria-label={t('ops.conflicts.resolveAria')}
-                  placeholder={t('ops.conflicts.resolvePlaceholder')}
                 />
                 <div className={p2.footer}>
-                  <label className={p2.checkbox}>
-                    <input
-                      type="checkbox"
-                      checked={allowMarkers}
-                      disabled={!editable}
-                      onChange={(event) => setAllowMarkers(event.target.checked)}
-                    />
-                    {t('ops.conflicts.allowMarkers')}
-                  </label>
-                  {view?.hasMarkers ? (
-                    <span className={p2.warn}>
-                      {t('ops.conflicts.markersRemaining', {
-                        count: formatNumber(view.markerLines.length),
-                      })}
-                    </span>
+                  {blockedReason ? <span className={p2.warn}>{blockedReason}</span> : null}
+                  {markersLeft > 0 && editable && pendingRegions === 0 ? (
+                    <label className={p2.checkbox}>
+                      <input
+                        type="checkbox"
+                        checked={allowMarkers}
+                        onChange={(event) => setAllowMarkers(event.target.checked)}
+                      />
+                      {t('ops.conflicts.allowMarkers')}
+                    </label>
                   ) : null}
                   <span className={p2.spacer} />
                   <button
                     type="button"
-                    className={`${p2.secondary}`}
-                    disabled={!editable}
+                    className={p2.primary}
+                    disabled={!canSave}
                     onClick={() => void save()}
                   >
                     {t('ops.conflicts.markResolved')}

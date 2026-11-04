@@ -892,6 +892,10 @@ export type ConflictRegion = {
   ours: string[]
   base: string[]
   theirs: string[]
+  /** Label after `<<<<<<< ` (e.g. `HEAD`, `Updated upstream`). */
+  oursLabel: string
+  /** Label after `>>>>>>> ` (e.g. a branch, `Stashed changes`). */
+  theirsLabel: string
 }
 
 export type ConflictView = {
