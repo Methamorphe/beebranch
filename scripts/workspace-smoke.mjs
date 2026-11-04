@@ -139,6 +139,59 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     await evaluate(client, `Array.from(document.querySelectorAll('#repository-operations button')).find((button) => button.textContent === ${JSON.stringify(label)}).click()`)
     await waitFor(client, `document.querySelector('[data-repository-tool="${id}"]') !== null`, 'inline ' + id)
     await verifyInlineWidth(id)
+    if (id === 'sync') {
+      // A forced push asks once: the force bar replaces the push summary, so
+      // accepting it must send the push instead of opening a second bar.
+      await waitFor(client, `(() => {
+        const panel = document.querySelector('[data-repository-tool="sync"]')
+        const push = [...panel.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Push')
+        return Boolean(push) && !push.disabled
+      })()`, 'sync push enabled')
+      await evaluate(client, `(() => {
+        window.__syncOriginalInvoke = window.__TAURI_INTERNALS__.invoke
+        window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+          if (command === 'sync_push') {
+            window.__workspaceCalls.push([command, args])
+            return { data:{ kind:'push', output:'', cancelled:false }, generation: 6 }
+          }
+          return window.__syncOriginalInvoke(command, args)
+        }
+        return true
+      })()`)
+      await check('sync-force-option', `(() => {
+        const panel = document.querySelector('[data-repository-tool="sync"]')
+        const label = [...panel.querySelectorAll('label')].find((entry) => entry.textContent.includes('force-with-lease'))
+        const box = label?.querySelector('input[type="checkbox"]')
+        if (!box) return false
+        box.click()
+        return box.checked
+      })()`)
+      await evaluate(client, `(() => {
+        const panel = document.querySelector('[data-repository-tool="sync"]')
+        const push = [...panel.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Push')
+        push.click()
+        return true
+      })()`)
+      await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Force push') === true`, 'force push bar')
+      await check('force-push-asks-before-sending', `(() => {
+        const dialog = document.querySelector('[role="alertdialog"]')
+        return Boolean(dialog)
+          && dialog.innerText.includes('Force push')
+          && !dialog.innerText.includes('Attention')
+          && !(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.force === true)
+      })()`)
+      await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Force push')).click()`)
+      await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Attention') === true`, 'force push warning')
+      await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Confirmer')).click()`)
+      await waitFor(client, `(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.force === true)`, 'force push sent')
+      await check('force-push-asks-once', `!document.querySelector('[role="alertdialog"]')`)
+      await check('force-push-sends-lease-confirmation', `(() => {
+        const call = [...(window.__workspaceCalls ?? [])].reverse().find(([command, args]) => command === 'sync_push' && args.request.force === true)
+        return Boolean(call) && call[1].request.confirmation.acknowledged === true && call[1].request.branch === 'main'
+      })()`)
+      await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__syncOriginalInvoke; return true })()`)
+      await delay(120)
+    }
   }
   await click('[data-repository-section="local"] [data-ref="refs/heads/feature"]')
   await waitFor(client, `document.querySelector('aside[aria-label="Détail du commit"]') !== null`, 'selected branch commit')
@@ -198,12 +251,65 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     'navigator-drop-menu',
     `(() => {
       const menu = document.querySelector('[role="menu"]')
-      return Boolean(menu && menu.innerText.includes('Fusionner feature dans main') && menu.innerText.includes('Rebaser feature sur main'))
+      return Boolean(menu && menu.innerText.includes('Fusionner feature dans main') && menu.innerText.includes('Avance rapide : main sur feature') && menu.innerText.includes('Rebaser feature sur main'))
     })()`,
   )
   await evaluate(client, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
   await delay(80)
   await check('navigator-drop-cancel', `!document.querySelector('[role="menu"]')`)
+
+  // Choosing Merge applies it at once: the choice a merge used to ask —
+  // fast-forward or merge commit — is the separate menu action above.
+  await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, buttons:1, x: navDrop.source.x, y: navDrop.source.y })
+  for (const ratio of [0.2, 0.4, 0.6, 0.8, 1]) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      button: 'left',
+      buttons: 1,
+      x: navDrop.source.x + (navDrop.target.x - navDrop.source.x) * ratio,
+      y: navDrop.source.y + (navDrop.target.y - navDrop.source.y) * ratio,
+    })
+    await delay(45)
+  }
+  await client.send('Input.dispatchMouseEvent', { type:'mouseReleased', button:'left', clickCount:1, buttons:0, x: navDrop.target.x, y: navDrop.target.y })
+  await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'navigator drop menu again')
+  await evaluate(client, `([...document.querySelectorAll('[role="menu"] button')].find((button) => button.textContent.includes('Fusionner feature dans main'))).click()`)
+  await waitFor(client, `(window.__workspaceCalls ?? []).some(([command]) => command === 'branch_integration_start')`, 'direct merge')
+  await check('navigator-drop-merge-applies-at-once', `!document.querySelector('[role="alertdialog"]')`)
+  await check('navigator-drop-merge-defaults-to-fast-forward', `(() => {
+    const call = (window.__workspaceCalls ?? []).find(([command]) => command === 'branch_integration_start')
+    return Boolean(call) && call[1].request.mode === 'merge'
+      && call[1].request.source === 'feature' && call[1].request.target === 'main'
+      && call[1].request.fastForward === 'auto' && call[1].request.confirmation.acknowledged === true
+  })()`)
+  await waitFor(client, `document.body.innerText.includes('Fusion de feature appliqué')`, 'merge notice')
+
+  // The fast-forward action stays a separate choice and sends `--ff-only`.
+  await evaluate(client, `(() => {
+    window.__mergeStarts = (window.__workspaceCalls ?? []).filter(([command]) => command === 'branch_integration_start').length
+    return true
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, buttons:1, x: navDrop.source.x, y: navDrop.source.y })
+  for (const ratio of [0.2, 0.4, 0.6, 0.8, 1]) {
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      button: 'left',
+      buttons: 1,
+      x: navDrop.source.x + (navDrop.target.x - navDrop.source.x) * ratio,
+      y: navDrop.source.y + (navDrop.target.y - navDrop.source.y) * ratio,
+    })
+    await delay(45)
+  }
+  await client.send('Input.dispatchMouseEvent', { type:'mouseReleased', button:'left', clickCount:1, buttons:0, x: navDrop.target.x, y: navDrop.target.y })
+  await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'navigator drop menu for fast-forward')
+  await evaluate(client, `([...document.querySelectorAll('[role="menu"] button')].find((button) => button.textContent.includes('Avance rapide : main sur feature'))).click()`)
+  await waitFor(client, `(window.__workspaceCalls ?? []).filter(([command]) => command === 'branch_integration_start').length > window.__mergeStarts`, 'fast-forward merge')
+  await check('navigator-drop-fast-forward-sends-ff-only', `(() => {
+    const calls = (window.__workspaceCalls ?? []).filter(([command]) => command === 'branch_integration_start')
+    const call = calls[calls.length - 1]
+    return Boolean(call) && call[1].request.mode === 'merge' && call[1].request.fastForward === 'only'
+      && call[1].request.confirmation.acknowledged === true && !document.querySelector('[role="alertdialog"]')
+  })()`)
 
   await click('[data-repository-section="stash"] button[aria-expanded]')
   await click('[data-stash="stash@{0}"]')
@@ -410,6 +516,26 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await screenshot('workspace-branch-created-publish.png')
   await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.includes('Pousser et créer origin/publish/inline'))).click()`)
   await waitFor(client, `(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'publish/inline' && args.request.setUpstream === true)`, 'branch creation publish push')
+
+  // A push Git can send as-is leaves nothing to decide: the summary bar only
+  // belongs to a push it would refuse, or to a forced one.
+  await evaluate(client, `(() => {
+    window.__pushOriginalInvoke = window.__TAURI_INTERNALS__.invoke
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'sync_push') {
+        window.__workspaceCalls.push([command, args])
+        return { data:{ kind:'push', output:'', cancelled:false }, generation: 6 }
+      }
+      return window.__pushOriginalInvoke(command, args)
+    }
+    return true
+  })()`)
+  await evaluate(client, `([...document.querySelectorAll('[aria-label="Actions Git"] button')].find((button) => button.textContent.trim() === 'Push')).click()`)
+  await waitFor(client, `(window.__workspaceCalls ?? []).some(([command, args]) => command === 'sync_push' && args.request.branch === 'main' && !args.request.force)`, 'fast-forward push')
+  await check('push-fast-forward-has-no-bar', `!document.querySelector('[role="alertdialog"]')`)
+  await check('push-fast-forward-is-previewed', `(window.__workspaceCalls ?? []).some(([command]) => command === 'operation_preview')`)
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__pushOriginalInvoke; return true })()`)
+  await delay(150)
 
   // The toolbar Push follows the same rule for a checked-out branch that has
   // no upstream: a dialog instead of the sync panel, and a push with -u.

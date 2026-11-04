@@ -23,7 +23,7 @@ import type {
   SyncOutcome,
 } from '../types/git'
 import { ConfirmBar } from './ConfirmBar'
-import { useOperationConfirm } from './OperationConfirm'
+import { useOperationConfirm, usePushConfirm } from './OperationConfirm'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -56,6 +56,7 @@ const AUTO_FETCH_PREFERENCE = 'git.autoFetchMinutes'
 export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Props) {
   const { t } = useI18n()
   const confirmOperation = useOperationConfirm()
+  const confirmPush = usePushConfirm()
   const [status, setStatus] = useState<StatusReport | null>(null)
   const [refs, setRefs] = useState<RefsSnapshot | null>(null)
   const [remote, setRemote] = useState('origin')
@@ -135,23 +136,24 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
     }
   }, [log])
 
-  const run = async (kind: 'fetch' | 'fetchAll' | 'pull' | 'push') => {
-    if (kind === 'pull' || kind === 'push') {
+  /**
+   * `alreadyConfirmed` is set by the force-push bar, whose decision replaces
+   * the summary: a forced push never sends without it.
+   */
+  const run = async (
+    kind: 'fetch' | 'fetchAll' | 'pull' | 'push',
+    { alreadyConfirmed = false } = {},
+  ) => {
+    if (kind === 'pull') {
       const confirmed = await confirmOperation({
-        title: t(
-          kind === 'pull'
-            ? 'workbench.operationPreview.title.pull'
-            : 'workbench.operationPreview.title.push',
-          { branch, remote },
-        ),
-        confirmLabel: t(
-          kind === 'pull'
-            ? 'workbench.operationPreview.action.pull'
-            : 'workbench.operationPreview.action.push',
-        ),
+        title: t('workbench.operationPreview.title.pull', { branch, remote }),
+        confirmLabel: t('workbench.operationPreview.action.pull'),
         operation: { kind, remote, branch },
       })
       if (!confirmed) return
+    }
+    if (kind === 'push' && !alreadyConfirmed) {
+      if (!(await confirmPush({ repoId, remote, branch }))) return
     }
     setBusy(true)
     setError(null)
@@ -511,7 +513,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
         onCancel={() => setPendingForce(false)}
         onConfirm={() => {
           setPendingForce(false)
-          void run('push')
+          void run('push', { alreadyConfirmed: true })
         }}
       />
     </div>

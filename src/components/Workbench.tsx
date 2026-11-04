@@ -92,7 +92,7 @@ import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
 import { ConfirmBar } from './ConfirmBar'
-import { useOperationConfirm } from './OperationConfirm'
+import { useOperationConfirm, usePushConfirm } from './OperationConfirm'
 import { useToastChannel } from './ui/Toasts'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
@@ -219,11 +219,9 @@ type DropMenuState = {
   fastForward: boolean
 }
 
-type PendingIntegration = {
+type PendingRebase = {
   source: RefEntry
   target: RefEntry
-  mode: 'merge' | 'rebase'
-  fastForward: MergeFastForward
   preview: BranchIntegrationPreview
 }
 
@@ -289,54 +287,15 @@ export function Workbench({
 }: Props) {
   const { t, plural } = useI18n()
   const confirmOperation = useOperationConfirm()
+  const confirmPush = usePushConfirm()
 
-  /** Why a fast-forward is unavailable, in the user's terms. */
-  const fastForwardReason = (preview: BranchIntegrationPreview) => {
-    if (preview.mode !== 'merge') return null
-    if (preview.fastForward) return null
-    if (preview.ahead === 0 && preview.behind === 0) {
-      return t('workbench.integration.sameCommit', {
-        target: preview.target,
-        source: preview.source,
-      })
-    }
-    if (preview.ahead === 0 && preview.behind > 0) {
-      return plural(
-        'workbench.integration.targetAheadUseReverse.one',
-        'workbench.integration.targetAheadUseReverse.other',
-        preview.behind,
-        {
-          count: formatNumber(preview.behind),
-          target: preview.target,
-          source: preview.source,
-        },
-      )
-    }
-    if (preview.ahead === 0) {
-      return t('workbench.integration.alreadyIntegrated', {
-        target: preview.target,
-        source: preview.source,
-      })
-    }
-    if (preview.behind > 0) {
-      return plural(
-        'workbench.integration.missingCommits.one',
-        'workbench.integration.missingCommits.other',
-        preview.behind,
-        {
-          count: formatNumber(preview.behind),
-          target: preview.target,
-          source: preview.source,
-        },
-      )
-    }
-    return null
-  }
-
-  const integrationConsequence = (pending: PendingIntegration | null) => {
+  /**
+   * Rebase summary: a merge applies immediately, so this bar only ever
+   * describes the source branch the rebase rewrites.
+   */
+  const rebaseConsequence = (pending: PendingRebase | null) => {
     if (!pending) return ''
-    const { source, target, mode, fastForward, preview } = pending
-    const updatedBranch = mode === 'rebase' ? source : target
+    const { source, target, preview } = pending
     const parts = [
       plural(
         'workbench.integration.commitsToIntegrate.one',
@@ -350,55 +309,20 @@ export function Workbench({
         preview.behind,
         { count: formatNumber(preview.behind) },
       ),
+      t('workbench.integration.rebaseBaseUnchanged', { target: target.name }),
     ]
-    if (mode === 'merge') {
-      if (preview.fastForward) {
-        parts.push(
-          t(
-            fastForward === 'never'
-              ? 'workbench.integration.mergeCommitInstead'
-              : 'workbench.integration.fastForwardNoMerge',
-          ),
-        )
-      } else if (preview.ahead === 0 && preview.behind > 0) {
-        parts.push(
-          plural(
-            'workbench.integration.targetAheadUseReverse.one',
-            'workbench.integration.targetAheadUseReverse.other',
-            preview.behind,
-            {
-              count: formatNumber(preview.behind),
-              target: target.name,
-              source: source.name,
-            },
-          ),
-        )
-      } else if (preview.ahead === 0) {
-        parts.push(t('workbench.integration.nothingToIntegrate'))
-      } else {
-        parts.push(t('workbench.integration.fastForwardImpossible'))
-      }
-    }
-    if (mode === 'rebase') {
-      parts.push(t('workbench.integration.rebaseBaseUnchanged', { target: target.name }))
-    }
     if (preview.requiresCheckout) {
-      parts.push(t('workbench.integration.checkoutRequired', { target: updatedBranch.name }))
+      parts.push(t('workbench.integration.checkoutRequired', { target: source.name }))
     }
-    if (preview.stashRequired) {
-      parts.push(t('workbench.integration.stashRequired'))
-    } else if (preview.worktreeDirty) {
+    if (preview.worktreeDirty) {
       parts.push(t('workbench.integration.untrackedLeft'))
     }
-    if (preview.currentBranch && preview.currentBranch !== updatedBranch.name) {
+    if (preview.currentBranch && preview.currentBranch !== source.name) {
       parts.push(t('workbench.integration.currentBranch', { branch: preview.currentBranch }))
     }
     return t('workbench.integration.noMutation', {
       parts: parts.join(' · '),
-      operation:
-        mode === 'merge'
-          ? t('workbench.integration.operation.merge')
-          : t('workbench.integration.operation.rebase'),
+      operation: t('workbench.integration.operation.rebase'),
     })
   }
 
@@ -657,7 +581,7 @@ export function Workbench({
   /** Stash entry awaiting an irreversible drop confirmation. */
   const [pendingStashDrop, setPendingStashDrop] = useState<{ selector: string; sha: string } | null>(null)
   const [dropMenu, setDropMenu] = useState<DropMenuState | null>(null)
-  const [pendingIntegration, setPendingIntegration] = useState<PendingIntegration | null>(null)
+  const [pendingRebase, setPendingRebase] = useState<PendingRebase | null>(null)
   const [integrationBusy, setIntegrationBusy] = useState(false)
   const [pendingRemoteDelete, setPendingRemoteDelete] = useState<RefEntry | null>(null)
   const [pendingDeleteBoth, setPendingDeleteBoth] = useState<RefEntry | null>(null)
@@ -1259,11 +1183,7 @@ export function Workbench({
       setPublishTarget({ branch: entry.name, remote })
       return
     }
-    void confirmOperation({
-      title: t('workbench.operationPreview.title.push', { branch: entry.name, remote }),
-      confirmLabel: t('workbench.operationPreview.action.push'),
-      operation: { kind: 'push', remote, branch: entry.name },
-    }).then((confirmed) => {
+    void confirmPush({ repoId, remote, branch: entry.name }).then((confirmed) => {
       if (!confirmed) return
       void runAction(
         t('workbench.notice.branchPushed', { branch: entry.name, remote }),
@@ -1306,18 +1226,13 @@ export function Workbench({
       .catch(() => undefined)
   }
 
-  const requestIntegration = async (
+  /** Read the integration summary; `null` means the refusal is already shown. */
+  const previewIntegration = async (
+    source: RefEntry,
+    target: RefEntry,
     mode: 'merge' | 'rebase',
-    requested: MergeFastForward = 'auto',
-    pair?: { source: RefEntry; target: RefEntry },
   ) => {
-    const menu = dropMenu
-    const source = pair?.source ?? menu?.source
-    const target = pair?.target ?? menu?.target
-    if (!source || !target || !repoId) return
-    setDropMenu(null)
-    setActionError(null)
-    setActionNotice(null)
+    if (!repoId) return null
     try {
       const preview = await branchIntegrationPreview({
         repoId,
@@ -1326,44 +1241,36 @@ export function Workbench({
         mode,
       })
       if (!preview.applicable) {
-        setActionError(
-          preview.blockedReason ?? t('workbench.error.integrationImpossible'),
-        )
-        return
+        setActionError(preview.blockedReason ?? t('workbench.error.integrationImpossible'))
+        return null
       }
-      // A fast-forward is possible exactly when the target has no commit the
-      // source lacks; anything else needs a merge commit.
-      const canFastForward = preview.fastForward
-      const fastForward: MergeFastForward =
-        mode === 'merge'
-          ? requested === 'never' || !canFastForward
-            ? 'never'
-            : 'only'
-          : 'auto'
-      setPendingIntegration({ source, target, mode, fastForward, preview })
+      return preview
     } catch (cause) {
       setActionError(errorMessage(cause))
+      return null
     }
   }
 
-  const chooseIntegrationStrategy = (fastForward: MergeFastForward) =>
-    setPendingIntegration((current) => (current ? { ...current, fastForward } : current))
-
-  const confirmIntegration = async () => {
-    const pending = pendingIntegration
-    if (!pending || !repoId) return
+  /** Run the integration and report its outcome; `true` on success. */
+  const applyIntegration = async (
+    source: RefEntry,
+    target: RefEntry,
+    mode: 'merge' | 'rebase',
+    fastForward: MergeFastForward,
+    preview: BranchIntegrationPreview,
+  ) => {
+    if (!repoId) return false
     setIntegrationBusy(true)
     setActionError(null)
     try {
       const result = await branchIntegrationStart({
         repoId,
-        source: pending.source.name,
-        target: pending.target.name,
-        mode: pending.mode,
-        fastForward: pending.fastForward,
+        source: source.name,
+        target: target.name,
+        mode,
+        fastForward,
         confirmation: { acknowledged: true },
       })
-      setPendingIntegration(null)
       if (result.data.outcome.conflicted) openHistoryTool('conflicts')
       const stash = result.data.autoStash
       const stashNote = stash
@@ -1376,36 +1283,73 @@ export function Workbench({
                 sha: stash.sha.slice(0, 8),
               })
         : ''
+      // `--ff` fast-forwards when the preview said the target is an ancestor,
+      // and creates a merge commit otherwise; `--ff-only` always advances.
       const mergeNote =
-        pending.mode === 'merge'
-          ? pending.fastForward === 'only'
+        mode === 'merge'
+          ? fastForward === 'only' || preview.fastForward
             ? t('workbench.notice.fastForwardNote')
-            : pending.preview.fastForward
-              ? t('workbench.notice.mergeCommitNote')
-              : ''
+            : t('workbench.notice.mergeCommitNote')
           : ''
       setActionNotice(
         (result.data.outcome.conflicted
           ? t('workbench.notice.conflictDuringIntegration', {
               operation:
-                pending.mode === 'merge'
+                mode === 'merge'
                   ? t('workbench.integration.during.merge')
                   : t('workbench.integration.during.rebase'),
             })
           : t('workbench.notice.integrationApplied', {
               operation:
-                pending.mode === 'merge'
+                mode === 'merge'
                   ? t('workbench.integration.operation.merge')
                   : t('workbench.integration.operation.rebase'),
-              source: pending.source.name,
+              source: source.name,
               note: mergeNote,
             })) + stashNote,
       )
       onMutated()
+      return true
     } catch (cause) {
       setActionError(errorMessage(cause))
+      return false
     } finally {
       setIntegrationBusy(false)
+    }
+  }
+
+  /**
+   * A merge applies immediately, like Git: the only choice it used to ask,
+   * fast-forward instead of a merge commit, is its own menu action.
+   */
+  const requestMerge = async (
+    source: RefEntry,
+    target: RefEntry,
+    fastForward: MergeFastForward = 'auto',
+  ) => {
+    setDropMenu(null)
+    setActionError(null)
+    setActionNotice(null)
+    const preview = await previewIntegration(source, target, 'merge')
+    if (!preview) return
+    await applyIntegration(source, target, 'merge', fastForward, preview)
+  }
+
+  /** A rebase rewrites the source branch, so it keeps one confirmation. */
+  const requestRebase = async (source: RefEntry, target: RefEntry) => {
+    setDropMenu(null)
+    setActionError(null)
+    setActionNotice(null)
+    const preview = await previewIntegration(source, target, 'rebase')
+    if (!preview) return
+    setPendingRebase({ source, target, preview })
+  }
+
+  const confirmRebase = async () => {
+    const pending = pendingRebase
+    if (!pending) return
+    if (await applyIntegration(pending.source, pending.target, 'rebase', 'auto', pending.preview)) {
+      setPendingRebase(null)
     }
   }
 
@@ -2838,7 +2782,7 @@ export function Workbench({
                 className={styles.contextAction}
                 role="menuitem"
                 title={t('workbench.drop.advanceTitle', { target: dropMenu.target.name, source: dropMenu.source.name })}
-                onClick={() => void requestIntegration('merge', 'only')}
+                onClick={() => void requestMerge(dropMenu.source, dropMenu.target, 'only')}
               >
                 <ViewIcon view="sync" /><span>{t('workbench.drop.advance', { target: dropMenu.target.name, source: dropMenu.source.name })}</span>
               </button>
@@ -2848,7 +2792,7 @@ export function Workbench({
               className={styles.contextAction}
               role="menuitem"
               title={t('workbench.drop.mergeTitle', { source: dropMenu.source.name, target: dropMenu.target.name })}
-              onClick={() => void requestIntegration('merge')}
+              onClick={() => void requestMerge(dropMenu.source, dropMenu.target)}
             >
               <ViewIcon view="mrs" /><span>{t('workbench.drop.merge', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
@@ -2857,7 +2801,7 @@ export function Workbench({
               className={styles.contextAction}
               role="menuitem"
               title={t('workbench.drop.rebaseTitle', { source: dropMenu.source.name, target: dropMenu.target.name })}
-              onClick={() => void requestIntegration('rebase')}
+              onClick={() => void requestRebase(dropMenu.source, dropMenu.target)}
             >
               <ViewIcon view="rebase" /><span>{t('workbench.drop.rebase', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
@@ -2882,73 +2826,21 @@ export function Workbench({
       ) : null}
 
       <ConfirmBar
-        open={pendingIntegration !== null}
+        open={pendingRebase !== null}
         title={
-          pendingIntegration
-            ? t(
-                pendingIntegration.mode === 'merge'
-                  ? 'workbench.integration.dialogMerge'
-                  : 'workbench.integration.dialogRebase',
-                { source: pendingIntegration.source.name, target: pendingIntegration.target.name },
-              )
+          pendingRebase
+            ? t('workbench.integration.dialogRebase', {
+                source: pendingRebase.source.name,
+                target: pendingRebase.target.name,
+              })
             : ''
         }
-        consequence={integrationConsequence(pendingIntegration)}
-        confirmLabel={t(
-          pendingIntegration?.mode === 'rebase'
-            ? 'workbench.integration.rebaseAction'
-            : 'workbench.integration.mergeAction',
-        )}
+        consequence={rebaseConsequence(pendingRebase)}
+        confirmLabel={t('workbench.integration.rebaseAction')}
         busy={integrationBusy}
-        onCancel={() => setPendingIntegration(null)}
-        onConfirm={() => void confirmIntegration()}
-      >
-        {pendingIntegration?.mode === 'merge' ? (
-          <fieldset className={styles.strategy}>
-            <legend>{t('workbench.integration.strategyLegend')}</legend>
-            <label className={styles.strategyOption}>
-              <input
-                type="radio"
-                name="integration-fast-forward"
-                value="only"
-                checked={pendingIntegration.fastForward === 'only'}
-                disabled={!pendingIntegration.preview.fastForward}
-                title={
-                  pendingIntegration.preview.fastForward
-                    ? undefined
-                    : fastForwardReason(pendingIntegration.preview) ?? undefined
-                }
-                onChange={() => chooseIntegrationStrategy('only')}
-              />
-              <span>
-                {t('workbench.integration.strategyFastForward')}
-                <span className={styles.strategyNote}>
-                  {fastForwardReason(pendingIntegration.preview) ??
-                    t('workbench.integration.strategyUpToDate', {
-                      target: pendingIntegration.target.name,
-                      source: pendingIntegration.source.name,
-                    })}
-                </span>
-              </span>
-            </label>
-            <label className={styles.strategyOption}>
-              <input
-                type="radio"
-                name="integration-fast-forward"
-                value="never"
-                checked={pendingIntegration.fastForward === 'never'}
-                onChange={() => chooseIntegrationStrategy('never')}
-              />
-              <span>
-                {t('workbench.integration.strategyMergeCommit')} (<code>--no-ff</code>)
-                <span className={styles.strategyNote}>
-                  {t('workbench.integration.strategyMergeNote')}
-                </span>
-              </span>
-            </label>
-          </fieldset>
-        ) : null}
-      </ConfirmBar>
+        onCancel={() => setPendingRebase(null)}
+        onConfirm={() => void confirmRebase()}
+      />
 
       {amendDialog}
 
@@ -3133,12 +3025,14 @@ export function Workbench({
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
-                    void requestIntegration('merge', 'only', {
-                      source: currentBranchEntry,
-                      target: entry,
-                    })
+                    void requestMerge(currentBranchEntry, entry, 'only')
                   },
-                  { title: t('workbench.integration.strategyFastForward') },
+                  {
+                    title: t('workbench.drop.advanceTitle', {
+                      target: refMenu.entry.name,
+                      source: currentBranchEntry.name,
+                    }),
+                  },
                 )}
                 {action(
                   'merge',
@@ -3147,10 +3041,7 @@ export function Workbench({
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
-                    void requestIntegration('merge', 'auto', {
-                      source: currentBranchEntry,
-                      target: entry,
-                    })
+                    void requestMerge(currentBranchEntry, entry)
                   },
                   { title: t('workbench.integration.fastForwardHint') },
                 )}
@@ -3161,10 +3052,7 @@ export function Workbench({
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
-                    void requestIntegration('rebase', 'auto', {
-                      source: currentBranchEntry,
-                      target: entry,
-                    })
+                    void requestRebase(currentBranchEntry, entry)
                   },
                 )}
               </>

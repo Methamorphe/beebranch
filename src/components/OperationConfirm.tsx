@@ -28,6 +28,50 @@ export function useOperationConfirm() {
   return useContext(ConfirmContext)
 }
 
+/**
+ * A push asks only when Git cannot send the branch as-is: a plain fast-forward
+ * leaves nothing to decide, while a remote that moved ahead would refuse it
+ * (only a force push could overwrite those commits).
+ */
+export function pushNeedsConfirmation(preview: OperationPreview): boolean {
+  return Boolean(preview.blockedReason) || preview.behind > 0
+}
+
+/**
+ * Summary of a push, for confirmations rendered outside the provider (the
+ * shell's command palette). `null` means the preview itself failed; the bar
+ * then reports it.
+ */
+export async function readPushPreview(
+  repoId: string,
+  remote: string,
+  branch: string,
+): Promise<OperationPreview | null> {
+  try {
+    return await operationPreview({ repoId, operation: { kind: 'push', remote, branch } })
+  } catch {
+    return null
+  }
+}
+
+/** Push confirmation that stays out of the way of a fast-forward. */
+export function usePushConfirm() {
+  const confirmOperation = useOperationConfirm()
+  const { t } = useI18n()
+  return useCallback(
+    async ({ repoId, remote, branch }: { repoId: string; remote: string; branch: string }) => {
+      const preview = await readPushPreview(repoId, remote, branch)
+      if (preview && !pushNeedsConfirmation(preview)) return true
+      return confirmOperation({
+        title: t('workbench.operationPreview.title.push', { branch, remote }),
+        confirmLabel: t('workbench.operationPreview.action.push'),
+        operation: { kind: 'push', remote, branch },
+      })
+    },
+    [confirmOperation, t],
+  )
+}
+
 type Pending = {
   title: string
   confirmLabel?: string

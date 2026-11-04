@@ -3037,31 +3037,14 @@ try {
   await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'drop menu')
   const dropMenu = await evaluate(client, `(() => { const menu = document.querySelector('[role="menu"]'); return { text: menu.innerText, hasMerge: menu.innerText.includes('Fusionner feature dans main'), hasRebase: menu.innerText.includes('Rebaser feature sur main'), hasCompare: menu.innerText.includes('Comparer feature et main') } })()`)
   assertUI('graph-drop-menu', dropMenu.hasMerge && dropMenu.hasRebase && dropMenu.hasCompare)
-  assertUI('graph-drop-fast-forward', dropMenu.text.includes('Avancer main sur feature'))
+  assertUI('graph-drop-fast-forward', dropMenu.text.includes('Avance rapide : main sur feature'))
   await screenshot(client, 'p3-graph-drop-menu.png')
   await evaluate(client, `(() => { [...document.querySelector('[role="menu"]').querySelectorAll('button')].find((b) => b.textContent.includes('Fusionner feature dans main')).click() })()`)
-  await waitFor(client, `document.querySelector('[role="alertdialog"]') !== null`, 'integration confirmation')
-  const integrationDialog = await evaluate(client, `(() => {
-    const dialog = document.querySelector('[role="alertdialog"]')
-    return { text: dialog.innerText, preview: (window.__p3Calls ?? []).filter(([name]) => name === 'branch_integration_preview').map(([, args]) => args.request) }
-  })()`)
-  assertUI('graph-integration-preview', integrationDialog.text.includes('3 commit(s) de feature') && integrationDialog.text.includes('0 commit(s) de retard') && integrationDialog.text.includes('sans mutation avant confirmation') && integrationDialog.preview.some((request) => request.mode === 'merge' && request.source === 'feature' && request.target === 'main'))
-  assertUI(
-    'graph-integration-strategy',
-    integrationDialog.text.includes('Avance rapide, sans commit de fusion') &&
-      integrationDialog.text.includes('Commit de fusion') &&
-      await evaluate(client, `(() => {
-        const dialog = document.querySelector('[role="alertdialog"]')
-        const checked = dialog.querySelector('input[value="only"]')
-        return checked !== null && checked.checked && !checked.disabled
-      })()`),
-  )
-  await screenshot(client, 'p3-graph-integration-strategy.png')
-  await evaluate(client, `(() => { const dialog = document.querySelector('[role="alertdialog"]'); [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Fusionner').click() })()`)
   await waitFor(client, `(window.__p3Calls ?? []).some(([name]) => name === 'branch_integration_start')`, 'integration start')
+  assertUI('graph-merge-applies-at-once', await evaluate(client, `document.querySelector('[role="alertdialog"]') === null`))
   assertUI('graph-integration-start', await evaluate(client, `(() => {
     const call = (window.__p3Calls ?? []).find(([name]) => name === 'branch_integration_start')
-    return call[1].request.mode === 'merge' && call[1].request.source === 'feature' && call[1].request.target === 'main' && call[1].request.fastForward === 'only' && call[1].request.confirmation.acknowledged === true
+    return call[1].request.mode === 'merge' && call[1].request.source === 'feature' && call[1].request.target === 'main' && call[1].request.fastForward === 'auto' && call[1].request.confirmation.acknowledged === true
   })()`))
   assertUI('graph-integration-notice', await evaluate(client, `document.body.innerText.includes('Fusion de feature appliqué')`))
   await screenshot(client, 'p3-graph-drop.png')

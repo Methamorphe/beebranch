@@ -83,12 +83,6 @@ const messages = {
   'workbench.inspector.resizeLabel': 'Resize the side panel',
   'workbench.inspector.worktreeAriaLabel': 'Preparing the next commit',
 
-  'workbench.integration.alreadyIntegrated':
-    '{target} already contains every commit of {source}.',
-  'workbench.integration.targetAheadUseReverse.one':
-    '{target} is {count} commit ahead of {source}; this merge would change nothing. Drag {target} onto {source} to fast-forward {source}.',
-  'workbench.integration.targetAheadUseReverse.other':
-    '{target} is {count} commits ahead of {source}; this merge would change nothing. Drag {target} onto {source} to fast-forward {source}.',
   'workbench.integration.checkoutRequired': '{target} will be checked out during the operation',
   'workbench.integration.commitsBehind.one': '{count} commit behind',
   'workbench.integration.commitsBehind.other': '{count} commits behind',
@@ -96,35 +90,16 @@ const messages = {
   'workbench.integration.commitsToIntegrate.other':
     '{count} commits from {source} to integrate',
   'workbench.integration.currentBranch': 'current branch: {branch}',
-  'workbench.integration.dialogMerge': 'Merge {source} into {target}',
   'workbench.integration.dialogRebase': 'Rebase {source} onto {target}',
   'workbench.integration.during.merge': 'the merge',
   'workbench.integration.during.rebase': 'the rebase',
   'workbench.integration.fastForwardHint': 'Fast-forward when possible, otherwise a merge commit',
-  'workbench.integration.fastForwardImpossible': 'fast-forward impossible',
-  'workbench.integration.fastForwardNoMerge': 'fast-forward, no merge commit',
-  'workbench.integration.mergeAction': 'Merge',
-  'workbench.integration.mergeCommitInstead': 'merge commit created instead of a fast-forward',
-  'workbench.integration.missingCommits.one': '{count} commit from {source} is missing in {target}',
-  'workbench.integration.missingCommits.other':
-    '{count} commits from {source} are missing in {target}',
   'workbench.integration.noMutation':
     '{parts}. {operation} without any mutation before confirmation.',
-  'workbench.integration.nothingToIntegrate': 'nothing to integrate',
   'workbench.integration.operation.merge': 'Merge',
   'workbench.integration.operation.rebase': 'Rebase',
   'workbench.integration.rebaseBaseUnchanged': 'Branch {target} stays unchanged',
   'workbench.integration.rebaseAction': 'Rebase',
-  'workbench.integration.sameCommit': '{target} and {source} point to the same commit.',
-  'workbench.integration.stashRequired':
-    'local changes stashed then restored after the merge',
-  'workbench.integration.strategyFastForward': 'Fast-forward, without a merge commit',
-  'workbench.integration.strategyLegend': 'Merge strategy',
-  'workbench.integration.strategyMergeCommit': 'Merge commit',
-  'workbench.integration.strategyMergeNote':
-    'Keeps the junction of both branches in the graph.',
-  'workbench.integration.strategyUpToDate':
-    '{target} points to the latest commit of {source}.',
   'workbench.integration.untrackedLeft': 'untracked files left in place',
 
   'workbench.menu.amendCommit': 'Amend this commit…',
@@ -157,7 +132,7 @@ const messages = {
   'workbench.menu.stashDelete': 'Delete the stash',
   'workbench.menu.switchTo': 'Switch to {name}',
 
-  'workbench.drop.advance': 'Advance {target} to {source}',
+  'workbench.drop.advance': 'Fast-forward {target} to {source}',
   'workbench.drop.advanceTitle': 'Advance {target} to {source} without a merge commit',
   'workbench.drop.compare': 'Compare {source} and {target}',
   'workbench.drop.merge': 'Merge {source} into {target}',
