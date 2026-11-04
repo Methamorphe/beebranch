@@ -133,6 +133,7 @@ fn ten_repositories_report_per_repository_results_and_cleanup_sessions() {
     let results = run_sync_workers(
         runner,
         registry.clone(),
+        None,
         rows,
         WorkspaceAction::Fetch,
         PullStrategy::Auto,
@@ -216,6 +217,7 @@ fn pull_is_isolated_and_requires_explicit_confirmation() {
     let results = run_sync_workers(
         runner,
         registry.clone(),
+        None,
         rows,
         WorkspaceAction::Pull,
         PullStrategy::Auto,

@@ -347,29 +347,26 @@ pub async fn workspace_sync(
         return Err(AppError::internal("workspace dépasse sa borne"));
     }
     let strategy = request.strategy.unwrap_or(PullStrategy::Auto);
-    let action = request.action;
     tauri::async_runtime::spawn_blocking(move || {
-        let results = run_sync_workers(runner, registry, rows, action, strategy);
-        // A pull is not recorded: like any unrecorded mutation it invalidates
-        // the redo branch of every repository it reached, even on failure (a
-        // conflicted pull has changed the repository too).
-        if action == WorkspaceAction::Pull {
-            for repo_id in results
-                .iter()
-                .filter_map(|result| result.repo_id.as_deref())
-            {
-                store.invalidate_redo(repo_id).map_err(store_error)?;
-            }
-        }
-        Ok(results)
+        run_sync_workers(
+            runner,
+            registry,
+            Some(store),
+            rows,
+            request.action,
+            strategy,
+        )
     })
     .await
-    .map_err(join_error)?
+    .map_err(join_error)
 }
 
+/// `store`, when given, has the redo branch of every pulled repository
+/// invalidated inside its serialized mutation.
 pub fn run_sync_workers(
     runner: GitRunner,
     registry: Arc<SessionRegistry>,
+    store: Option<Arc<Store>>,
     rows: Vec<WorkspaceRepoRow>,
     action: WorkspaceAction,
     strategy: PullStrategy,
@@ -383,6 +380,7 @@ pub fn run_sync_workers(
     for worker in 0..SYNC_WORKERS.min(total) {
         let runner = runner.clone();
         let registry = registry.clone();
+        let store = store.clone();
         let rows = rows.clone();
         let next = next.clone();
         let results = results.clone();
@@ -394,6 +392,7 @@ pub fn run_sync_workers(
             let result = run_one(
                 &runner,
                 &registry,
+                store.clone(),
                 &rows[index],
                 action,
                 index,
@@ -418,9 +417,11 @@ pub fn run_sync_workers(
     ordered
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_one(
     runner: &GitRunner,
     registry: &SessionRegistry,
+    store: Option<Arc<Store>>,
     row: &WorkspaceRepoRow,
     action: WorkspaceAction,
     index: usize,
@@ -437,7 +438,7 @@ fn run_one(
             },
         )?;
         let repo_id = session.id().as_str().to_owned();
-        let outcome = run_repo_action(&session, action, index, worker, strategy);
+        let outcome = run_repo_action(&session, store, action, index, worker, strategy);
         let state = session.refresh_state().ok();
         if created {
             registry.close(session.id());
@@ -476,6 +477,7 @@ fn run_one(
 
 fn run_repo_action(
     session: &RepoSession,
+    store: Option<Arc<Store>>,
     action: WorkspaceAction,
     index: usize,
     worker: usize,
@@ -524,28 +526,39 @@ fn run_repo_action(
     let action_for_job = action;
     let slot: Arc<Mutex<Option<sync::SyncOutcome>>> = Arc::new(Mutex::new(None));
     let writer = slot.clone();
+    let repo_id = session.id().as_str().to_owned();
     session.mutate(move |runner, discovery| {
         let worktree = discovery.worktree()?;
         let context = OperationContext::new(&operation_id, "workspace sync");
-        let outcome = match action_for_job {
-            WorkspaceAction::Fetch => {
-                let command =
-                    sync::spawn_fetch(runner, worktree, &remote_for_job, &context, |_| {})?;
-                sync::finish(command, SyncKind::Fetch, || None)?
+        let result = (|| -> Result<sync::SyncOutcome, AppError> {
+            Ok(match action_for_job {
+                WorkspaceAction::Fetch => {
+                    let command =
+                        sync::spawn_fetch(runner, worktree, &remote_for_job, &context, |_| {})?;
+                    sync::finish(command, SyncKind::Fetch, || None)?
+                }
+                WorkspaceAction::Pull => {
+                    let command = sync::spawn_pull(
+                        runner,
+                        worktree,
+                        &remote_for_job,
+                        &branch_for_job,
+                        strategy,
+                        &context,
+                        |_| {},
+                    )?;
+                    sync::finish(command, SyncKind::Pull, || None)?
+                }
+            })
+        })();
+        // A pull is not recorded: like any unrecorded mutation it invalidates
+        // the redo branch, even when it failed (it may have written).
+        if action_for_job == WorkspaceAction::Pull {
+            if let Some(store) = &store {
+                store.invalidate_redo(&repo_id).map_err(store_error)?;
             }
-            WorkspaceAction::Pull => {
-                let command = sync::spawn_pull(
-                    runner,
-                    worktree,
-                    &remote_for_job,
-                    &branch_for_job,
-                    strategy,
-                    &context,
-                    |_| {},
-                )?;
-                sync::finish(command, SyncKind::Pull, || None)?
-            }
-        };
+        }
+        let outcome = result?;
         if let Ok(mut slot) = writer.lock() {
             *slot = Some(outcome);
         }

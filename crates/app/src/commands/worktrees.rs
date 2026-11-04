@@ -209,7 +209,7 @@ pub async fn worktree_remove(
                 .cloned();
             let report = worktree::remove(runner, worktree, &path, force, delete_branch)?;
             let label = format!("suppression du worktree {path}");
-            let builder = Box::new(move |_before: &Fingerprint, _after: &Fingerprint| {
+            let builder = Box::new(move |before: &Fingerprint, _after: &Fingerprint| {
                 // When the branch was deleted with the worktree, the undo must
                 // recreate it at the recorded head, not check out a missing ref.
                 let (reference, detach, new_branch) = match &entry {
@@ -228,6 +228,22 @@ pub async fn worktree_remove(
                     },
                     None => ("HEAD".to_owned(), true, None),
                 };
+                // Never `--force` on redo: edits made in the re-added worktree
+                // make Git refuse instead of being destroyed.
+                let mut redo = vec![ReversibleAction::RemoveWorktree {
+                    path: path.clone(),
+                    force: false,
+                }];
+                // The removal also deleted the branch: so does its redo.
+                if let Some(branch) = new_branch.as_ref() {
+                    let reference = format!("refs/heads/{branch}");
+                    if let Some(sha) = before.refs.get(&reference).filter(|sha| *sha != "absent") {
+                        redo.push(ReversibleAction::DeleteRef {
+                            reference,
+                            expected: sha.clone(),
+                        });
+                    }
+                }
                 UndoDraft {
                     kind: "worktree.remove".to_owned(),
                     label,
@@ -237,9 +253,10 @@ pub async fn worktree_remove(
                         new_branch,
                         detach,
                     },
-                    redo: Some(ReversibleAction::RemoveWorktree {
-                        path: path.clone(),
-                        force,
+                    redo: Some(if redo.len() == 1 {
+                        redo.remove(0)
+                    } else {
+                        ReversibleAction::Sequence { actions: redo }
                     }),
                 }
             });

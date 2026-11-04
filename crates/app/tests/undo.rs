@@ -666,11 +666,16 @@ mod reliability {
                 },
                 // Same inverse as `tag_delete`.
                 move |_, _| {
+                    let _ = undo_ref;
                     (
-                        ReversibleAction::CreateRef {
-                            reference: undo_ref,
-                            sha: sha.clone(),
-                            upstream: None,
+                        ReversibleAction::RestoreTag {
+                            name: "v1".to_owned(),
+                            object: sha.clone(),
+                            target: None,
+                            message: None,
+                            tagger: None,
+                            tagger_email: None,
+                            tagger_time: None,
                         },
                         Some(ReversibleAction::DeleteTag {
                             name: "v1".to_owned(),
@@ -786,6 +791,378 @@ mod reliability {
                 .await
                 .expect("now it is the top");
             assert_ne!(head(env.dir()), top);
+        });
+    }
+
+    fn stash_list(dir: &Path) -> String {
+        git(dir, &["stash", "list", "--format=%H"])
+    }
+
+    /// Branch drop with automatic stash, recorded with the inverse that
+    /// `branch_integration_start` builds for a popped stash.
+    async fn record_auto_stash_merge(env: &Env) {
+        let outcome: Arc<std::sync::Mutex<Option<beebranch_git::integration::AutoStashOutcome>>> =
+            Arc::default();
+        let writer = outcome.clone();
+        env.record(
+            vec!["refs/heads/main".to_owned()],
+            move |dir| {
+                let runner = GitRunner::detect().expect("git");
+                let result = beebranch_git::integration::start(
+                    &runner,
+                    dir,
+                    "feature",
+                    "main",
+                    beebranch_git::integration::IntegrationMode::Merge,
+                    Default::default(),
+                )
+                .expect("integration");
+                *writer.lock().expect("lock") = result.auto_stash;
+            },
+            move |before, _after| {
+                let stash = outcome.lock().expect("lock").clone().expect("auto stash");
+                assert!(stash.popped, "the stash was re-applied");
+                let head = before.head_sha.clone().expect("head");
+                (
+                    ReversibleAction::Sequence {
+                        actions: vec![
+                            ReversibleAction::RestoreHead {
+                                target: undo::head_target(before),
+                                sha: Some(head.clone()),
+                                mode: RestoreMode::HardBeforeStash,
+                                index_tree: Some(head),
+                            },
+                            ReversibleAction::ApplyStash {
+                                selector: stash.selector,
+                                expected_sha: stash.sha,
+                                drop: false,
+                                expected_status_hash: None,
+                            },
+                        ],
+                    },
+                    None,
+                )
+            },
+        )
+        .await;
+    }
+
+    #[test]
+    fn an_auto_stash_integration_undo_refuses_after_a_further_edit() {
+        run(async {
+            let env = Env::new(diverged);
+            std::fs::write(env.dir().join("b.txt"), "local\n").expect("write");
+            record_auto_stash_merge(&env).await;
+            let merged = head(env.dir());
+            assert_eq!(read(env.dir(), "b.txt"), "local\n");
+            // Same status line, different content.
+            std::fs::write(env.dir().join("b.txt"), "local\nmore work\n").expect("write");
+
+            let error = env.undo().await.expect_err("content changed");
+            assert_eq!(error.code, "undo.precondition", "{error:?}");
+            assert_eq!(read(env.dir(), "b.txt"), "local\nmore work\n");
+            assert_eq!(head(env.dir()), merged);
+        });
+    }
+
+    #[test]
+    fn an_auto_stash_integration_undo_restores_the_local_changes() {
+        run(async {
+            let env = Env::new(diverged);
+            let before = head(env.dir());
+            std::fs::write(env.dir().join("b.txt"), "local\n").expect("write");
+            record_auto_stash_merge(&env).await;
+            env.undo().await.expect("undo");
+            assert_eq!(head(env.dir()), before);
+            assert_eq!(read(env.dir(), "b.txt"), "local\n");
+            assert!(!env.dir().join("c.txt").exists());
+        });
+    }
+
+    #[test]
+    fn an_abort_undo_refuses_after_a_partial_conflict_resolution() {
+        run(async {
+            let env = Env::new(|dir| {
+                diverged(dir);
+                git(dir, &["switch", "-q", "feature"]);
+                std::fs::write(dir.join("a.txt"), "feature side\n").expect("write");
+                git(dir, &["commit", "-qam", "conflict"]);
+                git(dir, &["switch", "-q", "main"]);
+            });
+            env.record(
+                Vec::new(),
+                |dir| {
+                    let runner = GitRunner::detect().expect("git");
+                    let outcome =
+                        beebranch_git::history::merge(&runner, dir, "feature", Default::default())
+                            .expect("merge");
+                    assert!(outcome.state.operation.is_some(), "conflicted merge");
+                },
+                |_, after| {
+                    (
+                        ReversibleAction::AbortOperation {
+                            operation: after.operation.clone().expect("operation"),
+                        },
+                        None,
+                    )
+                },
+            )
+            .await;
+            // A resolution in progress: still unmerged, same status line.
+            std::fs::write(env.dir().join("a.txt"), "half resolved\n").expect("write");
+            let error = env.undo().await.expect_err("resolution in progress");
+            assert_eq!(error.code, "undo.precondition", "{error:?}");
+            assert_eq!(read(env.dir(), "a.txt"), "half resolved\n");
+            assert!(git_ok(
+                env.dir(),
+                &["rev-parse", "-q", "--verify", "MERGE_HEAD"]
+            ));
+        });
+    }
+
+    #[test]
+    fn a_stash_undo_drops_its_own_entry_even_after_another_push() {
+        run(async {
+            let env = Env::new(base);
+            std::fs::write(env.dir().join("a.txt"), "mine\n").expect("write");
+            let selector_sha: Arc<std::sync::Mutex<String>> = Arc::default();
+            let writer = selector_sha.clone();
+            env.record(
+                vec!["refs/stash".to_owned()],
+                move |dir| {
+                    git(dir, &["stash", "push", "-q", "-m", "mine"]);
+                    *writer.lock().expect("lock") = git(dir, &["rev-parse", "stash@{0}"]);
+                },
+                move |before, _| {
+                    (
+                        ReversibleAction::ApplyStash {
+                            selector: "stash@{0}".to_owned(),
+                            expected_sha: selector_sha.lock().expect("lock").clone(),
+                            drop: true,
+                            expected_status_hash: Some(before.status_hash.clone()),
+                        },
+                        None,
+                    )
+                },
+            )
+            .await;
+            let ours = git(env.dir(), &["rev-parse", "stash@{0}"]);
+            // Another stash pushed meanwhile becomes stash@{0}.
+            std::fs::write(env.dir().join("b.txt"), "other\n").expect("write");
+            git(env.dir(), &["stash", "push", "-q", "-m", "other"]);
+            let other = git(env.dir(), &["rev-parse", "stash@{0}"]);
+            // The worktree is clean again but `refs/stash` moved: refused.
+            let error = env.undo().await.expect_err("stash ref moved");
+            assert_eq!(error.code, "undo.precondition", "{error:?}");
+            assert_eq!(stash_list(env.dir()), format!("{other}\n{ours}"));
+        });
+    }
+
+    #[test]
+    fn the_stash_drop_resolves_the_entry_by_commit() {
+        let env = Env::new(base);
+        std::fs::write(env.dir().join("a.txt"), "mine\n").expect("write");
+        git(env.dir(), &["stash", "push", "-q", "-m", "mine"]);
+        let ours = git(env.dir(), &["rev-parse", "stash@{0}"]);
+        std::fs::write(env.dir().join("b.txt"), "other\n").expect("write");
+        git(env.dir(), &["stash", "push", "-q", "-m", "other"]);
+        let other = git(env.dir(), &["rev-parse", "stash@{0}"]);
+        let runner = GitRunner::detect().expect("git");
+        let discovery = beebranch_git::discover::discover(&runner, env.dir()).expect("discover");
+        // A stale positional selector must not drop the newer entry.
+        undo::apply(
+            &runner,
+            &discovery,
+            &ReversibleAction::ApplyStash {
+                selector: "stash@{0}".to_owned(),
+                expected_sha: ours.clone(),
+                drop: true,
+                expected_status_hash: None,
+            },
+            &mut |_| Ok(()),
+        )
+        .expect("apply");
+        assert_eq!(read(env.dir(), "a.txt"), "mine\n");
+        assert_eq!(stash_list(env.dir()), other);
+    }
+
+    fn worktree_fixture(dir: &Path) {
+        base(dir);
+        let path = dir.join("wt");
+        git(
+            dir,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "side",
+                path.to_str().expect("utf8"),
+            ],
+        );
+    }
+
+    /// Worktree removal recorded with the inverse `worktree_remove` builds.
+    async fn record_worktree_removal(env: &Env, delete_branch: bool) -> String {
+        let path = env.dir().join("wt").to_str().expect("utf8").to_owned();
+        let side = git(env.dir(), &["rev-parse", "side"]);
+        let (job_path, undo_path, redo_path) = (path.clone(), path.clone(), path.clone());
+        env.record(
+            vec!["refs/heads/side".to_owned()],
+            move |dir| {
+                let runner = GitRunner::detect().expect("git");
+                beebranch_git::worktree::remove(&runner, dir, &job_path, true, delete_branch)
+                    .expect("remove");
+            },
+            move |before, _| {
+                let mut redo = vec![ReversibleAction::RemoveWorktree {
+                    path: redo_path,
+                    force: false,
+                }];
+                if delete_branch {
+                    redo.push(ReversibleAction::DeleteRef {
+                        reference: "refs/heads/side".to_owned(),
+                        expected: before.refs["refs/heads/side"].clone(),
+                    });
+                }
+                (
+                    ReversibleAction::AddWorktree {
+                        path: undo_path,
+                        reference: if delete_branch {
+                            side
+                        } else {
+                            "side".to_owned()
+                        },
+                        new_branch: delete_branch.then(|| "side".to_owned()),
+                        detach: false,
+                    },
+                    Some(ReversibleAction::Sequence { actions: redo }),
+                )
+            },
+        )
+        .await;
+        path
+    }
+
+    #[test]
+    fn a_worktree_removal_redo_never_discards_edits_made_after_the_undo() {
+        run(async {
+            let env = Env::new(worktree_fixture);
+            let path = record_worktree_removal(&env, false).await;
+            env.undo().await.expect("undo removal");
+            let file = Path::new(&path).join("a.txt");
+            std::fs::write(&file, "edited in the worktree\n").expect("write");
+
+            env.redo().await.expect_err("dirty worktree");
+            assert_eq!(
+                std::fs::read_to_string(&file).expect("read"),
+                "edited in the worktree\n"
+            );
+        });
+    }
+
+    #[test]
+    fn a_worktree_removal_with_its_branch_is_redone_completely() {
+        run(async {
+            let env = Env::new(worktree_fixture);
+            let side = git(env.dir(), &["rev-parse", "side"]);
+            let path = record_worktree_removal(&env, true).await;
+            assert!(!git_ok(
+                env.dir(),
+                &["rev-parse", "-q", "--verify", "refs/heads/side"]
+            ));
+            env.undo().await.expect("undo removal");
+            assert_eq!(git(env.dir(), &["rev-parse", "side"]), side);
+            assert!(Path::new(&path).join("a.txt").exists());
+            let state = env.redo().await.expect("redo removal");
+            assert_eq!(state, "available");
+            assert!(!git_ok(
+                env.dir(),
+                &["rev-parse", "-q", "--verify", "refs/heads/side"]
+            ));
+            assert!(!Path::new(&path).exists());
+        });
+    }
+
+    #[test]
+    fn a_pruned_annotated_tag_is_rebuilt_on_its_commit() {
+        run(async {
+            let env = Env::new(|dir| {
+                base(dir);
+                git(dir, &["tag", "-a", "v1", "-m", "Release v1"]);
+            });
+            let runner = GitRunner::detect().expect("git");
+            let tag = beebranch_git::refs_admin::list_tags(&runner, env.dir())
+                .expect("tags")
+                .into_iter()
+                .find(|tag| tag.name == "v1")
+                .expect("v1");
+            let original = tag.oid.clone();
+            let commit = head(env.dir());
+            env.record(
+                vec!["refs/tags/v1".to_owned()],
+                |dir| {
+                    let runner = GitRunner::detect().expect("git");
+                    beebranch_git::refs_admin::delete_tag(&runner, dir, "v1").expect("delete");
+                },
+                // Same inverse as `tag_delete`.
+                move |_, _| {
+                    (
+                        ReversibleAction::RestoreTag {
+                            name: tag.name.clone(),
+                            object: tag.oid.clone(),
+                            target: tag.target_oid.clone(),
+                            message: tag.message.clone(),
+                            tagger: tag.tagger.clone(),
+                            tagger_email: tag.tagger_email.clone(),
+                            tagger_time: tag.tagger_time,
+                        },
+                        Some(ReversibleAction::DeleteTag {
+                            name: tag.name.clone(),
+                            expected: tag.oid.clone(),
+                        }),
+                    )
+                },
+            )
+            .await;
+            git(env.dir(), &["reflog", "expire", "--expire=now", "--all"]);
+            git(env.dir(), &["gc", "-q", "--prune=now"]);
+            assert!(
+                !git_ok(env.dir(), &["cat-file", "-e", &original]),
+                "tag object pruned"
+            );
+
+            let state = env.undo().await.expect("undo rebuilds the tag");
+            assert_eq!(state, "consumed");
+            assert_eq!(git(env.dir(), &["cat-file", "-t", "v1"]), "tag");
+            assert_eq!(git(env.dir(), &["rev-parse", "v1^{commit}"]), commit);
+            assert!(git(env.dir(), &["cat-file", "-p", "v1"]).contains("Release v1"));
+        });
+    }
+
+    #[test]
+    fn a_failed_unrecorded_mutation_still_clears_the_redo_branch() {
+        run(async {
+            let env = Env::new(base);
+            env.commit("a.txt", "two\n").await;
+            env.undo().await.expect("undo");
+            let error = run_mutation(
+                env.store.clone(),
+                env.session.clone(),
+                |_runner, discovery| {
+                    // Wrote, then failed: like a pull that stops on conflicts.
+                    std::fs::write(discovery.worktree()?.join("b.txt"), "written\n")
+                        .expect("write");
+                    Err::<((), Vec<InvalidationArea>), _>(AppError::internal(
+                        "failed after writing",
+                    ))
+                },
+            )
+            .await
+            .expect_err("job failed");
+            assert_eq!(error.detail.as_deref(), Some("failed after writing"));
+            let status = status_now(&env.state, &env.id()).await.expect("status");
+            assert!(status.redo.is_none(), "redo invalidated");
         });
     }
 }

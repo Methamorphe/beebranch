@@ -209,6 +209,13 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
     message: 'This operation is no longer the latest one on the stack.',
     remediation: 'Nothing was changed.',
   },
+  'undo.stash_missing': {
+    message: 'The stash recorded for this operation was not found.',
+    remediation: 'Nothing was changed. Inspect `git stash list`.',
+  },
+  'undo.object_missing': {
+    message: 'The Git object of this tag no longer exists.',
+  },
   'redo.empty': {
     message: 'There is nothing to redo.',
   },
