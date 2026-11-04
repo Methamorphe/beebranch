@@ -9,6 +9,10 @@
 /* The wallpaper sits at z-index -1: behind every pane and its text, above the
    window canvas, without stealing pointer events. The shell drops its own
    background so translucent panes reveal the image. */
+.app[data-toolbar='hidden'] {
+  grid-template-rows: var(--topbar) minmax(0, 1fr) var(--statusbar);
+}
+
 .app[data-background='image'] {
   background: transparent;
 }
@@ -105,28 +109,6 @@
   overflow: hidden;
 }
 
-.error {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 8px 20px 0;
-  padding: 9px 12px;
-  border-left: 3px solid var(--error);
-  color: var(--error);
-  background: var(--error-soft);
-  font-size: 11.5px;
-}
-
-.error button {
-  padding: 2px 7px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-sm);
-  color: inherit;
-  background: transparent;
-  font-size: 11px;
-}
-
 .intermediate {
   display: flex;
   align-items: center;
@@ -151,7 +133,6 @@
   .viewbar {
     padding: 0 12px;
   }
-  .error,
   .intermediate {
     margin-inline: 12px;
   }

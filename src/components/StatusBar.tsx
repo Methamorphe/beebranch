@@ -164,17 +164,6 @@ export function StatusBar({
           {plural('shell.statusBar.conflicts.one', 'shell.statusBar.conflicts.other', conflicts, { count: formatNumber(conflicts) })}
         </button>
       ) : null}
-      {activeOperation ? (
-        <button
-          key={activeOperation}
-          type="button"
-          className={`${styles.segment} ${styles.operation}`}
-          onClick={() => onNavigate(repo?.state.operation?.kind === 'rebase' ? 'rebase' : 'conflicts')}
-          title={t('shell.statusBar.manageOperation')}
-        >
-          {t('shell.statusBar.operation', { operation: activeOperation })}
-        </button>
-      ) : null}
       <span className={styles.spacer} />
 
       <button

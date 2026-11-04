@@ -10,6 +10,7 @@ import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
+import { useToastChannel } from './ui/Toasts'
 import styles from './RepoBar.module.css'
 
 type Props = {
@@ -41,7 +42,7 @@ function branchLabel(repo: RepoView | null, t: I18n['t']) {
 export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo }: Props) {
   const { t } = useI18n()
   const [pending, setPending] = useState<string | null>(null)
-  const [notice, setNotice] = useState<{ repoId: string; text: string } | null>(null)
+  const setNotice = useToastChannel('repobar-notice', 'success')
   const [branches, setBranches] = useState<string[]>([])
   const [remotes, setRemotes] = useState<string[]>([])
   const [publish, setPublish] = useState<PublishTarget | null>(null)
@@ -69,14 +70,14 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const changes = repo?.state.worktree
   const stashBlocked = !changes || !(changes.staged || changes.unstaged || changes.untracked) || head?.kind === 'unborn' || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)
   const disabled = !repoId || busy || pending !== null
-  const run = async <T,>(label: string, action: () => Promise<T>, describe?: (result: T) => string, pushTarget?: PushRejection) => {
+  const run = async <T,>(label: string, action: () => Promise<T>, describe?: (result: T) => string | null, pushTarget?: PushRejection) => {
     if (!repoId) return
     setPending(label); setNotice(null)
     try {
       const result = await action()
-      // Feedback carries its repository: a notice left over from another tab
-      // would describe the wrong one.
-      setNotice({ repoId, text: describe ? describe(result) : t('shell.repoBar.actionDone', { action: label }) })
+      // `null` means the caller reports the outcome itself (undo, redo).
+      const text = describe ? describe(result) : t('shell.repoBar.actionDone', { action: label })
+      if (text) setNotice(text)
       onRefresh()
     }
     catch (cause) {
@@ -150,7 +151,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
         disabled={!repoId || busy || pending !== null || !undo}
         title={undo ? undoButtonLabel(undo, 'undo') : t('shell.undo.nothingToUndo')}
         aria-keyshortcuts="Meta+Z Control+Z"
-        onClick={() => void run(t('shell.undo.pending'), onUndo)}
+        onClick={() => void run(t('shell.undo.pending'), onUndo, () => null)}
       >
         <ToolbarIcon name="undo" /><span>Undo</span>
       </button>
@@ -160,22 +161,22 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
         disabled={!repoId || busy || pending !== null || !redo}
         title={redo ? undoButtonLabel(redo, 'redo') : t('shell.undo.nothingToRedo')}
         aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z"
-        onClick={() => void run(t('shell.redo.pending'), onRedo)}
+        onClick={() => void run(t('shell.redo.pending'), onRedo, () => null)}
       >
         <ToolbarIcon name="redo" /><span>Redo</span>
       </button>
-      <button type="button" className={`${styles.action} ${styles.wideOnly}`} disabled={disabled} title={t('shell.repoBar.terminalTitle')} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }))}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
+      <button type="button" className={`${styles.action} ${styles.wideOnly}`} disabled={disabled} title={t('shell.repoBar.terminalTitle')} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }), () => null)}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
     </div>
     <div className={styles.utilities}>
-      <span className={styles.notice} role="status">{pending ? `${pending}…` : notice?.repoId === repoId ? notice.text : null}</span>
+      <span className={styles.notice} role="status">{pending ? `${pending}…` : null}</span>
       <ActionMenu label={t('shell.repoBar.otherActions')} triggerClassName={styles.action} triggerContent={<><ToolbarIcon name="actions" /><span>{t('common.actions')}</span></>}>
-        <button type="button" disabled={!repoId || busy || pending !== null || !undo} onClick={() => void run(t('shell.undo.pending'), onUndo)}>
+        <button type="button" disabled={!repoId || busy || pending !== null || !undo} onClick={() => void run(t('shell.undo.pending'), onUndo, () => null)}>
           {undo ? undoButtonLabel(undo, 'undo') : t('shell.undo.action', { action: t('shell.undo.none') })}
         </button>
-        <button type="button" disabled={!repoId || busy || pending !== null || !redo} onClick={() => void run(t('shell.redo.pending'), onRedo)}>
+        <button type="button" disabled={!repoId || busy || pending !== null || !redo} onClick={() => void run(t('shell.redo.pending'), onRedo, () => null)}>
           {redo ? undoButtonLabel(redo, 'redo') : t('shell.undo.redoAction', { action: t('shell.undo.none') })}
         </button>
-        <button type="button" disabled={disabled} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }))}>
+        <button type="button" disabled={disabled} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }), () => null)}>
           {t('shell.action.openTerminal')}
         </button>
         <button type="button" onClick={onRefresh} disabled={!repoId || busy} aria-label={t('shell.repoBar.refreshState')}>{t('shell.repoBar.refreshState')}</button>

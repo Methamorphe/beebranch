@@ -5,13 +5,16 @@ import '@fontsource/open-sans/latin-600.css'
 import '@fontsource/open-sans/latin-700.css'
 import '@fontsource-variable/geist-mono'
 import App from './App.tsx'
+import { ToastProvider } from './components/ui/Toasts'
 import { call } from './ipc/client'
 import './styles/tokens.css'
 import './styles/global.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ToastProvider>
+      <App />
+    </ToastProvider>
   </StrictMode>,
 )
 

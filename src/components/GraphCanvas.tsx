@@ -20,7 +20,7 @@ import {
 } from '../lib/layout'
 import { Resizer } from './Resizer'
 import { GraphRefPopover, type RefAnchor } from './GraphRefPopover'
-import { formatDate, formatDateTime, useI18n } from '../i18n'
+import { formatDate, formatDateTime, formatRelative, useI18n } from '../i18n'
 import {
   foldUpstreamRefs,
   graphCommitRefs,
@@ -95,10 +95,10 @@ const OVERSCAN = 8
 const AVATAR_NODE_RADIUS = 11
 const AVATAR_LANE_RING = 2.25
 
-/** Commit date and local time shown in the history date column. */
+/** Relative age for the last week, then the date and local time. */
 function commitDateLabel(timestamp: number) {
   const date = new Date(timestamp * 1000)
-  return `${formatDate(date, { day: '2-digit', month: 'short', year: 'numeric' })} ${formatDateTime(date, { hour: '2-digit', minute: '2-digit' })}`
+  return formatRelative(date) ?? `${formatDate(date, { day: '2-digit', month: 'short', year: 'numeric' })} ${formatDateTime(date, { hour: '2-digit', minute: '2-digit' })}`
 }
 /** Constant distance between two lanes: the graph column grows with the lane
  * count instead of squeezing every lane into a fixed width, which used to turn

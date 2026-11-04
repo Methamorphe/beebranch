@@ -1,6 +1,6 @@
 import type { CommitDetail } from '../types/git'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
-import { dateFromSeconds, formatDateTime, useI18n, type MessageKey } from '../i18n'
+import { dateFromSeconds, formatDateTime, formatRelative, useI18n, type MessageKey } from '../i18n'
 import styles from './CommitDetailPanel.module.css'
 
 /** Verification code from `git show --format=%G?`, mapped to a label. */
@@ -70,6 +70,7 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
 
   const commit = detail.summary
   const subject = commit.subject.trim()
+  const relativeAge = formatRelative(dateFromSeconds(commit.author.timestamp))
   const rawBody = detail.message.trim()
   const body = rawBody.startsWith(subject) ? rawBody.slice(subject.length).trim() : rawBody
   const additions = detail.files.reduce((total, file) => total + (file.additions ?? 0), 0)
@@ -96,7 +97,10 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
         <h2 className={styles.subject} title={subject}>{subject}</h2>
         <p className={styles.meta}>
           <span className={styles.author}>{commit.author.name}</span>
-          <span>{formatDateTime(dateFromSeconds(commit.author.timestamp))}</span>
+          <span>
+            {formatDateTime(dateFromSeconds(commit.author.timestamp))}
+            {relativeAge ? ` · ${relativeAge}` : ''}
+          </span>
           <span>{plural('diff.commit.parents.one', 'diff.commit.parents.other', commit.parents.length)}</span>
           {detail.signature ? (
             <span

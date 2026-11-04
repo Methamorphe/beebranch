@@ -1,0 +1,82 @@
+/* Centred above the status bar, clear of the commit button and the
+   navigator; newest at the bottom. */
+.viewport {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: min(440px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  --toast-accent: var(--info);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 260px;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--toast-accent);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  line-height: var(--line-normal);
+  pointer-events: auto;
+  animation: toast-enter 160ms ease-out;
+}
+
+.toast[data-tone='success'] {
+  --toast-accent: var(--success);
+}
+
+.toast[data-tone='error'] {
+  --toast-accent: var(--error);
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.action {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--toast-accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: transparent;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.close:hover {
+  color: var(--text);
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
