@@ -103,6 +103,117 @@ fn repo_ref_from_row(row: &ProjectRow) -> Option<RepoRef> {
     RepoRef::from_full_name(row.project_id, &row.path_with_namespace)
 }
 
+fn instance_row(state: &AppState) -> Result<beebranch_store::InstanceRow, AppError> {
+    state
+        .github_instance
+        .lock()
+        .map_err(|_| AppError::internal("verrou instance GitHub"))?
+        .clone()
+        .ok_or_else(not_configured)
+}
+
+fn instance_host(instance: &beebranch_store::InstanceRow) -> Option<String> {
+    url::Url::parse(&instance.base_url)
+        .ok()?
+        .host_str()
+        .map(str::to_ascii_lowercase)
+}
+
+fn project_to_row(instance: &str, project: &beebranch_github::GithubProject) -> ProjectRow {
+    ProjectRow {
+        instance_id: instance.to_owned(),
+        project_id: project.id,
+        path_with_namespace: project.path_with_namespace.clone(),
+        name: project.name.clone(),
+        web_url: project.web_url.clone(),
+        ssh_url: project.ssh_url_to_repo.clone(),
+        http_url: project.http_url_to_repo.clone(),
+        default_branch: project.default_branch.clone(),
+        last_activity_at: project.last_activity_at.clone(),
+        fetched_at: beebranch_core::now_unix(),
+        etag: None,
+    }
+}
+
+fn store_link(
+    state: &AppState,
+    repo_id: &str,
+    instance: &str,
+    project_id: u64,
+) -> Result<RepoLink, AppError> {
+    let link = RepoLink {
+        repo_id: repo_id.to_owned(),
+        instance_id: instance.to_owned(),
+        project_id,
+        match_kind: "url".to_owned(),
+        verified_at: beebranch_core::now_unix(),
+    };
+    state.store.set_repo_link(&link).map_err(store_error)?;
+    Ok(link)
+}
+
+/// Resolve and store the GitHub repository that owns `remote_urls`.
+///
+/// Only remotes on the configured instance are considered, so a repository of
+/// another forge never borrows a same-named GitHub repository. Cached projects
+/// are matched first; when none matches, the owner/name pair is resolved
+/// through the API and cached. `None` means no remote points at the instance,
+/// so the repository has no CI to report.
+pub(crate) async fn ensure_repo_link(
+    state: &AppState,
+    repo_id: &str,
+    remote_urls: &[String],
+) -> Result<Option<RepoLink>, AppError> {
+    if let Some(link) = state
+        .store
+        .repo_link_for(repo_id, PROVIDER)
+        .map_err(store_error)?
+    {
+        return Ok(Some(link));
+    }
+    let instance = instance_row(state)?;
+    let Some(host) = instance_host(&instance) else {
+        return Ok(None);
+    };
+    let remotes: Vec<RemoteInfo> = remote_urls
+        .iter()
+        .filter_map(|url| normalize_remote(url))
+        .filter(|remote| remote.host.eq_ignore_ascii_case(&host))
+        .collect();
+    if remotes.is_empty() {
+        return Ok(None);
+    }
+    let projects = state
+        .store
+        .list_projects(&instance.id, None, 1000)
+        .map_err(store_error)?;
+    if let Some(project) = match_project(&projects, &remotes) {
+        return store_link(state, repo_id, &instance.id, project.project_id).map(Some);
+    }
+    let client = client(state)?;
+    for remote in remotes {
+        let Some(reference) = RepoRef::from_full_name(0, &remote.path) else {
+            continue;
+        };
+        match client
+            .repository_by_name(&reference.owner, &reference.name)
+            .await
+        {
+            Ok(project) => {
+                state
+                    .store
+                    .upsert_projects(&[project_to_row(&instance.id, &project)])
+                    .map_err(store_error)?;
+                return store_link(state, repo_id, &instance.id, project.id).map(Some);
+            }
+            // Missing or not readable by this token: try the next remote.
+            Err(error) if matches!(error.status(), Some(403) | Some(404)) => continue,
+            Err(error) => return Err(github_error(error)),
+        }
+    }
+    Ok(None)
+}
+
 pub(crate) async fn resolve_repo_ref(
     state: &AppState,
     client: &GithubClient,
@@ -167,7 +278,7 @@ pub async fn github_repo_link(
     state: State<'_, AppState>,
     repo_id: String,
 ) -> Result<RepoLinkDto, AppError> {
-    let instance = instance_id(&state)?;
+    let _ = instance_id(&state)?;
     let session = state.session(&repo_id)?;
     let (refs, _) = tauri::async_runtime::spawn_blocking({
         let session = session.clone();
@@ -175,13 +286,16 @@ pub async fn github_repo_link(
     })
     .await
     .map_err(crate::error::join_error)??;
-    let remotes: Vec<RemoteInfo> = refs
+    let remote_urls: Vec<String> = refs
         .remote_urls
         .iter()
         .filter(|remote| remote.direction == "fetch")
-        .filter_map(|remote| normalize_remote(&remote.url))
+        .map(|remote| remote.url.clone())
         .collect();
-    if remotes.is_empty() {
+    if remote_urls
+        .iter()
+        .all(|url| normalize_remote(url).is_none())
+    {
         return Err(AppError::new(
             "github.no_remote",
             ErrorCategory::Input,
@@ -189,26 +303,31 @@ pub async fn github_repo_link(
         )
         .with_remediation("Ajoutez un remote SSH ou HTTPS vers GitHub."));
     }
+    // An explicit association may rely on a host alias (for example an SSH
+    // config entry), so cached projects are matched against every remote
+    // before the instance-host-restricted automatic resolution runs.
+    let instance = instance_row(&state)?;
+    let remotes: Vec<RemoteInfo> = remote_urls
+        .iter()
+        .filter_map(|url| normalize_remote(url))
+        .collect();
     let projects = state
         .store
-        .list_projects(&instance, None, 1000)
+        .list_projects(&instance.id, None, 1000)
         .map_err(store_error)?;
-    let project = match_project(&projects, &remotes).ok_or_else(|| {
-        AppError::new(
-            "github.project_not_found",
-            ErrorCategory::Input,
-            "Aucun dépôt GitHub ne correspond aux remotes du dépôt.",
-        )
-        .with_remediation("Vérifiez l'URL du remote ou effectuez une association manuelle.")
-    })?;
-    let link = RepoLink {
-        repo_id: repo_id.clone(),
-        instance_id: instance,
-        project_id: project.project_id,
-        match_kind: "url".to_owned(),
-        verified_at: beebranch_core::now_unix(),
+    let link = match match_project(&projects, &remotes) {
+        Some(project) => store_link(&state, &repo_id, &instance.id, project.project_id)?,
+        None => ensure_repo_link(&state, &repo_id, &remote_urls)
+            .await?
+            .ok_or_else(|| {
+                AppError::new(
+                    "github.project_not_found",
+                    ErrorCategory::Input,
+                    "Aucun dépôt GitHub ne correspond aux remotes du dépôt.",
+                )
+                .with_remediation("Vérifiez l'URL du remote ou effectuez une association manuelle.")
+            })?,
     };
-    state.store.set_repo_link(&link).map_err(store_error)?;
     Ok(link_dto(&state, &link))
 }
 
@@ -453,4 +572,97 @@ pub async fn github_pr_create(
             auth_event(&app, &error, &instance);
             github_error(error)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beebranch_store::Store;
+
+    fn instance() -> beebranch_store::InstanceRow {
+        beebranch_store::InstanceRow {
+            id: "gh_test".to_owned(),
+            provider: "github".to_owned(),
+            base_url: "https://github.example.test".to_owned(),
+            api_url: "https://github.example.test/api/v3".to_owned(),
+            display_name: None,
+            ca_bundle_id: None,
+            created_at: 1,
+        }
+    }
+
+    fn project() -> ProjectRow {
+        ProjectRow {
+            instance_id: "gh_test".to_owned(),
+            project_id: 42,
+            path_with_namespace: "team/repo".to_owned(),
+            name: "repo".to_owned(),
+            web_url: "https://github.example.test/team/repo".to_owned(),
+            ssh_url: Some("git@github.example.test:team/repo.git".to_owned()),
+            http_url: Some("https://github.example.test/team/repo.git".to_owned()),
+            default_branch: Some("main".to_owned()),
+            last_activity_at: None,
+            fetched_at: 0,
+            etag: None,
+        }
+    }
+
+    fn state_with(store: Store) -> AppState {
+        store.upsert_instance(&instance()).expect("instance");
+        crate::state::test_state(std::env::temp_dir(), store)
+    }
+
+    #[tokio::test]
+    async fn associates_a_remote_with_a_cached_repository() {
+        let state = state_with(Store::open_in_memory().expect("store"));
+        state.store.upsert_projects(&[project()]).expect("cache");
+        *state.github_instance.lock().expect("lock") = Some(instance());
+        // No client is configured: a cache miss would fail, so succeeding
+        // proves the cached repository matched without an API call.
+        let link = ensure_repo_link(
+            &state,
+            "repo_1",
+            &["https://github.example.test/team/repo.git".to_owned()],
+        )
+        .await
+        .expect("link")
+        .expect("associated");
+
+        assert_eq!(link.project_id, 42);
+        assert_eq!(link.match_kind, "url");
+        assert_eq!(
+            state
+                .store
+                .repo_link_for("repo_1", PROVIDER)
+                .expect("stored"),
+            Some(link.clone())
+        );
+
+        let again = ensure_repo_link(&state, "repo_1", &[])
+            .await
+            .expect("again")
+            .expect("associated");
+        assert_eq!(again, link);
+    }
+
+    #[tokio::test]
+    async fn a_remote_on_another_host_is_not_associated() {
+        let state = state_with(Store::open_in_memory().expect("store"));
+        *state.github_instance.lock().expect("lock") = Some(instance());
+
+        let link = ensure_repo_link(
+            &state,
+            "repo_1",
+            &["https://gitlab.example.test/op/api.git".to_owned()],
+        )
+        .await
+        .expect("no association");
+
+        assert!(link.is_none());
+        assert!(state
+            .store
+            .repo_link_for("repo_1", PROVIDER)
+            .expect("stored")
+            .is_none());
+    }
 }
