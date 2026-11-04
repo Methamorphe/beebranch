@@ -19,6 +19,7 @@ export type ViewId =
   | 'github'
   | 'stash'
   | 'sync'
+  | 'terminal'
   | 'diff'
   | 'tools'
   | 'activity'
@@ -70,6 +71,7 @@ export const navigationGroups: NavigationGroup[] = [
       { id: 'mrs', labelKey: 'nav.mrs', icon: '⑃', requiresRepo: true },
       { id: 'prs', labelKey: 'nav.prs', icon: '⑂', requiresRepo: true },
       { id: 'sync', labelKey: 'nav.sync', icon: '↻', requiresRepo: true },
+      { id: 'terminal', labelKey: 'nav.terminal', icon: '>_', requiresRepo: true },
       { id: 'gitlab', labelKey: 'nav.gitlab', icon: '◎', requiresRepo: false },
       { id: 'github', labelKey: 'nav.github', icon: '◉', requiresRepo: false },
     ],
@@ -119,6 +121,7 @@ export const viewDescriptions: Partial<Record<ViewId, MessageKey>> = {
   submodules: 'nav.description.submodules',
   patches: 'nav.description.patches',
   sync: 'nav.description.sync',
+  terminal: 'nav.description.terminal',
   profiles: 'nav.description.profiles',
   gitlab: 'nav.description.gitlab',
   github: 'nav.description.github',

@@ -8,6 +8,7 @@ import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
+import { PipelineStatus } from './PipelineStatus'
 import { useOperationConfirm } from './OperationConfirm'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
@@ -195,6 +196,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       <button type="button" className={`${styles.action} ${styles.wideOnly}`} disabled={disabled} title={t('shell.repoBar.terminalTitle')} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }), () => null)}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
     </div>
     <div className={styles.utilities}>
+      <PipelineStatus repoId={repoId} generation={repo?.generation ?? 0} />
       <span className={styles.notice} role="status">{pending ? `${pending}…` : null}</span>
       <ActionMenu label={t('shell.repoBar.otherActions')} triggerClassName={styles.action} triggerContent={<><ToolbarIcon name="actions" /><span>{t('common.actions')}</span></>}>
         <button type="button" disabled={!repoId || busy || pending !== null || !undo || Boolean(undoBlocked)} title={undoBlocked ?? undefined} onClick={() => void run(t('shell.undo.pending'), onUndo, () => null)}>

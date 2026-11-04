@@ -17,6 +17,8 @@ const messages = {
   'nav.submodules': 'Submodules',
   'nav.mrs': 'Merge requests',
   'nav.prs': 'Pull requests',
+  'nav.terminal': 'Terminal',
+  'nav.description.terminal': 'A shell in the repository folder.',
   'nav.sync': 'Sync',
   'nav.gitlab': 'GitLab connection',
   'nav.github': 'GitHub connection',

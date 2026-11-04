@@ -322,6 +322,8 @@ const messages = {
   'workbench.operationPreview.title.reset': 'Réinitialiser sur {revision} ?',
   'workbench.operationPreview.title.stashPop': 'Réappliquer {selector} ?',
   'workbench.operationPreview.upstreamMissing': 'la branche distante n’existe pas encore',
+  'terminal.opening': 'Ouverture du shell…',
+  'terminal.shell': '{shell} — dossier du dépôt',
   'workbench.squash.submit': 'Combiner',
   'workbench.squash.running': 'Combinaison…',
   'workbench.notice.squashed': 'Commits combinés.',

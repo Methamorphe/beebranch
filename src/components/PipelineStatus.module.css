@@ -1,0 +1,253 @@
+/* Repository toolbar trigger: sits next to the other repo actions. */
+.trigger.trigger {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--muted-strong);
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.icon {
+  display: flex;
+  flex: none;
+  color: var(--muted);
+}
+
+.icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon[data-state='success'] {
+  color: var(--success);
+}
+
+.icon[data-state='running'],
+.icon[data-state='pending'] {
+  color: var(--warning);
+}
+
+.icon[data-state='failed'],
+.icon[data-state='canceled'] {
+  color: var(--error);
+}
+
+.icon[data-state='neutral'],
+.icon[data-state='unknown'] {
+  color: var(--muted);
+}
+
+.label {
+  min-width: 58px;
+  white-space: nowrap;
+  color: var(--muted-strong);
+  text-align: left;
+}
+
+.count {
+  flex: none;
+  padding: 0 5px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* Detail panel: wider than a plain action menu, still a popover. */
+.panel.panel {
+  width: min(420px, calc(100vw - 16px));
+  padding: 10px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 6px;
+}
+
+.title {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provider {
+  padding: 1px 6px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.panel .ghost {
+  flex: none;
+  padding: 3px 6px;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  text-align: right;
+}
+
+.panel .ghost:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 8px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.project {
+  overflow: hidden;
+  color: var(--muted-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.panel .entryButton {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.panel .entryButton:hover {
+  background: var(--surface-raised);
+}
+
+.entryName {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entryState {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot[data-state='success'] {
+  background: var(--success);
+}
+
+.dot[data-state='running'],
+.dot[data-state='pending'] {
+  background: var(--warning);
+}
+
+.dot[data-state='failed'],
+.dot[data-state='canceled'] {
+  background: var(--error);
+}
+
+.jobs {
+  padding: 2px 6px 6px 22px;
+}
+
+.jobList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-strong);
+  font-size: 11px;
+}
+
+.jobName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  margin: 6px 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.error {
+  margin: 6px 2px 0;
+  color: var(--error);
+  font-size: 11px;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 1060px) {
+  .label {
+    display: none;
+  }
+}

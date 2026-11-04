@@ -107,6 +107,7 @@ import { WorktreesPanel } from './WorktreesPanel'
 import { WorkspacesPanel } from './WorkspacesPanel'
 import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import { CommitPanel } from './CommitPanel'
+import { TerminalPanel } from './TerminalPanel'
 import { DiffViewer, type DocumentReader, type ImageReader } from './DiffViewer'
 import { GitlabPanel } from './GitlabPanel'
 import { GithubPanel } from './GithubPanel'
@@ -1408,6 +1409,13 @@ export function Workbench({
 
   // Secondary tools share the workspace; the graph never unmounts.
   const renderTool = (toolView = view) => {
+    if (toolView === 'terminal') {
+      return repoId ? (
+        <div className={styles.content}>
+          <TerminalPanel repoId={repoId} />
+        </div>
+      ) : null
+    }
     if (toolView === 'profiles') {
       return (
         <div className={styles.content}>
@@ -1724,7 +1732,7 @@ export function Workbench({
   // Application pages are not about this repository: its references and
   // actions stay out of the way while they are open.
   const appPage = APP_PAGES.includes(view)
-  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'recovery'].includes(view) ? tool : null
+  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'recovery', 'terminal'].includes(view) ? tool : null
   const centerActive = Boolean(previewDiff || centerTool || historyTool)
   const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
 

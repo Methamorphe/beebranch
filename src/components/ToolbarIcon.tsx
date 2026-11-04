@@ -19,6 +19,7 @@ const paths = {
   update: ['M12 3v13m-5-5 5 5 5-5', 'M4 21h16'],
   redo: ['m15 14 5-5-5-5', 'M20 9H10a6 6 0 0 0 0 12h3'],
   info: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M12 11v5M12 8h.01'],
+  pipeline: ['M3 12h4l2.5-6 4 12 2.5-6h5'],
   warning: ['M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z', 'M12 9.5v4M12 17h.01'],
 }
 export function ToolbarIcon({ name }: { name: keyof typeof paths }) {

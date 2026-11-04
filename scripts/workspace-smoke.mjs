@@ -485,6 +485,29 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('closing-conflicts-restores-graph', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('[data-central-editor]')`)
   await check('operation-shown-once', `Array.from(document.querySelectorAll('body *')).filter((element) => element.children.length === 0 && /Opération en cours|opération : merge|Opération : merge/.test(element.textContent) && element.getBoundingClientRect().width > 2).length === 1`)
 
+  // The built-in terminal opens a PTY in the repository folder and closes it
+  // when its view goes away.
+  const openPaletteView = async (label) => {
+    await evaluate(client, `document.querySelector('button[aria-label="Rechercher une commande"]').click()`)
+    await waitFor(client, `document.querySelector('[role="combobox"]') !== null`, 'command palette')
+    await evaluate(client, `(() => {
+      const input = document.querySelector('[role="combobox"]')
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(input, ${JSON.stringify(label)})
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()`)
+    await delay(80)
+    await evaluate(client, `document.querySelector('[role="combobox"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`)
+  }
+  await openPaletteView('Terminal')
+  await waitFor(client, `document.querySelector('[data-terminal]') !== null`, 'terminal view')
+  await check('terminal-opens-a-pty', `(window.__terminalCalls ?? []).some(([action, args]) => action === 'open' && args.request.repoId === 'repo_demo' && args.request.rows > 0 && args.request.cols > 0)`)
+  await check('terminal-shows-the-shell', `document.querySelector('[data-terminal]').innerText.includes('/bin/sh')`)
+  await openPaletteView('Historique')
+  await waitFor(client, `document.querySelector('[data-terminal]') === null`, 'terminal closed')
+  await check('terminal-closes-its-pty', `(window.__terminalCalls ?? []).some(([action]) => action === 'close')`)
+
   // `?` outside a field opens the shortcut reference; Escape closes it.
   await evaluate(client, `document.activeElement?.blur()`)
   await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'?', text:'?', windowsVirtualKeyCode:191, modifiers:8 })

@@ -395,6 +395,48 @@ async fn maps_check_runs_to_pipelines() {
 }
 
 #[tokio::test]
+async fn maps_actions_runs_to_pipelines_for_one_sha() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/actions/runs"))
+        .and(query_param("head_sha", "head-sha"))
+        .and(query_param("per_page", "20"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "workflow_runs": [
+                {
+                    "id": 900,
+                    "name": "CI",
+                    "status": "in_progress",
+                    "conclusion": null,
+                    "head_sha": "head-sha",
+                    "html_url": "https://github.example.test/runs/900"
+                },
+                {
+                    "id": 901,
+                    "name": "Release",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "head_sha": "head-sha",
+                    "html_url": null
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let runs = client(&server)
+        .workflow_runs_for_sha(&repo_ref(), "head-sha", 20)
+        .await
+        .expect("runs");
+
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].id, 900);
+    assert_eq!(runs[0].status, "running");
+    assert_eq!(runs[0].detailed_status.as_deref(), Some("CI"));
+    assert_eq!(runs[1].status, "failed");
+}
+
+#[tokio::test]
 async fn groups_review_comments_into_threads_and_keeps_issue_comments() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

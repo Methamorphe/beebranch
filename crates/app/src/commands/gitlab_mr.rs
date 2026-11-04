@@ -69,7 +69,7 @@ pub struct RepoLinkDto {
     pub web_url: String,
 }
 
-fn client(state: &AppState) -> Result<GitlabClient, AppError> {
+pub(crate) fn client(state: &AppState) -> Result<GitlabClient, AppError> {
     state
         .gitlab
         .lock()
@@ -78,7 +78,7 @@ fn client(state: &AppState) -> Result<GitlabClient, AppError> {
         .ok_or_else(not_configured)
 }
 
-fn instance_id(state: &AppState) -> Result<String, AppError> {
+pub(crate) fn instance_id(state: &AppState) -> Result<String, AppError> {
     state
         .gitlab_instance
         .lock()
@@ -111,7 +111,7 @@ async fn resolve_user_ids(client: &GitlabClient, names: &[String]) -> Result<Vec
     Ok(ids)
 }
 
-fn auth_event(app: &AppHandle, error: &beebranch_gitlab::GitlabError, instance: &str) {
+pub(crate) fn auth_event(app: &AppHandle, error: &beebranch_gitlab::GitlabError, instance: &str) {
     if error.code() == "auth.failed" {
         let _ = app.emit(
             "gitlab://auth-expired",

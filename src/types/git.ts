@@ -643,6 +643,31 @@ export type PipelineState =
   | 'neutral'
   | 'unknown'
 
+/** Pipelines attached to one commit, across both forge providers. */
+export type PipelineOverview = {
+  provider: 'gitlab' | 'github'
+  projectId: number
+  projectPath: string
+  projectName: string
+  projectWebUrl: string
+  /** Branch checked out locally; absent on a detached HEAD. */
+  branch?: string
+  sha?: string
+  /** Newest first. */
+  pipelines: GitlabPipeline[]
+}
+
+export type PipelineJob = {
+  id: number
+  name: string
+  stage: string
+  status: string
+  webUrl?: string
+  duration?: number
+  createdAt?: string
+  finishedAt?: string
+}
+
 export type RepoLink = {
   repoId: string
   instanceId: string
@@ -1001,6 +1026,14 @@ export type GitlabDiffRefs = {
   baseSha: string
   startSha: string
   headSha: string
+}
+
+// --- Terminal -------------------------------------------------------------
+
+export type TerminalOpened = {
+  sessionId: string
+  shell: string
+  cwd: string
 }
 
 // --- Operation preview ---------------------------------------------------
