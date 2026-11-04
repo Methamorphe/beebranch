@@ -990,6 +990,34 @@ export type GitlabDiffRefs = {
   headSha: string
 }
 
+// --- Operation preview ---------------------------------------------------
+
+export type ConflictCheck = 'clean' | 'conflicts' | 'unavailable'
+
+/** Counts and conflict risk shown before an operation is confirmed. */
+export type OperationPreview = {
+  commits: number
+  behind: number
+  files: number
+  additions: number
+  deletions: number
+  conflictCheck: ConflictCheck
+  conflictedFiles: string[]
+  stashesLocalChanges: boolean
+  upstreamMissing: boolean
+  blockedReason?: string | null
+}
+
+export type PreviewOperation =
+  | { kind: 'pull'; remote: string; branch: string }
+  | { kind: 'push'; remote: string; branch: string }
+  | { kind: 'merge'; source: string; target: string }
+  | { kind: 'rebase'; upstream: string }
+  | { kind: 'cherryPick'; shas: string[] }
+  | { kind: 'reset'; revision: string }
+  | { kind: 'stashPop'; selector: string }
+  | { kind: 'checkout'; name?: string | null; detachedAt?: string | null }
+
 // --- GitHub ---------------------------------------------------------------
 // The backend normalizes GitHub payloads to the same shapes as GitLab so the
 // review panel and detail extras are shared. Only provider-specific facts

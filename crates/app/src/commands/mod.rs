@@ -14,6 +14,7 @@ pub mod index;
 pub mod inspect;
 pub mod patch;
 pub mod preferences;
+pub mod preview;
 pub mod profiles;
 pub mod read;
 pub mod recovery;

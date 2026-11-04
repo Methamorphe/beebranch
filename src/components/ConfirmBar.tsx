@@ -17,6 +17,8 @@ type Props = {
   /** Visual weight of the confirming action; destructive bars stay red. */
   tone?: 'danger' | 'primary'
   busy?: boolean
+  /** Keep the confirming action unavailable (e.g. a failed pre-check). */
+  confirmDisabled?: boolean
   /** Extra controls (choices) rendered under the consequence. */
   children?: ReactNode
   onCancel: () => void
@@ -36,6 +38,7 @@ export function ConfirmBar({
   confirmLabel,
   tone = 'danger',
   busy = false,
+  confirmDisabled = false,
   children,
   onCancel,
   onConfirm,
@@ -96,7 +99,7 @@ export function ConfirmBar({
             size="sm"
             variant={tone}
             onClick={() => (confirmTwice ? setWarning(true) : onConfirm())}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
           >
             {busy ? t('shell.confirm.busy') : label}
           </Button>

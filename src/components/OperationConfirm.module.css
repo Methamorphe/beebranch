@@ -1,0 +1,21 @@
+.blocked {
+  color: var(--warning);
+  font-weight: 500;
+}
+
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  max-height: 96px;
+  margin: 4px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.files li {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}

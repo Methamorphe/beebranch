@@ -19,6 +19,7 @@ import type { GitlabProject, GitlabSession } from '../types/git'
 import { RichMessage } from './GitlabPanel'
 import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import { ForgeHubHeader, type ForgeHubTab } from './ForgeHubHeader'
+import { useOperationConfirm } from './OperationConfirm'
 import styles from './GitlabPanel.module.css'
 
 type Props = {
@@ -29,6 +30,7 @@ type Props = {
 
 export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) {
   const { t } = useI18n()
+  const confirmOperation = useOperationConfirm()
   const [session, setSession] = useState<GitlabSession | null>(null)
   const [projects, setProjects] = useState<GitlabProject[]>([])
   const [nextPage, setNextPage] = useState<number | undefined>()
@@ -527,9 +529,14 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
           generation={generation}
           connected={session.connected}
           onCheckout={(branch) => {
-            if (repoId) {
-              void branchCheckout({ repoId, name: branch })
-            }
+            if (!repoId) return
+            void confirmOperation({
+              title: t('workbench.operationPreview.title.checkout', { target: branch }),
+              confirmLabel: t('workbench.operationPreview.action.checkout'),
+              operation: { kind: 'checkout', name: branch },
+            }).then((confirmed) => {
+              if (confirmed) void branchCheckout({ repoId, name: branch })
+            })
           }}
         />
         </div>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { ConfirmBar } from './components/ConfirmBar'
+import { OperationConfirmProvider, type ConfirmOperation } from './components/OperationConfirm'
 import { Home } from './components/Home'
 import { InitRepoDialog } from './components/InitRepoDialog'
 import { PushRejectedBar } from './components/PushRejectedBar'
@@ -170,6 +171,7 @@ export default function App() {
   /** One undo/redo at a time, whatever triggered it. */
   const undoInFlight = useRef(false)
   /** Latest `performUndo`, for toast buttons created by an earlier render. */
+  const confirmOperation = useRef<ConfirmOperation | null>(null)
   const performUndoRef = useRef<(direction: 'undo' | 'redo', expectedId?: string) => Promise<UndoOutcome | null>>(
     async () => null,
   )
@@ -1004,6 +1006,12 @@ export default function App() {
     if (!repoId) {
       return
     }
+    const confirmed = await confirmOperation.current?.({
+      title: t('workbench.operationPreview.title.checkout', { target: name }),
+      confirmLabel: t('workbench.operationPreview.action.checkout'),
+      operation: { kind: 'checkout', name },
+    })
+    if (!confirmed) return
     setBusy(true)
     setError(null)
     try {
@@ -1417,8 +1425,19 @@ export default function App() {
             return
           }
           const [remote, ...rest] = repo.state.head.upstream.split('/')
-          void syncPull({ repoId, remote, branch: rest.join('/') })
-            .then(() => refresh())
+          const branch = rest.join('/')
+          void (
+            confirmOperation.current?.({
+              title: t('workbench.operationPreview.title.pull', { branch, remote }),
+              confirmLabel: t('workbench.operationPreview.action.pull'),
+              operation: { kind: 'pull', remote, branch },
+            }) ?? Promise.resolve(false)
+          )
+            .then((confirmed) =>
+              confirmed
+                ? syncPull({ repoId, remote, branch }).then(() => refresh())
+                : undefined,
+            )
             .catch((cause) => setError(errorMessage(cause)))
         },
       },
@@ -1435,8 +1454,18 @@ export default function App() {
           }
           const [remote, ...rest] = repo.state.head.upstream.split('/')
           const branch = rest.join('/')
-          void syncPush({ repoId, remote, branch })
-            .then(() => refresh())
+          void (
+            confirmOperation.current?.({
+              title: t('workbench.operationPreview.title.push', { branch, remote }),
+              confirmLabel: t('workbench.operationPreview.action.push'),
+              operation: { kind: 'push', remote, branch },
+            }) ?? Promise.resolve(false)
+          )
+            .then((confirmed) =>
+              confirmed
+                ? syncPush({ repoId, remote, branch }).then(() => refresh())
+                : undefined,
+            )
             .catch((cause) => {
               if (isPushRejection(cause)) {
                 setPushRejected({ repoId, remote, branch })
@@ -1571,6 +1600,7 @@ export default function App() {
   return (
     <I18nProvider locale={locale} onChange={changeLocale}>
     <ActionBarProvider>
+    <OperationConfirmProvider repoId={repoId} store={confirmOperation}>
     <div
       className={styles.app}
       data-toolbar={repoChrome ? undefined : 'hidden'}
@@ -1839,6 +1869,7 @@ export default function App() {
         }}
       />
     </div>
+    </OperationConfirmProvider>
     </ActionBarProvider>
     </I18nProvider>
   )

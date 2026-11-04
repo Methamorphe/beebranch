@@ -14,9 +14,11 @@ import type {
   GithubProject,
   GithubSession,
   GraphPage,
+  OperationPreview,
   OperationRecord,
   Paged,
   RecentRepo,
+  PreviewOperation,
   RefsSnapshot,
   RepoView,
   StatusReport,
@@ -466,6 +468,14 @@ export function branchIntegrationPreview(input: {
   return call<BranchIntegrationPreview>('branch_integration_preview', {
     request: input,
   })
+}
+
+/** Commits, files and conflict risk before an operation runs. */
+export function operationPreview(input: {
+  repoId: string
+  operation: PreviewOperation
+}): Promise<OperationPreview> {
+  return call<OperationPreview>('operation_preview', { request: input })
 }
 
 export function branchIntegrationStart(input: {

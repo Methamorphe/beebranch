@@ -42,6 +42,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::read::graph_page,
             commands::read::commit_get,
             commands::read::diff_get,
+            commands::preview::operation_preview,
             commands::read::file_content_get,
             commands::read::file_write,
             commands::read::file_delete,
