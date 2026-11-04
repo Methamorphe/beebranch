@@ -254,8 +254,31 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')
   await evaluate(client, `(() => { window.__workspaceSingleDiff = false; return true })()`)
 
-  await click('button[data-role="worktree"]')
+  await click('[data-role="worktree"] button')
   await waitFor(client, `document.querySelector('button[title="src/module-1.ts"]') !== null`, 'working files')
+  await evaluate(client, `(() => {
+    const input = document.querySelector('[data-role="worktree"] input')
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    setter.call(input, 'Message depuis le graphe')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await check('wip-message-syncs-with-commit-panel', `document.querySelector('textarea[aria-label="Message de commit"]')?.value === 'Message depuis le graphe'`)
+  await evaluate(client, `(() => {
+    const area = document.querySelector('textarea[aria-label="Message de commit"]')
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+    setter.call(area, 'Depuis le panneau')
+    area.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await check('commit-panel-syncs-with-wip', `document.querySelector('[data-role="worktree"] input')?.value === 'Depuis le panneau'`)
+  await evaluate(client, `(() => {
+    const area = document.querySelector('textarea[aria-label="Message de commit"]')
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+    setter.call(area, '')
+    area.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
   await click('button[title="src/module-1.ts"]')
   await waitFor(client, `document.querySelector('[data-central-editor] [data-diff-emphasis]') !== null`, 'central code diff')
   await check('diff-replaces-center', `document.querySelector('canvas').closest('[hidden]') !== null && Boolean(document.querySelector('[data-central-editor]'))`)
