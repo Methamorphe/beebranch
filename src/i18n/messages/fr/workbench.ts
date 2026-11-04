@@ -83,50 +83,23 @@ const messages = {
   'workbench.inspector.resizeLabel': 'Redimensionner le panneau latéral',
   'workbench.inspector.worktreeAriaLabel': 'Préparation du prochain commit',
 
-  'workbench.integration.alreadyIntegrated':
-    '{target} contient déjà tous les commits de {source}.',
-  'workbench.integration.targetAheadUseReverse.one':
-    '{target} a {count} commit d’avance sur {source} ; cette fusion ne change rien. Glissez {target} sur {source} pour avancer {source} en fast-forward.',
-  'workbench.integration.targetAheadUseReverse.other':
-    '{target} a {count} commits d’avance sur {source} ; cette fusion ne change rien. Glissez {target} sur {source} pour avancer {source} en fast-forward.',
   'workbench.integration.checkoutRequired': '{target} sera extraite pendant l’opération',
   'workbench.integration.commitsBehind.one': '{count} commit(s) de retard',
   'workbench.integration.commitsBehind.other': '{count} commit(s) de retard',
   'workbench.integration.commitsToIntegrate.one': '{count} commit(s) de {source} à intégrer',
   'workbench.integration.commitsToIntegrate.other': '{count} commit(s) de {source} à intégrer',
   'workbench.integration.currentBranch': 'branche courante : {branch}',
-  'workbench.integration.dialogMerge': 'Fusionner {source} dans {target}',
   'workbench.integration.dialogRebase': 'Rebaser {source} sur {target}',
   'workbench.integration.during.merge': 'la fusion',
   'workbench.integration.during.rebase': 'le rebase',
   'workbench.integration.fastForwardHint':
     'Avance rapide si possible, sinon commit de fusion',
-  'workbench.integration.fastForwardImpossible': 'avance rapide impossible',
-  'workbench.integration.fastForwardNoMerge': 'fast-forward, aucun commit de fusion',
-  'workbench.integration.mergeAction': 'Fusionner',
-  'workbench.integration.mergeCommitInstead':
-    'commit de fusion créé au lieu d’un fast-forward',
-  'workbench.integration.missingCommits.one': '{count} commit de {source} manque dans {target}',
-  'workbench.integration.missingCommits.other':
-    '{count} commits de {source} manquent dans {target}',
   'workbench.integration.noMutation':
     '{parts}. {operation} sans mutation avant confirmation.',
-  'workbench.integration.nothingToIntegrate': 'rien à intégrer',
   'workbench.integration.operation.merge': 'Fusion',
   'workbench.integration.operation.rebase': 'Rebase',
   'workbench.integration.rebaseBaseUnchanged': 'La branche {target} reste inchangée',
   'workbench.integration.rebaseAction': 'Rebaser',
-  'workbench.integration.sameCommit':
-    '{target} et {source} pointent sur le même commit.',
-  'workbench.integration.stashRequired':
-    'modifications locales stashées puis restaurées après la fusion',
-  'workbench.integration.strategyFastForward': 'Avance rapide, sans commit de fusion',
-  'workbench.integration.strategyLegend': 'Stratégie de fusion',
-  'workbench.integration.strategyMergeCommit': 'Commit de fusion',
-  'workbench.integration.strategyMergeNote':
-    'Conserve la jonction des deux branches dans le graphe.',
-  'workbench.integration.strategyUpToDate':
-    '{target} pointe sur le dernier commit de {source}.',
   'workbench.integration.untrackedLeft': 'fichiers non suivis laissés en place',
 
   'workbench.menu.amendCommit': 'Amender ce commit…',
@@ -159,7 +132,7 @@ const messages = {
   'workbench.menu.stashDelete': 'Supprimer le stash',
   'workbench.menu.switchTo': 'Basculer sur {name}',
 
-  'workbench.drop.advance': 'Avancer {target} sur {source}',
+  'workbench.drop.advance': 'Avance rapide : {target} sur {source}',
   'workbench.drop.advanceTitle': 'Avancer {target} sur {source} sans commit de fusion',
   'workbench.drop.compare': 'Comparer {source} et {target}',
   'workbench.drop.merge': 'Fusionner {source} dans {target}',

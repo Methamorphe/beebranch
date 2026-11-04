@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use beebranch_core::now_unix;
 use beebranch_core::redaction;
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ETAG, IF_NONE_MATCH, RETRY_AFTER};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ETAG, IF_NONE_MATCH, LOCATION, RETRY_AFTER};
 use reqwest::{Client, Method, StatusCode, Url};
 use serde::{de::DeserializeOwned, Deserialize};
 use sha2::{Digest, Sha256};
@@ -336,6 +336,52 @@ impl GitlabClient {
         let url = self.endpoint(&["projects", &id])?;
         let fetched = self.fetch(&url).await?;
         decode(&fetched.body)
+    }
+
+    /// Fetch a single project by its `namespace/project` path.
+    ///
+    /// A renamed project answers `301` with its numeric URL. Redirects are
+    /// never followed by the HTTP client (the token must not leave the
+    /// instance), so the redirect is resolved here, once, and only when it
+    /// stays on the same origin.
+    pub async fn project_by_path(&self, path: &str) -> Result<GitlabProject, GitlabError> {
+        let path = path.trim().trim_matches('/');
+        if path.is_empty() {
+            return Err(GitlabError::configuration(
+                "Le chemin du projet GitLab est vide.",
+            ));
+        }
+        // Pushing the whole path as one segment percent-encodes the namespace
+        // separator, which is what `GET /projects/:id` expects.
+        let url = self.endpoint(&["projects", path])?;
+        match self.fetch(&url).await {
+            Ok(fetched) => decode(&fetched.body),
+            Err(error) if error.status().is_some_and(is_redirect) => {
+                let response = self
+                    .request(&url, None)
+                    .send()
+                    .await
+                    .map_err(|cause| self.transport_error(&cause))?;
+                let location = response
+                    .headers()
+                    .get(LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .ok_or_else(|| {
+                        GitlabError::invalid_response(
+                            "GitLab a répondu par une redirection sans destination.",
+                        )
+                    })?;
+                let target = url.join(location).map_err(|_| {
+                    GitlabError::invalid_response("La redirection GitLab est illisible.")
+                })?;
+                if target.origin() != url.origin() {
+                    return Err(error);
+                }
+                let fetched = self.fetch(&target).await?;
+                decode(&fetched.body)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// List merge requests for one project or across accessible projects.
@@ -1371,6 +1417,11 @@ fn is_fresh(entry: &CachedResponse, now: i64) -> bool {
 
 fn retryable_status(status: StatusCode) -> bool {
     status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
+/// Redirect statuses GitLab uses for a moved project.
+fn is_redirect(status: u16) -> bool {
+    matches!(status, 301 | 302 | 307 | 308)
 }
 
 fn retry_after_delay(headers: &HeaderMap) -> Option<Duration> {

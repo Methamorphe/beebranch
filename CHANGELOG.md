@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.7.0] — 2026-11-04
+
+### Changed
+
+- **Merge applies immediately**: dropping a branch onto another one, or using a branch's menu, merges it at once instead of first asking for a merge strategy. The choice it used to ask is its own menu action — *Avance rapide* (`--ff-only`) when the target can be fast-forwarded — and a rebase keeps its single confirmation.
+- **Plain pushes no longer ask**: a push Git can send as a fast-forward goes straight to the remote. The summary bar stays for a push the remote would refuse (it moved ahead), and a force push now asks exactly once: its warning bar replaces the summary instead of preceding it.
+
+### Fixed
+
+- **Commit CI appears without an explicit association**: a repository whose remote points at the connected GitLab or GitHub instance is now associated automatically, so the toolbar indicator and its pipelines show up without opening the forge panel first. A project renamed on the forge is resolved through its redirect and its cached path refreshed; only remotes on the instance host are considered, so another forge's repository never borrows a same-named project.
+
 ## [1.6.1] — 2026-11-04
 
 ### Changed

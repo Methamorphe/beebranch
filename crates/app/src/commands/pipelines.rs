@@ -14,11 +14,12 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::commands::github_pr::{
-    auth_event as github_auth_event, client as github_client, instance_id as github_instance_id,
-    resolve_repo_ref,
+    auth_event as github_auth_event, client as github_client,
+    ensure_repo_link as ensure_github_link, instance_id as github_instance_id, resolve_repo_ref,
 };
 use crate::commands::gitlab_mr::{
-    auth_event as gitlab_auth_event, client as gitlab_client, instance_id as gitlab_instance_id,
+    auth_event as gitlab_auth_event, client as gitlab_client,
+    ensure_repo_link as ensure_gitlab_link, instance_id as gitlab_instance_id,
 };
 use crate::error::{github_error, gitlab_error, store_error};
 use crate::state::AppState;
@@ -145,8 +146,8 @@ impl From<GithubJob> for PipelineJobDto {
 struct RepoContext {
     branch: Option<String>,
     sha: Option<String>,
-    /// Hosts of the fetch remotes, used to pick between two linked forges.
-    remote_hosts: Vec<String>,
+    /// Fetch remotes, used to pick between two forges and to associate one.
+    remote_urls: Vec<String>,
 }
 
 /// Project metadata of a linked forge repository.
@@ -243,24 +244,31 @@ async fn repo_context(state: &AppState, repo_id: &str) -> Result<RepoContext, Ap
         sha = refs.head.as_ref().and_then(|head| head.oid.clone());
     }
 
-    let mut remote_hosts = Vec::new();
-    for remote in refs
+    let remote_urls = refs
         .remote_urls
         .iter()
         .filter(|remote| remote.direction == "fetch")
-    {
-        if let Some(info) = beebranch_github::normalize_remote(&remote.url) {
-            if !remote_hosts.contains(&info.host) {
-                remote_hosts.push(info.host);
-            }
-        }
-    }
+        .map(|remote| remote.url.clone())
+        .collect();
 
     Ok(RepoContext {
         branch,
         sha,
-        remote_hosts,
+        remote_urls,
     })
+}
+
+/// Hosts of the repository remotes, for [`choose_provider`].
+fn remote_hosts(remote_urls: &[String]) -> Vec<String> {
+    let mut hosts = Vec::new();
+    for url in remote_urls {
+        if let Some(info) = beebranch_gitlab::normalize_remote(url) {
+            if !hosts.contains(&info.host) {
+                hosts.push(info.host);
+            }
+        }
+    }
+    hosts
 }
 
 fn gitlab_ready(state: &AppState) -> bool {
@@ -280,25 +288,44 @@ fn github_ready(state: &AppState) -> bool {
 }
 
 /// Linked project and provider for a repository, if CI can be reported.
-fn resolve_provider(
+///
+/// A repository whose remote points at a connected forge is associated on the
+/// spot when it has no link yet: the pipeline indicator must not depend on the
+/// user opening the forge panel first.
+async fn resolve_provider(
     state: &AppState,
     repo_id: &str,
-    remote_hosts: &[String],
+    context: &RepoContext,
 ) -> Result<Option<(Provider, LinkedProject)>, AppError> {
-    let gitlab = state
-        .store
-        .repo_link_for(repo_id, "gitlab")
-        .map_err(store_error)?
-        .filter(|_| gitlab_ready(state))
-        .map(|link| linked_project(state, &link));
-    let github = state
-        .store
-        .repo_link_for(repo_id, "github")
-        .map_err(store_error)?
-        .filter(|_| github_ready(state))
-        .map(|link| linked_project(state, &link));
+    let gitlab_link = if gitlab_ready(state) {
+        match state
+            .store
+            .repo_link_for(repo_id, "gitlab")
+            .map_err(store_error)?
+        {
+            Some(link) => Some(link),
+            None => ensure_gitlab_link(state, repo_id, &context.remote_urls).await?,
+        }
+    } else {
+        None
+    };
+    let github_link = if github_ready(state) {
+        match state
+            .store
+            .repo_link_for(repo_id, "github")
+            .map_err(store_error)?
+        {
+            Some(link) => Some(link),
+            None => ensure_github_link(state, repo_id, &context.remote_urls).await?,
+        }
+    } else {
+        None
+    };
+    let gitlab = gitlab_link.as_ref().map(|link| linked_project(state, link));
+    let github = github_link.as_ref().map(|link| linked_project(state, link));
 
-    let chosen = choose_provider(gitlab.as_ref(), github.as_ref(), remote_hosts);
+    let hosts = remote_hosts(&context.remote_urls);
+    let chosen = choose_provider(gitlab.as_ref(), github.as_ref(), &hosts);
     let project = match chosen {
         Some(Provider::Gitlab) => gitlab,
         Some(Provider::Github) => github,
@@ -318,8 +345,7 @@ pub async fn pipeline_overview(
     repo_id: String,
 ) -> Result<Option<PipelineOverviewDto>, AppError> {
     let context = repo_context(&state, &repo_id).await?;
-    let Some((provider, project)) = resolve_provider(&state, &repo_id, &context.remote_hosts)?
-    else {
+    let Some((provider, project)) = resolve_provider(&state, &repo_id, &context).await? else {
         return Ok(None);
     };
 
@@ -378,8 +404,7 @@ pub async fn pipeline_jobs(
     pipeline_id: u64,
 ) -> Result<Vec<PipelineJobDto>, AppError> {
     let context = repo_context(&state, &repo_id).await?;
-    let Some((provider, project)) = resolve_provider(&state, &repo_id, &context.remote_hosts)?
-    else {
+    let Some((provider, project)) = resolve_provider(&state, &repo_id, &context).await? else {
         return Ok(Vec::new());
     };
 
@@ -416,6 +441,76 @@ pub async fn pipeline_jobs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beebranch_gitlab::GitlabConfig;
+    use beebranch_store::{InstanceRow, ProjectRow, Store};
+    use std::time::Duration;
+
+    fn instance() -> InstanceRow {
+        InstanceRow {
+            id: "gl_test".to_owned(),
+            provider: "gitlab".to_owned(),
+            base_url: "https://gitlab.example.test".to_owned(),
+            api_url: "https://gitlab.example.test/api/v4".to_owned(),
+            display_name: None,
+            ca_bundle_id: None,
+            created_at: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_linked_repository_resolves_without_a_remote_lookup() {
+        let store = Store::open_in_memory().expect("store");
+        store.upsert_instance(&instance()).expect("instance");
+        store
+            .upsert_projects(&[ProjectRow {
+                instance_id: "gl_test".to_owned(),
+                project_id: 307,
+                path_with_namespace: "team/repo".to_owned(),
+                name: "repo".to_owned(),
+                web_url: "https://gitlab.example.test/team/repo".to_owned(),
+                ssh_url: Some("git@gitlab.example.test:team/repo.git".to_owned()),
+                http_url: Some("https://gitlab.example.test/team/repo.git".to_owned()),
+                default_branch: Some("main".to_owned()),
+                last_activity_at: None,
+                fetched_at: 0,
+                etag: None,
+            }])
+            .expect("project");
+        store
+            .set_repo_link(&RepoLink {
+                repo_id: "repo_1".to_owned(),
+                instance_id: "gl_test".to_owned(),
+                project_id: 307,
+                match_kind: "url".to_owned(),
+                verified_at: 1,
+            })
+            .expect("link");
+        let state = crate::state::test_state(std::env::temp_dir(), store);
+        *state.gitlab_instance.lock().expect("lock") = Some(instance());
+        // The link exists: no request is made, so any valid client will do.
+        *state.gitlab.lock().expect("lock") = Some(
+            GitlabClient::new(GitlabConfig {
+                base_url: "https://gitlab.example.test".to_owned(),
+                token: "glpat-test".to_owned(),
+                ca_bundle_pem: None,
+                timeout: Duration::from_secs(1),
+            })
+            .expect("client"),
+        );
+        let context = RepoContext {
+            branch: Some("release/test".to_owned()),
+            sha: Some("ff0c46a".to_owned()),
+            remote_urls: vec!["git@gitlab.example.test:team/repo.git".to_owned()],
+        };
+
+        let (provider, linked) = resolve_provider(&state, "repo_1", &context)
+            .await
+            .expect("provider")
+            .expect("resolved");
+
+        assert_eq!(provider, Provider::Gitlab);
+        assert_eq!(linked.project_id, 307);
+    }
 
     fn project(host: &str) -> LinkedProject {
         LinkedProject {

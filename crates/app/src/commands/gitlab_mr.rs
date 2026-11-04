@@ -4,9 +4,9 @@ use beebranch_core::{AppError, ErrorCategory};
 use beebranch_git::sync;
 use beebranch_gitlab::{
     normalize_remote, CreateMergeRequest, GitlabClient, GitlabMergeRequest, GitlabPipeline,
-    MergeRequestScope, MergeRequestsQuery, Paged, RemoteInfo,
+    GitlabProject, MergeRequestScope, MergeRequestsQuery, Paged, RemoteInfo,
 };
-use beebranch_store::{ProjectRow, RepoLink};
+use beebranch_store::{InstanceRow, ProjectRow, RepoLink};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -167,13 +167,148 @@ fn match_project(projects: &[ProjectRow], remotes: &[RemoteInfo]) -> Option<Proj
     None
 }
 
+fn instance_row(state: &AppState) -> Result<InstanceRow, AppError> {
+    state
+        .gitlab_instance
+        .lock()
+        .map_err(|_| AppError::internal("verrou instance GitLab"))?
+        .clone()
+        .ok_or_else(not_configured)
+}
+
+fn instance_host(instance: &InstanceRow) -> Option<String> {
+    url::Url::parse(&instance.base_url)
+        .ok()?
+        .host_str()
+        .map(str::to_ascii_lowercase)
+}
+
+/// Path prefix the instance is mounted under (`https://host/gitlab`).
+fn instance_prefix(instance: &InstanceRow) -> String {
+    url::Url::parse(&instance.base_url)
+        .ok()
+        .map(|url| url.path().trim_matches('/').to_owned())
+        .unwrap_or_default()
+}
+
+/// Project paths worth requesting for one remote: the raw path, then the path
+/// without the instance prefix when the instance is mounted under one.
+fn project_paths(remote_path: &str, prefix: &str) -> Vec<String> {
+    let path = remote_path.trim_matches('/');
+    let mut paths = vec![path.to_owned()];
+    if !prefix.is_empty() {
+        if let Some(stripped) = path
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.strip_prefix('/'))
+        {
+            if !stripped.is_empty() {
+                paths.push(stripped.to_owned());
+            }
+        }
+    }
+    paths
+}
+
+fn project_to_row(instance: &str, project: &GitlabProject) -> ProjectRow {
+    ProjectRow {
+        instance_id: instance.to_owned(),
+        project_id: project.id,
+        path_with_namespace: project.path_with_namespace.clone(),
+        name: project.name.clone(),
+        web_url: project.web_url.clone(),
+        ssh_url: Some(project.ssh_url_to_repo.clone()),
+        http_url: Some(project.http_url_to_repo.clone()),
+        default_branch: project.default_branch.clone(),
+        last_activity_at: project.last_activity_at.clone(),
+        fetched_at: beebranch_core::now_unix(),
+        etag: None,
+    }
+}
+
+fn store_link(
+    state: &AppState,
+    repo_id: &str,
+    instance: &str,
+    project_id: u64,
+) -> Result<RepoLink, AppError> {
+    let link = RepoLink {
+        repo_id: repo_id.to_owned(),
+        instance_id: instance.to_owned(),
+        project_id,
+        match_kind: "url".to_owned(),
+        verified_at: beebranch_core::now_unix(),
+    };
+    state.store.set_repo_link(&link).map_err(store_error)?;
+    Ok(link)
+}
+
+/// Resolve and store the GitLab project that owns `remote_urls`.
+///
+/// Only remotes on the configured instance are considered, so a repository of
+/// another forge never borrows a same-named GitLab project. Cached projects
+/// are matched first; when none matches — typically after the project was
+/// renamed — the exact remote path is resolved through the API and the cache
+/// is refreshed before the association is stored. `None` means no remote points
+/// at the instance, so the repository has no CI to report.
+pub(crate) async fn ensure_repo_link(
+    state: &AppState,
+    repo_id: &str,
+    remote_urls: &[String],
+) -> Result<Option<RepoLink>, AppError> {
+    if let Some(link) = state
+        .store
+        .repo_link_for(repo_id, "gitlab")
+        .map_err(store_error)?
+    {
+        return Ok(Some(link));
+    }
+    let instance = instance_row(state)?;
+    let Some(host) = instance_host(&instance) else {
+        return Ok(None);
+    };
+    let remotes: Vec<RemoteInfo> = remote_urls
+        .iter()
+        .filter_map(|url| normalize_remote(url))
+        .filter(|remote| remote.host.eq_ignore_ascii_case(&host))
+        .collect();
+    if remotes.is_empty() {
+        return Ok(None);
+    }
+    let projects = state
+        .store
+        .list_projects(&instance.id, None, 1000)
+        .map_err(store_error)?;
+    if let Some(project) = match_project(&projects, &remotes) {
+        return store_link(state, repo_id, &instance.id, project.project_id).map(Some);
+    }
+    let prefix = instance_prefix(&instance);
+    let client = client(state)?;
+    for remote in remotes {
+        for path in project_paths(&remote.path, &prefix) {
+            match client.project_by_path(&path).await {
+                Ok(project) => {
+                    state
+                        .store
+                        .upsert_projects(&[project_to_row(&instance.id, &project)])
+                        .map_err(store_error)?;
+                    return store_link(state, repo_id, &instance.id, project.id).map(Some);
+                }
+                // Missing or not readable by this token: try the next candidate.
+                Err(error) if matches!(error.status(), Some(403) | Some(404)) => continue,
+                Err(error) => return Err(gitlab_error(error)),
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Associate the current repository with a GitLab project using its remotes.
 #[tauri::command]
 pub async fn gitlab_repo_link(
     state: State<'_, AppState>,
     repo_id: String,
 ) -> Result<RepoLinkDto, AppError> {
-    let instance = instance_id(&state)?;
+    let _ = instance_id(&state)?;
     let session = state.session(&repo_id)?;
     let (refs, _) = tauri::async_runtime::spawn_blocking({
         let session = session.clone();
@@ -181,13 +316,16 @@ pub async fn gitlab_repo_link(
     })
     .await
     .map_err(crate::error::join_error)??;
-    let remotes: Vec<RemoteInfo> = refs
+    let remote_urls: Vec<String> = refs
         .remote_urls
         .iter()
         .filter(|remote| remote.direction == "fetch")
-        .filter_map(|remote| normalize_remote(&remote.url))
+        .map(|remote| remote.url.clone())
         .collect();
-    if remotes.is_empty() {
+    if remote_urls
+        .iter()
+        .all(|url| normalize_remote(url).is_none())
+    {
         return Err(AppError::new(
             "gitlab.no_remote",
             ErrorCategory::Input,
@@ -195,26 +333,31 @@ pub async fn gitlab_repo_link(
         )
         .with_remediation("Ajoutez un remote SSH ou HTTPS vers l'instance GitLab."));
     }
+    // An explicit association may rely on a host alias (for example an SSH
+    // config entry), so cached projects are matched against every remote
+    // before the instance-host-restricted automatic resolution runs.
+    let instance = instance_row(&state)?;
+    let remotes: Vec<RemoteInfo> = remote_urls
+        .iter()
+        .filter_map(|url| normalize_remote(url))
+        .collect();
     let projects = state
         .store
-        .list_projects(&instance, None, 1000)
+        .list_projects(&instance.id, None, 1000)
         .map_err(store_error)?;
-    let project = match_project(&projects, &remotes).ok_or_else(|| {
-        AppError::new(
-            "gitlab.project_not_found",
-            ErrorCategory::Input,
-            "Aucun projet GitLab ne correspond aux remotes du dépôt.",
-        )
-        .with_remediation("Vérifiez l'URL du remote ou effectuez une association manuelle.")
-    })?;
-    let link = RepoLink {
-        repo_id: repo_id.clone(),
-        instance_id: instance,
-        project_id: project.project_id,
-        match_kind: "url".to_owned(),
-        verified_at: beebranch_core::now_unix(),
+    let link = match match_project(&projects, &remotes) {
+        Some(project) => store_link(&state, &repo_id, &instance.id, project.project_id)?,
+        None => ensure_repo_link(&state, &repo_id, &remote_urls)
+            .await?
+            .ok_or_else(|| {
+                AppError::new(
+                    "gitlab.project_not_found",
+                    ErrorCategory::Input,
+                    "Aucun projet GitLab ne correspond aux remotes du dépôt.",
+                )
+                .with_remediation("Vérifiez l'URL du remote ou effectuez une association manuelle.")
+            })?,
     };
-    state.store.set_repo_link(&link).map_err(store_error)?;
     Ok(link_dto(&state, &link))
 }
 
@@ -419,4 +562,114 @@ pub async fn gitlab_mr_create(
             auth_event(&app, &error, &instance);
             gitlab_error(error)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beebranch_store::Store;
+
+    fn instance() -> InstanceRow {
+        InstanceRow {
+            id: "gl_test".to_owned(),
+            provider: "gitlab".to_owned(),
+            base_url: "https://gitlab.example.test".to_owned(),
+            api_url: "https://gitlab.example.test/api/v4".to_owned(),
+            display_name: None,
+            ca_bundle_id: None,
+            created_at: 1,
+        }
+    }
+
+    fn project() -> ProjectRow {
+        ProjectRow {
+            instance_id: "gl_test".to_owned(),
+            project_id: 307,
+            path_with_namespace: "op/opteeam-api-2026".to_owned(),
+            name: "opteeam-api-2026".to_owned(),
+            web_url: "https://gitlab.example.test/op/opteeam-api-2026".to_owned(),
+            ssh_url: Some("git@gitlab.example.test:op/opteeam-api-2026.git".to_owned()),
+            http_url: Some("https://gitlab.example.test/op/opteeam-api-2026.git".to_owned()),
+            default_branch: Some("develop".to_owned()),
+            last_activity_at: None,
+            fetched_at: 0,
+            etag: None,
+        }
+    }
+
+    fn state_with(store: Store) -> AppState {
+        store.upsert_instance(&instance()).expect("instance");
+        crate::state::test_state(std::env::temp_dir(), store)
+    }
+
+    #[test]
+    fn strips_the_instance_prefix_from_a_remote_path() {
+        assert_eq!(
+            project_paths("/op/api-2026/", ""),
+            vec!["op/api-2026".to_owned()]
+        );
+        assert_eq!(
+            project_paths("gitlab/op/api-2026", "gitlab"),
+            vec!["gitlab/op/api-2026".to_owned(), "op/api-2026".to_owned()]
+        );
+        assert_eq!(
+            project_paths("gitlab-only/op", "gitlab"),
+            vec!["gitlab-only/op".to_owned()]
+        );
+    }
+
+    #[tokio::test]
+    async fn associates_a_remote_with_a_cached_project() {
+        let state = state_with(Store::open_in_memory().expect("store"));
+        state.store.upsert_projects(&[project()]).expect("cache");
+        *state.gitlab_instance.lock().expect("lock") = Some(instance());
+        // No client is configured: reaching an association proves the cached
+        // project matched without any API call.
+        let link = ensure_repo_link(
+            &state,
+            "repo_1",
+            &["https://gitlab.example.test/op/opteeam-api-2026.git".to_owned()],
+        )
+        .await
+        .expect("link")
+        .expect("associated");
+
+        assert_eq!(link.project_id, 307);
+        assert_eq!(link.match_kind, "url");
+        assert_eq!(
+            state
+                .store
+                .repo_link_for("repo_1", "gitlab")
+                .expect("stored"),
+            Some(link.clone())
+        );
+
+        // Idempotent: the stored association answers without remotes.
+        let again = ensure_repo_link(&state, "repo_1", &[])
+            .await
+            .expect("again")
+            .expect("associated");
+        assert_eq!(again, link);
+    }
+
+    #[tokio::test]
+    async fn a_remote_on_another_host_is_not_associated() {
+        let state = state_with(Store::open_in_memory().expect("store"));
+        *state.gitlab_instance.lock().expect("lock") = Some(instance());
+
+        let link = ensure_repo_link(
+            &state,
+            "repo_1",
+            &["https://github.com/team/beebranch.git".to_owned()],
+        )
+        .await
+        .expect("no association");
+
+        assert!(link.is_none());
+        assert!(state
+            .store
+            .repo_link_for("repo_1", "gitlab")
+            .expect("stored")
+            .is_none());
+    }
 }

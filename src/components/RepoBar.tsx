@@ -9,7 +9,7 @@ import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
 import { PipelineStatus } from './PipelineStatus'
-import { useOperationConfirm } from './OperationConfirm'
+import { useOperationConfirm, usePushConfirm } from './OperationConfirm'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
 import { useToastChannel } from './ui/Toasts'
@@ -44,6 +44,7 @@ function branchLabel(repo: RepoView | null, t: I18n['t']) {
 export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo }: Props) {
   const { t } = useI18n()
   const confirmOperation = useOperationConfirm()
+  const confirmPush = usePushConfirm()
   const [pending, setPending] = useState<string | null>(null)
   const setNotice = useToastChannel('repobar-notice', 'success')
   const [branches, setBranches] = useState<string[]>([])
@@ -122,11 +123,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       return
     }
     if (kind === 'push') {
-      void confirmOperation({
-        title: t('workbench.operationPreview.title.push', { branch: remoteBranch, remote }),
-        confirmLabel: t('workbench.operationPreview.action.push'),
-        operation: { kind: 'push', remote, branch: remoteBranch },
-      }).then((confirmed) => {
+      void confirmPush({ repoId, remote, branch: remoteBranch }).then((confirmed) => {
         if (!confirmed) return
         void run('Push', () => syncPush({ repoId, remote, branch: remoteBranch }), undefined, { repoId, remote, branch: remoteBranch })
       })

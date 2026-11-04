@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { ConfirmBar } from './components/ConfirmBar'
-import { OperationConfirmProvider, type ConfirmOperation } from './components/OperationConfirm'
+import {
+  OperationConfirmProvider,
+  pushNeedsConfirmation,
+  readPushPreview,
+  type ConfirmOperation,
+} from './components/OperationConfirm'
 import { Home } from './components/Home'
 import { InitRepoDialog } from './components/InitRepoDialog'
 import { PushRejectedBar } from './components/PushRejectedBar'
@@ -1454,25 +1459,28 @@ export default function App() {
           }
           const [remote, ...rest] = repo.state.head.upstream.split('/')
           const branch = rest.join('/')
-          void (
-            confirmOperation.current?.({
-              title: t('workbench.operationPreview.title.push', { branch, remote }),
-              confirmLabel: t('workbench.operationPreview.action.push'),
-              operation: { kind: 'push', remote, branch },
-            }) ?? Promise.resolve(false)
-          )
-            .then((confirmed) =>
-              confirmed
-                ? syncPush({ repoId, remote, branch }).then(() => refresh())
-                : undefined,
-            )
-            .catch((cause) => {
-              if (isPushRejection(cause)) {
-                setPushRejected({ repoId, remote, branch })
-                return
-              }
-              setError(errorMessage(cause))
-            })
+          void (async () => {
+            const preview = await readPushPreview(repoId, remote, branch)
+            // The palette shell sits outside the confirmation provider, so it
+            // asks the bar itself instead of using the push hook.
+            const confirmed =
+              preview && !pushNeedsConfirmation(preview)
+                ? true
+                : await (confirmOperation.current?.({
+                    title: t('workbench.operationPreview.title.push', { branch, remote }),
+                    confirmLabel: t('workbench.operationPreview.action.push'),
+                    operation: { kind: 'push', remote, branch },
+                  }) ?? Promise.resolve(false))
+            if (!confirmed) return
+            await syncPush({ repoId, remote, branch })
+            refresh()
+          })().catch((cause) => {
+            if (isPushRejection(cause)) {
+              setPushRejected({ repoId, remote, branch })
+              return
+            }
+            setError(errorMessage(cause))
+          })
         },
       },
       {

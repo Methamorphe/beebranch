@@ -35,6 +35,7 @@
 - No “Don't ask again” for destructive actions.
 - Irreversible actions are announced as such; no application backup is created.
 - Actions reversible through Git (commit, stage) do not require confirmation.
+- A push Git can send as a fast-forward runs without a summary; a push the remote would refuse, and every force push, are confirmed first. A merge from the graph or a branch menu applies immediately, and its fast-forward variant is a separate action; a rebase is confirmed once.
 - A `--force` is never added implicitly to make a command succeed.
 
 ## 3. Concurrency and external changes

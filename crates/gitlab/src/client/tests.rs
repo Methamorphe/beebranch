@@ -312,6 +312,58 @@ async fn fetches_a_single_project() {
 }
 
 #[tokio::test]
+async fn resolves_a_project_by_its_namespace_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/op%2Fapi%2Fapp"))
+        .and(header("PRIVATE-TOKEN", TOKEN))
+        .respond_with(ResponseTemplate::new(200).set_body_json(project_json(307, "bee")))
+        .mount(&server)
+        .await;
+
+    let project = client(&server)
+        .project_by_path("/op/api/app/")
+        .await
+        .expect("project");
+
+    assert_eq!(project.id, 307);
+}
+
+#[tokio::test]
+async fn follows_the_redirect_of_a_renamed_project() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/op%2Fapp"))
+        .respond_with(ResponseTemplate::new(301).insert_header("Location", "/api/v4/projects/307"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/307"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(project_json(307, "app")))
+        .mount(&server)
+        .await;
+
+    let project = client(&server)
+        .project_by_path("op/app")
+        .await
+        .expect("renamed project");
+
+    assert_eq!(project.id, 307);
+    assert_eq!(project.path_with_namespace, "team/app");
+}
+
+#[tokio::test]
+async fn an_empty_project_path_is_a_configuration_error() {
+    let server = MockServer::start().await;
+    let error = client(&server)
+        .project_by_path(" / ")
+        .await
+        .expect_err("empty path");
+
+    assert_eq!(error.code(), "gitlab.configuration");
+}
+
+#[tokio::test]
 async fn invalid_json_maps_to_invalid_response() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
