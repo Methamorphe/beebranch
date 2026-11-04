@@ -140,8 +140,10 @@ pub struct MutationResult<T> {
 /// pull…) on the repository queue, capture its data, refresh the structural
 /// state and return the new generation.
 ///
-/// A successful mutation invalidates the redo branch, exactly like a new
-/// recorded operation: the state a redo starts from no longer holds.
+/// The mutation invalidates the redo branch, exactly like a new recorded
+/// operation: the state a redo starts from no longer holds. This happens even
+/// when the job fails, since a failed job may still have written (a pull that
+/// stops on conflicts).
 pub async fn run_mutation<T, F>(
     store: Arc<Store>,
     session: Arc<RepoSession>,
@@ -197,11 +199,12 @@ where
         let writer = slot.clone();
         let repo_id = session.id().as_str().to_owned();
         let generation = session.mutate(move |runner, discovery| {
-            let (data, areas) = job(runner, discovery)?;
+            let result = job(runner, discovery);
             // Inside the queue, so no undo/redo can interleave.
             if let Some(store) = &store {
                 store.invalidate_redo(&repo_id).map_err(store_error)?;
             }
+            let (data, areas) = result?;
             if let Ok(mut slot) = writer.lock() {
                 *slot = Some(data);
             }

@@ -83,6 +83,7 @@ pub async fn tag_create(
             let label = format!("création du tag {}", tag.name);
             let name = tag.name.clone();
             let object = tag.oid.clone();
+            let restore = restore_tag(&tag);
             let builder = Box::new(
                 move |_before: &Fingerprint, _after: &Fingerprint| UndoDraft {
                     kind: "tag.create".to_owned(),
@@ -91,19 +92,30 @@ pub async fn tag_create(
                         name: name.clone(),
                         expected: object.clone(),
                     },
-                    // The tag object survives the deletion: pointing the ref
-                    // back at it restores message, tagger and signature exactly.
-                    redo: Some(ReversibleAction::CreateRef {
-                        reference: format!("refs/tags/{name}"),
-                        sha: object.clone(),
-                        upstream: None,
-                    }),
+                    redo: Some(restore.clone()),
                 },
             );
             Ok((tag, vec![InvalidationArea::Refs], builder))
         },
     )
     .await
+}
+
+/// Inverse that brings a deleted tag back.
+///
+/// The tag object survives the deletion: pointing the ref back at it keeps
+/// its id, message, tagger and signature. The captured fields are only a
+/// fallback for an annotated tag whose object Git has since pruned.
+fn restore_tag(tag: &TagInfo) -> ReversibleAction {
+    ReversibleAction::RestoreTag {
+        name: tag.name.clone(),
+        object: tag.oid.clone(),
+        target: tag.target_oid.clone(),
+        message: tag.message.clone(),
+        tagger: tag.tagger.clone(),
+        tagger_email: tag.tagger_email.clone(),
+        tagger_time: tag.tagger_time,
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -153,14 +165,7 @@ pub async fn tag_delete(
                 move |_before: &Fingerprint, _after: &Fingerprint| UndoDraft {
                     kind: "tag.delete".to_owned(),
                     label,
-                    // An annotated tag is not rebuilt: its object still exists,
-                    // so the ref points back at it (same id, message, tagger
-                    // and signature). A lightweight tag points at its commit.
-                    undo: ReversibleAction::CreateRef {
-                        reference: format!("refs/tags/{}", previous.name),
-                        sha: previous.oid.clone(),
-                        upstream: None,
-                    },
+                    undo: restore_tag(&previous),
                     redo: Some(ReversibleAction::DeleteTag {
                         name: previous.name.clone(),
                         expected: previous.oid.clone(),

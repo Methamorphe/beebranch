@@ -39,6 +39,7 @@ struct Fingerprint {
     head: HeadState,              // branch + sha, or detached
     index_tree: Oid,              // index tree (git write-tree)
     status_hash: Sha256,          // hash of `status --porcelain=v2 -z` (no `--branch`)
+    content_hash: Sha256,         // content of every path the status lists
     state: RepoState,             // running operation, conflicts
     refs: BTreeMap<String, Oid>,  // refs touched by the operation
     affected_files: BTreeMap<PathBuf, Sha256>,
@@ -61,9 +62,11 @@ Checks before undo (and redo, against `before`):
 | `git switch` (checkout) | `HEAD`; Git itself refuses to overwrite local changes |
 | `reset --mixed` + `read-tree` (mixed reset) | `HEAD` and index tree |
 | Typed history inverse (merge, rebase, cherry-pick, revert, squash) | `HEAD` and **no tracked modification** (`undo.worktree_dirty`) |
-| Stash re-application, abort of an operation in progress | full fingerprint (`HEAD`, index, status) |
+| Stash re-application, abort of an operation in progress | full fingerprint (`HEAD`, index, status and worktree content); the stash commit must still exist, and an entry to drop must still be listed |
 
-The status hash is computed without `--branch`: `HEAD` is compared on its own,
+The status does not reflect worktree content (editing an already-modified or
+still-conflicted file keeps the same line), so the full fingerprint also hashes
+the content of every path the status lists. The status hash is computed without `--branch`: `HEAD` is compared on its own,
 and the ahead/behind counts change on every fetch without touching local work.
 
 If a condition fails: explicit refusal, no modification, message indicating what changed.
@@ -100,14 +103,14 @@ Legend: **Yes** = undo supported; **Partial** = supported with conditions; **No*
 | **Stash drop** | **No** | — | — | — | — |
 | **Stash apply / pop** | **No** | — | — | — | — |
 | Tag creation | Yes | Delete the tag | name, object | tag points to the same object | Yes |
-| Tag deletion | Yes | Point the ref back at the original object (an annotated tag keeps its id, message, tagger and signature) | name, object | tag absent | Yes |
+| Tag deletion | Yes | Point the ref back at the original object (an annotated tag keeps its id, message, tagger and signature); if Git pruned it, rebuild the annotated tag on its commit | name, object, message, tagger | tag absent | Yes |
 | Remote addition | Yes | Delete the remote | name, URLs | unchanged remote | Yes |
 | Remote removal | Yes | Recreate the remote + refspec | name, URLs, refspec | remote absent | Yes |
 | Fetch | No | — | — | — | — |
 | Push | No | — | — | — | — |
 | Force push | No | Separate “restore the remote” action | old remote SHA | strong confirmation | — |
 | Worktree add | Yes | `git worktree remove` (without `--force`), then delete the branch it created | path, branch | worktree without changes, created branch not moved | Yes |
-| Worktree remove | Yes | `git worktree add` at the same path | path, ref | available path, branch unchanged | Yes |
+| Worktree remove | Yes | `git worktree add` at the same path (recreating the branch if it was deleted with it) | path, ref | available path, branch unchanged | Yes, never forced: Git refuses a worktree edited since, and the branch is deleted again |
 | Forced removal of a dirty worktree | No | — | — | — | — |
 | Submodule update | No | — | — | — | — |
 
@@ -177,8 +180,9 @@ The UI must make this difference explicit before the action, not afterward.
 - Redo is offered only if the `before` status is still exact and the `after` action can be reapplied without loss.
 - Redo replays the most recent undo first: the next redo is the lowest
   consumed record above the last available one, so the stack stays contiguous.
-- A new recorded operation, and any successful mutation that is not recorded
-  (stage, unstage, discard, pull, …), invalidates the redo branch. Fetch and
+- A new recorded operation, and any mutation that is not recorded (stage,
+  unstage, discard, pull, …, even when it fails, since it may have written),
+  invalidates the redo branch inside the serialized queue. Fetch and
   push keep it: they only touch the remote side.
 - For commit-based operations, redo moves HEAD, restores the index and leaves the worktree intact.
 - No redo for irreversible actions.
@@ -239,7 +243,10 @@ Tests use real repositories and verify status through Git, not just the applicat
   tracked file is modified (`reset --keep` also refuses to overwrite an
   untracked file), never a generic `reset --hard`. `reset --hard` remains only
   in the branch-integration inverse that re-applies the automatic stash right
-  after, guarded by an exact status match.
+  after, guarded by an exact status and content match; a `git stash create`
+  snapshot of the local changes is taken first and journaled as the step's
+  recovery SHA. The stash is dropped by its commit, never by a positional
+  selector.
 - Stash create: `stash apply --index`, check the expected status hash,
   then `stash drop` only if application is exact.
 - A new record invalidates the redo branch (`consumed` → `evicted`).

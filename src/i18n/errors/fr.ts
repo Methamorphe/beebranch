@@ -217,6 +217,13 @@ const errors = {
     message: "Cette opération n'est plus la dernière de la pile.",
     remediation: "Aucune modification n'a été appliquée.",
   },
+  'undo.stash_missing': {
+    message: 'Le stash enregistré pour cette opération est introuvable.',
+    remediation: "Aucune modification n'a été appliquée. Inspectez `git stash list`.",
+  },
+  'undo.object_missing': {
+    message: "L'objet Git de ce tag n'existe plus.",
+  },
   'redo.empty': {
     message: 'Aucune opération à rétablir.',
   },
