@@ -121,7 +121,7 @@ Operations menu exposes the recent journal without turning feedback into toasts.
 
 ## 6. Density and motion
 
-- Compact mode by default: 28–32 px rows, no decorative padding.
+- 32 px rows by default on the 8 px grid, no decorative padding; compact lowers rows to 26 px, comfortable raises them to 34 px.
 - Comfortable mode available.
 - Short animations (120–160 ms), never blocking, disabled with `prefers-reduced-motion`.
 - No animation on graph scrolling.
