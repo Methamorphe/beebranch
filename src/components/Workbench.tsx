@@ -47,6 +47,7 @@ import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
 import { errorMessage } from '../ipc/client'
 import { formatNumber, useI18n } from '../i18n'
 import { isCheckoutableRef, resolveGraphRef, shortRevision } from '../lib/graphRefs'
+import { isCurrentUpstream, upstreamChoices } from '../lib/upstreamChoices'
 import type { MediaSettings } from '../lib/mediaSettings'
 import { projectWebUrl, refWebUrl } from '../lib/refLinks'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
@@ -3018,9 +3019,7 @@ export function Workbench({
                 )}
                 {refMenu.panel === 'upstream'
                   ? (() => {
-                      const remotes = (refs?.entries ?? []).filter(
-                        (entry) => entry.kind === 'remoteBranch' && !entry.name.endsWith('/HEAD'),
-                      )
+                      const remotes = upstreamChoices(refs?.entries ?? [], refMenu.entry.name)
                       if (remotes.length === 0) {
                         return action(
                           'upstream-empty',
@@ -3034,7 +3033,7 @@ export function Workbench({
                         action(
                           `upstream-${remoteBranch.fullName}`,
                           'remotes',
-                          `${remoteBranch.name}${remoteBranch.name === refMenu.entry.upstream ? t('workbench.refMenu.currentSuffix') : ''}`,
+                          `${remoteBranch.name}${isCurrentUpstream(refMenu.entry.upstream, remoteBranch) ? t('workbench.refMenu.currentSuffix') : ''}`,
                           () => applyUpstream(refMenu.entry, remoteBranch.name),
                         ),
                       )

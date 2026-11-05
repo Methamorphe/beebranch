@@ -212,7 +212,8 @@ const messages = {
   'workbench.refMenu.deleteRemote': 'Supprimer la branche distante…',
   'workbench.refMenu.deleteUpstream': 'Supprimer la branche distante suivie…',
   'workbench.refMenu.localBranch': 'branche locale',
-  'workbench.refMenu.noRemoteBranches': 'Aucune branche distante : lancez un fetch.',
+  'workbench.refMenu.noRemoteBranches':
+    'Aucune copie distante de cette branche : lancez un fetch ou publiez-la.',
   'workbench.refMenu.pin': 'Épingler à gauche du graphe',
   'workbench.refMenu.pullFastForwardOnly': 'Pull (fast-forward seulement)',
   'workbench.refMenu.pushTo': 'Pousser vers {target}',
