@@ -275,6 +275,57 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__pipelineInvoke; return true })()`)
   await delay(60)
 
+  // The left navigator lists the repository's pipelines and opens one's jobs
+  // without leaving the tool.
+  await evaluate(client, `(() => {
+    window.__historyInvoke = window.__TAURI_INTERNALS__.invoke
+    window.__historyCalls = []
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'pipeline_history') {
+        window.__historyCalls.push(args.page ?? 1)
+        if ((args.page ?? 1) > 1) return { items: [], nextPage: undefined }
+        return {
+          items: [
+            { id:2303, status:'success', refName:'release/test',
+              sha:'9789562500000000000000000000000000000000',
+              updatedAt:'2026-11-04T16:40:00Z' },
+            { id:2300, status:'running', refName:'release/dev',
+              sha:'9004a54200000000000000000000000000000000',
+              updatedAt:'2026-11-04T16:30:00Z' },
+          ],
+          nextPage: 2,
+        }
+      }
+      if (command === 'pipeline_jobs') {
+        return [
+          { id:1, name:'compile', stage:'build', status:'success', duration:12.5 },
+          { id:2, name:'smoke', stage:'test', status:'running', duration:3 },
+        ]
+      }
+      return window.__historyInvoke(command, args)
+    }
+    return true
+  })()`)
+  await evaluate(client, `document.querySelector('[data-repository-section="pipelines"] button[aria-controls="repository-pipelines"]').click()`)
+  await waitFor(client, `Boolean(document.querySelector('[data-repository-tool="pipelines"]'))`, 'pipeline history tool')
+  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('#2300')`, 'pipeline history rows')
+  await check('pipelines-history-lists-refs', `(() => {
+    const text = document.querySelector('[data-repository-tool="pipelines"]').innerText
+    return text.includes('release/test') && text.includes('release/dev') && text.includes('#2303')
+  })()`)
+  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.trim() === 'Charger plus').click()`)
+  await waitFor(client, `window.__historyCalls.includes(2)`, 'pipeline history next page')
+  await evaluate(client, `document.querySelector('[data-repository-tool="pipelines"] [data-pipeline="2300"]').click()`)
+  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('smoke')`, 'pipeline jobs')
+  await check('pipelines-history-opens-jobs', `(() => {
+    const text = document.querySelector('[data-repository-tool="pipelines"]').innerText
+    const lower = text.toLowerCase()
+    return text.includes('#2300') && lower.includes('build') && lower.includes('compile') && lower.includes('test')
+  })()`)
+  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.includes('Tous les pipelines')).click()`)
+  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('#2303')`, 'pipeline history back')
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__historyInvoke; return true })()`)
+
   // Issue #19: drag a graph branch onto a left-panel local branch.
   await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
   await delay(80)
