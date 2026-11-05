@@ -89,9 +89,9 @@ type Props = {
 
 const BRANCH_FOCUS_DELAY = 450
 const UNFOCUSED_ALPHA = 0.22
-const ROW_HEIGHT = 30
+const ROW_HEIGHT = 32
 const OVERSCAN = 8
-/** Comfortable-density graph node: initials disc plus lane ring, within 30 px rows. */
+/** Comfortable-density graph node: initials disc plus lane ring, within 32 px rows. */
 const AVATAR_NODE_RADIUS = 11
 const AVATAR_LANE_RING = 2.25
 
@@ -1375,7 +1375,7 @@ export function GraphCanvas({
         <div className={styles.refsHeader}>
           <span>{layout.refs ? t('graph.column.refs') : ''}</span>
           {layout.refs && onBranchRequest ? (
-            <button type="button" className={styles.addRef} title={t('graph.branch.createTitle')} aria-label={t('graph.branch.create')} onClick={() => onBranchRequest(selected ?? null)}>+</button>
+            <button type="button" className={styles.addRef} data-frame="icon" title={t('graph.branch.createTitle')} aria-label={t('graph.branch.create')} onClick={() => onBranchRequest(selected ?? null)}>+</button>
           ) : null}
         </div>
         <span>{t('graph.column.graph')}</span><div className={styles.messageHeader}><span>{t('graph.column.message')}</span>{headerTools}</div><span>{layout.author ? t('graph.column.author') : ''}</span><span>{layout.date ? t('graph.column.date') : ''}</span>
@@ -1422,7 +1422,7 @@ export function GraphCanvas({
           return (
             <form
               className={styles.createRow}
-              style={{ top: index * ROW_HEIGHT + 2, width: layout.refs > 0 ? Math.max(180, layout.refs - 16) : 220 }}
+              style={{ top: index * ROW_HEIGHT, width: layout.refs > 0 ? Math.max(180, layout.refs - 16) : 220 }}
               onSubmit={(event) => { event.preventDefault(); onBranchSubmit?.() }}
             >
               <input

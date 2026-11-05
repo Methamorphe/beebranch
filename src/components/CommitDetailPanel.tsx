@@ -1,5 +1,6 @@
 import type { CommitDetail } from '../types/git'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
+import { FileStatusIcon } from './FileStatusIcon'
 import { dateFromSeconds, formatDateTime, formatRelative, useI18n, type MessageKey } from '../i18n'
 import styles from './CommitDetailPanel.module.css'
 
@@ -20,9 +21,11 @@ type Props = {
   loading: boolean
   error: string | null
   onShowDiff: (sha: string, path?: string) => void
-  /** Opens the history of one file of this commit. */
-  onShowHistory?: (path: string) => void
   onClose: () => void
+}
+
+function refScope(ref: string): 'remote' | 'local' {
+  return /refs\/remotes\/|(^|\/)origin\//.test(ref) ? 'remote' : 'local'
 }
 
 function PathLabel({ path }: { path: string }) {
@@ -35,10 +38,10 @@ function PathLabel({ path }: { path: string }) {
   )
 }
 
-export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHistory, onClose }: Props) {
+export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose }: Props) {
   const { t, plural } = useI18n()
   const close = (
-    <button type="button" className={styles.close} onClick={onClose} aria-label={t('diff.commit.closeAria')}>
+    <button type="button" className={styles.close} data-frame="icon" data-kind="close" onClick={onClose} aria-label={t('diff.commit.closeAria')}>
       ×
     </button>
   )
@@ -82,13 +85,14 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
     <aside className={styles.panel} aria-label={t('diff.commit.aria')}>
       <header className={styles.header}>
         <div className={styles.headerTop}>
+          <span className={styles.panelTitle}>{t('diff.commit.title')}</span>
           <code className={styles.sha} title={commit.sha}>{commit.sha.slice(0, 12)}</code>
           {close}
         </div>
         {commit.refs.length > 0 ? (
           <div className={styles.refs}>
             {commit.refs.map((ref) => (
-              <span key={ref} className={styles.ref} title={ref}>
+              <span key={ref} className={styles.ref} data-scope={refScope(ref)} title={ref}>
                 {ref.replace('HEAD -> ', '').replace(/^refs\/(heads|remotes)\//, '')}
               </span>
             ))}
@@ -96,19 +100,31 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
         ) : null}
         <h2 className={styles.subject} title={subject}>{subject}</h2>
         <p className={styles.meta}>
-          <span className={styles.author}>{commit.author.name}</span>
-          <span>
-            {formatDateTime(dateFromSeconds(commit.author.timestamp))}
-            {relativeAge ? ` · ${relativeAge}` : ''}
+          <span className={styles.metaItem}>
+            <span className={styles.metaLabel}>{t('diff.commit.author')}</span>
+            <span className={styles.author}>{commit.author.name}</span>
           </span>
-          <span>{plural('diff.commit.parents.one', 'diff.commit.parents.other', commit.parents.length)}</span>
+          <span className={styles.metaItem}>
+            <span className={styles.metaLabel}>{t('diff.commit.date')}</span>
+            <span>
+              {formatDateTime(dateFromSeconds(commit.author.timestamp))}
+              {relativeAge ? ` · ${relativeAge}` : ''}
+            </span>
+          </span>
+          <span className={styles.metaItem}>
+            <span className={styles.metaLabel}>{t('diff.commit.parentsLabel')}</span>
+            <span>{plural('diff.commit.parents.one', 'diff.commit.parents.other', commit.parents.length)}</span>
+          </span>
           {detail.signature ? (
-            <span
-              className={styles.signature}
-              data-code={detail.signature}
-              title={t(SIGNATURE_LABELS[detail.signature] ?? 'diff.commit.signature.other')}
-            >
-              {t(SIGNATURE_LABELS[detail.signature] ?? 'diff.commit.signature.other')}
+            <span className={styles.metaItem}>
+              <span className={styles.metaLabel}>{t('diff.commit.signatureLabel')}</span>
+              <span
+                className={styles.signature}
+                data-code={detail.signature}
+                title={t(SIGNATURE_LABELS[detail.signature] ?? 'diff.commit.signature.other')}
+              >
+                {t(SIGNATURE_LABELS[detail.signature] ?? 'diff.commit.signature.other')}
+              </span>
             </span>
           ) : null}
         </p>
@@ -157,7 +173,7 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
                   data-status={letterFromStatus(file.status)}
                   aria-hidden="true"
                 >
-                  {letterFromStatus(file.status)}
+                  <FileStatusIcon letter={file.status} />
                 </span>
                 <span className={styles.path}>
                   <PathLabel path={file.path} />
@@ -173,17 +189,6 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
                   )}
                 </span>
               </button>
-              {onShowHistory ? (
-                <button
-                  type="button"
-                  className={styles.fileHistory}
-                  onClick={() => onShowHistory(file.path)}
-                  title={t('diff.commit.historyTitle', { path: file.path })}
-                  aria-label={t('diff.commit.historyAria', { path: file.path })}
-                >
-                  ⌖
-                </button>
-              ) : null}
             </div>
           ))}
         </div>

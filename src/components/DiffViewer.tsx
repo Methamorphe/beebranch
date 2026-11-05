@@ -10,7 +10,8 @@ import {
 import type { DiffHunk, DiffLine, DiffReport, FileContent, FileDiff, HunkSelection, PathSelection } from '../types/git'
 import { indexDiscard, indexStage, indexUnstage } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
-import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
+import { STATUS_LABELS, splitPath } from '../lib/paths'
+import { FileStatusIcon } from './FileStatusIcon'
 import { dateFromSeconds, formatDate, formatNumber, useI18n, type MessageKey } from '../i18n'
 import { ConfirmBar } from './ConfirmBar'
 import { Markdown } from './Markdown'
@@ -1099,7 +1100,7 @@ export function DiffViewer({
               data-kind={entry.kind}
               aria-hidden="true"
             >
-              {STATUS_LETTERS[entry.kind]}
+              <FileStatusIcon kind={entry.kind} />
             </span>
             <span
               className={styles.filePath}
@@ -1359,7 +1360,7 @@ export function DiffViewer({
         {!embedded ? (
         <div className={styles.fileBar}>
           <span className={styles.fileStatus} data-kind={file.kind} aria-hidden="true">
-            {STATUS_LETTERS[file.kind]}
+            <FileStatusIcon kind={file.kind} />
           </span>
           <span
             className={styles.fileHeading}
