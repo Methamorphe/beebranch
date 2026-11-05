@@ -92,7 +92,7 @@ import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
 import { ConfirmBar } from './ConfirmBar'
-import { useOperationConfirm, usePushConfirm } from './OperationConfirm'
+import { useCheckoutConfirm, useOperationConfirm, usePushConfirm } from './OperationConfirm'
 import { useToastChannel } from './ui/Toasts'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
@@ -288,6 +288,7 @@ export function Workbench({
   const { t, plural } = useI18n()
   const confirmOperation = useOperationConfirm()
   const confirmPush = usePushConfirm()
+  const confirmCheckout = useCheckoutConfirm()
 
   /**
    * Rebase summary: a merge applies immediately, so this bar only ever
@@ -1569,9 +1570,16 @@ export function Workbench({
             generation={generation}
             connected={toolView === 'prs' ? githubConnected : gitlabConnected}
             onCheckout={(branch: string) =>
-              void runAction(t('workbench.notice.checkout', { branch }), () =>
-                branchCheckout({ repoId, name: branch }),
-              )
+              void confirmCheckout(repoId, {
+                title: t('workbench.operationPreview.title.checkout', { target: branch }),
+                confirmLabel: t('workbench.operationPreview.action.checkout'),
+                operation: { kind: 'checkout', name: branch },
+              }).then((confirmed) => {
+                if (!confirmed) return
+                void runAction(t('workbench.notice.checkout', { branch }), () =>
+                  branchCheckout({ repoId, name: branch }),
+                )
+              })
             }
           />
         </div>
@@ -1701,17 +1709,35 @@ export function Workbench({
       setActionError(t('workbench.error.checkoutBlocked'))
       return
     }
-    const confirmed = await confirmOperation({
-      title:
-        entry.kind === 'branch'
-          ? t('workbench.operationPreview.title.checkout', { target: entry.name })
-          : t('workbench.operationPreview.title.checkoutDetached', { target: entry.name }),
-      confirmLabel: t('workbench.operationPreview.action.checkout'),
-      operation:
-        entry.kind === 'branch'
-          ? { kind: 'checkout', name: entry.name }
-          : { kind: 'checkout', detachedAt: entry.targetOid },
-    })
+    const localBranches = refs?.entries.filter((ref) => ref.kind === 'branch') ?? []
+    const tracking =
+      entry.kind === 'branch'
+        ? undefined
+        : localBranches.find(
+            (ref) => ref.upstream?.replace(/^refs\/remotes\//, '') === entry.name,
+          )
+    const operation =
+      entry.kind === 'branch'
+        ? ({ kind: 'checkout' as const, name: entry.name })
+        : ({ kind: 'checkout' as const, detachedAt: entry.targetOid })
+    const title =
+      entry.kind === 'branch'
+        ? t('workbench.operationPreview.title.checkout', { target: entry.name })
+        : t('workbench.operationPreview.title.checkoutDetached', { target: entry.name })
+    // Switching to a remote branch whose local counterpart sits elsewhere moves
+    // that branch tip: that destructive case keeps its summary.
+    const resetsLocalBranch = Boolean(tracking && tracking.targetOid !== entry.targetOid)
+    const confirmed = resetsLocalBranch
+      ? await confirmOperation({
+          title,
+          confirmLabel: t('workbench.operationPreview.action.checkout'),
+          operation,
+        })
+      : await confirmCheckout(repoId, {
+          title,
+          confirmLabel: t('workbench.operationPreview.action.checkout'),
+          operation,
+        })
     if (!confirmed) return
     checkoutPending.current = true
     setCheckoutBusy(true)
@@ -1722,8 +1748,6 @@ export function Workbench({
       if (entry.kind === 'branch') {
         await branchCheckout({ repoId, name:entry.name })
       } else {
-        const localBranches = refs?.entries.filter((ref) => ref.kind === 'branch') ?? []
-        const tracking = localBranches.find((ref) => ref.upstream?.replace(/^refs\/remotes\//, '') === entry.name)
         if (tracking) {
           if (tracking.isHead && tracking.targetOid === entry.targetOid) return
           activeBranch = tracking.name
@@ -2607,7 +2631,7 @@ export function Workbench({
                 {action('checkout-detached', 'graph', t('workbench.menu.detachedHead'), () => {
                   const sha = contextMenu.commit.sha
                   closeMenu()
-                  void confirmOperation({
+                  void confirmCheckout(repoId, {
                     title: t('workbench.operationPreview.title.checkoutDetached', {
                       target: sha.slice(0, 10),
                     }),

@@ -9,7 +9,7 @@ import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
 import { PipelineStatus } from './PipelineStatus'
-import { useOperationConfirm, usePushConfirm } from './OperationConfirm'
+import { useCheckoutConfirm, useOperationConfirm, usePushConfirm } from './OperationConfirm'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
 import { useToastChannel } from './ui/Toasts'
@@ -45,6 +45,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const { t } = useI18n()
   const confirmOperation = useOperationConfirm()
   const confirmPush = usePushConfirm()
+  const confirmCheckout = useCheckoutConfirm()
   const [pending, setPending] = useState<string | null>(null)
   const setNotice = useToastChannel('repobar-notice', 'success')
   const [branches, setBranches] = useState<string[]>([])
@@ -150,7 +151,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       </ActionMenu>
       <span className={styles.contextSeparator} aria-hidden="true">›</span>
       <ActionMenu label={t('shell.repoBar.chooseBranch')} triggerClassName={styles.selector} disabled={!repoId || busy || pending !== null} triggerContent={<><span className={styles.caption}>{t('shell.repoBar.branchCaption')}</span><span className={styles.value}><span className={styles.contextName}>{branchLabel(repo, t)}</span><ToolbarIcon name="chevron" /></span></>}>
-        {branches.map((name) => <button key={name} type="button" disabled={name === branchLabel(repo, t) || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} aria-current={name === branchLabel(repo, t) ? 'true' : undefined} onClick={() => repoId && void confirmOperation({
+        {branches.map((name) => <button key={name} type="button" disabled={name === branchLabel(repo, t) || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} aria-current={name === branchLabel(repo, t) ? 'true' : undefined} onClick={() => repoId && void confirmCheckout(repoId, {
           title: t('workbench.operationPreview.title.checkout', { target: name }),
           confirmLabel: t('workbench.operationPreview.action.checkout'),
           operation: { kind: 'checkout', name },

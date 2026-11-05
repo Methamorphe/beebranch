@@ -38,20 +38,72 @@ export function pushNeedsConfirmation(preview: OperationPreview): boolean {
 }
 
 /**
- * Summary of a push, for confirmations rendered outside the provider (the
+ * Summary of an operation, for confirmations rendered outside the provider (the
  * shell's command palette). `null` means the preview itself failed; the bar
  * then reports it.
  */
-export async function readPushPreview(
+async function readPreview(
+  repoId: string,
+  operation: PreviewOperation,
+): Promise<OperationPreview | null> {
+  try {
+    return await operationPreview({ repoId, operation })
+  } catch {
+    return null
+  }
+}
+
+/** Summary of a push, for confirmations rendered outside the provider. */
+export function readPushPreview(
   repoId: string,
   remote: string,
   branch: string,
 ): Promise<OperationPreview | null> {
-  try {
-    return await operationPreview({ repoId, operation: { kind: 'push', remote, branch } })
-  } catch {
-    return null
-  }
+  return readPreview(repoId, { kind: 'push', remote, branch })
+}
+
+/** Checkout target, as the preview and the command both express it. */
+export type CheckoutOperation = Extract<PreviewOperation, { kind: 'checkout' }>
+
+/**
+ * A checkout asks only when Git would refuse it: an operation in progress or
+ * unresolved conflicts. Local changes are stashed by the switch and restored by
+ * its undo, so a checkout that would go through simply switches.
+ */
+export function checkoutNeedsConfirmation(preview: OperationPreview): boolean {
+  return Boolean(preview.blockedReason)
+}
+
+/** Summary of a checkout, for confirmations rendered outside the provider. */
+export function readCheckoutPreview(
+  repoId: string,
+  operation: CheckoutOperation,
+): Promise<OperationPreview | null> {
+  return readPreview(repoId, operation)
+}
+
+/**
+ * Checkout confirmation that switches directly when Git would not refuse the
+ * branch change, and only shows the summary otherwise.
+ */
+export function useCheckoutConfirm() {
+  const confirmOperation = useOperationConfirm()
+  return useCallback(
+    async (
+      repoId: string,
+      request: {
+        title: string
+        confirmLabel?: string
+        tone?: 'primary' | 'danger'
+        operation: CheckoutOperation
+      },
+    ) => {
+      const preview = await readCheckoutPreview(repoId, request.operation)
+      if (preview && !checkoutNeedsConfirmation(preview)) return true
+      return confirmOperation(request)
+    },
+    [confirmOperation],
+  )
 }
 
 /** Push confirmation that stays out of the way of a fast-forward. */
