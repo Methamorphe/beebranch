@@ -117,6 +117,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::pipelines::pipeline_overview,
             commands::pipelines::pipeline_jobs,
             commands::pipelines::pipeline_recent,
+            commands::pipelines::pipeline_history,
             commands::github::github_configure,
             commands::github::github_connect_from_git,
             commands::github::github_device_flow_start,

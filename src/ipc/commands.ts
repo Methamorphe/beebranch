@@ -302,6 +302,7 @@ import type {
   MutationResult,
   PathSelection,
   PipelineJob,
+  PipelineHistory,
   PipelineOverview,
   PullStrategy,
   RemoteFetchOutcome,
@@ -1430,6 +1431,11 @@ export function pipelineJobs(repoId: string, pipelineId: number): Promise<Pipeli
 /** Recent pipelines of the linked project, across every branch and tag. */
 export function pipelineRecent(repoId: string): Promise<GitlabPipeline[]> {
   return call<GitlabPipeline[]>('pipeline_recent', { repoId })
+}
+
+/** One page of the project's pipelines across every ref, newest first. */
+export function pipelineHistory(repoId: string, page?: number): Promise<PipelineHistory> {
+  return call<PipelineHistory>('pipeline_history', { repoId, page })
 }
 
 export function gitlabJobCancel(input: {

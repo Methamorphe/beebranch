@@ -1,3 +1,4 @@
+import type { MessageKey } from '../i18n/translate'
 import type { PipelineState } from '../types/git'
 
 /** Unambiguous GitLab pipeline status mapping shared by every surface. */
@@ -50,4 +51,22 @@ export function aggregatePipelineState(statuses: (string | undefined)[]): Pipeli
 /** Pipelines that will not change anymore, for the `done/total` progress. */
 export function isSettled(state: PipelineState): boolean {
   return state !== 'running' && state !== 'pending'
+}
+
+/** Display label of a pipeline ref; GitLab reports merge requests on a ref. */
+export function pipelineRefLabel(refName: string | undefined): string | null {
+  if (!refName) return null
+  const mergeRequest = /^refs\/merge-requests\/(\d+)\/head$/.exec(refName)
+  return mergeRequest ? `!${mergeRequest[1]}` : refName
+}
+
+/** Status label keys shared by the indicator, the panel and the history view. */
+export const PIPELINE_STATE_KEYS: Record<PipelineState, MessageKey> = {
+  pending: 'shell.pipeline.state.pending',
+  running: 'shell.pipeline.state.running',
+  success: 'shell.pipeline.state.success',
+  failed: 'shell.pipeline.state.failed',
+  canceled: 'shell.pipeline.state.canceled',
+  neutral: 'shell.pipeline.state.neutral',
+  unknown: 'shell.pipeline.state.unknown',
 }

@@ -28,6 +28,8 @@ use crate::state::AppState;
 const PIPELINES_PER_COMMIT: u32 = 20;
 /// Pipelines listed for the whole repository: the panel is a recent view.
 const RECENT_PIPELINES: u32 = 20;
+/// Pipelines per page of the repository history.
+const HISTORY_PIPELINES: u32 = 30;
 /// Jobs fetched for one pipeline; the detail panel is a summary, not a log.
 const JOBS_PER_PIPELINE: u32 = 100;
 
@@ -57,6 +59,18 @@ pub struct PipelineSummaryDto {
     pub ref_name: Option<String>,
     pub sha: Option<String>,
     pub web_url: Option<String>,
+    /// `push`, `merge_request_event`, ... (GitLab only).
+    pub source: Option<String>,
+    /// ISO-8601 timestamp of the last update, when the forge reports it.
+    pub updated_at: Option<String>,
+}
+
+/// One page of the project's pipelines, newest first.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineHistoryDto {
+    pub items: Vec<PipelineSummaryDto>,
+    pub next_page: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +111,8 @@ impl From<GitlabPipeline> for PipelineSummaryDto {
             ref_name: pipeline.ref_name,
             sha: pipeline.sha,
             web_url: pipeline.web_url,
+            source: pipeline.source,
+            updated_at: pipeline.updated_at,
         }
     }
 }
@@ -110,6 +126,8 @@ impl From<GithubPipeline> for PipelineSummaryDto {
             ref_name: pipeline.ref_name,
             sha: pipeline.sha,
             web_url: pipeline.web_url,
+            source: None,
+            updated_at: pipeline.updated_at,
         }
     }
 }
@@ -482,6 +500,70 @@ pub async fn pipeline_recent(
                     github_error(error)
                 })
                 .map(|items| items.into_iter().map(PipelineSummaryDto::from).collect())
+        }
+    }
+}
+
+/// Pipelines of the linked project across every ref, one page at a time.
+///
+/// The history view is independent from the checked-out commit: it lists what
+/// ran on every branch, tag and merge request, newest first.
+#[tauri::command]
+pub async fn pipeline_history(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: String,
+    page: Option<u32>,
+) -> Result<PipelineHistoryDto, AppError> {
+    let context = repo_context(&state, &repo_id).await?;
+    let Some((provider, project)) = resolve_provider(&state, &repo_id, &context).await? else {
+        return Ok(PipelineHistoryDto {
+            items: Vec::new(),
+            next_page: None,
+        });
+    };
+
+    let page = page.unwrap_or(1).max(1);
+    match provider {
+        Provider::Gitlab => {
+            let client: GitlabClient = gitlab_client(&state)?;
+            let instance = gitlab_instance_id(&state)?;
+            let paged = client
+                .pipelines_page(project.project_id, page, HISTORY_PIPELINES)
+                .await
+                .map_err(|error| {
+                    gitlab_auth_event(&app, &error, &instance);
+                    gitlab_error(error)
+                })?;
+            Ok(PipelineHistoryDto {
+                items: paged
+                    .items
+                    .into_iter()
+                    .map(PipelineSummaryDto::from)
+                    .collect(),
+                next_page: paged.next_page,
+            })
+        }
+        Provider::Github => {
+            let client: GithubClient = github_client(&state)?;
+            let instance = github_instance_id(&state)?;
+            let repo: RepoRef =
+                resolve_repo_ref(&state, &client, &instance, project.project_id).await?;
+            let paged = client
+                .workflow_runs_page(&repo, page, HISTORY_PIPELINES)
+                .await
+                .map_err(|error| {
+                    github_auth_event(&app, &error, &instance);
+                    github_error(error)
+                })?;
+            Ok(PipelineHistoryDto {
+                items: paged
+                    .items
+                    .into_iter()
+                    .map(PipelineSummaryDto::from)
+                    .collect(),
+                next_page: paged.next_page,
+            })
         }
     }
 }

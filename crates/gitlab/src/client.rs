@@ -506,6 +506,19 @@ impl GitlabClient {
         project_id: u64,
         per_page: u32,
     ) -> Result<Vec<GitlabPipeline>, GitlabError> {
+        Ok(self.pipelines_page(project_id, 1, per_page).await?.items)
+    }
+
+    /// One page of the project's pipelines, across every ref.
+    pub async fn pipelines_page(
+        &self,
+        project_id: u64,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Paged<GitlabPipeline>, GitlabError> {
+        if page == 0 {
+            return Err(GitlabError::configuration("page invalide"));
+        }
         let project = project_id.to_string();
         let per_page = per_page.clamp(1, MAX_PER_PAGE);
         let mut url = self.endpoint(&["projects", &project, "pipelines"])?;
@@ -513,11 +526,21 @@ impl GitlabClient {
             let mut pairs = url.query_pairs_mut();
             pairs
                 .append_pair("per_page", &per_page.to_string())
+                .append_pair("page", &page.to_string())
                 .append_pair("order_by", "id")
                 .append_pair("sort", "desc");
         }
         let fetched = self.fetch(&url).await?;
-        decode(&fetched.body)
+        let items: Vec<GitlabPipeline> = decode(&fetched.body)?;
+        Ok(Paged {
+            items,
+            page,
+            per_page,
+            next_page: fetched.next_page,
+            total: fetched.total,
+            not_modified: fetched.not_modified,
+            from_cache: fetched.from_cache,
+        })
     }
 
     /// Pipelines run for one commit, newest first.

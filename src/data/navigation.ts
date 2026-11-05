@@ -15,6 +15,7 @@ export type ViewId =
   | 'search'
   | 'mrs'
   | 'prs'
+  | 'pipelines'
   | 'gitlab'
   | 'github'
   | 'stash'
@@ -70,6 +71,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { id: 'mrs', labelKey: 'nav.mrs', icon: '⑃', requiresRepo: true },
       { id: 'prs', labelKey: 'nav.prs', icon: '⑂', requiresRepo: true },
+      { id: 'pipelines', labelKey: 'nav.pipelines', icon: '⌁', requiresRepo: true },
       { id: 'sync', labelKey: 'nav.sync', icon: '↻', requiresRepo: true },
       { id: 'terminal', labelKey: 'nav.terminal', icon: '>_', requiresRepo: true },
       { id: 'gitlab', labelKey: 'nav.gitlab', icon: '◎', requiresRepo: false },
@@ -111,6 +113,7 @@ export const viewDescriptions: Partial<Record<ViewId, MessageKey>> = {
   stash: 'nav.description.stash',
   mrs: 'nav.description.mrs',
   prs: 'nav.description.prs',
+  pipelines: 'nav.description.pipelines',
   search: 'nav.description.search',
   conflicts: 'nav.description.conflicts',
   rebase: 'nav.description.rebase',

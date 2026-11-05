@@ -97,6 +97,7 @@ import { useToastChannel } from './ui/Toasts'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
+import { PipelinesPanel } from './PipelinesPanel'
 import { ProfilesPanel } from './ProfilesPanel'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { RebasePanel } from './RebasePanel'
@@ -1560,6 +1561,10 @@ export function Workbench({
       )
     }
 
+    if (toolView === 'pipelines') {
+      return <PipelinesPanel repoId={repoId} generation={generation} />
+    }
+
     if (toolView === 'mrs' || toolView === 'prs') {
       const api = toolView === 'prs' ? githubForge : gitlabForge
       return (
@@ -1688,7 +1693,7 @@ export function Workbench({
   const appPage = APP_PAGES.includes(view)
   const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'recovery', 'terminal'].includes(view) ? tool : null
   const centerActive = Boolean(previewDiff || centerTool || historyTool)
-  const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
+  const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'pipelines', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
 
   /** References the graph may draw: hidden ones removed, solo respected. */
   const visibleRefs = applyVisibility(

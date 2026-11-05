@@ -626,6 +626,29 @@ async fn lists_every_pipeline_of_a_project() {
 }
 
 #[tokio::test]
+async fn pages_through_project_pipelines() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/7/pipelines"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-next-page", "3")
+                .set_body_json(json!([
+                    {"id": 2290, "status": "success", "ref": "develop", "sha": "abc"}
+                ])),
+        )
+        .mount(&server)
+        .await;
+
+    let page = client(&server).pipelines_page(7, 2, 2).await.expect("page");
+
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.next_page, Some(3));
+}
+
+#[tokio::test]
 async fn lists_merge_request_pipelines() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

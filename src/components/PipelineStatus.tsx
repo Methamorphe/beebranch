@@ -1,26 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
-import type { MessageKey } from '../i18n/translate'
 import { errorMessage } from '../ipc/client'
 import { openExternalUrl, pipelineJobs, pipelineOverview, pipelineRecent } from '../ipc/commands'
-import { aggregatePipelineState, isSettled, pipelineState } from '../lib/pipeline'
-import type { GitlabPipeline, PipelineJob, PipelineOverview, PipelineState } from '../types/git'
+import {
+  aggregatePipelineState,
+  isSettled,
+  PIPELINE_STATE_KEYS,
+  pipelineRefLabel,
+  pipelineState,
+} from '../lib/pipeline'
+import type { GitlabPipeline, PipelineJob, PipelineOverview } from '../types/git'
 import { ActionMenu } from './ActionMenu'
 import { ToolbarIcon } from './ToolbarIcon'
 import styles from './PipelineStatus.module.css'
 
 /** Slow enough to stay polite with the forge, fast enough to follow a run. */
 const REFRESH_MS = 30_000
-
-const STATE_KEYS: Record<PipelineState, MessageKey> = {
-  pending: 'shell.pipeline.state.pending',
-  running: 'shell.pipeline.state.running',
-  success: 'shell.pipeline.state.success',
-  failed: 'shell.pipeline.state.failed',
-  canceled: 'shell.pipeline.state.canceled',
-  neutral: 'shell.pipeline.state.neutral',
-  unknown: 'shell.pipeline.state.unknown',
-}
 
 type Props = {
   repoId: string | null
@@ -30,13 +25,6 @@ type Props = {
 
 /** Commit pipelines or the whole project's recent pipelines. */
 type Scope = 'commit' | 'repository'
-
-/** GitLab reports merge-request pipelines on an internal ref. */
-function refLabel(refName: string | undefined): string | null {
-  if (!refName) return null
-  const mergeRequest = /^refs\/merge-requests\/(\d+)\/head$/.exec(refName)
-  return mergeRequest ? `!${mergeRequest[1]}` : refName
-}
 
 type EntriesProps = {
   pipelines: GitlabPipeline[]
@@ -73,7 +61,7 @@ function PipelineEntries({ pipelines, empty, showRef, expanded, jobs, jobsBusy, 
                 {showRef ? (
                   <>
                     <span className={styles.ref} title={pipeline.refName ?? undefined}>
-                      {refLabel(pipeline.refName) ?? t('shell.pipeline.detached')}
+                      {pipelineRefLabel(pipeline.refName) ?? t('shell.pipeline.detached')}
                     </span>
                     <span className={styles.mono}>#{pipeline.id}</span>
                     {pipeline.sha ? (
@@ -85,7 +73,7 @@ function PipelineEntries({ pipelines, empty, showRef, expanded, jobs, jobsBusy, 
                     {pipeline.detailedStatus ?? `#${pipeline.id}`}
                   </span>
                 )}
-                <span className={styles.entryState}>{t(STATE_KEYS[itemState])}</span>
+                <span className={styles.entryState}>{t(PIPELINE_STATE_KEYS[itemState])}</span>
               </button>
               {pipeline.webUrl ? (
                 <button
@@ -112,7 +100,7 @@ function PipelineEntries({ pipelines, empty, showRef, expanded, jobs, jobsBusy, 
                             {job.stage ? `${job.stage} / ` : ''}
                             {job.name}
                           </span>
-                          <span className={styles.entryState}>{t(STATE_KEYS[jobState])}</span>
+                          <span className={styles.entryState}>{t(PIPELINE_STATE_KEYS[jobState])}</span>
                           {job.duration !== undefined ? (
                             <span className={styles.mono}>{Math.round(job.duration)} s</span>
                           ) : null}
@@ -243,7 +231,7 @@ export function PipelineStatus({ repoId, generation }: Props) {
   const state = aggregatePipelineState(pipelines.map((pipeline) => pipeline.status))
   const settled = pipelines.filter((pipeline) => isSettled(pipelineState(pipeline.status))).length
   const provider = overview.provider === 'github' ? 'GitHub' : 'GitLab'
-  const stateLabel = t(STATE_KEYS[state])
+  const stateLabel = t(PIPELINE_STATE_KEYS[state])
   const openTarget =
     scope === 'repository'
       ? (recent?.[0]?.webUrl ?? overview.projectWebUrl)
