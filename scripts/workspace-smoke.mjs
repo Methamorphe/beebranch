@@ -285,6 +285,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
         window.__historyCalls.push(args.page ?? 1)
         if ((args.page ?? 1) > 1) return { items: [], nextPage: undefined }
         return {
+          provider: 'gitlab',
+          projectId: 7,
+          projectPath: 'team/app',
           items: [
             { id:2303, status:'success', refName:'release/test',
               sha:'9789562500000000000000000000000000000000',
@@ -301,6 +304,11 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
           { id:1, name:'compile', stage:'build', status:'success', duration:12.5 },
           { id:2, name:'smoke', stage:'test', status:'running', duration:3 },
         ]
+      }
+      if (command === 'gitlab_job_log') {
+        window.__jobLogCalls = [...(window.__jobLogCalls ?? []), args.input]
+        return { text: 'Compiling bee\\nbuild ok', truncated:false, bytes:24,
+          sourceUrl:'https://gitlab.example.test/jobs/1', offset:0 }
       }
       return window.__historyInvoke(command, args)
     }
@@ -322,6 +330,14 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     const lower = text.toLowerCase()
     return text.includes('#2300') && lower.includes('build') && lower.includes('compile') && lower.includes('test')
   })()`)
+  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.includes('compile')).click()`)
+  await waitFor(client, `document.querySelector('[role="dialog"]')?.innerText.includes('Compiling bee') === true`, 'job log dialog')
+  await check('pipelines-job-log-in-app', `(() => {
+    const call = (window.__jobLogCalls ?? [])[0]
+    return Boolean(call) && call.projectId === 7 && call.jobId === 1
+  })()`)
+  await evaluate(client, `[...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Fermer').click()`)
+  await waitFor(client, `!document.querySelector('[role="dialog"]')`, 'job log closed')
   await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.includes('Tous les pipelines')).click()`)
   await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('#2303')`, 'pipeline history back')
   await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__historyInvoke; return true })()`)

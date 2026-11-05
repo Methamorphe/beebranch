@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.1] — 2026-11-05
+
+### Added
+
+- **Stage detail and job logs**: the navigator's pipeline view shows every stage with its own state, and opening a job reads its log inside the application (paged, with the forge link for the full job) instead of sending the user to GitLab.
+
 ## [1.8.0] — 2026-11-05
 
 ### Added
