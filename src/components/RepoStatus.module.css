@@ -37,7 +37,8 @@
 .state[data-kind='unmerged'] { color:var(--error); }
 :global(:root[data-visual='readable-beta']) .state { width:16px; font-size:13px; }
 :global(:root[data-visual='readable-beta']) .filePath { font-size:14.5px; font-weight:500; }
-:global(:root[data-visual='readable-beta']) .folder { color:var(--muted-strong); }
+:global(:root[data-visual='readable-beta']) .folder { color:var(--path-directory, var(--muted)); }
+:global(:root[data-visual='readable-beta']) .filename { color:var(--text); font-weight:600; }
 .filePath { display:flex; align-items:center; flex:1; min-width:0; padding:3px 0; text-align:left; font:14px/1.4 var(--sans); }
 .folder { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
 .filename { flex-shrink:0; max-width:85%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }

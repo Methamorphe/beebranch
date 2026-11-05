@@ -7,6 +7,7 @@
   --muted-strong: #dde3ec;
   --border: #424b5b;
   --border-strong: #5c6678;
+  --path-directory: #7d8796;
 }
 
 :root[data-visual='readable-beta'][data-theme='light'] {
@@ -14,6 +15,7 @@
   --muted-strong: #2a3342;
   --border: #b4bdc9;
   --border-strong: #8f9aab;
+  --path-directory: #6a7382;
 }
 
 @media (prefers-color-scheme: light) {
@@ -22,6 +24,7 @@
     --muted-strong: #2a3342;
     --border: #b4bdc9;
     --border-strong: #8f9aab;
+    --path-directory: #6a7382;
   }
 }
 

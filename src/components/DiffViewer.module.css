@@ -103,7 +103,12 @@
 }
 
 :global(:root[data-visual='readable-beta']) .directory {
-  color: var(--muted-strong);
+  color: var(--path-directory, var(--muted));
+}
+
+:global(:root[data-visual='readable-beta']) .name {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .filePath {
