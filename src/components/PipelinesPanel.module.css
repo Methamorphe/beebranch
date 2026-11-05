@@ -223,3 +223,40 @@
   color: var(--error);
   font-size: 11px;
 }
+
+.stageHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stageState {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+/* Job log dialog: wide enough to read a build trace, still bounded. */
+.logDialog {
+  width: min(880px, calc(100vw - 32px));
+}
+
+.logSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.logTitle {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logPre.logPre {
+  max-height: min(60vh, 520px);
+}

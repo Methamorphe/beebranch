@@ -650,6 +650,9 @@ export type PipelineState =
 /** Pipelines attached to one commit, across both forge providers. */
 /** One page of the repository's pipelines, newest first. */
 export type PipelineHistory = {
+  provider: string
+  projectId: number
+  projectPath: string
   items: GitlabPipeline[]
   nextPage?: number
 }

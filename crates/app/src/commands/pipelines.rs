@@ -69,6 +69,10 @@ pub struct PipelineSummaryDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PipelineHistoryDto {
+    /// `gitlab` or `github`; empty when the repository is not linked.
+    pub provider: String,
+    pub project_id: u64,
+    pub project_path: String,
     pub items: Vec<PipelineSummaryDto>,
     pub next_page: Option<u32>,
 }
@@ -518,6 +522,9 @@ pub async fn pipeline_history(
     let context = repo_context(&state, &repo_id).await?;
     let Some((provider, project)) = resolve_provider(&state, &repo_id, &context).await? else {
         return Ok(PipelineHistoryDto {
+            provider: String::new(),
+            project_id: 0,
+            project_path: String::new(),
             items: Vec::new(),
             next_page: None,
         });
@@ -536,6 +543,9 @@ pub async fn pipeline_history(
                     gitlab_error(error)
                 })?;
             Ok(PipelineHistoryDto {
+                provider: provider.id().to_owned(),
+                project_id: project.project_id,
+                project_path: project.path,
                 items: paged
                     .items
                     .into_iter()
@@ -557,6 +567,9 @@ pub async fn pipeline_history(
                     github_error(error)
                 })?;
             Ok(PipelineHistoryDto {
+                provider: provider.id().to_owned(),
+                project_id: project.project_id,
+                project_path: project.path,
                 items: paged
                     .items
                     .into_iter()

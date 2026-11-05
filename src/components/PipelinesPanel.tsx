@@ -1,9 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatDateTime, formatRelative, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
-import { openExternalUrl, pipelineHistory, pipelineJobs } from '../ipc/commands'
-import { PIPELINE_STATE_KEYS, pipelineRefLabel, pipelineState } from '../lib/pipeline'
-import type { GitlabPipeline, PipelineHistory, PipelineJob } from '../types/git'
+import {
+  githubJobLog,
+  gitlabJobLog,
+  openExternalUrl,
+  pipelineHistory,
+  pipelineJobs,
+} from '../ipc/commands'
+import {
+  aggregatePipelineState,
+  PIPELINE_STATE_KEYS,
+  pipelineRefLabel,
+  pipelineState,
+} from '../lib/pipeline'
+import type {
+  GitlabPipeline,
+  JobLog,
+  PipelineHistory,
+  PipelineJob,
+} from '../types/git'
+import { Dialog } from './ui/Dialog'
+import p2 from './p2.module.css'
 import styles from './PipelinesPanel.module.css'
 
 /** Slow enough to stay polite with the forge, fast enough to follow a run. */
@@ -34,6 +52,12 @@ function stagesOf(jobs: PipelineJob[]): { stage: string; items: PipelineJob[] }[
   return groups
 }
 
+type Context = {
+  provider: string
+  projectId: number
+  projectPath: string
+}
+
 type Props = {
   repoId: string | null
   /** Repository generation: any state change reloads the history. */
@@ -41,12 +65,14 @@ type Props = {
 }
 
 /**
- * Pipelines of the linked project across every ref, with the jobs of the one
- * the user opens. Meant for the repository navigator: the list stays compact
- * and the detail replaces it, so a narrow column remains readable.
+ * Pipelines of the linked project across every ref, with the stages and jobs
+ * of the one the user opens, and the log of any job in place. Meant for the
+ * repository navigator: the list stays compact and the detail replaces it, so
+ * a narrow column remains readable.
  */
 export function PipelinesPanel({ repoId, generation }: Props) {
   const { t } = useI18n()
+  const [context, setContext] = useState<Context | null>(null)
   const [items, setItems] = useState<GitlabPipeline[]>([])
   const [nextPage, setNextPage] = useState<number | undefined>(undefined)
   const [loading, setLoading] = useState(false)
@@ -54,6 +80,9 @@ export function PipelinesPanel({ repoId, generation }: Props) {
   const [selected, setSelected] = useState<GitlabPipeline | null>(null)
   const [jobs, setJobs] = useState<PipelineJob[] | null>(null)
   const [jobsBusy, setJobsBusy] = useState(false)
+  const [log, setLog] = useState<{ job: PipelineJob; value: JobLog } | null>(null)
+  const [logBusy, setLogBusy] = useState(false)
+  const [logError, setLogError] = useState<string | null>(null)
   /** More than the first page is loaded: polling must not collapse it. */
   const [paged, setPaged] = useState(false)
   const request = useRef(0)
@@ -69,6 +98,17 @@ export function PipelinesPanel({ repoId, generation }: Props) {
         if (id !== request.current) return
         setItems((current) => (append ? [...current, ...pageData.items] : pageData.items))
         setNextPage(pageData.nextPage)
+        if (!append) {
+          setContext(
+            pageData.projectId
+              ? {
+                  provider: pageData.provider,
+                  projectId: pageData.projectId,
+                  projectPath: pageData.projectPath,
+                }
+              : null,
+          )
+        }
       } catch (cause) {
         if (id !== request.current) return
         setError(errorMessage(cause))
@@ -95,11 +135,42 @@ export function PipelinesPanel({ repoId, generation }: Props) {
     [repoId],
   )
 
+  const loadLog = useCallback(
+    async (job: PipelineJob, offset?: number) => {
+      if (!context || !context.projectId) return
+      setLogBusy(true)
+      setLogError(null)
+      try {
+        const request = {
+          projectId: context.projectId,
+          jobId: job.id,
+          ...(offset !== undefined ? { offset } : {}),
+        }
+        const value =
+          context.provider === 'github'
+            ? await githubJobLog(request)
+            : await gitlabJobLog(request)
+        setLog((current) =>
+          offset !== undefined && current
+            ? { job, value: { ...value, text: `${current.value.text}\n${value.text}` } }
+            : { job, value },
+        )
+      } catch (cause) {
+        setLogError(errorMessage(cause))
+      } finally {
+        setLogBusy(false)
+      }
+    },
+    [context],
+  )
+
   useEffect(() => {
     setItems([])
     setNextPage(undefined)
+    setContext(null)
     setSelected(null)
     setJobs(null)
+    setLog(null)
     setError(null)
     setPaged(false)
     void loadPage(1, false)
@@ -166,6 +237,7 @@ export function PipelinesPanel({ repoId, generation }: Props) {
           onOpen={() => {
             if (selected.webUrl) void openExternalUrl(selected.webUrl)
           }}
+          onJob={(job) => void loadLog(job)}
         />
       ) : (
         <>
@@ -216,6 +288,59 @@ export function PipelinesPanel({ repoId, generation }: Props) {
           {t('shell.pipeline.loadError')} {error}
         </p>
       ) : null}
+
+      <Dialog
+        open={log !== null}
+        onClose={() => setLog(null)}
+        busy={logBusy}
+        titleId="pipeline-job-log-title"
+        className={styles.logDialog}
+      >
+        {log ? (
+          <section className={styles.logSection}>
+            <div className={p2.row}>
+              <h2 id="pipeline-job-log-title" className={styles.logTitle}>
+                {log.job.stage} / {log.job.name}
+              </h2>
+              <span className={p2.spacer} />
+              {log.job.webUrl ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  onClick={() => void openExternalUrl(log.job.webUrl!)}
+                >
+                  {t('common.open')}
+                </button>
+              ) : null}
+              <button type="button" className={p2.ghost} onClick={() => setLog(null)}>
+                {t('common.close')}
+              </button>
+            </div>
+            <p className={p2.asideHint}>
+              {t('shell.pipeline.log.summary', {
+                size: t('common.bytes', { count: log.value.bytes }),
+              })}
+              {log.value.truncated ? ` ${t('shell.pipeline.log.truncated')}` : ''}
+            </p>
+            <pre className={`${p2.log} ${styles.logPre}`}>{log.value.text}</pre>
+            {log.value.nextOffset !== undefined ? (
+              <button
+                type="button"
+                className={p2.secondary}
+                disabled={logBusy}
+                onClick={() => void loadLog(log.job, log.value.nextOffset)}
+              >
+                {t('shell.pipeline.log.more')}
+              </button>
+            ) : null}
+            {logError ? (
+              <p className={styles.error} role="status">
+                {t('shell.pipeline.log.unavailable')} {logError}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+      </Dialog>
     </div>
   )
 }
@@ -225,9 +350,10 @@ type DetailProps = {
   jobs: PipelineJob[] | null
   jobsBusy: boolean
   onOpen: () => void
+  onJob: (job: PipelineJob) => void
 }
 
-function PipelineDetail({ pipeline, jobs, jobsBusy, onOpen }: DetailProps) {
+function PipelineDetail({ pipeline, jobs, jobsBusy, onOpen, onJob }: DetailProps) {
   const { t } = useI18n()
   const state = pipelineState(pipeline.status)
   const age = ageLabel(pipeline.updatedAt)
@@ -257,36 +383,42 @@ function PipelineDetail({ pipeline, jobs, jobsBusy, onOpen }: DetailProps) {
       {jobsBusy && !jobs ? (
         <p className={styles.hint}>{t('shell.pipeline.refreshing')}</p>
       ) : jobs && jobs.length > 0 ? (
-        stagesOf(jobs).map((group) => (
-          <div key={group.stage} className={styles.stage}>
-            <div className={styles.stageName}>{group.stage}</div>
-            <ul className={styles.jobList}>
-              {group.items.map((job) => {
-                const jobState = pipelineState(job.status)
-                return (
-                  <li key={job.id}>
-                    <button
-                      type="button"
-                      className={styles.job}
-                      disabled={!job.webUrl}
-                      title={job.webUrl ? t('common.open') : undefined}
-                      onClick={() => {
-                        if (job.webUrl) void openExternalUrl(job.webUrl)
-                      }}
-                    >
-                      <span className={styles.dot} data-state={jobState} />
-                      <span className={styles.jobName}>{job.name}</span>
-                      <span className={styles.entryState}>{t(PIPELINE_STATE_KEYS[jobState])}</span>
-                      {job.duration !== undefined ? (
-                        <span className={styles.mono}>{Math.round(job.duration)} s</span>
-                      ) : null}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        ))
+        stagesOf(jobs).map((group) => {
+          const stageState = aggregatePipelineState(group.items.map((job) => job.status))
+          return (
+            <div key={group.stage} className={styles.stage}>
+              <div className={styles.stageHead}>
+                <span className={styles.dot} data-state={stageState} />
+                <span className={styles.stageName}>{group.stage}</span>
+                <span className={styles.stageState}>{t(PIPELINE_STATE_KEYS[stageState])}</span>
+              </div>
+              <ul className={styles.jobList}>
+                {group.items.map((job) => {
+                  const jobState = pipelineState(job.status)
+                  return (
+                    <li key={job.id}>
+                      <button
+                        type="button"
+                        className={styles.job}
+                        title={t('shell.pipeline.log.open')}
+                        onClick={() => onJob(job)}
+                      >
+                        <span className={styles.dot} data-state={jobState} />
+                        <span className={styles.jobName}>{job.name}</span>
+                        <span className={styles.entryState}>
+                          {t(PIPELINE_STATE_KEYS[jobState])}
+                        </span>
+                        {job.duration !== undefined ? (
+                          <span className={styles.mono}>{Math.round(job.duration)} s</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )
+        })
       ) : (
         <p className={styles.hint}>{t('shell.pipeline.noJobs')}</p>
       )}
