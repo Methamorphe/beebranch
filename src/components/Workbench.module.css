@@ -66,12 +66,9 @@
 .worktreeRow:hover { background:var(--surface-raised); }
 .worktreeRow[data-active='true'], .worktreeRow[data-active='true']:hover { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
 .worktreeRow:focus-visible { outline:2px solid var(--accent-text); outline-offset:-2px; }
-.wipRef { display:flex; align-items:center; min-width:0; overflow:hidden; }
-.wipRef > span:first-child { flex:none; margin-left:10px; display:inline-flex; align-items:center; height:21px; padding:0 7px; border:1px solid var(--border-strong); border-radius:4px; color:var(--muted-strong); background:var(--bg); font:11px var(--mono); }
-.wipStem { flex:1 1 auto; align-self:center; min-width:4px; height:0; border-top:2px dashed var(--graph-head-color, var(--accent-text)); }
-.wipMarker { position:absolute; left:calc(var(--refs-width, 0px) + var(--graph-head-x, 50%) - 8px); top:50%; transform:translateY(-50%); width:16px; height:16px; border:2px dashed var(--graph-head-color, var(--accent-text)); border-radius:50%; background:var(--bg); z-index:1; }
-.wipMarker::before { content:''; position:absolute; right:100%; top:50%; width:calc(var(--graph-head-x, 50%) - 8px); height:0; margin-top:-1px; border-top:2px dashed var(--graph-head-color, var(--accent-text)); }
-.wipDrop { position:absolute; left:50%; top:100%; width:0; height:10px; border-left:2px dashed var(--graph-head-color, var(--accent-text)); transform:translateX(-1px); pointer-events:none; }
+.wipRef { min-width:0; overflow:hidden; white-space:nowrap; }
+.wipRef > span { margin-left:10px; display:inline-flex; align-items:center; height:21px; padding:0 7px; border:1px solid var(--border-strong); border-radius:4px; color:var(--muted-strong); background:var(--bg); font:11px var(--mono); }
+.wipMarker { position:absolute; left:calc(var(--refs-width, 0px) + var(--graph-head-x, 50%) - 8px); top:50%; transform:translateY(-50%); width:16px; height:16px; border:2px dashed var(--graph-head-color, var(--accent-text)); border-radius:50%; }
 .worktreeRow[data-active='true'] .wipMarker { background:var(--accent-soft); }
 .wipMessage { grid-column:3 / -1; container:wip-message / inline-size; display:flex; align-items:center; gap:16px; min-width:0; overflow:hidden; padding:0 14px; white-space:nowrap; }
 .wipMessage strong { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:12px; font-weight:600; color:var(--text); }

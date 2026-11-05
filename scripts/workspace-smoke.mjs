@@ -96,37 +96,37 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     const scale = canvas.width / canvas.getBoundingClientRect().width
     const headX = Number(canvas.dataset.headX)
     const rowH = Number(canvas.dataset.rowHeight)
-    const y = Math.round((5 * rowH + rowH / 2) * scale)
+    const y = Math.round((rowH / 2) * scale)
     for (const dx of [16, 20, 24, 28, 36, 48]) {
       const x = Math.round((headX - dx) * scale)
       if (x < 0) continue
       const px = ctx.getImageData(x, y, 1, 1).data
-      if (px[3] > 60 && px[0] + px[1] + px[2] > 80) return true
+      if (px[3] > 80 && px[0] + px[1] + px[2] > 80) return true
     }
     return false
   })()`)
-  await check('wip-link-joins-head-lane', `(() => {
+  await check('graph-chip-stem-inactive-is-dim', `(() => {
     const canvas = document.querySelector('canvas')
-    const marker = document.querySelector('[data-role="wip-node"]')
-    const link = document.querySelector('[data-role="wip-link"]')
-    if (!canvas || !marker || !link) return false
-    const headX = Number(canvas.dataset.headX)
-    const canvasBox = canvas.getBoundingClientRect()
-    const markerBox = marker.getBoundingClientRect()
-    const linkBox = link.getBoundingClientRect()
-    const markerCenter = markerBox.left + markerBox.width / 2
-    const aligned = Math.abs(markerCenter - (canvasBox.left + headX)) <= 2
-    const dropsTowardCanvas = linkBox.top >= markerBox.bottom - 2 && linkBox.bottom >= canvasBox.top - 2
     const ctx = canvas.getContext('2d')
-    const scale = canvas.width / canvasBox.width
-    const x = Math.round(headX * scale)
-    let ink = false
-    for (const y of [1, 2, 3, 4, 5, 6]) {
-      const px = ctx.getImageData(x, y, 1, 1).data
-      if (px[3] > 40) { ink = true; break }
+    if (!canvas || !ctx) return false
+    const scale = canvas.width / canvas.getBoundingClientRect().width
+    const headX = Number(canvas.dataset.headX)
+    const rowH = Number(canvas.dataset.rowHeight)
+    const sample = (row) => {
+      const y = Math.round((row * rowH + rowH / 2) * scale)
+      let max = 0
+      for (const dx of [16, 20, 24, 28, 36, 48]) {
+        const x = Math.round((headX - dx) * scale)
+        if (x < 0) continue
+        max = Math.max(max, ctx.getImageData(x, y, 1, 1).data[3])
+      }
+      return max
     }
-    return aligned && dropsTowardCanvas && ink
+    const head = sample(0)
+    const other = sample(5)
+    return head > 80 && other > 0 && other < head * 0.45
   })()`)
+  await check('wip-has-no-stem', `!document.querySelector('[data-role="wip-stem"], [data-role="wip-link"]')`)
   const featurePoint = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left+20, y:b.top+12*${rowHeight}+15 } })()`)
   await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
   await delay(100)

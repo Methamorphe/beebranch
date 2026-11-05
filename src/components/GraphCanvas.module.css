@@ -8,12 +8,6 @@
   background: var(--bg);
 }
 
-.wrap[data-wip-dim='true'] :global([data-role='wip-node']),
-.wrap[data-wip-dim='true'] :global([data-role='wip-link']),
-.wrap[data-wip-dim='true'] :global([data-role='wip-stem']) {
-  opacity: 0.22;
-}
-
 .scroll {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

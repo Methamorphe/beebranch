@@ -89,8 +89,8 @@ type Props = {
 
 const BRANCH_FOCUS_DELAY = 450
 const UNFOCUSED_ALPHA = 0.22
-/** Stems of branches that are neither HEAD nor the hovered focus stay readable but secondary. */
-const INACTIVE_STEM_ALPHA = 0.38
+/** Chip-to-node stems of branches that are not HEAD, hovered, or focused. */
+const INACTIVE_STEM_ALPHA = 0.2
 const ROW_HEIGHT = 32
 const OVERSCAN = 8
 /** Comfortable-density graph node: initials disc plus lane ring, within 32 px rows. */
@@ -500,10 +500,6 @@ export function GraphCanvas({
       color: palette[logical % palette.length]!,
     }
   }, [commits, rows, pin, laneLayout, layout.refs, theme])
-  const headFocus = useMemo(
-    () => (headLane.sha ? graphBranchFocus(commits, rows, headLane.sha) : null),
-    [commits, rows, headLane.sha],
-  )
   const columnBudget = viewportWidth - MIN_MESSAGE_WIDTH
   const maxColumn = (key: keyof GraphColumnWidths) => {
     const fixed =
@@ -684,10 +680,12 @@ export function GraphCanvas({
     const laneAt = (lane: number, index: number) =>
       pin && index > pin.row ? swapLane(lane) : lane
     const alphaFor = (sha: string) => !branchFocus || branchFocus.ancestors.has(sha) ? 1 : UNFOCUSED_ALPHA
-    const stemLit = (sha: string) =>
-      Boolean((headFocus && headFocus.ancestors.has(sha)) || (branchFocus && branchFocus.ancestors.has(sha)))
-    const stemAlpha = (sha: string) =>
-      stemLit(sha) ? 1 : branchFocus ? UNFOCUSED_ALPHA : INACTIVE_STEM_ALPHA
+    const stemLit = (sha: string, index: number) =>
+      isHeadCommit(commits[index] ?? { refs: [] })
+      || hoveredRef.current === index
+      || Boolean(branchFocus?.ancestors.has(sha))
+    const stemAlpha = (sha: string, index: number) =>
+      stemLit(sha, index) ? 1 : INACTIVE_STEM_ALPHA
     const emphasisFor = (sha: string, index: number) =>
       sha === selected
         ? 0.5
@@ -918,35 +916,6 @@ export function GraphCanvas({
     }
     context.restore()
 
-    // Dashed continuation of HEAD from the WIP row down to the checked-out node.
-    if (worktreeRow && headLane.sha) {
-      const headRow = rows[headLane.index]
-      const headCommit = commits[headLane.index]
-      if (headRow && headCommit) {
-        const nodeX = laneX(visualNodeLane(headRow.nodeLane, headLane.index, pin))
-        const nodeY = headLane.index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
-        const isSelected = headCommit.sha === selected
-        const radius = headRow.stash
-          ? STASH_RADIUS + 2
-          : avatarNodes
-            ? isSelected ? AVATAR_NODE_RADIUS + 1 : AVATAR_NODE_RADIUS
-            : isSelected ? NODE_RADIUS + 1 : NODE_RADIUS
-        const bottom = Math.min(height, nodeY - radius - 2)
-        if (bottom > 0) {
-          context.save()
-          context.strokeStyle = laneColor(headRow.nodeLane)
-          context.lineWidth = 2
-          context.lineCap = 'butt'
-          context.setLineDash([3.2, 3.2])
-          context.beginPath()
-          context.moveTo(nodeX, 0)
-          context.lineTo(nodeX, bottom)
-          context.stroke()
-          context.restore()
-        }
-      }
-    }
-
     // 5. Reference pills, message and columns.
     for (let index = first; index <= last; index += 1) {
       const commit = commits[index]
@@ -1034,7 +1003,7 @@ export function GraphCanvas({
         const stemEnd = nodeX - radius - (headCommit || isSelected ? 4 : 1.5)
         if (stemEnd > lastChipRight + 1) {
           context.save()
-          context.globalAlpha = stemAlpha(commit.sha)
+          context.globalAlpha = stemAlpha(commit.sha, index)
           context.strokeStyle = nodeColor
           context.lineWidth = 2
           context.lineCap = 'round'
@@ -1096,7 +1065,7 @@ export function GraphCanvas({
     for (const x of [col.refs, col.refs + col.graph, ...(col.author ? [width - col.author - col.date] : []), ...(col.date ? [width - col.date] : [])]) {
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
-  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus, headFocus, headLane, worktreeRow])
+  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -1485,7 +1454,7 @@ export function GraphCanvas({
   }
 
   return (
-    <div className={styles.wrap} data-wip-dim={branchFocus && headLane.sha && !branchFocus.ancestors.has(headLane.sha) ? 'true' : undefined} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--graph-head-x': `${headLane.x}px`, '--graph-head-color': headLane.color, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
+    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--graph-head-x': `${headLane.x}px`, '--graph-head-color': headLane.color, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
       <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
         <div className={styles.refsHeader}>
           <span>{layout.refs ? t('graph.column.refs') : ''}</span>
