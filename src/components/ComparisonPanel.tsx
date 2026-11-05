@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { buildFileTree, flattenFileTree } from '../lib/fileTree'
 import { shortRevision } from '../lib/graphRefs'
 import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
+import { FileStatusIcon } from './FileStatusIcon'
 import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
 import type { CommitSummary, DiffReport, FileDiff } from '../types/git'
 import styles from './ComparisonPanel.module.css'
@@ -124,7 +125,8 @@ export function ComparisonPanel({
         onClick={() => onSelectPath(item.path)}
       >
         <span className={styles.status} data-kind={item.entry.kind} aria-hidden="true">
-          {STATUS_LETTERS[item.entry.kind]}
+          <span data-mark="letter">{STATUS_LETTERS[item.entry.kind]}</span>
+          <FileStatusIcon kind={item.entry.kind} />
         </span>
         <span className={styles.path}>
           {fileView === 'tree' ? (

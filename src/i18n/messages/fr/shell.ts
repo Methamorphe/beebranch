@@ -43,10 +43,6 @@ const messages = {
   'shell.palette.push': 'Push la branche courante',
   'shell.palette.toggleTheme': 'Basculer le thème sombre / clair',
   'shell.palette.toggleVisualPreview': 'Activer / désactiver la lisibilité expérimentale (bêta)',
-  'shell.visualPreview.banner':
-    'Lisibilité expérimentale (bêta) — l’interface stable n’est pas remplacée. Dites-nous si c’est plus lisible.',
-  'shell.visualPreview.disable': 'Désactiver',
-  'shell.visualPreview.disableAria': 'Désactiver la lisibilité expérimentale',
   'shell.palette.settings': 'Profils et réglages',
   'shell.palette.createRepo': 'Créer un dépôt local',
   'shell.palette.closeRepo': 'Fermer le dépôt actif',

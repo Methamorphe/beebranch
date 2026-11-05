@@ -49,33 +49,6 @@
   min-height: 0;
 }
 
-.visualPreviewBar {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 32px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--text);
-  font-size: 12.5px;
-}
-
-.visualPreviewBar span {
-  min-width: 0;
-  flex: 1;
-}
-
-.visualPreviewBar button {
-  flex: none;
-  padding: 3px 8px;
-  border: 1px solid var(--border-strong);
-  color: var(--text);
-  font-size: 12px;
-}
-
 .main {
   position: relative;
   display: flex;

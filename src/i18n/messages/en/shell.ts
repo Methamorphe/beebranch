@@ -43,10 +43,6 @@ const messages = {
   'shell.palette.push': 'Push the current branch',
   'shell.palette.toggleTheme': 'Toggle dark / light theme',
   'shell.palette.toggleVisualPreview': 'Toggle experimental readability (beta)',
-  'shell.visualPreview.banner':
-    'Experimental readability (beta) — the stable interface is not replaced. Tell us if this is easier to read.',
-  'shell.visualPreview.disable': 'Turn off',
-  'shell.visualPreview.disableAria': 'Turn off experimental readability',
   'shell.palette.settings': 'Profiles & settings',
   'shell.palette.createRepo': 'Create a local repository',
   'shell.palette.closeRepo': 'Close the active repository',

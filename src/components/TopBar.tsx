@@ -137,7 +137,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
   }, [launcherOpen])
 
   return <header className={styles.topbar}>
-    <button type="button" className={styles.iconButton} data-control="icon" onClick={onOpenDialog} aria-label={t('shell.topbar.openRepo')} title={t('shell.topbar.openRepoShortcut')}><ToolbarIcon name="folder" /></button>
+    <button type="button" className={styles.iconButton} onClick={onOpenDialog} aria-label={t('shell.topbar.openRepo')} title={t('shell.topbar.openRepoShortcut')}><ToolbarIcon name="folder" /></button>
     <div className={styles.brandSlot}><Brand /></div>
     {workspaceSelector}
     <div className={styles.tabsGroup}><div className={styles.repoTabs} role="group" aria-label={t('shell.topbar.openRepos')} data-dragging={dragId ? 'true' : undefined}>
@@ -162,7 +162,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
           <button type="button" className={styles.repoMain} onClick={() => { if (suppressClick.current) return; onActivate(id) }} title={entry.repo.worktree} aria-current={id === activeId ? 'page' : undefined}>
             <ToolbarIcon name="branch" /><span className={styles.repoName}>{entry.repo.name}</span>
           </button>
-          <button type="button" className={styles.close} data-control="close" onClick={() => onClose(id)} aria-label={t('shell.topbar.closeTab', { name: entry.repo.name })} disabled={busy}>×</button>
+          <button type="button" className={styles.close} onClick={() => onClose(id)} aria-label={t('shell.topbar.closeTab', { name: entry.repo.name })} disabled={busy}>×</button>
         </div>
       })}
       {launcherOpen ? <div className={styles.repoTabActive} data-launcher="true"
@@ -175,7 +175,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
         <button type="button" className={styles.repoMain} onClick={onAdd} aria-current="page" title={t('shell.topbar.launcherDescription')}>
           <ToolbarIcon name="folder" /><span className={styles.repoName}>{t('shell.topbar.openRepo')}</span>
         </button>
-        <button type="button" className={styles.close} data-control="close" onClick={onCloseLauncher} aria-label={t('shell.topbar.closeLauncher')}>×</button>
+        <button type="button" className={styles.close} onClick={onCloseLauncher} aria-label={t('shell.topbar.closeLauncher')}>×</button>
       </div> : null}
     </div>
       <button ref={addButton} type="button" className={styles.add} onClick={onAdd} aria-label={t('shell.topbar.addRepo')} title={t('shell.topbar.newTabHint')}><ToolbarIcon name="plus" /></button>
@@ -189,7 +189,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
         <ToolbarIcon name="update" />{updateBusy ? null : <span className={styles.updateDot} aria-hidden="true" />}
       </button>
     ) : null}
-    <button type="button" className={styles.iconButton} data-control="icon" onClick={onSettings} aria-label={t('shell.topbar.settings')} title={t('shell.topbar.settingsShortcut')}><ToolbarIcon name="settings" /></button>
+    <button type="button" className={styles.iconButton} onClick={onSettings} aria-label={t('shell.topbar.settings')} title={t('shell.topbar.settingsShortcut')}><ToolbarIcon name="settings" /></button>
     <ActionMenu label={t('shell.topbar.profileMenu')} triggerClassName={styles.profile} triggerContent={<><span className={styles.avatar}>{(user ?? 'P').slice(0, 1).toUpperCase()}</span><span className={styles.userName}>{user ?? t('shell.topbar.localProfile')}</span><ToolbarIcon name="chevron" /></>}>
       <button type="button" onClick={onSettings}>{t('shell.topbar.settings')}</button>
     </ActionMenu>

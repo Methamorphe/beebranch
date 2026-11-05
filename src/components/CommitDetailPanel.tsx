@@ -1,5 +1,6 @@
 import type { CommitDetail } from '../types/git'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
+import { FileStatusIcon } from './FileStatusIcon'
 import { dateFromSeconds, formatDateTime, formatRelative, useI18n, type MessageKey } from '../i18n'
 import styles from './CommitDetailPanel.module.css'
 
@@ -174,7 +175,8 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
                   data-status={letterFromStatus(file.status)}
                   aria-hidden="true"
                 >
-                  {letterFromStatus(file.status)}
+                  <span data-mark="letter">{letterFromStatus(file.status)}</span>
+                  <FileStatusIcon letter={file.status} />
                 </span>
                 <span className={styles.path}>
                   <PathLabel path={file.path} />

@@ -1720,18 +1720,6 @@ export default function App() {
         />
       ) : null}
       <div className={styles.body} data-repository={Boolean(repo) && !showStart}>
-        {visualPreview === 'readable-beta' ? (
-          <div className={styles.visualPreviewBar} role="status">
-            <span>{t('shell.visualPreview.banner')}</span>
-            <button
-              type="button"
-              onClick={() => changeVisualPreview('off')}
-              aria-label={t('shell.visualPreview.disableAria')}
-            >
-              {t('shell.visualPreview.disable')}
-            </button>
-          </div>
-        ) : null}
         {!repo || showStart ? <Sidebar
           active={view}
           repoName={repo?.repo.name ?? null}

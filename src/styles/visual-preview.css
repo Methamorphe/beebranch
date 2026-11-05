@@ -43,11 +43,16 @@
 
 :root[data-visual='readable-beta'] [data-control='icon'] {
   color: var(--text);
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
 }
 
-:root[data-visual='readable-beta'] [data-control='icon']:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--border-strong);
+[data-mark='icon'] {
+  display: none;
+}
+
+:root[data-visual='readable-beta'] [data-mark='letter'] {
+  display: none;
+}
+
+:root[data-visual='readable-beta'] [data-mark='icon'] {
+  display: block;
 }
