@@ -26,6 +26,8 @@ use crate::state::AppState;
 
 /// Pipelines fetched for one commit; enough to show every workflow that ran.
 const PIPELINES_PER_COMMIT: u32 = 20;
+/// Pipelines listed for the whole repository: the panel is a recent view.
+const RECENT_PIPELINES: u32 = 20;
 /// Jobs fetched for one pipeline; the detail panel is a summary, not a log.
 const JOBS_PER_PIPELINE: u32 = 100;
 
@@ -434,6 +436,52 @@ pub async fn pipeline_jobs(
                     github_error(error)
                 })?;
             Ok(page.items.into_iter().map(PipelineJobDto::from).collect())
+        }
+    }
+}
+
+/// Recent pipelines of the linked project across every ref.
+///
+/// The toolbar indicator stays scoped to the checked-out commit; this list is
+/// what the panel shows when the user wants the whole repository's CI, so it
+/// does not filter by the current HEAD.
+#[tauri::command]
+pub async fn pipeline_recent(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: String,
+) -> Result<Vec<PipelineSummaryDto>, AppError> {
+    let context = repo_context(&state, &repo_id).await?;
+    let Some((provider, project)) = resolve_provider(&state, &repo_id, &context).await? else {
+        return Ok(Vec::new());
+    };
+
+    match provider {
+        Provider::Gitlab => {
+            let client: GitlabClient = gitlab_client(&state)?;
+            let instance = gitlab_instance_id(&state)?;
+            client
+                .pipelines(project.project_id, RECENT_PIPELINES)
+                .await
+                .map_err(|error| {
+                    gitlab_auth_event(&app, &error, &instance);
+                    gitlab_error(error)
+                })
+                .map(|items| items.into_iter().map(PipelineSummaryDto::from).collect())
+        }
+        Provider::Github => {
+            let client: GithubClient = github_client(&state)?;
+            let instance = github_instance_id(&state)?;
+            let repo: RepoRef =
+                resolve_repo_ref(&state, &client, &instance, project.project_id).await?;
+            client
+                .workflow_runs(&repo, RECENT_PIPELINES)
+                .await
+                .map_err(|error| {
+                    github_auth_event(&app, &error, &instance);
+                    github_error(error)
+                })
+                .map(|items| items.into_iter().map(PipelineSummaryDto::from).collect())
         }
     }
 }

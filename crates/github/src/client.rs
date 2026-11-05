@@ -601,6 +601,37 @@ impl GithubClient {
             .collect())
     }
 
+    /// Actions runs of one repository across every branch, newest first.
+    ///
+    /// GitHub returns the latest run of each workflow per branch, which is what
+    /// a repository-wide CI view needs; the run keeps its branch name so the
+    /// list can show it.
+    pub async fn workflow_runs(
+        &self,
+        repo: &RepoRef,
+        per_page: u32,
+    ) -> Result<Vec<GithubPipeline>, GithubError> {
+        let per_page = per_page.clamp(1, MAX_PER_PAGE);
+        let mut url = self.repo_endpoint(repo, &["actions", "runs"])?;
+        url.query_pairs_mut()
+            .append_pair("per_page", &per_page.to_string())
+            .append_pair("page", "1");
+        let fetched = self.fetch(&url).await?;
+        let runs: WireWorkflowRuns = decode(&fetched.body)?;
+        Ok(runs
+            .workflow_runs
+            .into_iter()
+            .map(|run| GithubPipeline {
+                id: run.id,
+                status: normalize_status(&run.status, run.conclusion.as_deref()).to_owned(),
+                detailed_status: Some(run.name),
+                ref_name: run.head_branch,
+                sha: run.head_sha,
+                web_url: run.html_url,
+            })
+            .collect())
+    }
+
     /// Create a pull request. Mutations are never retried.
     pub async fn create_pull_request(
         &self,
@@ -2582,6 +2613,8 @@ struct WireWorkflowRun {
     conclusion: Option<String>,
     #[serde(default)]
     head_sha: Option<String>,
+    #[serde(default)]
+    head_branch: Option<String>,
     #[serde(default)]
     html_url: Option<String>,
 }

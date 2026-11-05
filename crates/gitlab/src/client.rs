@@ -500,6 +500,26 @@ impl GitlabClient {
         decode(&fetched.body)
     }
 
+    /// Pipelines of one project across every ref, newest first.
+    pub async fn pipelines(
+        &self,
+        project_id: u64,
+        per_page: u32,
+    ) -> Result<Vec<GitlabPipeline>, GitlabError> {
+        let project = project_id.to_string();
+        let per_page = per_page.clamp(1, MAX_PER_PAGE);
+        let mut url = self.endpoint(&["projects", &project, "pipelines"])?;
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs
+                .append_pair("per_page", &per_page.to_string())
+                .append_pair("order_by", "id")
+                .append_pair("sort", "desc");
+        }
+        let fetched = self.fetch(&url).await?;
+        decode(&fetched.body)
+    }
+
     /// Pipelines run for one commit, newest first.
     ///
     /// Filtering by `sha` (instead of `ref`) reports the state of the commit

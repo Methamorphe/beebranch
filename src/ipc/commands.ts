@@ -1427,6 +1427,11 @@ export function pipelineJobs(repoId: string, pipelineId: number): Promise<Pipeli
   return call<PipelineJob[]>('pipeline_jobs', { repoId, pipelineId })
 }
 
+/** Recent pipelines of the linked project, across every branch and tag. */
+export function pipelineRecent(repoId: string): Promise<GitlabPipeline[]> {
+  return call<GitlabPipeline[]>('pipeline_recent', { repoId })
+}
+
 export function gitlabJobCancel(input: {
   projectId: number
   jobId: number

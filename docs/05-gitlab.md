@@ -291,11 +291,13 @@ POST /projects/:id/merge_requests/:iid/discussions
 
 ```text
 GET /projects/:id/merge_requests/:iid/pipelines
+GET /projects/:id/pipelines?per_page=20&order_by=id&sort=desc
 GET /projects/:id/pipelines/:pipeline_id
 GET /projects/:id/pipelines/:pipeline_id/jobs?per_page=100
 GET /projects/:id/jobs/:job_id/trace
 ```
 
+- The toolbar indicator reports the pipelines attached to the checked-out commit; the pipeline panel's repository scope lists the recent pipelines of every ref.
 - The MR exposes `head_pipeline`: `id`, `status`, `ref`, `sha`, `web_url`, `detailed_status`.
 - Mapped statuses:
 
