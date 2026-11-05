@@ -104,6 +104,39 @@ function commitDateLabel(timestamp: number) {
  * count instead of squeezing every lane into a fixed width, which used to turn
  * a branched history into an unreadable ladder. */
 const LANE_PITCH = 22
+
+/** Lane centres inside the graph column, matching the canvas draw. */
+function graphLaneLayout(col: { refs: number; graph: number }, maxLanes: number) {
+  const pitch = Math.min(
+    LANE_PITCH,
+    Math.max(10, (col.graph - 16) / Math.max(1, maxLanes)),
+  )
+  const graphLeft =
+    col.refs + Math.max(8, (col.graph - pitch * maxLanes) / 2) + pitch / 2
+  return {
+    pitch,
+    graphLeft,
+    laneX: (lane: number) => graphLeft + lane * pitch,
+  }
+}
+
+/** After a branch is pinned, its lane and column 0 swap from that row down. */
+function visualNodeLane(
+  nodeLane: number,
+  index: number,
+  pin: { row: number; lane: number } | null,
+) {
+  if (!pin || index < pin.row) {
+    return nodeLane
+  }
+  if (nodeLane === 0) {
+    return pin.lane
+  }
+  if (nodeLane === pin.lane) {
+    return 0
+  }
+  return nodeLane
+}
 /** Commit dot radius, measured from the benchmark client: 11 px across on a 28 px row. */
 const NODE_RADIUS = 5.5
 /** Half of the stash medallion: a dashed rounded square the width of a lane,
@@ -443,6 +476,15 @@ export function GraphCanvas({
       ),
     [viewportWidth, columnWidths, maxLanes, refsWidth],
   )
+  const laneLayout = useMemo(() => graphLaneLayout(layout, maxLanes), [layout, maxLanes])
+  const headLaneX = useMemo(() => {
+    const found = commits.findIndex((commit) =>
+      commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> ')),
+    )
+    const index = found >= 0 ? found : 0
+    const logical = rows[index]?.nodeLane ?? 0
+    return laneLayout.laneX(visualNodeLane(logical, index, pin)) - layout.refs
+  }, [commits, rows, pin, laneLayout, layout.refs])
   const columnBudget = viewportWidth - MIN_MESSAGE_WIDTH
   const maxColumn = (key: keyof GraphColumnWidths) => {
     const fixed =
@@ -604,18 +646,11 @@ export function GraphCanvas({
 
     // Constant pitch, centred in the column: lanes never hug the labels and
     // never compress unless the column itself was dragged narrower.
-    const pitch = Math.min(
-      LANE_PITCH,
-      Math.max(10, (col.graph - 16) / Math.max(1, maxLanes)),
-    )
-    const graphLeft =
-      col.refs + Math.max(8, (col.graph - pitch * maxLanes) / 2) + pitch / 2
+    const { laneX } = graphLaneLayout(col, maxLanes)
     const messageX = col.refs + col.graph + 14
     const messageRight = width - col.author - col.date
     const stripInset = 3
     const avatarNodes = document.documentElement.dataset.density !== 'compact'
-
-    const laneX = (lane: number) => graphLeft + lane * pitch
     /** Corner radius for an elbow, capped by half the run and half a row. */
     const corner = (from: number, to: number) =>
       Math.min(ELBOW_RADIUS, Math.abs(to - from) / 2, ROW_HEIGHT / 2 - 1)
@@ -872,7 +907,10 @@ export function GraphCanvas({
       const nodeColor = laneColor(row.nodeLane)
 
       // References: every visible ref is a colored pill, overflow becomes `+N`.
+      // After the last chip, a stem of the rail colour reaches the commit node,
+      // the same horizontal connector Git clients draw between a badge and its dot.
       const refs = decorations.get(commit.sha)
+      let lastChipRight = 0
       if (col.refs > 0 && refs) {
         context.font = `600 12px ${fontFamily}`
         let cursorX = 12
@@ -912,6 +950,7 @@ export function GraphCanvas({
           context.fillStyle = tone
           context.fillText(label, cursorX + 5 + iconsWidth + 4, y)
           refRects.current.push({ commit, raw: ref.raw, x: cursorX, y: y - 10, width: chipWidth, height: 20 })
+          lastChipRight = cursorX + chipWidth
           cursorX += chipWidth + 4
           drawn += 1
         }
@@ -927,7 +966,28 @@ export function GraphCanvas({
             context.fillStyle = mutedColor
             context.fillText(label, cursorX + 6, y)
             refRects.current.push({ commit, raw: refs[refs.length - 1]!.raw, x: cursorX, y: y - 10, width: chipWidth, height: 20, overflow: true })
+            lastChipRight = cursorX + chipWidth
           }
+        }
+      }
+      if (lastChipRight > 0) {
+        const nodeX = laneX(visualNodeLane(row.nodeLane, index, pin))
+        const isSelected = commit.sha === selected
+        const headCommit = commit.refs.some((raw) => raw === 'HEAD' || raw.startsWith('HEAD -> '))
+        const radius = row.stash
+          ? STASH_RADIUS + 2
+          : avatarNodes
+            ? isSelected ? AVATAR_NODE_RADIUS + 1 : AVATAR_NODE_RADIUS
+            : isSelected ? NODE_RADIUS + 1 : NODE_RADIUS
+        const stemEnd = nodeX - radius - (headCommit || isSelected ? 4 : 1.5)
+        if (stemEnd > lastChipRight + 1) {
+          context.strokeStyle = nodeColor
+          context.lineWidth = 2
+          context.lineCap = 'round'
+          context.beginPath()
+          context.moveTo(lastChipRight, y)
+          context.lineTo(stemEnd, y)
+          context.stroke()
         }
       }
 
@@ -1370,7 +1430,7 @@ export function GraphCanvas({
   }
 
   return (
-    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
+    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--graph-head-x': `${headLaneX}px`, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
       <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
         <div className={styles.refsHeader}>
           <span>{layout.refs ? t('graph.column.refs') : ''}</span>
@@ -1446,6 +1506,7 @@ export function GraphCanvas({
           data-branch-focus={focusTip ?? undefined}
           data-dragging={drag ? 'true' : undefined}
           data-row-height={ROW_HEIGHT}
+          data-head-x={headLaneX + layout.refs}
           role="img"
           tabIndex={0}
           aria-label={t('graph.canvas.aria', { count: commits.length })}

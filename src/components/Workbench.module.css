@@ -66,9 +66,11 @@
 .worktreeRow:hover { background:var(--surface-raised); }
 .worktreeRow[data-active='true'], .worktreeRow[data-active='true']:hover { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
 .worktreeRow:focus-visible { outline:2px solid var(--accent-text); outline-offset:-2px; }
-.wipRef { min-width:0; overflow:hidden; white-space:nowrap; }
-.wipRef > span { margin-left:10px; display:inline-flex; align-items:center; height:21px; padding:0 7px; border:1px solid var(--border-strong); border-radius:4px; color:var(--muted-strong); background:var(--bg); font:11px var(--mono); }
-.wipMarker { justify-self:center; width:16px; height:16px; border:2px dashed var(--accent-text); border-radius:50%; }
+.wipRef { display:flex; align-items:center; min-width:0; overflow:hidden; }
+.wipRef > span { flex:none; margin-left:10px; display:inline-flex; align-items:center; height:21px; padding:0 7px; border:1px solid var(--border-strong); border-radius:4px; color:var(--muted-strong); background:var(--bg); font:11px var(--mono); }
+.wipRef::after { content:''; flex:1 1 auto; align-self:center; min-width:4px; height:0; border-top:2px solid var(--accent-text); }
+.wipMarker { justify-self:start; margin-left:calc(var(--graph-head-x, 50%) - 8px); width:16px; height:16px; border:2px dashed var(--accent-text); border-radius:50%; position:relative; }
+.wipMarker::before { content:''; position:absolute; right:100%; top:50%; width:calc(var(--graph-head-x, 50%) - 8px); height:0; margin-top:-1px; border-top:2px solid var(--accent-text); }
 .worktreeRow[data-active='true'] .wipMarker { background:var(--accent-soft); }
 .wipMessage { grid-column:3 / -1; container:wip-message / inline-size; display:flex; align-items:center; gap:16px; min-width:0; overflow:hidden; padding:0 14px; white-space:nowrap; }
 .wipMessage strong { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:12px; font-weight:600; color:var(--text); }

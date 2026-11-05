@@ -1910,7 +1910,7 @@ export function Workbench({
       <button type="button" className={styles.wipOpen} aria-pressed={showWorktree}
         title={worktreeSummary}>
         <span className={styles.wipRef} aria-hidden="true"><span>// WIP</span></span>
-        <span className={styles.wipMarker} aria-hidden="true" />
+        <span className={styles.wipMarker} data-role="wip-node" aria-hidden="true" />
       </button>
       <span className={styles.wipMessage}>
         {editingWipMessage ? (
