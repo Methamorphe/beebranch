@@ -1,10 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [1.9.0] — 2026-11-05
+
+### Changed
+
+- **Readability ships by default**: history rows and file rows sit on a 32 px height on the 8 px grid, file rows carry pencil / plus / minus glyphs with a grey folder and a path in the interface sans font, and the commit detail spells out its title and lays its Author / Date / Parents / Signature grid. Only three controls take an outline — creating a local branch (`+`), closing an inspector (`×`) and the default action menu (`···`). The accent yellow is unchanged.
 
 ### Fixed
 
-- **Changes panel**: ↑/↓ move between files in *To stage* / *Ready to commit* instead of focusing the row checkbox or another in-row control.
+- **Changes panel keyboard navigation**: ↑/↓ (and Home/End) walk the rows of *To stage* / *Ready to commit* and move the focus onto the file path before opening its diff; ↓ from the filter opens the first file and ↑ from the first file returns to it, while ←/→ collapse or expand a folder in tree mode. The row checkbox, the +/− control and `···` stay reachable with the mouse and Tab but no longer capture the arrows.
+- **Upstream selector lists this branch's remotes only**: right-clicking a local branch offers the remote-tracking copies of that branch (`main` → `origin/main`, `github/main`) instead of every remote branch. Symbolic refs stay out, the current upstream is marked in its full `refs/remotes/…` form, and the empty state says this branch has no remote copy yet (fetch or publish).
 
 ## [1.8.1] — 2026-11-05
 

@@ -69,6 +69,8 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     return true
   })()`)
   await waitFor(client, `document.querySelector('[data-stash="stash@{0}"]') !== null`, 'stash in repository tree')
+  const rowHeight = Number(await evaluate(client, `document.querySelector('canvas').dataset.rowHeight`))
+  if (!rowHeight) throw new Error('Repository workspace: canvas row height')
   await check('one-repository-explorer', `document.querySelectorAll('aside[aria-label="Explorateur du dépôt"]').length === 1`)
   await check('no-destination-sidebar', `!document.querySelector('aside button[data-view]')`)
   await check('no-extra-branch-panel', `!document.querySelector('#branch-list-panel')`)
@@ -77,7 +79,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   // Dwell on the feature badge: only its ancestry should keep full contrast.
   await evaluate(client, `(() => { const canvas = document.querySelector('canvas'); canvas.parentElement.scrollTop = 0; canvas.parentElement.dispatchEvent(new Event('scroll')); })()`)
   await delay(60)
-  const featurePoint = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left+20, y:b.top+12*30+15 } })()`)
+  const featurePoint = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left+20, y:b.top+12*${rowHeight}+15 } })()`)
   await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
   await delay(100)
   await check('graph-branch-focus-waits-for-dwell', `!document.querySelector('canvas').dataset.branchFocus`)
@@ -85,7 +87,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     const canvas = document.querySelector('canvas')
     window.__focusPixels = (row) => {
       const scale = canvas.width / canvas.getBoundingClientRect().width
-      return Array.from(canvas.getContext('2d').getImageData(0, Math.round(row * 30 * scale), canvas.width, Math.round(30 * scale)).data).join(',')
+      return Array.from(canvas.getContext('2d').getImageData(0, Math.round(row * ${rowHeight} * scale), canvas.width, Math.round(${rowHeight} * scale)).data).join(',')
     }
     window.__beforeFocus = [window.__focusPixels(2), window.__focusPixels(13)]
   })()`)
@@ -350,7 +352,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     const row = document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"]')
     const rowBounds = row.getBoundingClientRect()
     return {
-      source: { x: bounds.left + 20, y: bounds.top + 12 * 30 + 15 },
+      source: { x: bounds.left + 20, y: bounds.top + 12 * ${rowHeight} + 15 },
       target: { x: rowBounds.left + rowBounds.width / 2, y: rowBounds.top + rowBounds.height / 2 },
     }
   })()`)
@@ -613,7 +615,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await delay(80)
   const publishPoint = await evaluate(client, `(() => {
     const b = document.querySelector('canvas').getBoundingClientRect()
-    return { x:b.left+20, y:b.top+12*30+15 }
+    return { x:b.left+20, y:b.top+12*${rowHeight}+15 }
   })()`)
   await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:publishPoint.x, y:publishPoint.y })
   await delay(100)
