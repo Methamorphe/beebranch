@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Changes panel**: ↑/↓ move between files in *To stage* / *Ready to commit* instead of focusing the row checkbox or another in-row control.
+
 ## [1.8.1] — 2026-11-05
 
 ### Added
