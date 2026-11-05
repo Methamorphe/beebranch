@@ -10,9 +10,9 @@
   --border: #3a4250;
   --border-strong: #546070;
   --path-directory: #8b94a3;
-  /* 8 px grid: rows and controls snap to 32, accent/yellow stays the DA. */
+  /* 8 px grid for list rows. Leave --control-height alone: the diff
+     checkboxes sit in 24 px lines and inherit that token as min-height. */
   --row-height: 32px;
-  --control-height: 32px;
 }
 
 :root[data-visual='readable-beta'][data-theme='light'] {
