@@ -74,6 +74,12 @@ import {
 } from './lib/favourites'
 import { isPushRejection, type PushRejection } from './lib/pushRejection'
 import {
+  VISUAL_PREVIEW_KEY,
+  applyVisualPreview,
+  parseVisualPreview,
+  type VisualPreview,
+} from './lib/visualPreview'
+import {
   BACKGROUND_KEY,
   SPLASH_KEY,
   parseMediaSettings,
@@ -224,6 +230,7 @@ export default function App() {
   // module-level language must be current before its own `t` calls run.
   setLocale(locale)
   const [density, setDensity] = useState<Density>('comfortable')
+  const [visualPreview, setVisualPreview] = useState<VisualPreview>('off')
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(DEFAULT_SHORTCUTS)
   /** Labels of the actions whose stored binding was reverted to its default. */
   const [shortcutConflict, setShortcutConflict] = useState<string[]>([])
@@ -404,6 +411,10 @@ export default function App() {
   }, [density])
 
   useEffect(() => {
+    applyVisualPreview(visualPreview)
+  }, [visualPreview])
+
+  useEffect(() => {
     if (restored.current) {
       return
     }
@@ -435,6 +446,7 @@ export default function App() {
         if (densityRaw === 'compact' || densityRaw === 'comfortable') {
           setDensity(densityRaw)
         }
+        setVisualPreview(parseVisualPreview(await preferenceGet(VISUAL_PREVIEW_KEY)))
         const layoutRaw = await preferenceGet(LAYOUT_KEY)
         if (layoutRaw) {
           setLayout(parseLayout(layoutRaw))
@@ -1131,6 +1143,11 @@ export default function App() {
     void preferenceSet(DENSITY_KEY, next)
   }
 
+  const changeVisualPreview = (next: VisualPreview) => {
+    setVisualPreview(next)
+    void preferenceSet(VISUAL_PREVIEW_KEY, next)
+  }
+
   /**
    * Selecting a new file decodes it once; adjusting fit, dim or blur reuses the
    * URL already in memory instead of re-reading a possibly huge GIF.
@@ -1499,6 +1516,12 @@ export default function App() {
         run: () => changeTheme(theme === 'light' ? 'dark' : 'light'),
       },
       {
+        id: 'action-visual-preview',
+        label: t('shell.palette.toggleVisualPreview'),
+        group: t('shell.palette.group.system'),
+        run: () => changeVisualPreview(visualPreview === 'readable-beta' ? 'off' : 'readable-beta'),
+      },
+      {
         id: 'action-shortcut-help',
         label: t('common.shortcutHelp.palette'),
         group: t('shell.palette.group.system'),
@@ -1577,7 +1600,7 @@ export default function App() {
       },
     })
     return items
-  }, [navigate, openHistoryAction, openFindInGraph, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
+  }, [navigate, openHistoryAction, openFindInGraph, newBranch, repoId, repo, refresh, requestClose, theme, visualPreview, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
 
   useZoom()
 
@@ -1697,6 +1720,18 @@ export default function App() {
         />
       ) : null}
       <div className={styles.body} data-repository={Boolean(repo) && !showStart}>
+        {visualPreview === 'readable-beta' ? (
+          <div className={styles.visualPreviewBar} role="status">
+            <span>{t('shell.visualPreview.banner')}</span>
+            <button
+              type="button"
+              onClick={() => changeVisualPreview('off')}
+              aria-label={t('shell.visualPreview.disableAria')}
+            >
+              {t('shell.visualPreview.disable')}
+            </button>
+          </div>
+        ) : null}
         {!repo || showStart ? <Sidebar
           active={view}
           repoName={repo?.repo.name ?? null}
@@ -1805,6 +1840,8 @@ export default function App() {
                 onThemeChange={changeTheme}
                 density={density}
                 onDensityChange={changeDensity}
+                visualPreview={visualPreview}
+                onVisualPreviewChange={changeVisualPreview}
                 background={background}
                 backgroundError={backgroundError}
                 onBackgroundChange={(next) => void changeBackground(next)}

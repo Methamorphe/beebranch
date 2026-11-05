@@ -114,6 +114,11 @@ const messages = {
   'diff.comparison.added': '{path} → added',
 
   'diff.commit.aria': 'Commit details',
+  'diff.commit.title': 'Commit details',
+  'diff.commit.author': 'Author',
+  'diff.commit.date': 'Date',
+  'diff.commit.parentsLabel': 'Parents',
+  'diff.commit.signatureLabel': 'Signature',
   'diff.commit.closeAria': 'Close the commit details',
   'diff.commit.loading': 'Loading the commit…',
   'diff.commit.empty': 'Select a commit in the graph.',

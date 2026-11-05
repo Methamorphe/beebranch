@@ -36,6 +36,18 @@
   margin-left: auto;
 }
 
+.panelTitle {
+  display: none;
+}
+
+.metaLabel {
+  display: none;
+}
+
+.metaItem {
+  display: contents;
+}
+
 .sha {
   color: var(--accent-text);
   font-size: 12px;
@@ -342,4 +354,80 @@
     border-left: 0;
     border-top: 1px solid var(--border);
   }
+}
+
+:global(:root[data-visual='readable-beta']) .panelTitle {
+  display: inline;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(:root[data-visual='readable-beta']) .subject {
+  font-size: 16px;
+}
+
+:global(:root[data-visual='readable-beta']) .meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  font-size: 13px;
+}
+
+:global(:root[data-visual='readable-beta']) .metaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+:global(:root[data-visual='readable-beta']) .metaLabel {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+:global(:root[data-visual='readable-beta']) .ref[data-scope='local'] {
+  border-color: var(--accent);
+}
+
+:global(:root[data-visual='readable-beta']) .ref[data-scope='remote'] {
+  color: var(--muted-strong);
+  background: transparent;
+}
+
+:global(:root[data-visual='readable-beta']) .diffAction {
+  align-self: stretch;
+  background: transparent;
+  color: var(--accent-text);
+}
+
+:global(:root[data-visual='readable-beta']) .signature {
+  align-self: flex-start;
+  background: var(--surface-raised);
+}
+
+:global(:root[data-visual='readable-beta']) .status {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+:global(:root[data-visual='readable-beta']) .status[data-status='A'],
+:global(:root[data-visual='readable-beta']) .status[data-status='D'],
+:global(:root[data-visual='readable-beta']) .status[data-status='M'],
+:global(:root[data-visual='readable-beta']) .status[data-status='R'],
+:global(:root[data-visual='readable-beta']) .status[data-status='C'] {
+  background: transparent;
 }

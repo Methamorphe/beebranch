@@ -169,6 +169,7 @@ export function ComparisonPanel({
             <button
               type="button"
               className={styles.icon}
+              data-control="icon"
               onClick={onFullScreen}
               title={t('diff.comparison.fullScreen')}
               aria-label={t('diff.comparison.fullScreen')}
@@ -178,6 +179,7 @@ export function ComparisonPanel({
             <button
               type="button"
               className={styles.close}
+              data-control="close"
               onClick={onClose}
               title={t('diff.comparison.close')}
               aria-label={t('diff.comparison.close')}

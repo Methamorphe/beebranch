@@ -151,6 +151,8 @@ type Props = {
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void
   density: 'compact' | 'comfortable'
   onDensityChange: (density: 'compact' | 'comfortable') => void
+  visualPreview: 'off' | 'readable-beta'
+  onVisualPreviewChange: (preview: 'off' | 'readable-beta') => void
   background: MediaSettings | null
   backgroundError: string | null
   onBackgroundChange: (next: MediaSettings | null) => void
@@ -270,6 +272,8 @@ export function Workbench({
   onThemeChange,
   density,
   onDensityChange,
+  visualPreview,
+  onVisualPreviewChange,
   background,
   backgroundError,
   onBackgroundChange,
@@ -1374,6 +1378,8 @@ export function Workbench({
             onThemeChange={onThemeChange}
             density={density}
             onDensityChange={onDensityChange}
+            visualPreview={visualPreview}
+            onVisualPreviewChange={onVisualPreviewChange}
             background={background}
             backgroundError={backgroundError}
             onBackgroundChange={onBackgroundChange}
@@ -2372,6 +2378,7 @@ export function Workbench({
             <button
               type="button"
               className={styles.findClose}
+              data-control="close"
               aria-label={t('graph.find.close')}
               title={t('graph.find.close')}
               onClick={() => setFindOpen(false)}
@@ -2549,7 +2556,7 @@ export function Workbench({
                 onNavigate('fileHistory')
               }}
             /> : showWorktree ? <aside className={styles.worktreePanel} aria-label={t('workbench.inspector.worktreeAriaLabel')}>
-              <div className={styles.worktreeHeading}><strong>{t('common.files')}</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" aria-label={t('workbench.inspector.closeWorktreeAriaLabel')} onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
+              <div className={styles.worktreeHeading}><strong>{t('common.files')}</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" data-control="close" aria-label={t('workbench.inspector.closeWorktreeAriaLabel')} onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
               <RepoStatus repoId={repoId} generation={generation} locks={repo.locks}
                 selectedPath={localDiff?.path} onSelectDiff={setLocalDiff} onMutated={onMutated}
                 onNavigate={(target) => {

@@ -77,6 +77,23 @@
   background: var(--info-soft);
 }
 
+:global(:root[data-visual='readable-beta']) .fileStatus {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+:global(:root[data-visual='readable-beta']) .fileStatus[data-kind='added'],
+:global(:root[data-visual='readable-beta']) .fileStatus[data-kind='deleted'],
+:global(:root[data-visual='readable-beta']) .fileStatus[data-kind='modified'],
+:global(:root[data-visual='readable-beta']) .fileStatus[data-kind='renamed'],
+:global(:root[data-visual='readable-beta']) .fileStatus[data-kind='copied'] {
+  background: transparent;
+}
+
 .filePath {
   display: flex;
   flex: 1;

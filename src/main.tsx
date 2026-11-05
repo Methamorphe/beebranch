@@ -9,6 +9,7 @@ import { ToastProvider } from './components/ui/Toasts'
 import { call } from './ipc/client'
 import './styles/tokens.css'
 import './styles/global.css'
+import './styles/visual-preview.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -307,6 +307,23 @@
   background: var(--info-soft);
 }
 
+:global(:root[data-visual='readable-beta']) .status {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+:global(:root[data-visual='readable-beta']) .status[data-kind='added'],
+:global(:root[data-visual='readable-beta']) .status[data-kind='deleted'],
+:global(:root[data-visual='readable-beta']) .status[data-kind='modified'],
+:global(:root[data-visual='readable-beta']) .status[data-kind='renamed'],
+:global(:root[data-visual='readable-beta']) .status[data-kind='copied'] {
+  background: transparent;
+}
+
 .path {
   display: flex;
   flex: 1;

@@ -1033,7 +1033,7 @@ export function GraphCanvas({
     const observer = new MutationObserver(scheduleDraw)
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-theme', 'data-density'],
+      attributeFilter: ['data-theme', 'data-density', 'data-visual'],
     })
     return () => { media.removeEventListener('change', scheduleDraw); observer.disconnect() }
   }, [scheduleDraw])

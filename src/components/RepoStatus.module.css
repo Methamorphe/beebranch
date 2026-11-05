@@ -35,6 +35,7 @@
 .state { flex:none; width:14px; color:var(--warning); font:11px var(--sans); font-weight:600; }
 .state[data-kind='untracked'] { color:var(--success); }
 .state[data-kind='unmerged'] { color:var(--error); }
+:global(:root[data-visual='readable-beta']) .state { width:16px; font-size:13px; }
 .filePath { display:flex; align-items:center; flex:1; min-width:0; padding:3px 0; text-align:left; font:14px/1.4 var(--sans); }
 .folder { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
 .filename { flex-shrink:0; max-width:85%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }

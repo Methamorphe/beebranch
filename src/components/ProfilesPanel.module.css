@@ -1,3 +1,16 @@
+.betaBadge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
 .profiles { margin-top: 28px; min-width: 0; padding-top: 24px; border-top: 1px solid var(--border); }
 .sectionHeader { margin-bottom: 16px; }
 .sectionHeader h2 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }

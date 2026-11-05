@@ -1,0 +1,53 @@
+/* Experimental readability overlay. Off by default: only
+   `:root[data-visual='readable-beta']` receives these rules, so the stable
+   theme (dark / light / system) is unchanged until the user opts in. */
+
+:root[data-visual='readable-beta'] {
+  --muted: #c8d0dc;
+  --muted-strong: #dde3ec;
+  --border: #424b5b;
+  --border-strong: #5c6678;
+}
+
+:root[data-visual='readable-beta'][data-theme='light'] {
+  --muted: #3d4758;
+  --muted-strong: #2a3342;
+  --border: #b4bdc9;
+  --border-strong: #8f9aab;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-visual='readable-beta']:not([data-theme='dark']) {
+    --muted: #3d4758;
+    --muted-strong: #2a3342;
+    --border: #b4bdc9;
+    --border-strong: #8f9aab;
+  }
+}
+
+/* Inspector / tab / find closes: a real control, not a grey glyph. */
+:root[data-visual='readable-beta'] [data-control='close'] {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+:root[data-visual='readable-beta'] [data-control='close']:hover:not(:disabled) {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+:root[data-visual='readable-beta'] [data-control='icon'] {
+  color: var(--text);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+:root[data-visual='readable-beta'] [data-control='icon']:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
