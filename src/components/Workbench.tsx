@@ -2477,7 +2477,7 @@ export function Workbench({
               <span>{centerTool && toolLabel ? t(toolLabel) : historyTool ? toolTitle : t('workbench.preview.ariaLabel')}</span>
               <code>{previewDiff?.path}</code>
               <button type="button" aria-label={t(previewDiff ? 'workbench.preview.closeAriaLabel' : 'workbench.workspace.closeTool')}
-                data-central-close onClick={() => {
+                data-central-close data-frame="icon" data-kind="close" onClick={() => {
                   if (centerTool) onNavigate('graph')
                   else if (historyTool) closeHistoryTool()
                   else { setLocalDiff(null); setComparePath(null) }
@@ -2544,12 +2544,8 @@ export function Workbench({
                     : { target: 'commit', base: sha },
                 )
               }
-              onShowHistory={(path) => {
-                setFilePath(path)
-                onNavigate('fileHistory')
-              }}
             /> : showWorktree ? <aside className={styles.worktreePanel} aria-label={t('workbench.inspector.worktreeAriaLabel')}>
-              <div className={styles.worktreeHeading}><strong>{t('common.files')}</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" aria-label={t('workbench.inspector.closeWorktreeAriaLabel')} onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
+              <div className={styles.worktreeHeading}><strong>{t('common.files')}</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" data-frame="icon" data-kind="close" aria-label={t('workbench.inspector.closeWorktreeAriaLabel')} onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
               <RepoStatus repoId={repoId} generation={generation} locks={repo.locks}
                 selectedPath={localDiff?.path} onSelectDiff={setLocalDiff} onMutated={onMutated}
                 onNavigate={(target) => {

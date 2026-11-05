@@ -24,6 +24,7 @@ import { buildFileTree, flattenFileTree, type FileTreeRow } from '../lib/fileTre
 import { splitPath } from '../lib/paths'
 import type { Fingerprint, StatusEntry, StatusReport } from '../types/git'
 import { ActionMenu } from './ActionMenu'
+import { FileStatusIcon } from './FileStatusIcon'
 import { ConfirmBar } from './ConfirmBar'
 import { ContextMenu, ContextSubmenu } from './ContextMenu'
 import styles from './RepoStatus.module.css'
@@ -741,6 +742,7 @@ export function RepoStatus({
   const fileRow = (entry: StatusEntry, staged: boolean, selectable: boolean, depth: number) => {
     const selectionKey = `${staged ? 'index' : 'worktree'}:${entry.path}`
     const { directory, name } = splitPath(entry.path)
+    const mark = entry.kind === 'untracked' ? 'N' : entry.kind === 'unmerged' ? '!' : staged ? entry.index : entry.worktree
     return (
       <div key={entry.path} className={styles.fileRow}
         style={depth > 0 ? { paddingLeft: 10 + depth * 12 } : undefined}
@@ -762,7 +764,9 @@ export function RepoStatus({
             toggleSelection(selectionKey, Boolean('shiftKey' in native && native.shiftKey))
           }}
         />
-        <span className={styles.state} title={entryLabel(entry)} data-kind={entry.kind}>{entry.kind === 'untracked' ? 'N' : entry.kind === 'unmerged' ? '!' : staged ? entry.index : entry.worktree}</span>
+        <span className={styles.state} title={entryLabel(entry)} data-kind={entry.kind}>
+          <FileStatusIcon kind={entry.kind} letter={mark} />
+        </span>
         <button type="button" className={styles.filePath} title={entry.origPath ? `${entry.origPath} → ${entry.path}` : entry.path}
           disabled={entry.kind === 'ignored'} onClick={() => entry.kind === 'unmerged' ? onNavigate('conflicts') : select(entry, staged)}>
           {fileView === 'tree' ? <span className={styles.filename}>{name}</span> : <><span className={styles.folder}>{directory}</span><span className={styles.filename}>{name}</span></>}
