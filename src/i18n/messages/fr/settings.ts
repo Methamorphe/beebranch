@@ -14,13 +14,6 @@ const messages = {
   'settings.appearance.density.aria': 'Densité',
   'settings.appearance.density.comfortable': 'Confortable',
   'settings.appearance.density.compact': 'Compact',
-  'settings.appearance.preview.title': 'Lisibilité expérimentale',
-  'settings.appearance.preview.description':
-    'Aperçu bêta : contrastes, croix et listes de fichiers plus lisibles. Le thème sombre / clair ne change pas. Désactivez pour revenir à l’interface stable.',
-  'settings.appearance.preview.aria': 'Lisibilité expérimentale',
-  'settings.appearance.preview.badge': 'Bêta',
-  'settings.appearance.preview.off': 'Interface stable',
-  'settings.appearance.preview.on': 'Aperçu expérimental',
 
   'settings.media.wallpaper.title': 'Fond d’écran',
   'settings.media.wallpaper.description':

@@ -21,8 +21,6 @@ type Props = {
   loading: boolean
   error: string | null
   onShowDiff: (sha: string, path?: string) => void
-  /** Opens the history of one file of this commit. */
-  onShowHistory?: (path: string) => void
   onClose: () => void
 }
 
@@ -40,10 +38,10 @@ function PathLabel({ path }: { path: string }) {
   )
 }
 
-export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHistory, onClose }: Props) {
+export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose }: Props) {
   const { t, plural } = useI18n()
   const close = (
-    <button type="button" className={styles.close} data-control="close" onClick={onClose} aria-label={t('diff.commit.closeAria')}>
+    <button type="button" className={styles.close} data-frame="icon" data-kind="close" onClick={onClose} aria-label={t('diff.commit.closeAria')}>
       ×
     </button>
   )
@@ -175,7 +173,6 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
                   data-status={letterFromStatus(file.status)}
                   aria-hidden="true"
                 >
-                  <span data-mark="letter">{letterFromStatus(file.status)}</span>
                   <FileStatusIcon letter={file.status} />
                 </span>
                 <span className={styles.path}>
@@ -192,17 +189,6 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onShowHi
                   )}
                 </span>
               </button>
-              {onShowHistory ? (
-                <button
-                  type="button"
-                  className={styles.fileHistory}
-                  onClick={() => onShowHistory(file.path)}
-                  title={t('diff.commit.historyTitle', { path: file.path })}
-                  aria-label={t('diff.commit.historyAria', { path: file.path })}
-                >
-                  ⌖
-                </button>
-              ) : null}
             </div>
           ))}
         </div>

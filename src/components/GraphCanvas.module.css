@@ -98,14 +98,11 @@
 
 .refsHeader { display:flex; align-items:center; gap:4px; min-width:0; height:100%; padding:0 6px 0 10px; }
 .refsHeader > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.addRef { display:grid; place-items:center; flex:none; width:18px; height:18px; margin-left:auto; padding:0; border-radius:3px; color:var(--muted); font-size:14px; line-height:1; }
-.addRef:hover:not(:disabled) { color:var(--text); }
-.createRow { position:absolute; left:8px; z-index:2; display:flex; align-items:center; gap:4px; height:26px; padding:0; }
-.createRow input { min-width:0; flex:1; height:26px; padding:0 7px; border:1px solid var(--accent-text); border-radius:4px; background:var(--bg); color:var(--text); font-size:12px; }
+.addRef { display:grid; place-items:center; flex:none; width:24px; height:24px; margin-left:auto; padding:0; border-radius:6px; color:var(--text); font-size:14px; line-height:1; }
+.createRow { position:absolute; left:8px; z-index:2; display:flex; align-items:center; gap:4px; height:32px; padding:0; }
+.createRow input { min-width:0; flex:1; height:32px; padding:0 7px; border:1px solid var(--accent-text); border-radius:4px; background:var(--bg); color:var(--text); font-size:12px; }
 .createSubmit { flex:none; width:24px; height:24px; padding:0; border:1px solid var(--border); border-radius:4px; color:var(--text); background:var(--surface-raised); font-size:12px; line-height:1; }
 .createSubmit:disabled { opacity:.45; cursor:not-allowed; }
-:global(:root[data-visual='readable-beta']) .createRow,
-:global(:root[data-visual='readable-beta']) .createRow input { height:32px; }
 .messageHeader { display:flex; align-items:center; gap:8px; min-width:0; }
 .messageHeader > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 @media(max-width:650px) { .messageHeader > span { display:none; } }

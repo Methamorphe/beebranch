@@ -765,7 +765,6 @@ export function RepoStatus({
           }}
         />
         <span className={styles.state} title={entryLabel(entry)} data-kind={entry.kind}>
-          <span data-mark="letter">{mark}</span>
           <FileStatusIcon kind={entry.kind} letter={mark} />
         </span>
         <button type="button" className={styles.filePath} title={entry.origPath ? `${entry.origPath} → ${entry.path}` : entry.path}

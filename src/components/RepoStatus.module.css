@@ -10,17 +10,17 @@
 .bulkBar button:hover:not(:disabled) { border-color:var(--muted); }
 .clearSelection { width:25px; padding:0 !important; font-size:16px !important; line-height:1; }
 .fileGroup { flex:1; min-height:64px; overflow:auto; }
-.groupHeading { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:33px; padding:4px 12px; background:var(--surface); }
+.groupHeading { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:32px; padding:0 8px; background:var(--surface); }
 .groupHeading h2 { margin:0; color:var(--muted-strong); font-size:13px; font-weight:600; }
 .groupHeading h2 span { margin-left:5px; color:var(--muted); font-size:12px; font-weight:400; }
 .groupHeading button { padding:3px 6px; border:1px solid var(--border-strong); color:var(--muted-strong); font-size:11px; }
 .fileGroup + .fileGroup { border-top:1px solid var(--border); margin-top:6px; }
-.fileRow { display:flex; align-items:center; gap:5px; height:29px; padding:0 8px 0 10px; }
+.fileRow { display:flex; align-items:center; gap:8px; height:32px; padding:0 8px; }
 .fileRow:hover { background:var(--surface-raised); }
 .fileRow[data-selected='true'], .fileRow[data-checked='true'], .fileRow[data-menu='true'] { background:var(--accent-soft); }
 .fileRow[data-flash='true'] { animation:file-flash 280ms var(--ease-out); }
 /* Directory rows in the tree view: disclosure, then the file count below it. */
-.dirRow { display:flex; align-items:center; gap:6px; width:100%; min-height:27px; padding:0 8px 0 10px; color:var(--muted); font-size:12px; text-align:left; }
+.dirRow { display:flex; align-items:center; gap:8px; width:100%; min-height:32px; padding:0 8px; color:var(--muted); font-size:12px; text-align:left; }
 .dirRow:hover:not(:disabled) { color:var(--text); background:var(--surface-raised); }
 .caret { flex:none; width:10px; font-size:9px; text-align:center; }
 .dirName { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -32,19 +32,12 @@
 .fileRow[data-checked='true'] .rowTool, .fileRow[data-menu='true'] .rowTool, .root[data-bulk='true'] .select { opacity:1; }
 @media (hover: none) { .rowTool { opacity:1; } }
 @keyframes file-flash { 0%, 35% { background-color:var(--accent-soft); } 100% { background-color:transparent; } }
-.state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:14px; color:var(--warning); font:11px var(--sans); font-weight:600; }
+.state { display:inline-flex; align-items:center; justify-content:center; flex:none; width:16px; color:var(--warning); font:13px var(--sans); font-weight:600; }
 .state[data-kind='untracked'] { color:var(--success); }
 .state[data-kind='unmerged'] { color:var(--error); }
-:global(:root[data-visual='readable-beta']) .state { width:16px; font-size:13px; }
-:global(:root[data-visual='readable-beta']) .filePath { font-size:13px; font-weight:400; line-height:16px; padding:0; }
-:global(:root[data-visual='readable-beta']) .folder { color:var(--path-directory, var(--muted)); }
-:global(:root[data-visual='readable-beta']) .filename { color:var(--text); font-weight:600; }
-:global(:root[data-visual='readable-beta']) .fileRow { height:32px; gap:8px; padding:0 8px; }
-:global(:root[data-visual='readable-beta']) .dirRow { min-height:32px; gap:8px; padding:0 8px; }
-:global(:root[data-visual='readable-beta']) .groupHeading { min-height:32px; padding:0 8px; }
-.filePath { display:flex; align-items:center; flex:1; min-width:0; padding:3px 0; text-align:left; font:14px/1.4 var(--sans); }
-.folder { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
-.filename { flex-shrink:0; max-width:85%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+.filePath { display:flex; align-items:center; flex:1; min-width:0; padding:0; text-align:left; font:13px/16px var(--sans); font-weight:400; }
+.folder { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--path-directory); }
+.filename { flex-shrink:0; max-width:85%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-weight:600; }
 .filePath:hover:not(:disabled) { background:none; }
 .stage { flex:none; width:24px; min-height:26px; padding:0 4px; color:var(--muted); font-size:16px; }
 .danger,.error { color:var(--error); }

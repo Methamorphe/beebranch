@@ -42,7 +42,6 @@ const messages = {
   'shell.palette.pull': 'Pull the current branch',
   'shell.palette.push': 'Push the current branch',
   'shell.palette.toggleTheme': 'Toggle dark / light theme',
-  'shell.palette.toggleVisualPreview': 'Toggle experimental readability (beta)',
   'shell.palette.settings': 'Profiles & settings',
   'shell.palette.createRepo': 'Create a local repository',
   'shell.palette.closeRepo': 'Close the active repository',

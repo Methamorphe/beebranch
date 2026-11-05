@@ -89,16 +89,11 @@ type Props = {
 
 const BRANCH_FOCUS_DELAY = 450
 const UNFOCUSED_ALPHA = 0.22
-const GRAPH_ROW_STABLE = 30
-const GRAPH_ROW_PREVIEW = 32
+const ROW_HEIGHT = 32
 const OVERSCAN = 8
 /** Comfortable-density graph node: initials disc plus lane ring, within 32 px rows. */
 const AVATAR_NODE_RADIUS = 11
 const AVATAR_LANE_RING = 2.25
-
-function graphRowHeight() {
-  return document.documentElement.dataset.visual === 'readable-beta' ? GRAPH_ROW_PREVIEW : GRAPH_ROW_STABLE
-}
 
 /** Relative age for the last week, then the date and local time. */
 function commitDateLabel(timestamp: number) {
@@ -407,7 +402,6 @@ export function GraphCanvas({
   pin = null,
 }: Props) {
   const [viewportWidth, setViewportWidth] = useState(1000)
-  const [rowHeight, setRowHeight] = useState(graphRowHeight)
   const { locale, t } = useI18n()
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
   // Every visible ref of a commit, in draw order. A remote-tracking mirror of
@@ -527,11 +521,11 @@ export function GraphCanvas({
     const container = containerRef.current
     if (index < 0 || !container) return
     revealed.current = reveal.serial
-    const top = index * rowHeight
-    if (top < container.scrollTop || top + rowHeight > container.scrollTop + container.clientHeight) {
+    const top = index * ROW_HEIGHT
+    if (top < container.scrollTop || top + ROW_HEIGHT > container.scrollTop + container.clientHeight) {
       container.scrollTop = Math.max(0, top - container.clientHeight / 3)
     }
-  }, [reveal, commits, rowHeight])
+  }, [reveal, commits])
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scrollTopRef = useRef(0)
   const drawRef = useRef<() => void>(() => {})
@@ -602,10 +596,10 @@ export function GraphCanvas({
 
     const col = layout
     const scrollTop = scrollTopRef.current
-    const first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN)
+    const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
     const last = Math.min(
       commits.length - 1,
-      Math.ceil((scrollTop + height) / rowHeight) + OVERSCAN,
+      Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN,
     )
 
     // Constant pitch, centred in the column: lanes never hug the labels and
@@ -624,7 +618,7 @@ export function GraphCanvas({
     const laneX = (lane: number) => graphLeft + lane * pitch
     /** Corner radius for an elbow, capped by half the run and half a row. */
     const corner = (from: number, to: number) =>
-      Math.min(ELBOW_RADIUS, Math.abs(to - from) / 2, rowHeight / 2 - 1)
+      Math.min(ELBOW_RADIUS, Math.abs(to - from) / 2, ROW_HEIGHT / 2 - 1)
     const laneColor = (lane: number) => laneColors[lane % laneColors.length]!
     /**
      * Pin to left: below the pinned tip, columns 0 and `pin.lane` trade places.
@@ -653,7 +647,7 @@ export function GraphCanvas({
       const commit = commits[index]
       if (!commit) continue
       context.globalAlpha = 1
-      const y = index * rowHeight - scrollTop + rowHeight / 2
+      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
       const emphasis = emphasisFor(commit.sha, index) * alphaFor(commit.sha)
       if (emphasis > 0) {
         context.globalAlpha = emphasis
@@ -661,14 +655,14 @@ export function GraphCanvas({
           ? accentColor
           : raisedColor
         context.beginPath()
-        context.roundRect(6, y - rowHeight / 2 + stripInset, Math.max(0, width - 12), rowHeight - stripInset * 2, 4)
+        context.roundRect(6, y - ROW_HEIGHT / 2 + stripInset, Math.max(0, width - 12), ROW_HEIGHT - stripInset * 2, 4)
         context.fill()
         context.globalAlpha = 1
       }
       if (commit.sha === selected || picked.includes(commit.sha)) {
         context.globalAlpha = alphaFor(commit.sha)
         context.fillStyle = accentColor
-        context.fillRect(2, y - rowHeight / 2 + stripInset, 2, rowHeight - stripInset * 2)
+        context.fillRect(2, y - ROW_HEIGHT / 2 + stripInset, 2, ROW_HEIGHT - stripInset * 2)
       }
     }
 
@@ -688,8 +682,8 @@ export function GraphCanvas({
     for (let index = first; index <= last; index += 1) {
       const row = rows[index]
       if (!row) continue
-      const top = index * rowHeight - scrollTop
-      const center = top + rowHeight / 2
+      const top = index * ROW_HEIGHT - scrollTop
+      const center = top + ROW_HEIGHT / 2
       const boundary = pin !== null && index === pin.row
       const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
       const nodeX = laneX(nodeLane)
@@ -707,7 +701,7 @@ export function GraphCanvas({
         for (const [highlighted, y] of [[focus.top.has(lane), top], [focus.bottom.has(lane), center]] as const) {
           context.save()
           context.beginPath()
-          context.rect(col.refs, y, col.graph, rowHeight / 2)
+          context.rect(col.refs, y, col.graph, ROW_HEIGHT / 2)
           context.clip()
           context.globalAlpha = highlighted ? 1 : UNFOCUSED_ALPHA
           context.stroke(path)
@@ -722,7 +716,7 @@ export function GraphCanvas({
           // Opened by this commit's parent edge: the rail starts below the dot.
           const x = laneX(bottomLane)
           const start = center + corner(x, nodeX)
-          const end = rail.toBottom ? top + rowHeight : center
+          const end = rail.toBottom ? top + ROW_HEIGHT : center
           if (end - start < 0.5) continue
           context.strokeStyle = laneColor(bottomLane)
           path.moveTo(x, start)
@@ -735,7 +729,7 @@ export function GraphCanvas({
         // A lane arriving on this commit stops where its corner turns.
         const arrival = rail.lane !== row.nodeLane && row.arrivals.includes(rail.lane)
         const end = rail.toBottom
-          ? top + rowHeight
+          ? top + ROW_HEIGHT
           : center - (arrival ? corner(xTop, nodeX) : 0)
         context.strokeStyle = laneColor(bottomLane)
         path.moveTo(xTop, top)
@@ -761,7 +755,7 @@ export function GraphCanvas({
     for (let index = first; index <= last; index += 1) {
       const row = rows[index]
       if (!row) continue
-      const center = index * rowHeight - scrollTop + rowHeight / 2
+      const center = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
       const boundary = pin !== null && index === pin.row
       const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
       const nodeX = laneX(nodeLane)
@@ -807,7 +801,7 @@ export function GraphCanvas({
       const commit = commits[index]
       const row = rows[index]
       if (!commit || !row) continue
-      const y = index * rowHeight - scrollTop + rowHeight / 2
+      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
       const boundary = pin !== null && index === pin.row
       const nodeLane = boundary ? swapLane(row.nodeLane) : laneAt(row.nodeLane, index)
       const nodeX = laneX(nodeLane)
@@ -873,7 +867,7 @@ export function GraphCanvas({
       if (!commit || !row) {
         continue
       }
-      const y = index * rowHeight - scrollTop + rowHeight / 2
+      const y = index * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2
       context.globalAlpha = alphaFor(commit.sha)
       const nodeColor = laneColor(row.nodeLane)
 
@@ -939,7 +933,7 @@ export function GraphCanvas({
 
       context.save()
       context.beginPath()
-      context.rect(messageX, y - rowHeight / 2, Math.max(0, messageRight - messageX - 12), rowHeight)
+      context.rect(messageX, y - ROW_HEIGHT / 2, Math.max(0, messageRight - messageX - 12), ROW_HEIGHT)
       context.clip()
       let cursor = messageX
       context.font = `14px ${fontFamily}`
@@ -987,7 +981,7 @@ export function GraphCanvas({
     for (const x of [col.refs, col.refs + col.graph, ...(col.author ? [width - col.author - col.date] : []), ...(col.date ? [width - col.date] : [])]) {
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
-  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus, rowHeight])
+  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -1036,13 +1030,10 @@ export function GraphCanvas({
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: light)')
     media.addEventListener('change', scheduleDraw)
-    const observer = new MutationObserver(() => {
-      setRowHeight(graphRowHeight())
-      scheduleDraw()
-    })
+    const observer = new MutationObserver(scheduleDraw)
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-theme', 'data-density', 'data-visual'],
+      attributeFilter: ['data-theme', 'data-density'],
     })
     return () => { media.removeEventListener('change', scheduleDraw); observer.disconnect() }
   }, [scheduleDraw])
@@ -1145,13 +1136,13 @@ export function GraphCanvas({
     const index = commits.findIndex((commit) => commit.sha === branchTarget)
     const container = containerRef.current
     if (index < 0 || !container) return
-    const top = index * rowHeight
-    if (top < container.scrollTop || top + rowHeight > container.scrollTop + container.clientHeight) {
+    const top = index * ROW_HEIGHT
+    if (top < container.scrollTop || top + ROW_HEIGHT > container.scrollTop + container.clientHeight) {
       container.scrollTop = Math.max(0, top - container.clientHeight / 4)
       scrollTopRef.current = container.scrollTop
       scheduleDraw()
     }
-  }, [branchTarget, commits, scheduleDraw, rowHeight])
+  }, [branchTarget, commits, scheduleDraw])
 
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
 
@@ -1185,7 +1176,7 @@ export function GraphCanvas({
     if (
       !loading &&
       container.scrollTop + container.clientHeight >
-        container.scrollHeight - rowHeight * 4
+        container.scrollHeight - ROW_HEIGHT * 4
     ) {
       onLoadMore()
     }
@@ -1229,7 +1220,7 @@ export function GraphCanvas({
       return
     }
     const bounds = event.currentTarget.getBoundingClientRect()
-    const index = Math.floor((scrollTopRef.current + event.clientY - bounds.top) / rowHeight)
+    const index = Math.floor((scrollTopRef.current + event.clientY - bounds.top) / ROW_HEIGHT)
     const hit = hitRef(event.clientX, event.clientY)
     const hoveredEntry = hit && !hit.overflow ? resolveGraphRef(hit.raw, refEntries) : undefined
     hoverBranch(isCheckoutableRef(hoveredEntry) ? hit!.commit.sha : null)
@@ -1309,7 +1300,7 @@ export function GraphCanvas({
     setRefHover(null)
     const bounds = event.currentTarget.getBoundingClientRect()
     const index = Math.floor(
-      (scrollTopRef.current + (event.clientY - bounds.top)) / rowHeight,
+      (scrollTopRef.current + (event.clientY - bounds.top)) / ROW_HEIGHT,
     )
     const commit = commits[index]
     if (commit) {
@@ -1336,7 +1327,7 @@ export function GraphCanvas({
     }
     const bounds = event.currentTarget.getBoundingClientRect()
     const index = Math.floor(
-      (scrollTopRef.current + (event.clientY - bounds.top)) / rowHeight,
+      (scrollTopRef.current + (event.clientY - bounds.top)) / ROW_HEIGHT,
     )
     const commit = commits[index]
     if (commit) {
@@ -1354,7 +1345,7 @@ export function GraphCanvas({
     if ((event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) && onContextMenu) {
       event.preventDefault()
       const bounds = event.currentTarget.getBoundingClientRect()
-      onContextMenu(commits[index]!, rows[index]?.stash, bounds.left + 120, Math.max(bounds.top, bounds.top + index * rowHeight - scrollTopRef.current))
+      onContextMenu(commits[index]!, rows[index]?.stash, bounds.left + 120, Math.max(bounds.top, bounds.top + index * ROW_HEIGHT - scrollTopRef.current))
     }
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
@@ -1367,9 +1358,9 @@ export function GraphCanvas({
         })
         const container = containerRef.current
         if (container) {
-          const top = next * rowHeight
+          const top = next * ROW_HEIGHT
           if (top < container.scrollTop) container.scrollTop = top
-          else if (top + rowHeight > container.scrollTop + container.clientHeight) container.scrollTop = top + rowHeight - container.clientHeight
+          else if (top + ROW_HEIGHT > container.scrollTop + container.clientHeight) container.scrollTop = top + ROW_HEIGHT - container.clientHeight
           scrollTopRef.current = container.scrollTop
           scheduleDraw()
         }
@@ -1384,7 +1375,7 @@ export function GraphCanvas({
         <div className={styles.refsHeader}>
           <span>{layout.refs ? t('graph.column.refs') : ''}</span>
           {layout.refs && onBranchRequest ? (
-            <button type="button" className={styles.addRef} title={t('graph.branch.createTitle')} aria-label={t('graph.branch.create')} onClick={() => onBranchRequest(selected ?? null)}>+</button>
+            <button type="button" className={styles.addRef} data-frame="icon" title={t('graph.branch.createTitle')} aria-label={t('graph.branch.create')} onClick={() => onBranchRequest(selected ?? null)}>+</button>
           ) : null}
         </div>
         <span>{t('graph.column.graph')}</span><div className={styles.messageHeader}><span>{t('graph.column.message')}</span>{headerTools}</div><span>{layout.author ? t('graph.column.author') : ''}</span><span>{layout.date ? t('graph.column.date') : ''}</span>
@@ -1423,7 +1414,7 @@ export function GraphCanvas({
       <div className={styles.scroll} style={{ top: worktreeRow ? 64 : 32 }} ref={containerRef} onScroll={onScroll}>
         <div
           className={styles.spacer}
-          style={{ height: Math.max(1, commits.length * rowHeight) }}
+          style={{ height: Math.max(1, commits.length * ROW_HEIGHT) }}
         />
         {branchTarget ? (() => {
           const index = commits.findIndex((commit) => commit.sha === branchTarget)
@@ -1431,7 +1422,7 @@ export function GraphCanvas({
           return (
             <form
               className={styles.createRow}
-              style={{ top: index * rowHeight, width: layout.refs > 0 ? Math.max(180, layout.refs - 16) : 220 }}
+              style={{ top: index * ROW_HEIGHT, width: layout.refs > 0 ? Math.max(180, layout.refs - 16) : 220 }}
               onSubmit={(event) => { event.preventDefault(); onBranchSubmit?.() }}
             >
               <input

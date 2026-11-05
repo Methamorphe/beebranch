@@ -42,7 +42,6 @@ const messages = {
   'shell.palette.pull': 'Pull la branche courante',
   'shell.palette.push': 'Push la branche courante',
   'shell.palette.toggleTheme': 'Basculer le thème sombre / clair',
-  'shell.palette.toggleVisualPreview': 'Activer / désactiver la lisibilité expérimentale (bêta)',
   'shell.palette.settings': 'Profils et réglages',
   'shell.palette.createRepo': 'Créer un dépôt local',
   'shell.palette.closeRepo': 'Fermer le dépôt actif',

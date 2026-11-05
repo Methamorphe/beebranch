@@ -54,8 +54,6 @@ type Props = {
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void
   density: 'compact' | 'comfortable'
   onDensityChange: (density: 'compact' | 'comfortable') => void
-  visualPreview: 'off' | 'readable-beta'
-  onVisualPreviewChange: (preview: 'off' | 'readable-beta') => void
   background: MediaSettings | null
   backgroundError: string | null
   onBackgroundChange: (next: MediaSettings | null) => void
@@ -210,8 +208,6 @@ export function ProfilesPanel({
   onThemeChange,
   density,
   onDensityChange,
-  visualPreview,
-  onVisualPreviewChange,
   background,
   backgroundError,
   onBackgroundChange,
@@ -391,27 +387,6 @@ export function ProfilesPanel({
             >
               <option value="comfortable">{t('settings.appearance.density.comfortable')}</option>
               <option value="compact">{t('settings.appearance.density.compact')}</option>
-            </select>
-          </div>
-        </div>
-        <div className={p2.setting}>
-          <div>
-            <strong>
-              {t('settings.appearance.preview.title')}
-              <span className={styles.betaBadge}>{t('settings.appearance.preview.badge')}</span>
-            </strong>
-            <p>{t('settings.appearance.preview.description')}</p>
-          </div>
-          <div className={p2.settingControls}>
-            <select
-              value={visualPreview}
-              onChange={(event) =>
-                onVisualPreviewChange(event.target.value as 'off' | 'readable-beta')
-              }
-              aria-label={t('settings.appearance.preview.aria')}
-            >
-              <option value="off">{t('settings.appearance.preview.off')}</option>
-              <option value="readable-beta">{t('settings.appearance.preview.on')}</option>
             </select>
           </div>
         </div>

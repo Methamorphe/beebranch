@@ -42,7 +42,6 @@ export function FileStatusIcon({
   return (
     <svg
       className={className}
-      data-mark="icon"
       width="14"
       height="14"
       viewBox="0 0 24 24"

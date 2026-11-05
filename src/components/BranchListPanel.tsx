@@ -73,7 +73,8 @@ export function BranchListPanel({ entries, current, busy, onCheckout, onClose }:
         <button
           type="button"
           className={styles.close}
-          data-control="close"
+          data-frame="icon"
+          data-kind="close"
           aria-label={t('workbench.branches.close')}
           title={t('workbench.branches.close')}
           onClick={onClose}

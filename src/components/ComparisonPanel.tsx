@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { buildFileTree, flattenFileTree } from '../lib/fileTree'
 import { shortRevision } from '../lib/graphRefs'
-import { STATUS_LABELS, STATUS_LETTERS, splitPath } from '../lib/paths'
+import { STATUS_LABELS, splitPath } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
 import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
 import type { CommitSummary, DiffReport, FileDiff } from '../types/git'
@@ -125,7 +125,6 @@ export function ComparisonPanel({
         onClick={() => onSelectPath(item.path)}
       >
         <span className={styles.status} data-kind={item.entry.kind} aria-hidden="true">
-          <span data-mark="letter">{STATUS_LETTERS[item.entry.kind]}</span>
           <FileStatusIcon kind={item.entry.kind} />
         </span>
         <span className={styles.path}>
@@ -171,7 +170,6 @@ export function ComparisonPanel({
             <button
               type="button"
               className={styles.icon}
-              data-control="icon"
               onClick={onFullScreen}
               title={t('diff.comparison.fullScreen')}
               aria-label={t('diff.comparison.fullScreen')}
@@ -181,7 +179,8 @@ export function ComparisonPanel({
             <button
               type="button"
               className={styles.close}
-              data-control="close"
+              data-frame="icon"
+              data-kind="close"
               onClick={onClose}
               title={t('diff.comparison.close')}
               aria-label={t('diff.comparison.close')}

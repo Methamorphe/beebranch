@@ -10,6 +10,7 @@
   --text: #e8edf4;
   --muted: #b9c2d0;
   --muted-strong: #d3dae5;
+  --path-directory: #8b94a3;
   --accent: #f5bb45;
   --accent-contrast: #171a1f;
   --accent-soft: #f5bb4514;
@@ -59,7 +60,7 @@
   --text-size: var(--text-base);
 
   /* Component geometry. */
-  --row-height: 30px;
+  --row-height: 32px;
   --row-height-compact: 26px;
   --control-height: 30px;
   --control-height-sm: 24px;
@@ -105,6 +106,7 @@
   --text: #1f2733;
   --muted: #4b5568;
   --muted-strong: #333d4d;
+  --path-directory: #6f7887;
   --accent: #f5bb45;
   --accent-text: #6b4700;
   --accent-contrast: #171a1f;
@@ -159,6 +161,7 @@
     --text: #1f2733;
     --muted: #4b5568;
     --muted-strong: #333d4d;
+    --path-directory: #6f7887;
     --accent-text: #6b4700;
     --success: #136b46;
     --warning: #94470a;

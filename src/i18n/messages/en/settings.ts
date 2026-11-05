@@ -14,13 +14,6 @@ const messages = {
   'settings.appearance.density.aria': 'Density',
   'settings.appearance.density.comfortable': 'Comfortable',
   'settings.appearance.density.compact': 'Compact',
-  'settings.appearance.preview.title': 'Experimental readability',
-  'settings.appearance.preview.description':
-    'Beta preview: stronger contrast, clearer close controls, and simpler file lists. Dark / light theme is unchanged. Turn it off to return to the stable interface.',
-  'settings.appearance.preview.aria': 'Experimental readability',
-  'settings.appearance.preview.badge': 'Beta',
-  'settings.appearance.preview.off': 'Stable interface',
-  'settings.appearance.preview.on': 'Experimental preview',
 
   'settings.media.wallpaper.title': 'Wallpaper',
   'settings.media.wallpaper.description':

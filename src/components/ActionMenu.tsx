@@ -22,7 +22,7 @@ export function ActionMenu({ label, children, triggerContent, triggerClassName, 
     return () => observer.disconnect()
   }, [])
   return <>
-    <button ref={trigger} type="button" onClick={(event) => event.currentTarget.focus()} disabled={disabled} className={`${styles.trigger} ${triggerClassName ?? ''}`} popoverTarget={id} aria-label={label} title={triggerContent ? label : 'Autres actions'}>{triggerContent ?? '···'}</button>
+    <button ref={trigger} type="button" onClick={(event) => event.currentTarget.focus()} disabled={disabled} className={`${styles.trigger} ${triggerClassName ?? ''}`} data-frame={!triggerContent && !triggerClassName ? 'icon' : undefined} popoverTarget={id} aria-label={label} title={triggerContent ? label : 'Autres actions'}>{triggerContent ?? '···'}</button>
     <div ref={menu} id={id} popover="auto" className={`${styles.menu} ${menuClassName ?? ''}`} aria-label={label}
       onToggle={(event) => {
         if (event.newState !== 'open' || !trigger.current) return
