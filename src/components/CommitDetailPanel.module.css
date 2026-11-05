@@ -431,3 +431,14 @@
 :global(:root[data-visual='readable-beta']) .status[data-status='C'] {
   background: transparent;
 }
+
+:global(:root[data-visual='readable-beta']) .path {
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+:global(:root[data-visual='readable-beta']) .directory {
+  color: var(--muted-strong);
+}
