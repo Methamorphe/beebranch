@@ -105,6 +105,28 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     }
     return false
   })()`)
+  await check('wip-link-joins-head-lane', `(() => {
+    const canvas = document.querySelector('canvas')
+    const marker = document.querySelector('[data-role="wip-node"]')
+    const link = document.querySelector('[data-role="wip-link"]')
+    if (!canvas || !marker || !link) return false
+    const headX = Number(canvas.dataset.headX)
+    const canvasBox = canvas.getBoundingClientRect()
+    const markerBox = marker.getBoundingClientRect()
+    const linkBox = link.getBoundingClientRect()
+    const markerCenter = markerBox.left + markerBox.width / 2
+    const aligned = Math.abs(markerCenter - (canvasBox.left + headX)) <= 2
+    const dropsTowardCanvas = linkBox.top >= markerBox.bottom - 2 && linkBox.bottom >= canvasBox.top - 2
+    const ctx = canvas.getContext('2d')
+    const scale = canvas.width / canvasBox.width
+    const x = Math.round(headX * scale)
+    let ink = false
+    for (const y of [1, 2, 3, 4, 5, 6]) {
+      const px = ctx.getImageData(x, y, 1, 1).data
+      if (px[3] > 40) { ink = true; break }
+    }
+    return aligned && dropsTowardCanvas && ink
+  })()`)
   const featurePoint = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left+20, y:b.top+12*${rowHeight}+15 } })()`)
   await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
   await delay(100)
