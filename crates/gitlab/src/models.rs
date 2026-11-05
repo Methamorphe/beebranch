@@ -148,6 +148,11 @@ pub struct GitlabPipeline {
     pub ref_name: Option<String>,
     pub sha: Option<String>,
     pub web_url: Option<String>,
+    /// `push`, `merge_request_event`, `schedule`, ...
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 /// Merge request subset used by the P1 list, detail and creation flows.

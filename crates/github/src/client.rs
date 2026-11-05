@@ -565,6 +565,7 @@ impl GithubClient {
                 ref_name: None,
                 sha: run.head_sha,
                 web_url: run.html_url.or(run.details_url),
+                updated_at: None,
             })
             .collect())
     }
@@ -597,8 +598,63 @@ impl GithubClient {
                 ref_name: None,
                 sha: run.head_sha,
                 web_url: run.html_url,
+                updated_at: run.updated_at,
             })
             .collect())
+    }
+
+    /// Actions runs of one repository across every branch, newest first.
+    ///
+    /// GitHub returns the latest run of each workflow per branch, which is what
+    /// a repository-wide CI view needs; the run keeps its branch name so the
+    /// list can show it.
+    pub async fn workflow_runs(
+        &self,
+        repo: &RepoRef,
+        per_page: u32,
+    ) -> Result<Vec<GithubPipeline>, GithubError> {
+        Ok(self.workflow_runs_page(repo, 1, per_page).await?.items)
+    }
+
+    /// One page of the repository's Actions runs, across every branch.
+    pub async fn workflow_runs_page(
+        &self,
+        repo: &RepoRef,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Paged<GithubPipeline>, GithubError> {
+        if page == 0 {
+            return Err(GithubError::configuration("page invalide"));
+        }
+        let per_page = per_page.clamp(1, MAX_PER_PAGE);
+        let mut url = self.repo_endpoint(repo, &["actions", "runs"])?;
+        url.query_pairs_mut()
+            .append_pair("per_page", &per_page.to_string())
+            .append_pair("page", &page.to_string());
+        let fetched = self.fetch(&url).await?;
+        let runs: WireWorkflowRuns = decode(&fetched.body)?;
+        let items = runs
+            .workflow_runs
+            .into_iter()
+            .map(|run| GithubPipeline {
+                id: run.id,
+                status: normalize_status(&run.status, run.conclusion.as_deref()).to_owned(),
+                detailed_status: Some(run.name),
+                ref_name: run.head_branch,
+                sha: run.head_sha,
+                web_url: run.html_url,
+                updated_at: run.updated_at,
+            })
+            .collect();
+        Ok(Paged {
+            items,
+            page,
+            per_page,
+            next_page: fetched.next_page,
+            total: fetched.total,
+            not_modified: fetched.not_modified,
+            from_cache: fetched.from_cache,
+        })
     }
 
     /// Create a pull request. Mutations are never retried.
@@ -2582,6 +2638,10 @@ struct WireWorkflowRun {
     conclusion: Option<String>,
     #[serde(default)]
     head_sha: Option<String>,
+    #[serde(default)]
+    head_branch: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
     #[serde(default)]
     html_url: Option<String>,
 }

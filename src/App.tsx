@@ -5,8 +5,10 @@ import { CommandPalette, type PaletteCommand } from './components/CommandPalette
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { ConfirmBar } from './components/ConfirmBar'
 import {
+  checkoutNeedsConfirmation,
   OperationConfirmProvider,
   pushNeedsConfirmation,
+  readCheckoutPreview,
   readPushPreview,
   type ConfirmOperation,
 } from './components/OperationConfirm'
@@ -1011,11 +1013,18 @@ export default function App() {
     if (!repoId) {
       return
     }
-    const confirmed = await confirmOperation.current?.({
-      title: t('workbench.operationPreview.title.checkout', { target: name }),
-      confirmLabel: t('workbench.operationPreview.action.checkout'),
-      operation: { kind: 'checkout', name },
-    })
+    const operation = { kind: 'checkout' as const, name }
+    const preview = await readCheckoutPreview(repoId, operation)
+    // Same rule as the branch menus: a switch Git would not refuse runs
+    // directly; only a blocked checkout asks, with its summary.
+    const confirmed =
+      preview && !checkoutNeedsConfirmation(preview)
+        ? true
+        : await (confirmOperation.current?.({
+            title: t('workbench.operationPreview.title.checkout', { target: name }),
+            confirmLabel: t('workbench.operationPreview.action.checkout'),
+            operation,
+          }) ?? Promise.resolve(false))
     if (!confirmed) return
     setBusy(true)
     setError(null)

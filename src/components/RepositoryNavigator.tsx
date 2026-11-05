@@ -100,6 +100,9 @@ export function RepositoryNavigator(props: Props) {
       {section('submodules', 'nav.submodules', null, undefined, undefined, 'submodules')}
       {showsForge('gitlab', 'mrs') ? section('mrs', 'nav.mrs', null, undefined, undefined, 'mrs') : null}
       {showsForge('github', 'prs') ? section('prs', 'nav.prs', null, undefined, undefined, 'prs') : null}
+      {props.linkProvider !== null || props.gitlabConnected || props.githubConnected
+        ? section('pipelines', 'nav.pipelines', null, undefined, undefined, 'pipelines')
+        : null}
       {section('patches', 'nav.patches', null, undefined, undefined, 'patches')}
       {section('search', 'nav.search', null, undefined, undefined, 'search')}
       {section('operations', 'nav.group.operations', <div className={styles.operations}>

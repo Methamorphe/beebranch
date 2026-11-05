@@ -17,6 +17,7 @@ const messages = {
   'nav.submodules': 'Sous-modules',
   'nav.mrs': 'Merge requests',
   'nav.prs': 'Pull requests',
+  'nav.pipelines': 'Pipelines',
   'nav.terminal': 'Terminal',
   'nav.description.terminal': 'Un shell dans le dossier du dépôt.',
   'nav.sync': 'Synchronisation',
@@ -39,6 +40,8 @@ const messages = {
   'nav.description.stash': 'Mettez vos modifications de côté et reprenez-les plus tard.',
   'nav.description.mrs': 'Retrouvez vos merge requests GitLab, les discussions et les pipelines.',
   'nav.description.prs': 'Retrouvez vos pull requests GitHub, les revues et les checks.',
+  'nav.description.pipelines':
+    'Suivez tous les pipelines du dépôt et ouvrez les jobs d’un pipeline.',
   'nav.description.search': 'Retrouvez un commit, un fichier ou du texte dans votre dépôt.',
   'nav.description.conflicts': 'Comparez les versions et choisissez le contenu à conserver.',
   'nav.description.rebase': 'Réordonnez et regroupez vos commits avant de les partager.',

@@ -203,6 +203,7 @@ All commands are typed, versioned, and return `Result<T, AppError>`.
 | Undo | `undo_apply`, `redo_apply` (typed Git inverses, SQLite journal) |
 | GitLab | `gitlab_configure`, `gitlab_validate`, `gitlab_projects_page`, `gitlab_mr_page`, `gitlab_mr_get`, `gitlab_mr_create`, `gitlab_mr_diffs`, `gitlab_pipelines` |
 | GitHub | `github_configure`, `github_validate`, `github_projects_page`, `github_pr_page`, `github_pr_get`, `github_pr_create`, `github_pr_checks`, `github_merge_pr` |
+| CI | `pipeline_overview`, `pipeline_jobs`, `pipeline_recent`, `pipeline_history` |
 | Diagnostics | `diagnostics_export` (redacted) |
 
 ### Events

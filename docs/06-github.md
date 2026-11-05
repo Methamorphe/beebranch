@@ -98,7 +98,7 @@ copied to the `beebranch.github` OS keychain, SQLite, or logs.
 | reviews | `GET/POST /repos/{o}/{r}/pulls/{n}/reviews` |
 | approval dismissal | `PUT /repos/{o}/{r}/pulls/{n}/reviews/{id}/dismissals` |
 | merge | `PUT /repos/{o}/{r}/pulls/{n}/merge` |
-| Actions runs | `GET /repos/{o}/{r}/actions/runs?head_sha={sha}` |
+| Actions runs | `GET /repos/{o}/{r}/actions/runs?head_sha={sha}` (commit scope) and `GET /repos/{o}/{r}/actions/runs` (repository scope) |
 | run jobs | `GET /repos/{o}/{r}/actions/runs/{id}/jobs` |
 | job logs | `GET /repos/{o}/{r}/actions/jobs/{id}/logs` (signed redirect) |
 

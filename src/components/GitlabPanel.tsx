@@ -28,7 +28,7 @@ import {
 } from '../i18n'
 import type { GitlabProject, GitlabSession } from '../types/git'
 import { gitlabForge, tokenCreateUrl, type ForgeNotice } from '../lib/forge'
-import { useOperationConfirm } from './OperationConfirm'
+import { useCheckoutConfirm } from './OperationConfirm'
 import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import { ForgeHubHeader, type ForgeHubTab } from './ForgeHubHeader'
 import styles from './GitlabPanel.module.css'
@@ -64,7 +64,7 @@ export function RichMessage({
 
 export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) {
   const { t } = useI18n()
-  const confirmOperation = useOperationConfirm()
+  const confirmCheckout = useCheckoutConfirm()
   const [session, setSession] = useState<GitlabSession | null>(null)
   const [projects, setProjects] = useState<GitlabProject[]>([])
   const [nextPage, setNextPage] = useState<number | undefined>()
@@ -587,7 +587,7 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
           connected={session.connected}
           onCheckout={(branch) => {
             if (!repoId) return
-            void confirmOperation({
+            void confirmCheckout(repoId, {
               title: t('workbench.operationPreview.title.checkout', { target: branch }),
               confirmLabel: t('workbench.operationPreview.action.checkout'),
               operation: { kind: 'checkout', name: branch },

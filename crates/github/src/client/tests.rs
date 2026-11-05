@@ -437,6 +437,68 @@ async fn maps_actions_runs_to_pipelines_for_one_sha() {
 }
 
 #[tokio::test]
+async fn maps_actions_runs_across_branches_to_pipelines() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/actions/runs"))
+        .and(query_param("per_page", "20"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "workflow_runs": [
+                {
+                    "id": 902,
+                    "name": "CI",
+                    "status": "in_progress",
+                    "conclusion": null,
+                    "head_sha": "sha-b",
+                    "head_branch": "release/dev",
+                    "html_url": "https://github.example.test/runs/902"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let runs = client(&server)
+        .workflow_runs(&repo_ref(), 20)
+        .await
+        .expect("runs");
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].ref_name.as_deref(), Some("release/dev"));
+    assert_eq!(runs[0].status, "running");
+}
+
+#[tokio::test]
+async fn pages_through_repository_runs() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/team/app/actions/runs"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header(
+                    "Link",
+                    "<https://api.github.com/repos/team/app/actions/runs?page=3>; rel=\"next\"",
+                )
+                .set_body_json(json!({
+                    "workflow_runs": [{ "id": 910, "name": "CI", "status": "queued" }]
+                })),
+        )
+        .mount(&server)
+        .await;
+
+    let page = client(&server)
+        .workflow_runs_page(&repo_ref(), 2, 2)
+        .await
+        .expect("page");
+
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].status, "pending");
+    assert_eq!(page.next_page, Some(3));
+}
+
+#[tokio::test]
 async fn groups_review_comments_into_threads_and_keeps_issue_comments() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

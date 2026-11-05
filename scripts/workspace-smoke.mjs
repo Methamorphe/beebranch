@@ -203,16 +203,128 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     return true
   })()`)
   await waitFor(client, `!document.body.innerText.includes('Opération en cours :')`, 'clean branch checkout state')
+  const beforeCheckout = await evaluate(client, `(window.__workspaceCalls ?? []).filter(([name]) => name === 'branch_checkout').length`)
   await evaluate(client, `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/feature"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
-  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Basculer sur feature') === true`, 'checkout preview')
-  await check('checkout-preview-read-first', `(window.__workspaceCalls ?? []).some(([name]) => name === 'operation_preview')`)
-  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Annuler')).click()`)
-  await delay(60)
-  await check('checkout-preview-cancel-does-nothing', `!(window.__workspaceCalls ?? []).some(([name]) => name === 'branch_checkout')`)
-  await evaluate(client, `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/feature"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
-  await confirmPreview()
-  await waitFor(client, `window.__workspaceCalls.some(([name]) => name === 'branch_checkout')`, 'direct branch checkout')
+  await waitFor(client, `(window.__workspaceCalls ?? []).filter(([name]) => name === 'branch_checkout').length > ${beforeCheckout}`, 'direct branch checkout')
+  await check('checkout-switches-without-asking', `!document.querySelector('[role="alertdialog"]') && (window.__workspaceCalls ?? []).some(([name, args]) => name === 'operation_preview' && args.request.operation.kind === 'checkout')`)
   await check('checkout-keeps-workspace', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('[data-central-editor]')`)
+  // A checkout Git would refuse still reads its summary first and never switches.
+  await evaluate(client, `(() => {
+    window.__checkoutInvoke = window.__TAURI_INTERNALS__.invoke
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'operation_preview' && args.request.operation.kind === 'checkout') {
+        return { commits:0, behind:0, files:0, additions:0, deletions:0, conflictCheck:'clean', conflictedFiles:[],
+          stashesLocalChanges:false, upstreamMissing:false,
+          blockedReason:'Terminez l’opération Git en cours avant de changer de branche.' }
+      }
+      return window.__checkoutInvoke(command, args)
+    }
+    return true
+  })()`)
+  await evaluate(client, `document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/feature"]').dispatchEvent(new MouseEvent('dblclick', { bubbles:true }))`)
+  await waitFor(client, `document.querySelector('[role="alertdialog"]')?.innerText.includes('Terminez l’opération') === true`, 'blocked checkout summary')
+  await check('blocked-checkout-does-not-switch', `(window.__workspaceCalls ?? []).filter(([name]) => name === 'branch_checkout').length === ${beforeCheckout + 1}`)
+  await evaluate(client, `([...document.querySelectorAll('[role="alertdialog"] button')].find((button) => button.textContent.trim() === 'Annuler')).click()`)
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__checkoutInvoke; return true })()`)
+  await delay(60)
+
+  // The commit indicator stays scoped, while the panel must also list the
+  // repository's pipelines: a run on another branch cannot stay invisible.
+  await evaluate(client, `(() => {
+    window.__pipelineInvoke = window.__TAURI_INTERNALS__.invoke
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'pipeline_overview') {
+        return { provider:'gitlab', projectId:7, projectPath:'team/app', projectName:'app',
+          projectWebUrl:'https://gitlab.example.test/team/app', branch:'release/test',
+          sha:'9789562500000000000000000000000000000000',
+          pipelines:[{ id:2301, status:'pending', refName:'release/test',
+            sha:'9789562500000000000000000000000000000000',
+            webUrl:'https://gitlab.example.test/p/2301', detailedStatus:'pending' }] }
+      }
+      if (command === 'pipeline_recent') {
+        return [
+          { id:2301, status:'running', refName:'release/test',
+            sha:'9789562500000000000000000000000000000000',
+            webUrl:'https://gitlab.example.test/p/2301', detailedStatus:'running' },
+          { id:2300, status:'running', refName:'release/dev',
+            sha:'9004a54200000000000000000000000000000000',
+            webUrl:'https://gitlab.example.test/p/2300', detailedStatus:'running' },
+        ]
+      }
+      if (command === 'pipeline_jobs') return []
+      return window.__pipelineInvoke(command, args)
+    }
+    window.__generationOverride = 6
+    window.__emitTauriEvent('repo://changed', { repoId:'repo_demo', generation:6, areas:['state'] })
+    return true
+  })()`)
+  await waitFor(client, `Boolean(document.querySelector('[aria-label^="État des pipelines du dépôt"]'))`, 'pipeline indicator')
+  await evaluate(client, `document.querySelector('[aria-label^="État des pipelines du dépôt"]').click()`)
+  await waitFor(client, `Boolean(document.querySelector('[role="tablist"] [role="tab"]'))`, 'pipeline scopes')
+  await check('pipeline-panel-scopes', `(() => {
+    const tabs = [...document.querySelectorAll('[role="tablist"] [role="tab"]')].map((tab) => tab.textContent.trim())
+    return tabs.includes('Commit') && tabs.includes('Dépôt')
+  })()`)
+  await evaluate(client, `[...document.querySelectorAll('[role="tablist"] [role="tab"]')].find((tab) => tab.textContent.trim() === 'Dépôt').click()`)
+  await waitFor(client, `document.body.innerText.includes('#2300')`, 'repository pipelines')
+  await check('pipeline-repository-lists-other-branches', `(() => {
+    const text = document.querySelector('[role="tablist"]').parentElement.innerText
+    return text.includes('release/test') && text.includes('release/dev') && text.includes('#2300')
+  })()`)
+  await evaluate(client, `document.querySelector('[popover]:popover-open')?.hidePopover()`)
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__pipelineInvoke; return true })()`)
+  await delay(60)
+
+  // The left navigator lists the repository's pipelines and opens one's jobs
+  // without leaving the tool.
+  await evaluate(client, `(() => {
+    window.__historyInvoke = window.__TAURI_INTERNALS__.invoke
+    window.__historyCalls = []
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'pipeline_history') {
+        window.__historyCalls.push(args.page ?? 1)
+        if ((args.page ?? 1) > 1) return { items: [], nextPage: undefined }
+        return {
+          items: [
+            { id:2303, status:'success', refName:'release/test',
+              sha:'9789562500000000000000000000000000000000',
+              updatedAt:'2026-11-04T16:40:00Z' },
+            { id:2300, status:'running', refName:'release/dev',
+              sha:'9004a54200000000000000000000000000000000',
+              updatedAt:'2026-11-04T16:30:00Z' },
+          ],
+          nextPage: 2,
+        }
+      }
+      if (command === 'pipeline_jobs') {
+        return [
+          { id:1, name:'compile', stage:'build', status:'success', duration:12.5 },
+          { id:2, name:'smoke', stage:'test', status:'running', duration:3 },
+        ]
+      }
+      return window.__historyInvoke(command, args)
+    }
+    return true
+  })()`)
+  await evaluate(client, `document.querySelector('[data-repository-section="pipelines"] button[aria-controls="repository-pipelines"]').click()`)
+  await waitFor(client, `Boolean(document.querySelector('[data-repository-tool="pipelines"]'))`, 'pipeline history tool')
+  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('#2300')`, 'pipeline history rows')
+  await check('pipelines-history-lists-refs', `(() => {
+    const text = document.querySelector('[data-repository-tool="pipelines"]').innerText
+    return text.includes('release/test') && text.includes('release/dev') && text.includes('#2303')
+  })()`)
+  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.trim() === 'Charger plus').click()`)
+  await waitFor(client, `window.__historyCalls.includes(2)`, 'pipeline history next page')
+  await evaluate(client, `document.querySelector('[data-repository-tool="pipelines"] [data-pipeline="2300"]').click()`)
+  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('smoke')`, 'pipeline jobs')
+  await check('pipelines-history-opens-jobs', `(() => {
+    const text = document.querySelector('[data-repository-tool="pipelines"]').innerText
+    const lower = text.toLowerCase()
+    return text.includes('#2300') && lower.includes('build') && lower.includes('compile') && lower.includes('test')
+  })()`)
+  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.includes('Tous les pipelines')).click()`)
+  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('#2303')`, 'pipeline history back')
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__historyInvoke; return true })()`)
 
   // Issue #19: drag a graph branch onto a left-panel local branch.
   await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)

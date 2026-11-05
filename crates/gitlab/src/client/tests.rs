@@ -603,6 +603,52 @@ async fn maps_validation_errors_on_creation() {
 }
 
 #[tokio::test]
+async fn lists_every_pipeline_of_a_project() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/7/pipelines"))
+        .and(query_param("per_page", "20"))
+        .and(query_param("order_by", "id"))
+        .and(query_param("sort", "desc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": 2301, "status": "pending", "ref": "release/test", "sha": "97895625", "web_url": "https://gitlab.example.test/p/2301"},
+            {"id": 2300, "status": "running", "ref": "release/dev", "sha": "9004a542", "web_url": null}
+        ])))
+        .mount(&server)
+        .await;
+
+    let pipelines = client(&server).pipelines(7, 20).await.expect("pipelines");
+
+    assert_eq!(pipelines.len(), 2);
+    assert_eq!(pipelines[0].ref_name.as_deref(), Some("release/test"));
+    assert_eq!(pipelines[0].status, "pending");
+    assert_eq!(pipelines[1].status, "running");
+}
+
+#[tokio::test]
+async fn pages_through_project_pipelines() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/7/pipelines"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-next-page", "3")
+                .set_body_json(json!([
+                    {"id": 2290, "status": "success", "ref": "develop", "sha": "abc"}
+                ])),
+        )
+        .mount(&server)
+        .await;
+
+    let page = client(&server).pipelines_page(7, 2, 2).await.expect("page");
+
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.next_page, Some(3));
+}
+
+#[tokio::test]
 async fn lists_merge_request_pipelines() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

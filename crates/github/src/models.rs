@@ -69,6 +69,8 @@ pub struct GithubPipeline {
     pub ref_name: Option<String>,
     pub sha: Option<String>,
     pub web_url: Option<String>,
+    /// ISO-8601 timestamp of the last update, when the forge reports it.
+    pub updated_at: Option<String>,
 }
 
 /// Pull request subset used by lists, detail and creation flows.

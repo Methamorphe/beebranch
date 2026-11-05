@@ -8,6 +8,7 @@ const paths: Partial<Record<IconKey, string[]>> = {
   branch: ['M6 3v18M6 15a12 12 0 0 0 12-12', 'M3 5h6M15 5h6M3 19h6'],
   stash: ['M3 8h18v13H3zM2 3h20v5H2zM9 12h6'],
   mrs: ['M6 3v18M18 21v-8a7 7 0 0 0-7-7', 'm14 3-3 3 3 3M3 5h6M15 19h6'],
+  pipelines: ['M3 12h4l2.5-6 4 12 2.5-6h5'],
   search: ['M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15ZM16 16l5 5'],
   conflicts: ['m12 3 10 18H2zM12 9v5M12 17v.1'],
   rebase: ['M6 3v18M18 3v6a6 6 0 0 1-6 6H6M3 5h6M15 5h6M3 19h6'],

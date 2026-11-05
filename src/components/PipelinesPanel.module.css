@@ -1,0 +1,225 @@
+/* Compact history list for the repository navigator. */
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px 8px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.caption,
+.muted {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.ghost {
+  flex: none;
+  padding: 2px 5px;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.back {
+  overflow: hidden;
+  color: var(--accent-text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.back:hover {
+  text-decoration: underline;
+}
+
+.list,
+.jobList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  text-align: left;
+}
+
+.row:hover {
+  background: var(--surface-raised);
+}
+
+.id {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.age {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot[data-state='success'] {
+  background: var(--success);
+}
+
+.dot[data-state='running'],
+.dot[data-state='pending'] {
+  background: var(--warning);
+}
+
+.dot[data-state='failed'],
+.dot[data-state='canceled'] {
+  background: var(--error);
+}
+
+.more {
+  align-self: flex-start;
+  padding: 3px 6px;
+  color: var(--accent-text);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.more:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.mono {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.entryState {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stageName {
+  color: var(--muted-strong);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.job {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.job:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.jobName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.error {
+  margin: 0;
+  color: var(--error);
+  font-size: 11px;
+}

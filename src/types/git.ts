@@ -607,6 +607,10 @@ export type GitlabPipeline = {
   refName?: string
   sha?: string
   webUrl?: string
+  /** GitLab pipeline source (`push`, `merge_request_event`, `schedule`, ...). */
+  source?: string
+  /** ISO-8601 timestamp of the last update, when the forge reports it. */
+  updatedAt?: string
 }
 
 export type GitlabMergeRequest = {
@@ -644,6 +648,12 @@ export type PipelineState =
   | 'unknown'
 
 /** Pipelines attached to one commit, across both forge providers. */
+/** One page of the repository's pipelines, newest first. */
+export type PipelineHistory = {
+  items: GitlabPipeline[]
+  nextPage?: number
+}
+
 export type PipelineOverview = {
   provider: 'gitlab' | 'github'
   projectId: number
