@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **A branch switch runs without asking**: checking out a local branch or a commit from the branch menus, the graph, a review request or the status bar switches directly when Git would accept it; only a checkout Git would refuse (operation in progress, unresolved conflicts) or one that would move an existing local branch onto a remote branch reads its summary first. Local changes are stashed by the switch and restored by its undo.
+- **Repository CI in the pipeline panel**: the panel now declares a *Commit* / *Repository* scope. The repository scope lists the linked project's recent pipelines across every ref — branches, tags, merge requests — with the ref and commit, expandable jobs and a link to the forge; the toolbar indicator still reports the checked-out commit.
+
 ## [1.7.0] — 2026-11-04
 
 ### Changed
