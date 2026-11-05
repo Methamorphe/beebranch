@@ -2608,10 +2608,11 @@ try {
     return {
       fillHeader: Math.abs(header.getBoundingClientRect().height - tab.getBoundingClientRect().height) <= 1,
       native: strip.offsetHeight - strip.clientHeight,
+      overflowX: getComputedStyle(strip).overflowX,
       opacity: Number(getComputedStyle(bar).opacity),
     }
   })()`)
-  assertUI('repo-tabs-overlay-keeps-header-height', overflowIdle.fillHeader && overflowIdle.native === 0 && overflowIdle.opacity < 0.05)
+  assertUI('repo-tabs-overlay-keeps-header-height', overflowIdle.fillHeader && overflowIdle.native === 0 && overflowIdle.overflowX === 'hidden' && overflowIdle.opacity < 0.05)
   await screenshot(client, 'ux-topbar-overflow.png')
   const overflowHover = await evaluate(client, `(() => {
     const strip = document.querySelector('[aria-label="Dépôts ouverts"]').getBoundingClientRect()

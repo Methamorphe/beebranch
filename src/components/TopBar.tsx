@@ -56,6 +56,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
   const order = useRef<string[]>([])
   const endDrag = useRef<(() => void) | null>(null)
   const addButton = useRef<HTMLButtonElement>(null)
+  const wrap = useRef<HTMLDivElement>(null)
   const strip = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLDivElement>(null)
   const [overflowing, setOverflowing] = useState(false)
@@ -144,23 +145,39 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
 
   useEffect(() => () => endDrag.current?.(), [])
 
-  // Overlay scrollbar: native bars steal height from the 43px header, so the
-  // strip scrolls with the system bar hidden and a thumb painted on top.
+  // Native overflow bars (GTK overlay on WebKitGTK in particular) ignore
+  // `::-webkit-scrollbar { display:none }` and still sit in the 43px header.
+  // The strip uses overflow:hidden; wheel/trackpad pan scrollLeft ourselves
+  // and a hover thumb is painted on top.
   useLayoutEffect(() => {
     const el = strip.current
+    const host = wrap.current
     const bar = overlay.current
-    if (!el || !bar) return
+    if (!el || !host || !bar) return
     const sync = () => {
       const next = syncOverlay(el, bar)
       setOverflowing((prev) => (prev === next ? prev : next))
+    }
+    const onWheel = (event: WheelEvent) => {
+      const max = el.scrollWidth - el.clientWidth
+      if (max <= 1) return
+      const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? raw * 16 : raw
+      if (delta === 0) return
+      const next = Math.min(max, Math.max(0, el.scrollLeft + delta))
+      if (next === el.scrollLeft) return
+      event.preventDefault()
+      el.scrollLeft = next
     }
     sync()
     const observer = new ResizeObserver(sync)
     observer.observe(el)
     el.addEventListener('scroll', sync, { passive: true })
+    host.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       observer.disconnect()
       el.removeEventListener('scroll', sync)
+      host.removeEventListener('wheel', onWheel)
     }
   }, [repos, launcherOpen])
 
@@ -217,7 +234,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
     <div className={styles.brandSlot}><Brand /></div>
     {workspaceSelector}
     <div className={styles.tabsGroup}>
-    <div className={styles.strip}>
+    <div ref={wrap} className={styles.strip}>
     <div ref={strip} className={styles.repoTabs} role="group" aria-label={t('shell.topbar.openRepos')} data-dragging={dragId ? 'true' : undefined}>
       {repos.map((entry) => {
         const id = entry.repo.repoId

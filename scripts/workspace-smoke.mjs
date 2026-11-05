@@ -92,6 +92,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     const bar = document.querySelector('[data-tab-overlay]')
     strip.scrollLeft = 24
     return Math.abs(header.getBoundingClientRect().height - tab.getBoundingClientRect().height) <= 1
+      && getComputedStyle(strip).overflowX === 'hidden'
       && strip.offsetHeight - strip.clientHeight === 0
       && Number(getComputedStyle(bar).opacity) < 0.05
   })()`)
