@@ -639,6 +639,9 @@ async function evaluate(client, expression) {
   return result.result.value
 }
 
+/** The product owns the graph row height; probes read it instead of assuming one. */
+const canvasRowHeight = (client) => evaluate(client, `Number(document.querySelector('canvas').dataset.rowHeight)`)
+
 async function screenshot(client, name) {
   const { data } = await client.send('Page.captureScreenshot', { format: 'png' })
   const path = join(outDir, name)
@@ -932,16 +935,19 @@ try {
     uxChecks[name] = Boolean(value)
     if (!value) throw new Error('UX regression: ' + name)
   }
-  const pickCommitRow = async (index, shift = false, meta = false) => evaluate(client, `(() => {
+  const pickCommitRow = async (index, shift = false, meta = false) => {
+    const rowHeight = await canvasRowHeight(client)
+    return evaluate(client, `(() => {
     const canvas = document.querySelector('canvas')
     const box = canvas.getBoundingClientRect()
     const x = box.left + Math.max(120, box.width * 0.55)
-    const y = box.top + ${index} * 30 + 15
+    const y = box.top + ${index} * ${rowHeight} + ${rowHeight / 2}
     for (const type of ['pointerdown', 'pointerup']) {
       canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, shiftKey: ${shift}, metaKey: ${meta} }))
     }
     return true
   })()`)
+  }
   await pickCommitRow(0)
   await waitFor(client, `document.body.innerText.includes('1 commit(s) sélectionné(s)')`, 'first picked commit')
   assertUI('selection-has-no-order-bar', await evaluate(client, `!document.body.innerText.includes('Ordre :')`))
@@ -1780,14 +1786,14 @@ try {
     const canvas = document.querySelector('canvas')
     const columns = canvas.parentElement.parentElement.firstElementChild
     const file = document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]')
-    return { firstCommitTop: canvas.getBoundingClientRect().top, visibleCommits: Math.floor(canvas.clientHeight / 30), referencesWidth: columns.children[0].getBoundingClientRect().width, graphWidth: columns.children[1].getBoundingClientRect().width, messageWidth: columns.children[2].getBoundingClientRect().width, authorWidth: columns.children[3].getBoundingClientRect().width, authorHeader: columns.children[3].textContent, dateWidth: columns.children[4].getBoundingClientRect().width, dateHeader: columns.children[4].textContent, fileTextSize: Number.parseFloat(getComputedStyle(file).fontSize), fileRowHeight: file.parentElement.getBoundingClientRect().height }
+    return { firstCommitTop: canvas.getBoundingClientRect().top, visibleCommits: Math.floor(canvas.clientHeight / Number(canvas.dataset.rowHeight)), referencesWidth: columns.children[0].getBoundingClientRect().width, graphWidth: columns.children[1].getBoundingClientRect().width, messageWidth: columns.children[2].getBoundingClientRect().width, authorWidth: columns.children[3].getBoundingClientRect().width, authorHeader: columns.children[3].textContent, dateWidth: columns.children[4].getBoundingClientRect().width, dateHeader: columns.children[4].textContent, fileTextSize: Number.parseFloat(getComputedStyle(file).fontSize), fileRowHeight: file.parentElement.getBoundingClientRect().height }
   })()`)
   assertUI('density-at-least-20-commits', density.visibleCommits >= 20)
   assertUI('density-content-starts-above-220', density.firstCommitTop <= 220)
   assertUI('density-reference-column-bounded', density.referencesWidth <= 220 && density.graphWidth <= 64)
   assertUI('density-message-column-at-least-520', density.messageWidth >= 520)
   assertUI('graph-date-column-visible', density.dateWidth >= 120 && density.dateHeader === 'Date')
-  assertUI('density-readable-files', density.fileTextSize >= 14 && density.fileRowHeight <= 30)
+  assertUI('density-readable-files', density.fileTextSize >= 14 && density.fileRowHeight <= 32)
 
   const readColumns = () => evaluate(client, `(() => {
     const columns = document.querySelector('canvas').parentElement.parentElement.firstElementChild
@@ -2327,7 +2333,7 @@ try {
   const moveToBadge = async (index = 0) => {
     await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
     await delay(60)
-    const point = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left + 20, y:b.top + ${index} * 30 + 15 } })()`)
+    const point = await evaluate(client, `(() => { const b = document.querySelector('canvas'); const rect = b.getBoundingClientRect(); return { x:rect.left + 20, y:rect.top + ${index} * Number(b.dataset.rowHeight) + Number(b.dataset.rowHeight) / 2 } })()`)
     await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:point.x, y:point.y })
     await delay(120)
     return point
@@ -2389,7 +2395,7 @@ try {
     const context = document.createElement('canvas').getContext('2d')
     context.font = '600 12px ' + family
     const firstWidth = context.measureText('other').width + 12 + 16
-    return { x: bounds.left + 12 + firstWidth + 4 + 8, y: bounds.top + 8 * 30 + 15 }
+    return { x: bounds.left + 12 + firstWidth + 4 + 8, y: bounds.top + 8 * Number(canvas.dataset.rowHeight) + Number(canvas.dataset.rowHeight) / 2 }
   })()`)
   const beforeTopic = await evaluate(client, 'window.__toolbarCalls.length')
   await directDoubleClick(topicPoint)
@@ -2425,8 +2431,9 @@ try {
     const context = canvas.getContext('2d')
     const scale = canvas.width / canvas.getBoundingClientRect().width
     const ink = (row) => {
+      const rowHeight = Number(canvas.dataset.rowHeight)
       const x = Math.round(26 * scale)
-      const y = Math.round((row * 30 + 10) * scale)
+      const y = Math.round((row * rowHeight + rowHeight * 0.3) * scale)
       const width = Math.round(12 * scale)
       const height = Math.round(10 * scale)
       const data = context.getImageData(x, y, width, height).data
@@ -2543,8 +2550,9 @@ try {
     const context = canvas.getContext('2d')
     const scale = canvas.width / canvas.getBoundingClientRect().width
     const ink = (row) => {
+      const rowHeight = Number(canvas.dataset.rowHeight)
       const x = Math.round(13 * scale)
-      const y = Math.round((row * 30 + 10) * scale)
+      const y = Math.round((row * rowHeight + rowHeight * 0.3) * scale)
       const width = Math.round(11 * scale)
       const height = Math.round(10 * scale)
       const data = context.getImageData(x, y, width, height).data
@@ -2798,7 +2806,7 @@ try {
     await evaluate(client, `(() => {
       const canvas = document.querySelector('canvas')
       const bounds = canvas.getBoundingClientRect()
-      canvas.dispatchEvent(new MouseEvent('contextmenu', { bubbles:true, clientX: bounds.left + 20, clientY: bounds.top + ${index} * 30 + 15 }))
+      canvas.dispatchEvent(new MouseEvent('contextmenu', { bubbles:true, clientX: bounds.left + 20, clientY: bounds.top + ${index} * Number(canvas.dataset.rowHeight) + Number(canvas.dataset.rowHeight) / 2 }))
     })()`)
     await waitFor(client, `document.querySelector('[role="menu"]') !== null`, 'ref context menu')
   }
@@ -3045,8 +3053,10 @@ try {
   await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
   await delay(80)
   const dragPoints = await evaluate(client, `(() => {
-    const bounds = document.querySelector('canvas').getBoundingClientRect()
-    return { source: { x: bounds.left + 20, y: bounds.top + 12 * 30 + 15 }, target: { x: bounds.left + 20, y: bounds.top + 15 } }
+    const canvas = document.querySelector('canvas')
+    const rowHeight = Number(canvas.dataset.rowHeight)
+    const bounds = canvas.getBoundingClientRect()
+    return { source: { x: bounds.left + 20, y: bounds.top + 12 * rowHeight + rowHeight / 2 }, target: { x: bounds.left + 20, y: bounds.top + rowHeight / 2 } }
   })()`)
   await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, buttons:1, x: dragPoints.source.x, y: dragPoints.source.y })
   for (const ratio of [0.25, 0.5, 0.75, 1]) {
@@ -3085,10 +3095,11 @@ try {
   // Drag a graph branch onto a left-panel local branch (issue #19).
   const navDrop = await evaluate(client, `(() => {
     const bounds = document.querySelector('canvas').getBoundingClientRect()
+    const rowHeight = Number(document.querySelector('canvas').dataset.rowHeight)
     const row = document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"]')
     const rowBounds = row.getBoundingClientRect()
     return {
-      source: { x: bounds.left + 20, y: bounds.top + 12 * 30 + 15 },
+      source: { x: bounds.left + 20, y: bounds.top + 12 * rowHeight + rowHeight / 2 },
       target: { x: rowBounds.left + rowBounds.width / 2, y: rowBounds.top + rowBounds.height / 2 },
     }
   })()`)

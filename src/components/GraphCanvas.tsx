@@ -1445,6 +1445,7 @@ export function GraphCanvas({
           className={styles.canvas}
           data-branch-focus={focusTip ?? undefined}
           data-dragging={drag ? 'true' : undefined}
+          data-row-height={ROW_HEIGHT}
           role="img"
           tabIndex={0}
           aria-label={t('graph.canvas.aria', { count: commits.length })}
