@@ -94,12 +94,19 @@
   background: transparent;
 }
 
+:global(:root[data-visual='readable-beta']) .file,
+:global(:root[data-visual='readable-beta']) .fileActive {
+  min-height: 32px;
+  gap: 8px;
+  padding: 8px;
+}
+
 :global(:root[data-visual='readable-beta']) .filePath,
 :global(:root[data-visual='readable-beta']) .fileHeading {
   font-family: var(--sans);
   font-size: 13px;
   font-weight: 400;
-  line-height: 1.45;
+  line-height: 16px;
 }
 
 :global(:root[data-visual='readable-beta']) .directory {
