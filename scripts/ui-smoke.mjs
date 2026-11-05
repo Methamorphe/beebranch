@@ -2013,6 +2013,16 @@ try {
   await go('graph')
   await go('status')
   assertUI('draft-survives-navigation', await evaluate(client, `document.querySelector('textarea').value === 'fix: conserver mon brouillon'`))
+  await evaluate(client, `document.querySelector('canvas').focus()`)
+  await key('ArrowDown')
+  const fromCanvas = await evaluate(client, `(() => {
+    const first = document.querySelector('section[aria-label="À préparer"] button[title="notes/file-0.md"]')
+    return {
+      focusedFirst: document.activeElement === first,
+      onCanvas: document.activeElement?.tagName === 'CANVAS',
+    }
+  })()`)
+  assertUI('status-arrow-from-canvas-opens-first-file', fromCanvas.focusedFirst && !fromCanvas.onCanvas)
   await evaluate(client, `document.querySelector('section[aria-label="À préparer"] button[title="notes/file-0.md"]').click()`)
   await waitFor(client, `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Rendu') && document.querySelector('[data-markdown-view]') === null`, 'markdown render toggle')
   await evaluate(client, `(() => { const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Rendu'); button?.click() })()`)
@@ -2059,6 +2069,32 @@ try {
     }
   })()`)
   assertUI('status-arrow-from-checkbox-moves-file', arrowFromCheckbox.focusedNext && !arrowFromCheckbox.focusedCheckbox)
+  await evaluate(client, `document.querySelector('section[aria-label="À préparer"] button[title="src/module-23.ts"]').click()`)
+  await waitFor(client, `document.querySelector('section[aria-label="À préparer"] [data-nav-key="worktree:src/module-23.ts"][data-selected="true"]') !== null`, 'last unstaged file')
+  await key('ArrowDown')
+  const crossedGroups = await evaluate(client, `(() => {
+    const staged = document.querySelector('section[aria-label="Prêts à committer"] button[title="src/module-3.ts"]')
+    return {
+      focusedStaged: document.activeElement === staged,
+      selectedStaged: staged?.closest('[data-nav-key]')?.getAttribute('data-selected') === 'true',
+      onCanvas: document.activeElement?.tagName === 'CANVAS',
+      onMain: document.activeElement?.id === 'main-content',
+    }
+  })()`)
+  assertUI('status-arrow-crosses-to-staged', crossedGroups.focusedStaged && crossedGroups.selectedStaged)
+  assertUI('status-arrow-keeps-file-context', !crossedGroups.onCanvas && !crossedGroups.onMain)
+  await evaluate(client, `document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]').click()`)
+  await evaluate(client, `document.getElementById('main-content').focus()`)
+  await key('ArrowDown')
+  const fromMain = await evaluate(client, `(() => {
+    const next = document.querySelector('section[aria-label="À préparer"] button[title="src/module-2.ts"]')
+    return {
+      focusedNext: document.activeElement === next,
+      onMain: document.activeElement?.id === 'main-content',
+      onCanvas: document.activeElement?.tagName === 'CANVAS',
+    }
+  })()`)
+  assertUI('status-arrow-from-main-stays-in-list', fromMain.focusedNext && !fromMain.onMain && !fromMain.onCanvas)
   assertUI('diff-stays-in-changes', await evaluate(client, `document.querySelector('main h1').textContent === 'Historique' && document.querySelector('textarea') !== null`))
   assertUI('no-duplicate-file-sidebar', await evaluate(client, `!document.querySelector('aside[aria-label="Fichiers modifiés"]')`))
   await evaluate(client, `document.querySelector('button[aria-label="Préparer src/module-1.ts"]').click()`)
