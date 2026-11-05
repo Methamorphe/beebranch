@@ -2030,6 +2030,29 @@ try {
   await waitFor(client, `!document.querySelector('[data-markdown-view]')`, 'markdown preview closed')
   await evaluate(client, `document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]').click()`)
   await waitFor(client, `document.querySelector('input[aria-label="Sélectionner cette ligne"]') !== null`, 'inline worktree diff')
+  const arrowFromPath = await evaluate(client, `(() => {
+    const path = document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]')
+    path.focus()
+    path.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    const active = document.activeElement
+    return {
+      focusedNext: active === document.querySelector('section[aria-label="À préparer"] button[title="src/module-2.ts"]'),
+      focusedCheckbox: active instanceof HTMLInputElement && active.type === 'checkbox',
+    }
+  })()`)
+  assertUI('status-arrow-moves-to-next-file', arrowFromPath.focusedNext)
+  assertUI('status-arrow-skips-row-checkbox', !arrowFromPath.focusedCheckbox)
+  const arrowFromCheckbox = await evaluate(client, `(() => {
+    const box = document.querySelector('input[aria-label="Sélectionner src/module-2.ts"]')
+    box.focus()
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    const active = document.activeElement
+    return {
+      focusedNext: active === document.querySelector('section[aria-label="À préparer"] button[title="src/module-4.ts"]'),
+      focusedCheckbox: active instanceof HTMLInputElement && active.type === 'checkbox',
+    }
+  })()`)
+  assertUI('status-arrow-from-checkbox-moves-file', arrowFromCheckbox.focusedNext && !arrowFromCheckbox.focusedCheckbox)
   assertUI('diff-stays-in-changes', await evaluate(client, `document.querySelector('main h1').textContent === 'Historique' && document.querySelector('textarea') !== null`))
   assertUI('no-duplicate-file-sidebar', await evaluate(client, `!document.querySelector('aside[aria-label="Fichiers modifiés"]')`))
   await evaluate(client, `document.querySelector('button[aria-label="Préparer src/module-1.ts"]').click()`)
