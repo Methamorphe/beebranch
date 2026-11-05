@@ -297,7 +297,7 @@ GET /projects/:id/pipelines/:pipeline_id/jobs?per_page=100
 GET /projects/:id/jobs/:job_id/trace
 ```
 
-- The toolbar indicator reports the pipelines attached to the checked-out commit; the pipeline panel's repository scope lists the recent pipelines of every ref.
+- The toolbar indicator reports the pipelines attached to the checked-out commit; the pipeline panel's repository scope lists the recent pipelines of every ref, and the navigator's Pipelines section pages through the full history (`X-Next-Page`) and shows one pipeline's jobs without leaving the application.
 - The MR exposes `head_pipeline`: `id`, `status`, `ref`, `sha`, `web_url`, `detailed_status`.
 - Mapped statuses:
 

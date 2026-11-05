@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Pipeline history and detail**: the repository navigator gains a *Pipelines* section listing the linked project's pipelines across every ref, newest first, with pagination. Selecting one shows its jobs by stage with their status and duration inside the tool, and each job or the pipeline opens on the forge.
+
 ### Changed
 
 - **A branch switch runs without asking**: checking out a local branch or a commit from the branch menus, the graph, a review request or the status bar switches directly when Git would accept it; only a checkout Git would refuse (operation in progress, unresolved conflicts) or one that would move an existing local branch onto a remote branch reads its summary first. Local changes are stashed by the switch and restored by its undo.
