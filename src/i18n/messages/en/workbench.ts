@@ -209,7 +209,7 @@ const messages = {
   'workbench.refMenu.deleteRemote': 'Delete the remote branch…',
   'workbench.refMenu.deleteUpstream': 'Delete the tracked remote branch…',
   'workbench.refMenu.localBranch': 'local branch',
-  'workbench.refMenu.noRemoteBranches': 'No remote branch: run a fetch.',
+  'workbench.refMenu.noRemoteBranches': 'No remote copy of this branch: fetch or publish it.',
   'workbench.refMenu.pin': 'Pin to the left of the graph',
   'workbench.refMenu.pullFastForwardOnly': 'Pull (fast-forward only)',
   'workbench.refMenu.pushTo': 'Push to {target}',
