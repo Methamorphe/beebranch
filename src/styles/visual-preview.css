@@ -1,39 +1,37 @@
 /* Experimental readability overlay. Off by default: only
    `:root[data-visual='readable-beta']` receives these rules, so the stable
-   theme (dark / light / system) is unchanged until the user opts in. */
+   theme (dark / light / system) is unchanged until the user opts in.
+
+   Tokens stay close to the stable palette — a small step, not a new theme. */
 
 :root[data-visual='readable-beta'] {
-  --muted: #c8d0dc;
-  --muted-strong: #dde3ec;
-  --border: #424b5b;
-  --border-strong: #5c6678;
-  --path-directory: #7d8796;
+  --muted: #bdc6d3;
+  --muted-strong: #d5dce6;
+  --border: #3a4250;
+  --border-strong: #546070;
+  --path-directory: #8b94a3;
 }
 
 :root[data-visual='readable-beta'][data-theme='light'] {
-  --muted: #3d4758;
-  --muted-strong: #2a3342;
-  --border: #b4bdc9;
-  --border-strong: #8f9aab;
-  --path-directory: #6a7382;
+  --muted: #4a5566;
+  --muted-strong: #333d4d;
+  --border: #c5ccd6;
+  --border-strong: #9aa3b2;
+  --path-directory: #6f7887;
 }
 
 @media (prefers-color-scheme: light) {
   :root[data-visual='readable-beta']:not([data-theme='dark']) {
-    --muted: #3d4758;
-    --muted-strong: #2a3342;
-    --border: #b4bdc9;
-    --border-strong: #8f9aab;
-    --path-directory: #6a7382;
+    --muted: #4a5566;
+    --muted-strong: #333d4d;
+    --border: #c5ccd6;
+    --border-strong: #9aa3b2;
+    --path-directory: #6f7887;
   }
 }
 
-/* Inspector / tab / find closes: a real control, not a grey glyph. */
+/* Readable without a boxed control — the top bar stays untouched. */
 :root[data-visual='readable-beta'] [data-control='close'] {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-raised);
   color: var(--text);
   font-size: 18px;
   font-weight: 600;
