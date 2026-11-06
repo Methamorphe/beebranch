@@ -427,9 +427,14 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   // Issue #19: drag a graph branch onto a left-panel local branch.
   await evaluate(client, `(() => { const c = document.querySelector('canvas'); c.parentElement.scrollTop = 0; c.parentElement.dispatchEvent(new Event('scroll')); })()`)
   await delay(80)
+  // The navigator keeps its own scroll position, and focusing a section button
+  // scrolls its row into view. Bring the drop target back on screen before
+  // measuring: the first-open auto-fetch banner shortens the pane enough that
+  // the local branches can sit above the fold.
   const navDrop = await evaluate(client, `(() => {
-    const bounds = document.querySelector('canvas').getBoundingClientRect()
     const row = document.querySelector('[data-repository-section="local"] [data-ref="refs/heads/main"]')
+    row.scrollIntoView({ block: 'center', inline: 'nearest' })
+    const bounds = document.querySelector('canvas').getBoundingClientRect()
     const rowBounds = row.getBoundingClientRect()
     return {
       source: { x: bounds.left + 20, y: bounds.top + 12 * ${rowHeight} + 15 },
