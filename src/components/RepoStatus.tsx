@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
 import {
   conflictMarkResolved,
@@ -98,6 +98,18 @@ function ignoreChoices(path: string): { key: string; pattern: string; kind: 'fil
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent)
 
+/** Text caret keys stay in the field; checkboxes and the status filter do not. */
+function isTypingField(target: EventTarget | null, filter: HTMLInputElement | null): boolean {
+  if (!(target instanceof HTMLElement) || target === filter) {
+    return false
+  }
+  if (target instanceof HTMLInputElement) {
+    return target.type !== 'checkbox' && target.type !== 'radio' && target.type !== 'button'
+      && target.type !== 'submit' && target.type !== 'reset'
+  }
+  return target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable
+}
+
 type PendingIgnore = {
   entry: StatusEntry
   pattern: string
@@ -159,6 +171,7 @@ export function RepoStatus({
   const flashTimer = useRef<number | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
   const fileListRef = useRef<HTMLDivElement>(null)
+  const navCursorRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -339,6 +352,140 @@ export function RepoStatus({
     if (flashTimer.current !== null) {
       window.clearTimeout(flashTimer.current)
     }
+  }, [])
+
+  const navRowsRef = useRef(navRows)
+  navRowsRef.current = navRows
+  const selectedPathRef = useRef(selectedPath)
+  selectedPathRef.current = selectedPath
+  const onSelectDiffRef = useRef(onSelectDiff)
+  onSelectDiffRef.current = onSelectDiff
+
+  const select = (entry: StatusEntry, staged: boolean) => {
+    navCursorRef.current = `${staged ? 'index' : 'worktree'}:${entry.path}`
+    onSelectDiffRef.current({
+      target: staged ? 'index' : 'worktree', path: entry.path,
+      untracked: entry.kind === 'untracked', allowActions: entry.kind !== 'unmerged',
+    })
+  }
+  const toggleDir = (key: string) => {
+    setCollapsedDirs((current) => {
+      const next = new Set(current)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+  const focusNavRow = (row: (typeof navRows)[number]) => {
+    navCursorRef.current = row.key
+    const root = fileListRef.current
+    if (!root) {
+      return
+    }
+    const current = root.querySelector<HTMLElement>(`[data-nav-key="${CSS.escape(row.key)}"]`)
+    const focusable = current?.querySelector<HTMLElement>('[data-nav-focus]:not(:disabled)') ?? current
+    focusable?.focus()
+    focusable?.scrollIntoView({ block: 'nearest' })
+    if (row.kind === 'file' && row.entry.kind !== 'ignored' && row.entry.kind !== 'unmerged') {
+      select(row.entry, row.staged)
+    }
+  }
+
+  const navIndexOf = (target: EventTarget | null) => {
+    const rows = navRowsRef.current
+    if (target instanceof HTMLElement) {
+      const key = target.closest<HTMLElement>('[data-nav-key]')?.dataset.navKey
+      if (key) {
+        const index = rows.findIndex((row) => row.key === key)
+        if (index >= 0) {
+          return index
+        }
+      }
+    }
+    if (navCursorRef.current) {
+      const index = rows.findIndex((row) => row.key === navCursorRef.current)
+      if (index >= 0) {
+        return index
+      }
+    }
+    const selected = selectedPathRef.current
+    if (selected) {
+      const index = rows.findIndex((row) => row.kind === 'file' && row.entry.path === selected)
+      if (index >= 0) {
+        return index
+      }
+    }
+    return -1
+  }
+
+  // Capture at the window so ↑/↓ stay in this list even after the diff, the
+  // graph canvas or <main> has taken focus (their yellow ring would otherwise
+  // swallow the next arrow).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.altKey || event.metaKey || event.ctrlKey || event.defaultPrevented) {
+        return
+      }
+      if (document.querySelector('[popover]:popover-open, [role="menu"], [role="dialog"], [role="alertdialog"]')) {
+        return
+      }
+      const filter = filterRef.current
+      const inFilter = event.target === filter
+      if (isTypingField(event.target, filter)) {
+        return
+      }
+      const rows = navRowsRef.current
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+        if (rows.length === 0) {
+          return
+        }
+        // Home/End keep their caret behaviour in the filter; only ↓ opens the list.
+        if (inFilter && event.key !== 'ArrowDown') {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        const index = navIndexOf(event.target)
+        const nextIndex = event.key === 'Home' || (inFilter && event.key === 'ArrowDown')
+          ? 0
+          : event.key === 'End'
+            ? rows.length - 1
+            : index < 0
+              ? event.key === 'ArrowDown' ? 0 : rows.length - 1
+              : event.key === 'ArrowUp' && index === 0
+                ? -1
+                : Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))
+        if (nextIndex < 0) {
+          filter?.focus()
+          return
+        }
+        const row = rows[nextIndex]
+        if (row) {
+          focusNavRow(row)
+        }
+        return
+      }
+      if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !inFilter) {
+        const row = rows[navIndexOf(event.target)]
+        if (row?.kind !== 'dir') {
+          return
+        }
+        const shouldOpen = event.key === 'ArrowRight'
+        if (row.open === shouldOpen) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        navCursorRef.current = row.key
+        toggleDir(row.dirKey)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
   const run = async (label: string, action: () => Promise<unknown>) => {
@@ -690,95 +837,6 @@ export function RepoStatus({
       )
     })
 
-  const select = (entry: StatusEntry, staged: boolean) => onSelectDiff({
-    target: staged ? 'index' : 'worktree', path: entry.path,
-    untracked: entry.kind === 'untracked', allowActions: entry.kind !== 'unmerged',
-  })
-  const toggleDir = (key: string) => {
-    setCollapsedDirs((current) => {
-      const next = new Set(current)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
-      return next
-    })
-  }
-
-  const focusNavRow = (row: (typeof navRows)[number]) => {
-    const root = fileListRef.current
-    if (!root) {
-      return
-    }
-    const current = root.querySelector<HTMLElement>(`[data-nav-key="${CSS.escape(row.key)}"]`)
-    const focusable = current?.querySelector<HTMLElement>('[data-nav-focus]:not(:disabled)') ?? current
-    focusable?.focus()
-    focusable?.scrollIntoView({ block: 'nearest' })
-    if (row.kind === 'file' && row.entry.kind !== 'ignored' && row.entry.kind !== 'unmerged') {
-      select(row.entry, row.staged)
-    }
-  }
-
-  const onNavKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.altKey || event.metaKey || event.ctrlKey || event.defaultPrevented) {
-      return
-    }
-    if (document.querySelector('[popover]:popover-open, [role="menu"], [role="dialog"], [role="alertdialog"]')) {
-      return
-    }
-    const target = event.target
-    const inFilter = target instanceof HTMLInputElement && target.type !== 'checkbox' && target.type !== 'radio'
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
-      if (navRows.length === 0) {
-        return
-      }
-      // Home/End keep their caret behaviour in the filter; only ↓ opens the list.
-      if (inFilter && event.key !== 'ArrowDown') {
-        return
-      }
-      event.preventDefault()
-      let index = -1
-      if (target instanceof HTMLElement) {
-        const key = target.closest<HTMLElement>('[data-nav-key]')?.dataset.navKey
-        if (key) {
-          index = navRows.findIndex((row) => row.key === key)
-        }
-      }
-      const nextIndex = event.key === 'Home' || (inFilter && event.key === 'ArrowDown')
-        ? 0
-        : event.key === 'End'
-          ? navRows.length - 1
-          : index < 0
-            ? event.key === 'ArrowDown' ? 0 : navRows.length - 1
-            : event.key === 'ArrowUp' && index === 0
-              ? -1
-              : Math.max(0, Math.min(navRows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))
-      if (nextIndex < 0) {
-        filterRef.current?.focus()
-        return
-      }
-      const row = navRows[nextIndex]
-      if (row) {
-        focusNavRow(row)
-      }
-      return
-    }
-    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !inFilter && target instanceof HTMLElement) {
-      const key = target.closest<HTMLElement>('[data-nav-key]')?.dataset.navKey
-      const row = navRows.find((item) => item.key === key)
-      if (row?.kind !== 'dir') {
-        return
-      }
-      const shouldOpen = event.key === 'ArrowRight'
-      if (row.open === shouldOpen) {
-        return
-      }
-      event.preventDefault()
-      toggleDir(row.dirKey)
-    }
-  }
-
   const toggleSelection = (key: string, shiftKey: boolean) => {
     const index = selectionIndex.get(key)
     if (index === undefined) {
@@ -898,7 +956,7 @@ export function RepoStatus({
     )
   }
   return (
-    <div className={styles.root} aria-busy={busy || loading} data-bulk={selectedKeys.size > 0} onKeyDown={onNavKeyDown}>
+    <div className={styles.root} aria-busy={busy || loading} data-bulk={selectedKeys.size > 0}>
       <div className={styles.meta}>
         <input ref={filterRef} className={styles.filter} value={filter} onChange={(event) => {
           setFilter(event.target.value)
@@ -955,7 +1013,10 @@ export function RepoStatus({
                   ? <button key={`dir:${row.key}`} type="button" className={styles.dirRow}
                       data-nav-key={`dir:${row.key}`}
                       style={{ paddingLeft: 10 + row.depth * 12 }} aria-expanded={row.open}
-                      onClick={() => toggleDir(row.key)} title={row.name}>
+                      onClick={() => {
+                        navCursorRef.current = `dir:${row.key}`
+                        toggleDir(row.key)
+                      }} title={row.name}>
                       <span className={styles.caret} aria-hidden="true">{row.open ? '▾' : '▸'}</span>
                       <span className={styles.dirName}>{row.name}</span>
                       <span className={styles.dirCount}>{row.count}</span>
