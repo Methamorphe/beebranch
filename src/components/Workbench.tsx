@@ -121,6 +121,8 @@ import { RepoStatus } from './RepoStatus'
 import { SearchPanel } from './SearchPanel'
 import { SquashDialog } from './SquashDialog'
 import { SyncPanel } from './SyncPanel'
+import { AutoFetchPrompt } from './AutoFetchPrompt'
+import { loadAutoFetchMinutes, onAutoFetchChanged } from '../lib/autoFetch'
 import { TagDialog } from './TagDialog'
 import { ToolsPanel } from './ToolsPanel'
 import { WorktreeDialog } from './WorktreeDialog'
@@ -428,32 +430,42 @@ export function Workbench({
 
   /**
    * Background auto-fetch. The interval lives in `git.autoFetchMinutes`; `0`
-   * disables it. Failures stay silent: a background fetch never interrupts the
-   * user with an error, and the manual Fetch reports them.
+   * disables it. The timer restarts when the value changes (Settings, Sync
+   * panel or first-open prompt). Failures stay silent: a background fetch
+   * never interrupts the user with an error, and the manual Fetch reports them.
    */
   useEffect(() => {
     if (!repoId) {
       return
     }
+    const id = repoId
     let cancelled = false
     let timer: number | undefined
-    void preferenceGet('git.autoFetchMinutes')
-      .then((value) => {
-        const minutes = Number(value ?? '0')
-        if (cancelled || !Number.isFinite(minutes) || minutes <= 0) {
-          return
-        }
-        const id = repoId
-        timer = window.setInterval(() => {
-          void syncFetchAll(id).catch(() => undefined)
-        }, Math.max(1, minutes) * 60_000)
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
+    const stop = () => {
       if (timer !== undefined) {
         window.clearInterval(timer)
+        timer = undefined
       }
+    }
+    const start = () => {
+      void loadAutoFetchMinutes()
+        .then((minutes) => {
+          stop()
+          if (cancelled || minutes <= 0) {
+            return
+          }
+          timer = window.setInterval(() => {
+            void syncFetchAll(id).catch(() => undefined)
+          }, minutes * 60_000)
+        })
+        .catch(() => undefined)
+    }
+    start()
+    const unsubscribe = onAutoFetchChanged(start)
+    return () => {
+      cancelled = true
+      unsubscribe()
+      stop()
     }
   }, [repoId])
   const setActionError = useToastChannel('workbench-error', 'error')
@@ -2265,6 +2277,7 @@ export function Workbench({
           </>
         ) : null}
       </div> : null}
+      {repoId ? <AutoFetchPrompt /> : null}
 
       {graph.error ? (
         <div className={styles.error} role="alert">

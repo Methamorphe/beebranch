@@ -20,6 +20,12 @@ import {
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import {
+  AUTO_FETCH_OPTIONS,
+  AUTO_FETCH_PREFERENCE,
+  isAutoFetchOption,
+  saveAutoFetchMinutes,
+} from '../lib/autoFetch'
+import {
   DEFAULT_MEDIA_OPTIONS,
   MEDIA_EXTENSIONS,
   mediaLabel,
@@ -236,6 +242,7 @@ export function ProfilesPanel({
   const [shortcutError, setShortcutError] = useState<string | null>(null)
   const [encoding, setEncoding] = useState('utf8')
   const [hooksPath, setHooksPath] = useState('')
+  const [autoFetch, setAutoFetch] = useState('0')
   const [signMode, setSignMode] = useState('')
   const [signingKey, setSigningKey] = useState('')
   const [signingFormat, setSigningFormat] = useState('openpgp')
@@ -272,10 +279,14 @@ export function ProfilesPanel({
       preferenceGet('git.signCommits'),
       preferenceGet('git.signingKey'),
       preferenceGet('git.signingFormat'),
+      preferenceGet(AUTO_FETCH_PREFERENCE),
     ])
-      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat]) => {
+      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch]) => {
         if (cancelled) {
           return
+        }
+        if (isAutoFetchOption(savedAutoFetch)) {
+          setAutoFetch(savedAutoFetch)
         }
         if (savedEncoding) {
           setEncoding(savedEncoding)
@@ -581,6 +592,32 @@ export function ProfilesPanel({
             >
               {t('common.save')}
             </button>
+          </div>
+        </div>
+
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.autoFetch.title')}</strong>
+            <p>{t('settings.autoFetch.hint')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={autoFetch}
+              aria-label={t('ops.sync.autoFetchAria')}
+              onChange={(event) => {
+                const next = event.target.value
+                setAutoFetch(next)
+                void saveAutoFetchMinutes(next).catch((cause: unknown) =>
+                  setError(errorMessage(cause)),
+                )
+              }}
+            >
+              {AUTO_FETCH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

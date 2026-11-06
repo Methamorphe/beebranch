@@ -3,6 +3,12 @@ const messages = {
   'workbench.action.clear': 'Clear',
   'workbench.action.revert': 'Revert',
 
+  'workbench.autoFetch.aria': 'Automatic fetch',
+  'workbench.autoFetch.title': 'Turn on automatic fetch?',
+  'workbench.autoFetch.body':
+    'BeeBranch can fetch your remotes in the background. You can change this later in settings.',
+  'workbench.autoFetch.later': 'Later',
+
   'workbench.diff.calculating': 'Computing the diff…',
   'workbench.diff.empty.body':
     'The diff opens from the status, the search, or a commit’s details.',

@@ -1,0 +1,32 @@
+.prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.text span {
+  color: var(--muted);
+}
+
+.text .error {
+  color: var(--error);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
