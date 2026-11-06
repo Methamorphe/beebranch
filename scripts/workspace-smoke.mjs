@@ -79,6 +79,54 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   // Dwell on the feature badge: only its ancestry should keep full contrast.
   await evaluate(client, `(() => { const canvas = document.querySelector('canvas'); canvas.parentElement.scrollTop = 0; canvas.parentElement.dispatchEvent(new Event('scroll')); })()`)
   await delay(60)
+  await check('graph-head-x-published', `Number(document.querySelector('canvas').dataset.headX) > 0`)
+  await check('wip-node-aligns-with-head-lane', `(() => {
+    const canvas = document.querySelector('canvas')
+    const marker = document.querySelector('[data-role="wip-node"]')
+    if (!canvas || !marker) return false
+    const headX = Number(canvas.dataset.headX)
+    const canvasLeft = canvas.getBoundingClientRect().left
+    const box = marker.getBoundingClientRect()
+    return Math.abs(box.left + box.width / 2 - (canvasLeft + headX)) <= 2
+  })()`)
+  await check('graph-chip-stem-reaches-node', `(() => {
+    const canvas = document.querySelector('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!canvas || !ctx) return false
+    const scale = canvas.width / canvas.getBoundingClientRect().width
+    const headX = Number(canvas.dataset.headX)
+    const rowH = Number(canvas.dataset.rowHeight)
+    const y = Math.round((rowH / 2) * scale)
+    for (const dx of [16, 20, 24, 28, 36, 48]) {
+      const x = Math.round((headX - dx) * scale)
+      if (x < 0) continue
+      const px = ctx.getImageData(x, y, 1, 1).data
+      if (px[3] > 80 && px[0] + px[1] + px[2] > 80) return true
+    }
+    return false
+  })()`)
+  await check('graph-chip-stem-inactive-is-dim', `(() => {
+    const canvas = document.querySelector('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!canvas || !ctx) return false
+    const scale = canvas.width / canvas.getBoundingClientRect().width
+    const headX = Number(canvas.dataset.headX)
+    const rowH = Number(canvas.dataset.rowHeight)
+    const sample = (row) => {
+      const y = Math.round((row * rowH + rowH / 2) * scale)
+      let max = 0
+      for (const dx of [16, 20, 24, 28, 36, 48]) {
+        const x = Math.round((headX - dx) * scale)
+        if (x < 0) continue
+        max = Math.max(max, ctx.getImageData(x, y, 1, 1).data[3])
+      }
+      return max
+    }
+    const head = sample(0)
+    const other = sample(5)
+    return head > 80 && other > 0 && other < head * 0.45
+  })()`)
+  await check('wip-has-no-stem', `!document.querySelector('[data-role="wip-stem"], [data-role="wip-link"]')`)
   const featurePoint = await evaluate(client, `(() => { const b = document.querySelector('canvas').getBoundingClientRect(); return { x:b.left+20, y:b.top+12*${rowHeight}+15 } })()`)
   await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
   await delay(100)
