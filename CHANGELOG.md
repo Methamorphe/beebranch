@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.10.0] — 2026-11-06
+
+### Added
+
+- **Automatic fetch, offered on first open**: the first repository opened shows a single banner proposing a background fetch interval (off, 1, 5, 15 or 30 minutes). The question is asked once per installation, including on installs that predate it, and answering *Later* counts as an answer, so the banner never returns. The same preference now also lives in Settings (*Automatic fetch*) and in the Sync panel; changing it restarts the background timer immediately instead of at the next repository open.
+- **Graph chips are tied to their commit**: every decorated commit draws a stem in its lane colour between the last ref chip and its node, and the local-changes marker sits on HEAD's lane instead of the middle of the graph column.
+
+### Changed
+
+- **Repo tabs keep the full header height**: the tab strip hides the system overlay scrollbar and paints a thin thumb that fades in on hover and while dragging, so the tabs line up with the rest of the chrome; the strip pans with the wheel.
+- **Graph contrast follows the current branch**: a chip-to-node stem stays solid only for HEAD, the hovered row and the focused branch; every other stem drops to 20 % opacity.
+
+### Fixed
+
+- **The file list keeps the arrow keys**: ↑/↓ and Home/End walk *To stage* then *Ready to commit* whenever the panel is open, instead of only when the focus already sits inside it. Pressing ↓ from the graph or the diff opens the next file instead of moving the focus ring around the canvas, and ←/→ collapse or expand a folder in tree mode.
+
 ## [1.9.0] — 2026-11-05
 
 ### Changed
