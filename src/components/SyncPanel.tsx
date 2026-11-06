@@ -13,6 +13,12 @@ import {
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
+import {
+  AUTO_FETCH_OPTIONS,
+  AUTO_FETCH_PREFERENCE,
+  isAutoFetchOption,
+  saveAutoFetchMinutes,
+} from '../lib/autoFetch'
 import { useI18n, type MessageKey } from '../i18n'
 import type {
   OperationProgress,
@@ -41,17 +47,7 @@ const STRATEGIES: { value: PullStrategy; labelKey: MessageKey }[] = [
   { value: 'merge', labelKey: 'ops.sync.strategy.merge' },
 ]
 
-/** Auto-fetch intervals, in minutes; `0` disables the background fetch. */
-const AUTO_FETCH: { value: string; labelKey: MessageKey }[] = [
-  { value: '0', labelKey: 'ops.sync.autoFetch.off' },
-  { value: '1', labelKey: 'ops.sync.autoFetch.one' },
-  { value: '5', labelKey: 'ops.sync.autoFetch.five' },
-  { value: '15', labelKey: 'ops.sync.autoFetch.fifteen' },
-  { value: '30', labelKey: 'ops.sync.autoFetch.thirty' },
-]
-
 const PULL_STRATEGY_PREFERENCE = 'git.pullStrategy'
-const AUTO_FETCH_PREFERENCE = 'git.autoFetchMinutes'
 
 export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Props) {
   const { t } = useI18n()
@@ -235,7 +231,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
         if (known && savedStrategy) {
           setStrategy(savedStrategy as PullStrategy)
         }
-        if (savedAutoFetch && AUTO_FETCH.some((entry) => entry.value === savedAutoFetch)) {
+        if (isAutoFetchOption(savedAutoFetch)) {
           setAutoFetch(savedAutoFetch)
         }
       })
@@ -248,7 +244,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
   const saveAutoFetch = async (value: string) => {
     setAutoFetch(value)
     try {
-      await preferenceSet(AUTO_FETCH_PREFERENCE, value)
+      await saveAutoFetchMinutes(value)
     } catch (cause) {
       setError(errorMessage(cause))
     }
@@ -368,7 +364,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
                   onChange={(event) => void saveAutoFetch(event.target.value)}
                   aria-label={t('ops.sync.autoFetchAria')}
                 >
-                  {AUTO_FETCH.map((option) => (
+                  {AUTO_FETCH_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {t(option.labelKey)}
                     </option>

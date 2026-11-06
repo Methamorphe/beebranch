@@ -95,6 +95,9 @@ const messages = {
     'Remplace core.hooksPath pour les commits créés dans l’application ; vide = configuration du dépôt.',
   'settings.files.hooksPathAria': 'Chemin personnalisé des hooks',
   'settings.files.hooksPathSaved': 'Chemin des hooks enregistré.',
+  'settings.autoFetch.title': 'Fetch automatique',
+  'settings.autoFetch.hint':
+    'Récupère en arrière-plan les nouveautés des remotes du dépôt ouvert, à intervalle régulier ; s’applique à toute l’application.',
   'settings.signing.title': 'Signature des commits',
   'settings.signing.hint':
     'S’applique aux commits créés dans l’application ; « hériter » suit la configuration Git du dépôt.',

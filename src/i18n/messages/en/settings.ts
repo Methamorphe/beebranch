@@ -95,6 +95,9 @@ const messages = {
     'Overrides core.hooksPath for commits created in the application; empty = repository configuration.',
   'settings.files.hooksPathAria': 'Custom hooks path',
   'settings.files.hooksPathSaved': 'Hooks path saved.',
+  'settings.autoFetch.title': 'Automatic fetch',
+  'settings.autoFetch.hint':
+    'Fetches the remotes of the open repository in the background at a regular interval; applies to the whole application.',
   'settings.signing.title': 'Commit signing',
   'settings.signing.hint':
     'Applies to commits created in the application; “inherit” follows the repository Git configuration.',

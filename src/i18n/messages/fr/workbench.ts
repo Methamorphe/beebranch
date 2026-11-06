@@ -3,6 +3,12 @@ const messages = {
   'workbench.action.clear': 'Vider',
   'workbench.action.revert': 'Revert',
 
+  'workbench.autoFetch.aria': 'Fetch automatique',
+  'workbench.autoFetch.title': 'Activer le fetch automatique ?',
+  'workbench.autoFetch.body':
+    'BeeBranch peut récupérer les nouveautés des remotes en arrière-plan. Réglable ensuite dans les paramètres.',
+  'workbench.autoFetch.later': 'Plus tard',
+
   'workbench.diff.calculating': 'Calcul du diff…',
   'workbench.diff.empty.body':
     "Le diff s’ouvre depuis le status, la recherche, ou le détail d’un commit.",
