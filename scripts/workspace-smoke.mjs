@@ -76,6 +76,38 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('no-extra-branch-panel', `!document.querySelector('#branch-list-panel')`)
   await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','patches','search','operations'].every((id) => document.querySelector('[data-repository-section="' + id + '"]'))`)
   await check('graph-fills-height', `document.querySelector('canvas').getBoundingClientRect().height > 600`)
+  await check('repo-tabs-fill-header', `(() => {
+    const header = document.querySelector('header').getBoundingClientRect()
+    const tab = document.querySelector('[aria-label="Dépôts ouverts"] > div').getBoundingClientRect()
+    return Math.abs(header.height - tab.height) <= 1
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x: 8, y: 200 })
+  await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').style.maxWidth = '80px'`)
+  await waitFor(client, `document.querySelector('[data-tab-overlay][data-overflow="true"]') !== null`, 'repo tab overlay overflow')
+  await delay(80)
+  await check('repo-tabs-overlay-keeps-header-height', `(() => {
+    const strip = document.querySelector('[aria-label="Dépôts ouverts"]')
+    const tab = strip.querySelector(':scope > div')
+    const header = document.querySelector('header')
+    const bar = document.querySelector('[data-tab-overlay]')
+    strip.scrollLeft = 24
+    return Math.abs(header.getBoundingClientRect().height - tab.getBoundingClientRect().height) <= 1
+      && getComputedStyle(strip).overflowX === 'hidden'
+      && strip.offsetHeight - strip.clientHeight === 0
+      && Number(getComputedStyle(bar).opacity) < 0.05
+  })()`)
+  await screenshot('ux-topbar-overflow.png')
+  const overflowHover = await evaluate(client, `(() => {
+    const strip = document.querySelector('[aria-label="Dépôts ouverts"]').getBoundingClientRect()
+    return { x: strip.left + Math.min(48, strip.width / 2), y: strip.top + strip.height / 2 }
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x: overflowHover.x, y: overflowHover.y })
+  await delay(180)
+  await check('repo-tabs-overlay-appears-on-hover', `Number(getComputedStyle(document.querySelector('[data-tab-overlay]')).opacity) > 0.9`)
+  await screenshot('ux-topbar-overflow-hover.png')
+  await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').style.maxWidth = ''`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x: 8, y: 200 })
+  await delay(80)
   // Dwell on the feature badge: only its ancestry should keep full contrast.
   await evaluate(client, `(() => { const canvas = document.querySelector('canvas'); canvas.parentElement.scrollTop = 0; canvas.parentElement.dispatchEvent(new Event('scroll')); })()`)
   await delay(60)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { useI18n } from '../i18n'
 import type { RepoView } from '../types/git'
@@ -31,6 +31,21 @@ type Props = {
 
 /** Pixels the pointer must travel before a press becomes a tab drag. */
 const DRAG_THRESHOLD = 4
+/** Floor so the overlay thumb stays grabbable on a long strip. */
+const THUMB_MIN = 24
+
+function syncOverlay(el: HTMLElement, bar: HTMLElement) {
+  const max = el.scrollWidth - el.clientWidth
+  const overflowing = max > 1
+  const track = bar.clientWidth
+  if (track > 0 && overflowing) {
+    const thumb = Math.min(track, Math.max(THUMB_MIN, (el.clientWidth / el.scrollWidth) * track))
+    const left = (el.scrollLeft / max) * (track - thumb)
+    bar.style.setProperty('--thumb-width', `${thumb}px`)
+    bar.style.setProperty('--thumb-left', `${left}px`)
+  }
+  return overflowing
+}
 
 export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, onOpenDialog, launcherOpen, onAdd, onCloseLauncher, onSettings, updateVersion, updateBusy = false, onInstallUpdate, user, workspaceSelector }: Props) {
   const [dragId, setDragId] = useState<string | null>(null)
@@ -41,6 +56,11 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
   const order = useRef<string[]>([])
   const endDrag = useRef<(() => void) | null>(null)
   const addButton = useRef<HTMLButtonElement>(null)
+  const wrap = useRef<HTMLDivElement>(null)
+  const strip = useRef<HTMLDivElement>(null)
+  const overlay = useRef<HTMLDivElement>(null)
+  const [overflowing, setOverflowing] = useState(false)
+  const [overlayDrag, setOverlayDrag] = useState(false)
   const live = useRef({ onReorder, onClose, busy })
   // Live values for the gesture, which outlives the render that started it.
   useEffect(() => {
@@ -125,6 +145,79 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
 
   useEffect(() => () => endDrag.current?.(), [])
 
+  // Native overflow bars (GTK overlay on WebKitGTK in particular) ignore
+  // `::-webkit-scrollbar { display:none }` and still sit in the 43px header.
+  // The strip uses overflow:hidden; wheel/trackpad pan scrollLeft ourselves
+  // and a hover thumb is painted on top.
+  useLayoutEffect(() => {
+    const el = strip.current
+    const host = wrap.current
+    const bar = overlay.current
+    if (!el || !host || !bar) return
+    const sync = () => {
+      const next = syncOverlay(el, bar)
+      setOverflowing((prev) => (prev === next ? prev : next))
+    }
+    const onWheel = (event: WheelEvent) => {
+      const max = el.scrollWidth - el.clientWidth
+      if (max <= 1) return
+      const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? raw * 16 : raw
+      if (delta === 0) return
+      const next = Math.min(max, Math.max(0, el.scrollLeft + delta))
+      if (next === el.scrollLeft) return
+      event.preventDefault()
+      el.scrollLeft = next
+    }
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(el)
+    el.addEventListener('scroll', sync, { passive: true })
+    host.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('scroll', sync)
+      host.removeEventListener('wheel', onWheel)
+    }
+  }, [repos, launcherOpen])
+
+  const beginOverlayDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    const el = strip.current
+    const bar = overlay.current
+    if (!el || !bar) return
+    const max = el.scrollWidth - el.clientWidth
+    if (max <= 1) return
+    event.preventDefault()
+    event.stopPropagation()
+    const pointerId = event.pointerId
+    const track = bar.getBoundingClientRect()
+    const thumbWidth = Number.parseFloat(bar.style.getPropertyValue('--thumb-width')) || THUMB_MIN
+    const thumbLeft = Number.parseFloat(bar.style.getPropertyValue('--thumb-left')) || 0
+    const maxLeft = Math.max(0, track.width - thumbWidth)
+    const offset = event.clientX - track.left
+    const grab = offset >= thumbLeft && offset <= thumbLeft + thumbWidth ? offset - thumbLeft : thumbWidth / 2
+    const apply = (clientX: number) => {
+      const left = Math.min(maxLeft, Math.max(0, clientX - track.left - grab))
+      el.scrollLeft = maxLeft > 0 ? (left / maxLeft) * max : 0
+    }
+    apply(event.clientX)
+    setOverlayDrag(true)
+    const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId === pointerId) apply(moveEvent.clientX)
+    }
+    const stop = (stopEvent: PointerEvent) => {
+      if (stopEvent.pointerId !== pointerId) return
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      setOverlayDrag(false)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }
+
   // Closing the launcher removes the focused control with it; return the
   // keyboard to the tab strip instead of dropping focus on <body>.
   const wasLauncher = useRef(false)
@@ -140,7 +233,9 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
     <button type="button" className={styles.iconButton} onClick={onOpenDialog} aria-label={t('shell.topbar.openRepo')} title={t('shell.topbar.openRepoShortcut')}><ToolbarIcon name="folder" /></button>
     <div className={styles.brandSlot}><Brand /></div>
     {workspaceSelector}
-    <div className={styles.tabsGroup}><div className={styles.repoTabs} role="group" aria-label={t('shell.topbar.openRepos')} data-dragging={dragId ? 'true' : undefined}>
+    <div className={styles.tabsGroup}>
+    <div ref={wrap} className={styles.strip}>
+    <div ref={strip} className={styles.repoTabs} role="group" aria-label={t('shell.topbar.openRepos')} data-dragging={dragId ? 'true' : undefined}>
       {repos.map((entry) => {
         const id = entry.repo.repoId
         return <div
@@ -177,6 +272,10 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
         </button>
         <button type="button" className={styles.close} onClick={onCloseLauncher} aria-label={t('shell.topbar.closeLauncher')}>×</button>
       </div> : null}
+    </div>
+      <div ref={overlay} className={styles.scrollBar} data-tab-overlay="" data-overflow={overflowing ? 'true' : undefined} data-dragging={overlayDrag ? 'true' : undefined} aria-hidden="true" onPointerDown={beginOverlayDrag}>
+        <div className={styles.scrollThumb} />
+      </div>
     </div>
       <button ref={addButton} type="button" className={styles.add} onClick={onAdd} aria-label={t('shell.topbar.addRepo')} title={t('shell.topbar.newTabHint')}><ToolbarIcon name="plus" /></button>
     </div>

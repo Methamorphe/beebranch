@@ -2626,6 +2626,41 @@ try {
     return Math.abs((plus.top + plus.height / 2) - (tab.top + tab.height / 2))
   })()`)
   assertUI('add-repo-plus-centered-on-tabs', plusAlignment <= 1)
+  assertUI('repo-tabs-fill-header', await evaluate(client, `(() => {
+    const header = document.querySelector('header').getBoundingClientRect()
+    const tab = document.querySelector('[aria-label="Dépôts ouverts"] > div').getBoundingClientRect()
+    return Math.abs(header.height - tab.height) <= 1
+  })()`))
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x: 8, y: 200 })
+  await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').style.maxWidth = '80px'`)
+  await waitFor(client, `document.querySelector('[data-tab-overlay][data-overflow="true"]') !== null`, 'repo tab overlay overflow')
+  await delay(80)
+  const overflowIdle = await evaluate(client, `(() => {
+    const strip = document.querySelector('[aria-label="Dépôts ouverts"]')
+    const tab = strip.querySelector(':scope > div')
+    const header = document.querySelector('header')
+    const bar = document.querySelector('[data-tab-overlay]')
+    strip.scrollLeft = 24
+    return {
+      fillHeader: Math.abs(header.getBoundingClientRect().height - tab.getBoundingClientRect().height) <= 1,
+      native: strip.offsetHeight - strip.clientHeight,
+      overflowX: getComputedStyle(strip).overflowX,
+      opacity: Number(getComputedStyle(bar).opacity),
+    }
+  })()`)
+  assertUI('repo-tabs-overlay-keeps-header-height', overflowIdle.fillHeader && overflowIdle.native === 0 && overflowIdle.overflowX === 'hidden' && overflowIdle.opacity < 0.05)
+  await screenshot(client, 'ux-topbar-overflow.png')
+  const overflowHover = await evaluate(client, `(() => {
+    const strip = document.querySelector('[aria-label="Dépôts ouverts"]').getBoundingClientRect()
+    return { x: strip.left + Math.min(48, strip.width / 2), y: strip.top + strip.height / 2 }
+  })()`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x: overflowHover.x, y: overflowHover.y })
+  await delay(180)
+  assertUI('repo-tabs-overlay-appears-on-hover', await evaluate(client, `Number(getComputedStyle(document.querySelector('[data-tab-overlay]')).opacity) > 0.9`))
+  await screenshot(client, 'ux-topbar-overflow-hover.png')
+  await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').style.maxWidth = ''`)
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x: 8, y: 200 })
+  await delay(80)
   const tabsBeforeLauncher = await evaluate(client, `document.querySelector('[aria-label="Dépôts ouverts"]').querySelectorAll('button[title]').length`)
   await evaluate(client, `document.querySelector('button[aria-label="Ajouter un dépôt"]').click()`)
   await waitFor(client, `document.querySelector('main').innerText.includes('Reprendre le travail')`, 'repository launcher')
