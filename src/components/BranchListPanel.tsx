@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useI18n } from '../i18n'
 import { filterBranches } from '../lib/branchList'
 import type { RefEntry } from '../types/git'
+import { ToolbarIcon } from './ToolbarIcon'
 import styles from './BranchListPanel.module.css'
 
 type Props = {
@@ -79,7 +80,7 @@ export function BranchListPanel({ entries, current, busy, onCheckout, onClose }:
           title={t('workbench.branches.close')}
           onClick={onClose}
         >
-          ×
+          <ToolbarIcon name="x" size={14} />
         </button>
       </div>
       <input

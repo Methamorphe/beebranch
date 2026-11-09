@@ -1,4 +1,12 @@
 const messages = {
+  'settings.tab.appearance': 'Apparence',
+  'settings.tab.general': 'Général',
+  'settings.tab.git': 'Git',
+  'settings.tab.profiles': 'Profils',
+  'settings.tab.shortcuts': 'Raccourcis',
+  'settings.tab.aria': 'Catégories de réglages',
+  'settings.tab.panelAria': 'Réglages · {tab}',
+
   'settings.language.title': 'Langue de l’interface',
   'settings.language.description': 'Langue de tous les textes de l’application.',
   'settings.language.aria': 'Langue',

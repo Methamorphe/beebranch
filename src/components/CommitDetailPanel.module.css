@@ -224,7 +224,8 @@
   min-width: 0;
 }
 
-.file {
+.file,
+.fileActive {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -235,6 +236,12 @@
   color: var(--text);
   font-size: 12.5px;
   text-align: left;
+}
+
+.fileActive {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  font-weight: 600;
 }
 
 .fileRow {
@@ -271,6 +278,10 @@
 
 .file:hover:not(:disabled) {
   background: var(--surface-raised);
+}
+
+.fileActive:hover:not(:disabled) {
+  background: var(--accent-soft);
 }
 
 .status {

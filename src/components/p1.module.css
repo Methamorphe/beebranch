@@ -137,8 +137,9 @@ button:disabled {
 }
 
 .itemSelected {
+  color: var(--accent-text);
   background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
+  font-weight: 600;
 }
 
 .item > div {
@@ -362,8 +363,9 @@ button:disabled {
 /* Lists share the history selection treatment; yellow is reserved for actions. */
 .itemSelected,
 .itemSelected:hover:not(:disabled) {
-  background: var(--selection-bg);
-  box-shadow: inset 2px 0 var(--accent);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  font-weight: 600;
 }
 .item > .row { flex-direction: row; flex-shrink: 0; }
 .item > div:first-child > span:first-child { overflow-wrap: anywhere; }

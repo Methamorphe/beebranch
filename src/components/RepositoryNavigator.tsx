@@ -3,6 +3,8 @@ import type { ViewId } from '../data/navigation'
 import { useI18n, type MessageKey } from '../i18n'
 import { filterBranches } from '../lib/branchList'
 import type { RefEntry, StashEntry } from '../types/git'
+import { ToolbarIcon } from './ToolbarIcon'
+import { ViewIcon } from './ViewIcon'
 import styles from './RepositoryNavigator.module.css'
 
 type Props = {
@@ -55,8 +57,8 @@ export function RepositoryNavigator(props: Props) {
     onClick={() => props.onSelect(entry.peeledOid ?? entry.targetOid)}
     onDoubleClick={() => entry.kind !== 'tag' && props.onCheckout(entry)}
     onContextMenu={(event) => { event.preventDefault(); props.onRefMenu(entry, event.clientX, event.clientY) }}>
-    <span aria-hidden="true">{entry.kind === 'tag' ? '◇' : entry.kind === 'remoteBranch' ? '☁' : '⑂'}</span>
-    <span className={styles.name}>{entry.name}</span>{entry.isHead ? <span aria-hidden="true">✓</span> : null}
+    <span className={styles.kind} aria-hidden="true"><ViewIcon view={entry.kind === 'tag' ? 'tags' : entry.kind === 'remoteBranch' ? 'remotes' : 'branch'} size={14} /></span>
+    <span className={styles.name}>{entry.name}</span>{entry.isHead ? <span aria-hidden="true"><ToolbarIcon name="check" size={12} /></span> : null}
   </button>
   const section = (id: string, label: MessageKey, content: ReactNode, count?: number,
     action?: () => void, view?: ViewId) => {
@@ -69,10 +71,10 @@ export function RepositoryNavigator(props: Props) {
             if (active && open) props.onNavigate('graph')
             setExpanded((state) => ({ ...state, [id]: !open }))
           }}>
-          <span className={styles.chevron} data-open={open} aria-hidden="true">›</span>
+          <span className={styles.chevron} data-open={open} aria-hidden="true"><ToolbarIcon name="chevronRight" size={14} /></span>
           <span>{t(label)}</span>{count !== undefined ? <span className={styles.count}>{count}</span> : null}
         </button>
-        {action ? <button type="button" className={styles.add} aria-label={`${t(label)} +`} onClick={action}>+</button> : null}
+        {action ? <button type="button" className={styles.add} aria-label={`${t(label)} +`} onClick={action}><ToolbarIcon name="plus" size={14} /></button> : null}
       </div>
       <div id={`repository-${id}`} hidden={!open} className={styles.sectionBody}>
         {content}
@@ -94,7 +96,7 @@ export function RepositoryNavigator(props: Props) {
         aria-current={props.selected === entry.sha ? 'true' : undefined}
         onClick={() => props.onSelect(entry.sha)}
         onContextMenu={(event) => { event.preventDefault(); props.onStashMenu(entry, event.clientX, event.clientY) }}>
-        <span aria-hidden="true">▱</span><span className={styles.name}>{entry.message}</span>
+        <span className={styles.kind} aria-hidden="true"><ViewIcon view="stash" size={14} /></span><span className={styles.name}>{entry.message}</span>
       </button>), stashes.length, props.canStash ? props.onCreateStash : undefined)}
       {section('worktrees', 'nav.worktrees', null, undefined, undefined, 'worktrees')}
       {section('submodules', 'nav.submodules', null, undefined, undefined, 'submodules')}

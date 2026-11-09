@@ -30,10 +30,9 @@
 }
 
 .glyph {
+  display: flex;
   flex: none;
   color: var(--accent-text);
-  font-size: 13px;
-  line-height: 1;
 }
 
 .name {
@@ -85,8 +84,9 @@
 }
 
 .itemActive {
-  background: var(--surface-raised);
-  box-shadow: inset 2px 0 var(--accent-text);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  font-weight: 600;
 }
 
 .itemName {

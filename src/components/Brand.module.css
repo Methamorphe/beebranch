@@ -11,8 +11,10 @@
 }
 
 .mark {
+  display: block;
   width: 24px;
   height: 24px;
+  overflow: visible;
   color: var(--accent-text);
   flex: none;
 }

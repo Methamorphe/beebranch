@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from 'react'
 import { APP_PAGES, navigationItems, type ViewId } from '../data/navigation'
 import {
@@ -88,7 +89,9 @@ import {
 import { ActionMenu } from './ActionMenu'
 import { ActivityPanel } from './ActivityPanel'
 import { AmendDialog } from './AmendDialog'
-import { ContextMenu } from './ContextMenu'
+import { ContextMenu, ContextSubmenu } from './ContextMenu'
+import { FileStatusIcon } from './FileStatusIcon'
+import { ToolbarIcon } from './ToolbarIcon'
 import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
@@ -187,8 +190,6 @@ type ContextMenuState = {
   stash?: string
   x: number
   y: number
-  /** Inline expansion: checkout targets or reset modes, never a nested menu. */
-  panel: 'checkout' | 'reset' | null
 }
 
 /** Form fields keep Escape for themselves; read-only editors do not. */
@@ -235,8 +236,6 @@ type RefMenuState = {
   y: number
   renaming: boolean
   name: string
-  /** Inline expansion: upstream list, checkout targets, reset modes, solo. */
-  panel: 'upstream' | 'checkout' | 'reset' | 'solo' | null
 }
 
 /**
@@ -785,6 +784,18 @@ export function Workbench({
     }
   }, [repoId, selected, generation])
 
+  // focusPath / edit are UI-only: changing the selected file must not reload the report.
+  const diffFetchKey = activeDiff
+    ? [
+        activeDiff.target,
+        activeDiff.base ?? '',
+        activeDiff.targetRef ?? '',
+        activeDiff.path ?? '',
+        activeDiff.contextLines ?? '',
+        activeDiff.untracked ? '1' : '0',
+      ].join('\0')
+    : null
+
   useEffect(() => {
     if (!repoId || !activeDiff) {
       setReport(null)
@@ -815,7 +826,8 @@ export function Workbench({
     return () => {
       cancelled = true
     }
-  }, [repoId, activeDiff, generation])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- UI-only fields omitted on purpose
+  }, [repoId, diffFetchKey, generation])
 
   useEffect(() => {
     if (!repoId || !comparison) {
@@ -1185,7 +1197,7 @@ export function Workbench({
   }, [closeInspector, comparison, findOpen, selected, showWorktree])
 
   const openRefMenu = (entry: RefEntry, x: number, y: number) => {
-    setRefMenu({ entry, x, y, renaming: false, name: entry.name, panel: null })
+    setRefMenu({ entry, x, y, renaming: false, name: entry.name })
   }
 
   const pushBranch = (entry: RefEntry) => {
@@ -1645,6 +1657,15 @@ export function Workbench({
               source={source}
               readImage={readDiffImage}
               initialPath={diffRequest?.focusPath ?? diffRequest?.path}
+              hideFiles={Boolean(
+                selected &&
+                  diffRequest?.target === 'commit' &&
+                  diffRequest.base === selected,
+              )}
+              onActivePathChange={(path) => {
+                if (!diffRequest || diffRequest.focusPath === path) return
+                onOpenDiff({ ...diffRequest, focusPath: path })
+              }}
               commit={
                 diffCommit
                   ? {
@@ -1903,10 +1924,10 @@ export function Workbench({
       : t('workbench.history.operation')
 
   const worktreeStats = [
-    { kind: 'staged', count: repo.state.worktree.staged, label: plural('workbench.graph.staged.one', 'workbench.graph.staged.other', repo.state.worktree.staged, { count: formatNumber(repo.state.worktree.staged) }), icon: 'm4 8 4 4 8-8' },
-    { kind: 'modified', count: repo.state.worktree.unstaged, label: plural('workbench.graph.unstaged.one', 'workbench.graph.unstaged.other', repo.state.worktree.unstaged, { count: formatNumber(repo.state.worktree.unstaged) }), icon: 'm12 3 3 3-8 8-4 1 1-4zM10 5l3 3' },
-    { kind: 'new', count: repo.state.worktree.untracked, label: plural('workbench.graph.untracked.one', 'workbench.graph.untracked.other', repo.state.worktree.untracked, { count: formatNumber(repo.state.worktree.untracked) }), icon: 'M8 3v10M3 8h10' },
-    ...(repo.state.worktree.conflicted > 0 ? [{ kind: 'conflicted', count: repo.state.worktree.conflicted, label: plural('shell.statusBar.conflicts.one', 'shell.statusBar.conflicts.other', repo.state.worktree.conflicted, { count: formatNumber(repo.state.worktree.conflicted) }), icon: 'm8 2 7 12H1zM8 6v3M8 11v.1' }] : []),
+    { kind: 'staged', count: repo.state.worktree.staged, label: plural('workbench.graph.staged.one', 'workbench.graph.staged.other', repo.state.worktree.staged, { count: formatNumber(repo.state.worktree.staged) }) },
+    { kind: 'modified', count: repo.state.worktree.unstaged, label: plural('workbench.graph.unstaged.one', 'workbench.graph.unstaged.other', repo.state.worktree.unstaged, { count: formatNumber(repo.state.worktree.unstaged) }) },
+    { kind: 'new', count: repo.state.worktree.untracked, label: plural('workbench.graph.untracked.one', 'workbench.graph.untracked.other', repo.state.worktree.untracked, { count: formatNumber(repo.state.worktree.untracked) }) },
+    ...(repo.state.worktree.conflicted > 0 ? [{ kind: 'conflicted', count: repo.state.worktree.conflicted, label: plural('shell.statusBar.conflicts.one', 'shell.statusBar.conflicts.other', repo.state.worktree.conflicted, { count: formatNumber(repo.state.worktree.conflicted) }) }] : []),
   ]
   const worktreeSummary = `${t('workbench.graph.worktreeTitle')} · ${worktreeStats.map((stat) => stat.label).join(' · ')}`
   const toggleWorktree = () => {
@@ -1922,7 +1943,9 @@ export function Workbench({
       <button type="button" className={styles.wipOpen} aria-pressed={showWorktree}
         title={worktreeSummary}>
         <span className={styles.wipRef} aria-hidden="true"><span>// WIP</span></span>
-        <span className={styles.wipMarker} data-role="wip-node" aria-hidden="true" />
+        <span className={styles.wipMarker} data-role="wip-node" aria-hidden="true">
+          <ToolbarIcon name="circleDashed" size={16} />
+        </span>
       </button>
       <span className={styles.wipMessage}>
         {editingWipMessage ? (
@@ -1966,7 +1989,11 @@ export function Workbench({
         <span className={styles.wipStats}>
           {worktreeStats.map((stat) => (
             <span key={stat.kind} className={styles.wipStat} data-kind={stat.kind} data-empty={stat.count === 0} title={stat.label}>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={stat.icon} /></svg>
+              {stat.kind === 'staged' ? (
+                <ToolbarIcon name="check" size={14} />
+              ) : (
+                <FileStatusIcon letter={stat.kind === 'new' ? 'A' : stat.kind === 'conflicted' ? 'U' : 'M'} />
+              )}
               <span className={styles.wipStatLabel}>{stat.label}</span>
               <span className={styles.wipStatCount}>{formatNumber(stat.count)}</span>
             </span>
@@ -1982,7 +2009,7 @@ export function Workbench({
     x: number,
     y: number,
   ) => {
-    setContextMenu({ commit, stash, x, y, panel: null })
+    setContextMenu({ commit, stash, x, y })
   }
 
   const closeMenu = () => setContextMenu(null)
@@ -2125,27 +2152,20 @@ export function Workbench({
     </button>
   )
 
-  const expander = (
+  const submenu = (
     key: string,
     icon: Parameters<typeof ViewIcon>[0]['view'],
     label: string,
-    open: boolean,
-    onToggle: () => void,
+    children: ReactNode,
   ) => (
-    <button
+    <ContextSubmenu
       key={key}
-      type="button"
+      label={label}
+      leading={<ViewIcon view={icon} />}
       className={styles.contextAction}
-      role="menuitem"
-      aria-expanded={open}
-      onClick={onToggle}
     >
-      <ViewIcon view={icon} />
-      <span>{label}</span>
-      <span className={styles.contextChevron} aria-hidden="true">
-        {open ? '⌄' : '›'}
-      </span>
-    </button>
+      <div className={styles.contextActions}>{children}</div>
+    </ContextSubmenu>
   )
 
   const separator = (key: string) => (
@@ -2390,7 +2410,7 @@ export function Workbench({
               title={t('graph.find.close')}
               onClick={() => setFindOpen(false)}
             >
-              ×
+              <ToolbarIcon name="x" size={14} />
             </button>
           </div>
         ) : null}
@@ -2495,7 +2515,7 @@ export function Workbench({
                   if (centerTool) onNavigate('graph')
                   else if (historyTool) closeHistoryTool()
                   else { setLocalDiff(null); setComparePath(null) }
-                }}>×</button>
+                }}><ToolbarIcon name="x" size={14} /></button>
             </div>
             <div className={styles.toolBody}>
               {centerTool ?? (historyTool === 'rebase' ? <RebasePanel key={rebaseBase} repoId={repoId} generation={generation}
@@ -2551,6 +2571,13 @@ export function Workbench({
               detail={detail && detail.summary.sha === selected ? detail : null}
               loading={detailLoading && !(detail && detail.summary.sha === selected)}
               error={detailError}
+              activePath={
+                view === 'diff' &&
+                diffRequest?.target === 'commit' &&
+                diffRequest.base === selected
+                  ? (diffRequest.focusPath ?? diffRequest.path)
+                  : undefined
+              }
               onShowDiff={(sha, path) =>
                 onOpenDiff(
                   path
@@ -2559,7 +2586,7 @@ export function Workbench({
                 )
               }
             /> : showWorktree ? <aside className={styles.worktreePanel} aria-label={t('workbench.inspector.worktreeAriaLabel')}>
-              <div className={styles.worktreeHeading}><strong>{t('common.files')}</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" data-frame="icon" data-kind="close" aria-label={t('workbench.inspector.closeWorktreeAriaLabel')} onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}>×</button></div>
+              <div className={styles.worktreeHeading}><strong>{t('common.files')}</strong><span>{repo.state.head?.kind === 'branch' ? repo.state.head.name : 'HEAD'}</span><button type="button" data-frame="icon" data-kind="close" aria-label={t('workbench.inspector.closeWorktreeAriaLabel')} onClick={() => { setWorktreeSelected(false); setLocalDiff(null) }}><ToolbarIcon name="x" size={14} /></button></div>
               <RepoStatus repoId={repoId} generation={generation} locks={repo.locks}
                 selectedPath={localDiff?.path} onSelectDiff={setLocalDiff} onMutated={onMutated}
                 onNavigate={(target) => {
@@ -2616,14 +2643,10 @@ export function Workbench({
               </>
             ) : (
               <>
-            {expander('checkout', 'branch', t('workbench.menu.checkout'), contextMenu.panel === 'checkout', () =>
-              setContextMenu((current) =>
-                current
-                  ? { ...current, panel: current.panel === 'checkout' ? null : 'checkout' }
-                  : current,
-              ),
-            )}
-            {contextMenu.panel === 'checkout' ? (
+            {submenu(
+              'checkout',
+              'branch',
+              t('workbench.menu.checkout'),
               <>
                 {refsAtCommit(contextMenu.commit.sha).map((entry) =>
                   action(
@@ -2659,8 +2682,8 @@ export function Workbench({
                     )
                   })
                 })}
-              </>
-            ) : null}
+              </>,
+            )}
             {action('worktree', 'worktrees', t('workbench.menu.createWorktreeHere'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
@@ -2688,38 +2711,29 @@ export function Workbench({
               })
             })}
             {currentBranch
-              ? expander(
+              ? submenu(
                   'reset',
                   'recovery',
                   t('workbench.menu.resetCurrent', { branch: currentBranch }),
-                  contextMenu.panel === 'reset',
-                  () =>
-                    setContextMenu((current) =>
-                      current
-                        ? { ...current, panel: current.panel === 'reset' ? null : 'reset' }
-                        : current,
-                    ),
+                  <>
+                    {action(
+                      'reset-soft',
+                      'recovery',
+                      t('workbench.menu.resetSoft'),
+                      () => resetCurrentTo(contextMenu.commit.sha, 'soft'),
+                    )}
+                    {action(
+                      'reset-mixed',
+                      'recovery',
+                      t('workbench.menu.resetMixed'),
+                      () => resetCurrentTo(contextMenu.commit.sha, 'mixed'),
+                    )}
+                    <p className={styles.contextHint}>
+                      {t('workbench.menu.resetHint', { branch: currentBranch })}
+                    </p>
+                  </>,
                 )
               : null}
-            {contextMenu.panel === 'reset' && currentBranch ? (
-              <>
-                {action(
-                  'reset-soft',
-                  'recovery',
-                  t('workbench.menu.resetSoft'),
-                  () => resetCurrentTo(contextMenu.commit.sha, 'soft'),
-                )}
-                {action(
-                  'reset-mixed',
-                  'recovery',
-                  t('workbench.menu.resetMixed'),
-                  () => resetCurrentTo(contextMenu.commit.sha, 'mixed'),
-                )}
-                <p className={styles.contextHint}>
-                  {t('workbench.menu.resetHint', { branch: currentBranch })}
-                </p>
-              </>
-            ) : null}
             {action('revert', 'patches', t('workbench.menu.revertCommit'), () => {
               const sha = contextMenu.commit.sha
               closeMenu()
@@ -3008,46 +3022,33 @@ export function Workbench({
                       }),
                   () => pushBranch(refMenu.entry),
                 )}
-                {expander(
+                {submenu(
                   'upstream',
                   'remotes',
                   refMenu.entry.upstream
                     ? t('workbench.refMenu.upstream', { upstream: refMenu.entry.upstream })
                     : t('workbench.refMenu.setUpstream'),
-                  refMenu.panel === 'upstream',
-                  () =>
-                    setRefMenu((current) =>
-                      current
-                        ? {
-                            ...current,
-                            panel: current.panel === 'upstream' ? null : 'upstream',
-                            renaming: false,
-                          }
-                        : current,
-                    ),
-                )}
-                {refMenu.panel === 'upstream'
-                  ? (() => {
-                      const remotes = upstreamChoices(refs?.entries ?? [], refMenu.entry.name)
-                      if (remotes.length === 0) {
-                        return action(
-                          'upstream-empty',
-                          'remotes',
-                          t('workbench.refMenu.noRemoteBranches'),
-                          () => undefined,
-                          { disabled: true },
-                        )
-                      }
-                      return remotes.map((remoteBranch) =>
-                        action(
-                          `upstream-${remoteBranch.fullName}`,
-                          'remotes',
-                          `${remoteBranch.name}${isCurrentUpstream(refMenu.entry.upstream, remoteBranch) ? t('workbench.refMenu.currentSuffix') : ''}`,
-                          () => applyUpstream(refMenu.entry, remoteBranch.name),
-                        ),
+                  (() => {
+                    const remotes = upstreamChoices(refs?.entries ?? [], refMenu.entry.name)
+                    if (remotes.length === 0) {
+                      return action(
+                        'upstream-empty',
+                        'remotes',
+                        t('workbench.refMenu.noRemoteBranches'),
+                        () => undefined,
+                        { disabled: true },
                       )
-                    })()
-                  : null}
+                    }
+                    return remotes.map((remoteBranch) =>
+                      action(
+                        `upstream-${remoteBranch.fullName}`,
+                        'remotes',
+                        `${remoteBranch.name}${isCurrentUpstream(refMenu.entry.upstream, remoteBranch) ? t('workbench.refMenu.currentSuffix') : ''}`,
+                        () => applyUpstream(refMenu.entry, remoteBranch.name),
+                      ),
+                    )
+                  })(),
+                )}
               </>
             ) : null}
             {refMenu.entry.kind === 'branch' &&
@@ -3123,35 +3124,26 @@ export function Workbench({
               })
             })}
             {currentBranch
-              ? expander(
+              ? submenu(
                   'ref-reset',
                   'recovery',
                   t('workbench.menu.resetCurrent', { branch: currentBranch }),
-                  refMenu.panel === 'reset',
-                  () =>
-                    setRefMenu((current) =>
-                      current
-                        ? { ...current, panel: current.panel === 'reset' ? null : 'reset' }
-                        : current,
-                    ),
+                  <>
+                    {action(
+                      'ref-reset-soft',
+                      'recovery',
+                      t('workbench.menu.resetSoft'),
+                      () => resetCurrentTo(refMenu.entry.targetOid, 'soft'),
+                    )}
+                    {action(
+                      'ref-reset-mixed',
+                      'recovery',
+                      t('workbench.menu.resetMixed'),
+                      () => resetCurrentTo(refMenu.entry.targetOid, 'mixed'),
+                    )}
+                  </>,
                 )
               : null}
-            {refMenu.panel === 'reset' && currentBranch ? (
-              <>
-                {action(
-                  'ref-reset-soft',
-                  'recovery',
-                  t('workbench.menu.resetSoft'),
-                  () => resetCurrentTo(refMenu.entry.targetOid, 'soft'),
-                )}
-                {action(
-                  'ref-reset-mixed',
-                  'recovery',
-                  t('workbench.menu.resetMixed'),
-                  () => resetCurrentTo(refMenu.entry.targetOid, 'mixed'),
-                )}
-              </>
-            ) : null}
             {action('revert', 'patches', t('workbench.menu.revertCommit'), () => {
               const sha = refMenu.entry.targetOid
               setRefMenu(null)
@@ -3312,21 +3304,11 @@ export function Workbench({
                   () => togglePin(refMenu.entry),
                 )
               : null}
-            {refMenu.entry.kind !== 'tag' ? (
-              <>
-                {expander(
+            {refMenu.entry.kind !== 'tag'
+              ? submenu(
                   'solo',
                   'search',
                   t('workbench.refMenu.solo'),
-                  refMenu.panel === 'solo',
-                  () =>
-                    setRefMenu((current) =>
-                      current
-                        ? { ...current, panel: current.panel === 'solo' ? null : 'solo' }
-                        : current,
-                    ),
-                )}
-                {refMenu.panel === 'solo' ? (
                   <>
                     {action('solo-branch', 'search', t('workbench.refMenu.soloBranch', { branch: refMenu.entry.name }), () =>
                       soloOn(refMenu.entry),
@@ -3338,10 +3320,9 @@ export function Workbench({
                       persistVisibility({ hidden: [], filter: { allRefs: true, revision: '' } })
                       setActionNotice(t('workbench.notice.filterRemoved'))
                     })}
-                  </>
-                ) : null}
-              </>
-            ) : null}
+                  </>,
+                )
+              : null}
             {refMenu.entry.kind === 'tag' ? <>
               {action('tag-push', 'sync', t('workbench.repository.pushTag'), () => {
                 const name = refMenu.entry.name

@@ -37,6 +37,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Stroke icons sit on the flex/grid line, not the text baseline, so they
+   are not painted on a fractional Y. Overflow keeps the stroke visible. */
+svg[aria-hidden='true'] {
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
 button,
 input,
 select,
@@ -59,9 +67,17 @@ button:hover:not(:disabled) {
 
 button:focus-visible,
 a:focus-visible,
-[tabindex]:focus-visible {
+[tabindex]:not([tabindex='-1']):focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--accent-text);
+}
+
+/* Programmatic targets (skip-link → #main-content) must take focus without
+   painting a yellow ring around the whole workspace. */
+[tabindex='-1']:focus,
+[tabindex='-1']:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 /* Press feedback must never change geometry: transforms and outlines are

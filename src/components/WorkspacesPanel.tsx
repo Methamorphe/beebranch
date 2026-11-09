@@ -24,6 +24,7 @@ import { ConfirmBar } from './ConfirmBar'
 import { Dialog } from './ui/Dialog'
 import shared from './p1.module.css'
 import styles from './WorkspacesPanel.module.css'
+import { ToolbarIcon } from './ToolbarIcon'
 import { ViewIcon } from './ViewIcon'
 
 type Props = {
@@ -305,12 +306,12 @@ export function WorkspacesPanel({
               placeholder={t('workspaces.panel.namePlaceholder')} aria-label={t('workspaces.panel.nameAria')} disabled={busy} />
           </label>
           <button type="button" className={styles.folderPicker} disabled={busy || picking || draftPaths.length >= REPO_LIMIT} onClick={() => void pickRepositories(true)}>
-            <ViewIcon view="worktrees" /><span><strong>{t('workspaces.panel.pickRepos')}</strong><small>{t('workspaces.panel.pickHint')}</small></span><span aria-hidden="true">+</span>
+            <ViewIcon view="worktrees" /><span><strong>{t('workspaces.panel.pickRepos')}</strong><small>{t('workspaces.panel.pickHint')}</small></span><span aria-hidden="true"><ToolbarIcon name="plus" size={14} /></span>
           </button>
           <div className={styles.draftList}>
             {draftPaths.map((path) => <div key={path} className={styles.draftRepo}>
               <ViewIcon view="graph" /><div><strong>{path.split(/[\\/]/).filter(Boolean).at(-1)}</strong><span title={path}>{path}</span></div>
-              <button type="button" disabled={busy} aria-label={t('workspaces.panel.removeDraft', { path })} onClick={() => setDraftPaths((current) => current.filter((value) => value !== path))}>×</button>
+              <button type="button" disabled={busy} aria-label={t('workspaces.panel.removeDraft', { path })} onClick={() => setDraftPaths((current) => current.filter((value) => value !== path))}><ToolbarIcon name="x" size={14} /></button>
             </div>)}
           </div>
           <div className={styles.createActions}><button type="submit" className={shared.primary} disabled={busy || picking || !name.trim()}>{busy ? t('common.loading') : t('workspaces.panel.create')}</button>

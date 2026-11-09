@@ -126,8 +126,9 @@
 }
 
 .rowActive {
+  color: var(--accent-text);
   background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
+  font-weight: 600;
 }
 
 .name {

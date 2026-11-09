@@ -2,7 +2,9 @@
 .heading { display:flex; flex-direction:column; gap:4px; padding:8px 9px 10px; margin-bottom:4px; border-bottom:1px solid var(--border); }
 .heading code { color:var(--muted); font-size:10px; }
 .heading span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:600; }
-.submenu { z-index:61; width:auto; min-width:200px; max-width:min(360px, calc(100vw - 16px)); }
+.submenu { z-index:61; width:auto; min-width:200px; max-width:min(360px, calc(100vw - 16px)); padding:5px; }
 .submenuTrigger { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .submenuTrigger[aria-expanded="true"] { background:var(--surface-raised); }
-.chevron { color:var(--muted); font-size:15px; line-height:1; }
+.submenuLead { display:flex; align-items:center; gap:10px; min-width:0; }
+.submenuLead > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chevron { flex:none; margin-left:auto; color:var(--muted); font-size:15px; line-height:1; }

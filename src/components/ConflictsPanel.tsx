@@ -25,6 +25,7 @@ import {
   type PresetKind,
   type RegionChoice,
 } from './conflictResolution'
+import { ToolbarIcon } from './ToolbarIcon'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -447,7 +448,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                   setSelected(path)
                 }}
               >
-                <span className={p2.warn} aria-hidden="true">●</span>
+                <span className={p2.warn} aria-hidden="true"><ToolbarIcon name="warning" size={12} /></span>
                 <span className={p2.listSub} style={{ color: 'var(--text)' }}>{path}</span>
               </button>
             ))}

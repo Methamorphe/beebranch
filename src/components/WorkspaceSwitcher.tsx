@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { useI18n } from '../i18n'
 import { displayShortcut } from '../lib/shortcuts'
 import type { Workspace } from '../types/git'
+import { ToolbarIcon } from './ToolbarIcon'
+import { ViewIcon } from './ViewIcon'
 import styles from './WorkspaceSwitcher.module.css'
 
 type Props = {
@@ -105,11 +107,11 @@ export function WorkspaceSwitcher({
         onClick={() => onOpenChange(!open)}
       >
         <span className={styles.glyph} aria-hidden="true">
-          ▦
+          <ViewIcon view="workspaces" size={14} />
         </span>
         <span className={styles.name}>{active?.name ?? t('workspaces.switcher.none')}</span>
         <span className={styles.chevron} aria-hidden="true">
-          ▾
+          <ToolbarIcon name="chevron" size={12} />
         </span>
       </button>
 
@@ -156,7 +158,7 @@ export function WorkspaceSwitcher({
                   <span className={styles.itemName}>{workspace.name}</span>
                   <span className={styles.count}>{workspace.repos.length}</span>
                   <span className={styles.check} aria-hidden="true">
-                    {selected ? '✓' : ''}
+                    {selected ? <ToolbarIcon name="check" size={14} /> : null}
                   </span>
                 </button>
               )

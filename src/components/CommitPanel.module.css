@@ -6,10 +6,27 @@
 .compact textarea::placeholder { color:var(--muted); opacity:.8; }
 .compact p { margin:6px 0 0; font-size:12px; }
 .options { margin:5px 0 8px; color:var(--muted); font-size:12px; }
-.options > summary { padding:4px 0; cursor:pointer; }
+.options > summary,
+.identity summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  list-style: none;
+  cursor: pointer;
+}
+.options > summary::-webkit-details-marker,
+.identity summary::-webkit-details-marker { display: none; }
+.options > summary > svg,
+.identity summary > svg {
+  flex: none;
+  transform: rotate(-90deg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.options[open] > summary > svg,
+.identity[open] > summary > svg { transform: none; }
 .options > div { margin-top:8px; }
 .identity { margin:8px 0; }
-.identity summary { padding:4px 0; cursor:pointer; }
 .compact .submit { width:100%; min-height:36px; font-size:13px; }
 .shortcutHint { display:flex; align-items:center; justify-content:center; gap:3px; margin:5px 0 0 !important; color:var(--muted); font-size:11px !important; }
 .shortcutHint kbd { padding:0 3px; border:1px solid var(--border); border-radius:3px; color:var(--muted-strong); font:10px var(--mono); }

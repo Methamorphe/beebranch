@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { ToolbarIcon } from './ToolbarIcon'
 import styles from './ActionMenu.module.css'
 
 export function ActionMenu({ label, children, triggerContent, triggerClassName, menuClassName, disabled = false, onOpen, closeOnAction = true }: { label: string; children: ReactNode; triggerContent?: ReactNode; triggerClassName?: string; menuClassName?: string; disabled?: boolean; onOpen?: () => void; closeOnAction?: boolean }) {
@@ -22,7 +23,7 @@ export function ActionMenu({ label, children, triggerContent, triggerClassName, 
     return () => observer.disconnect()
   }, [])
   return <>
-    <button ref={trigger} type="button" onClick={(event) => event.currentTarget.focus()} disabled={disabled} className={`${styles.trigger} ${triggerClassName ?? ''}`} data-frame={!triggerContent && !triggerClassName ? 'icon' : undefined} popoverTarget={id} aria-label={label} title={triggerContent ? label : 'Autres actions'}>{triggerContent ?? '···'}</button>
+    <button ref={trigger} type="button" onClick={(event) => event.currentTarget.focus()} disabled={disabled} className={`${styles.trigger} ${triggerClassName ?? ''}`} data-frame={!triggerContent && !triggerClassName ? 'icon' : undefined} popoverTarget={id} aria-label={label} title={triggerContent ? label : 'Autres actions'}>{triggerContent ?? <ToolbarIcon name="more" size={16} />}</button>
     <div ref={menu} id={id} popover="auto" className={`${styles.menu} ${menuClassName ?? ''}`} aria-label={label}
       onToggle={(event) => {
         if (event.newState !== 'open' || !trigger.current) return
