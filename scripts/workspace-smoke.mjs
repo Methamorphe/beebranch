@@ -570,17 +570,23 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
 
 
   await evaluate(client, `Array.from(document.querySelectorAll('aside[aria-label="Détail du commit"] button')).find((button) => button.textContent.includes('Voir le diff complet')).click()`)
-  await waitFor(client, `document.querySelector('aside[aria-label="Fichiers modifiés"]') !== null`, 'multi-file diff')
-  await waitFor(client, `document.querySelector('[data-diff-file="assets/logo.png"]') !== null`, 'image file in the diff list')
-  await evaluate(client, `document.querySelector('[data-diff-file="assets/logo.png"]').click()`)
+  // The inspector already lists the commit files, so the diff must not open a second rail.
+  await waitFor(client, `document.querySelector('[data-central-editor="diff"]') !== null && document.querySelector('aside[aria-label="Fichiers modifiés"]') === null`, 'multi-file diff')
+  await waitFor(client, `document.querySelector('aside[aria-label="Détail du commit"] [data-diff-file="assets/logo.png"]') !== null`, 'image file in the diff list')
+  await evaluate(client, `document.querySelector('aside[aria-label="Détail du commit"] [data-diff-file="assets/logo.png"]').click()`)
   await waitFor(client, `document.querySelectorAll('[data-image-view] img').length === 2`, 'image diff sides')
   await check('image-diff-shows-both-sides', `(() => {
     const captions = [...document.querySelectorAll('[data-image-view] figcaption')].map((node) => node.textContent)
     return captions.length === 2 && captions.some((text) => text.includes('Avant')) && captions.some((text) => text.includes('Après'))
   })()`)
   await check('diff-file-list-compact', `(() => {
-    const list = document.querySelector('aside[aria-label="Fichiers modifiés"]')
-    return list.getBoundingClientRect().width <= 230 && list.getBoundingClientRect().width <= list.parentElement.getBoundingClientRect().width * .25
+    const rail = document.querySelector('aside[aria-label="Fichiers modifiés"]')
+    const list = document.querySelector('aside[aria-label="Détail du commit"] section[aria-label="Fichiers modifiés"]')
+    const editor = document.querySelector('[data-central-editor="diff"]')
+    if (rail || !list || !editor) return false
+    const listBox = list.getBoundingClientRect()
+    const editorBox = editor.getBoundingClientRect()
+    return listBox.width > 0 && listBox.left >= editorBox.right - 8
   })()`)
   await screenshot('workspace-compact-file-list.png')
   await evaluate(client, `(() => {
@@ -588,8 +594,8 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     window.__emitTauriEvent('repo://changed', { repoId:'repo_demo', generation:120, areas:['state'] })
     return true
   })()`)
-  await waitFor(client, `!document.querySelector('aside[aria-label="Fichiers modifiés"]')`, 'single-file diff uses full width')
-  await check('single-file-diff-no-redundant-list', `Boolean(document.querySelector('[data-central-editor]')) && !document.querySelector('aside[aria-label="Fichiers modifiés"]')`)
+  await waitFor(client, `!document.querySelector('[data-image-view]') && document.body.innerText.includes('windowed diff payload') && !document.querySelector('aside[aria-label="Fichiers modifiés"]')`, 'single-file diff uses full width')
+  await check('single-file-diff-no-redundant-list', `Boolean(document.querySelector('[data-central-editor="diff"]')) && !document.querySelector('aside[aria-label="Fichiers modifiés"]')`)
   await screenshot('workspace-single-file-diff.png')
   // The region choice leaves an unsaved draft: the discard prompt is accepted
   // by the smoke's dialog handler, as a user would.

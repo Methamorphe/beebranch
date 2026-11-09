@@ -177,6 +177,7 @@ export function CommitDetailPanel({ detail, loading, error, activePath, onShowDi
               <button
                 type="button"
                 className={current ? styles.fileActive : styles.file}
+                data-diff-file={file.path}
                 aria-current={current ? 'true' : undefined}
                 onClick={() => onShowDiff(file.revision ?? commit.sha, file.path)}
                 title={
