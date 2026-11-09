@@ -211,8 +211,11 @@ pub(super) fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
     if let Some(instance) = state.github_instance.lock().ok()?.clone() {
         if let Ok(instance_url) = beebranch_github::normalize_url(&instance.base_url) {
             if clone_url.host.eq_ignore_ascii_case(&instance_url.host) {
-                let account = format!("{}#{}", instance_url.host, instance.id);
-                if let Some(token) = state.github_secrets.get(&account).ok().flatten() {
+                if let Some(token) = super::github::stored_access_token(
+                    state.github_secrets.as_ref(),
+                    &instance_url.host,
+                    &instance.id,
+                ) {
                     return Some(HttpsAuth {
                         username: "x-access-token".to_owned(),
                         token,

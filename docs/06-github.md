@@ -59,6 +59,17 @@ BeeBranch can connect to github.com without a Personal Access Token through the
 4. the `gho_` token is validated through `GET /user`, stored in the OS keychain
    (`beebranch.github`), and never returned to the frontend.
 
+Expiring tokens: when the OAuth App issues expiring tokens, GitHub also
+returns a `refresh_token` and `expires_in`. BeeBranch then stores one JSON
+secret (`<host>#<id>#oauth`: access token, refresh token, expiry, client ID) in
+the `beebranch.github` keychain and renews the token in the background two
+minutes before it expires. Renewal needs no client secret for device-flow
+tokens. GitHub rotates the refresh token on each use, so the new one is saved
+before the shared client's token is swapped. If the refresh token is rejected
+(`bad_refresh_token`, e.g. after six months of inactivity), the session is
+dropped and `github://auth-expired` is emitted; the user reconnects. Tokens
+without a refresh token and Personal Access Tokens stay plain keychain strings.
+
 The `device_code` stays on the backend (memory only); it alone would allow
 obtaining the token. The button is offered only for `github.com`: GitHub
 Enterprise Server requires an instance-specific OAuth App.

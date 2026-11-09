@@ -1,7 +1,11 @@
 .navigator { display:flex; flex-direction:column; flex:none; width:var(--sidebar-width,240px); min-width:180px; min-height:0; border-right:1px solid var(--border); background:var(--surface); }
 .heading { padding:12px; font-size:13px; }
 .heading strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
-.search { min-width:0; margin:0 10px 10px; padding:5px 8px; border:1px solid var(--border); border-radius:3px; color:var(--text); background:var(--bg); font-size:12px; }
+.filterRow { display:flex; align-items:center; gap:6px; margin:0 10px 10px; }
+.viewToggle { flex:none; padding:4px 7px; border:1px solid var(--border); border-radius:3px; color:var(--muted-strong); font-size:13px; line-height:1; }
+.viewToggle[aria-pressed='true'] { color:var(--text); background:var(--surface-raised); }
+.folder { display:flex; align-items:center; gap:7px; width:100%; min-height:28px; padding:4px 12px; border-radius:0; color:var(--muted-strong); text-align:left; font-size:12px; }
+.search { flex:1; min-width:0; margin:0; padding:5px 8px; border:1px solid var(--border); border-radius:3px; color:var(--text); background:var(--bg); font-size:12px; }
 .sections { flex:1; min-height:0; overflow:auto; }
 .section { border-top:1px solid var(--border); }
 .sectionHeading { display:flex; align-items:center; min-height:33px; }

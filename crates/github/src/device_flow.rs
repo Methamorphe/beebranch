@@ -20,6 +20,7 @@ use crate::error::GithubError;
 pub const OAUTH_SCOPES: &str = "repo read:user";
 
 const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
+const REFRESH_GRANT: &str = "refresh_token";
 
 /// Device authorization returned when the flow starts.
 #[derive(Clone)]
@@ -56,7 +57,34 @@ pub enum PollOutcome {
     Authorized {
         token: String,
         scope: Option<String>,
+        /// Present when the OAuth App issues expiring tokens.
+        refresh_token: Option<String>,
+        /// Lifetime of `token` in seconds, when it expires.
+        expires_in: Option<u64>,
     },
+}
+
+/// Access token returned by a refresh. GitHub rotates the refresh token on
+/// every use: the previous one stops working.
+#[derive(Clone)]
+pub struct RefreshedToken {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_in: Option<u64>,
+}
+
+impl fmt::Debug for RefreshedToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RefreshedToken")
+            .field("access_token", &"[REDACTED]")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
 }
 
 impl fmt::Debug for PollOutcome {
@@ -64,10 +92,20 @@ impl fmt::Debug for PollOutcome {
         match self {
             Self::Pending => formatter.write_str("Pending"),
             Self::SlowDown => formatter.write_str("SlowDown"),
-            Self::Authorized { scope, .. } => formatter
+            Self::Authorized {
+                scope,
+                refresh_token,
+                expires_in,
+                ..
+            } => formatter
                 .debug_struct("Authorized")
                 .field("token", &"[REDACTED]")
                 .field("scope", scope)
+                .field(
+                    "refresh_token",
+                    &refresh_token.as_ref().map(|_| "[REDACTED]"),
+                )
+                .field("expires_in", expires_in)
                 .finish(),
         }
     }
@@ -88,6 +126,8 @@ struct TokenWire {
     access_token: Option<String>,
     scope: Option<String>,
     error: Option<String>,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
 }
 
 /// Ask GitHub for a device code.
@@ -155,6 +195,8 @@ pub async fn poll_access_token(
         return Ok(PollOutcome::Authorized {
             token,
             scope: wire.scope,
+            refresh_token: wire.refresh_token.filter(|token| !token.is_empty()),
+            expires_in: wire.expires_in,
         });
     }
 
@@ -179,6 +221,59 @@ pub async fn poll_access_token(
             "github.oauth_configuration",
             "La configuration OAuth GitHub est invalide.",
         )),
+        Some(other) => Err(GithubError::invalid_response(format!(
+            "Erreur OAuth GitHub inattendue : {other}"
+        ))),
+        None => Err(GithubError::invalid_response(
+            "Réponse OAuth GitHub sans jeton ni erreur.",
+        )),
+    }
+}
+
+/// Exchange a refresh token for a new access token.
+///
+/// Tokens obtained through the device flow need no client secret. GitHub
+/// rotates the refresh token: the caller must persist the returned one.
+pub async fn refresh_access_token(
+    web_base: &str,
+    client_id: &str,
+    refresh_token: &str,
+    timeout: Duration,
+) -> Result<RefreshedToken, GithubError> {
+    let client = http_client(web_base, timeout)?;
+    let url = endpoint(web_base, "/login/oauth/access_token")?;
+    let response = client
+        .post(url)
+        .header(ACCEPT, "application/json")
+        .form(&[
+            ("client_id", client_id),
+            ("grant_type", REFRESH_GRANT),
+            ("refresh_token", refresh_token),
+        ])
+        .send()
+        .await
+        .map_err(|error| transport_error(web_base, &error))?;
+    let wire: TokenWire = read_json(response, web_base).await?;
+
+    if let Some(access_token) = wire.access_token.filter(|token| !token.is_empty()) {
+        return Ok(RefreshedToken {
+            access_token,
+            refresh_token: wire.refresh_token.filter(|token| !token.is_empty()),
+            expires_in: wire.expires_in,
+        });
+    }
+
+    match wire.error.as_deref() {
+        Some("bad_refresh_token") => Err(GithubError::new(
+            "github.oauth_refresh_failed",
+            "La session GitHub a expiré. Reconnectez-vous.",
+        )),
+        Some("incorrect_client_credentials") | Some("unsupported_grant_type") => {
+            Err(GithubError::new(
+                "github.oauth_configuration",
+                "La configuration OAuth GitHub est invalide.",
+            ))
+        }
         Some(other) => Err(GithubError::invalid_response(format!(
             "Erreur OAuth GitHub inattendue : {other}"
         ))),

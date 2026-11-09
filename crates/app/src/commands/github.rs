@@ -3,7 +3,8 @@
 //! Mirrors the GitLab command surface while keeping a separate keychain
 //! service (`beebranch.github`) and provider-scoped instance rows.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use beebranch_core::{AppError, ErrorCategory, InstanceId};
@@ -11,7 +12,7 @@ use beebranch_github::{
     normalize_url, GithubClient, GithubConfig, GithubProject, GithubUser, Paged, RepositoriesQuery,
     DEFAULT_CACHE_TTL,
 };
-use beebranch_store::{IdentityRow, InstanceRow, ProjectRow};
+use beebranch_store::{IdentityRow, InstanceRow, ProjectRow, SecretStore};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -24,6 +25,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const DEVICE_FLOW_TIMEOUT: Duration = Duration::from_secs(20);
 const GITHUB_CLOUD: &str = "https://github.com";
 const PROVIDER: &str = "github";
+/// Refresh this many seconds before the access token expires.
+const OAUTH_REFRESH_MARGIN: i64 = 120;
+/// Upper bound between two wall-clock checks of the refresher.
+const OAUTH_POLL_STEP_SECS: u64 = 30;
+/// Lifetime assumed when GitHub omits `expires_in` on a refresh (8 hours).
+const OAUTH_FALLBACK_LIFETIME: u64 = 8 * 3600;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +102,273 @@ pub struct GithubProjectsPageInput {
 
 fn account_for(host: &str, instance_id: &str) -> String {
     format!("{host}#{instance_id}")
+}
+
+fn oauth_account_for(host: &str, instance_id: &str) -> String {
+    format!("{host}#{instance_id}#oauth")
+}
+
+/// Expiring OAuth tokens persisted as one JSON secret in the keychain.
+///
+/// Only written when GitHub issued a refresh token. A non-expiring token or a
+/// Personal Access Token stays a plain string under `account_for`.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GithubOAuthTokens {
+    access_token: String,
+    refresh_token: String,
+    expires_at: i64,
+    client_id: String,
+}
+
+impl std::fmt::Debug for GithubOAuthTokens {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GithubOAuthTokens")
+            .field("access_token", &"[REDACTED]")
+            .field("refresh_token", &"[REDACTED]")
+            .field("expires_at", &self.expires_at)
+            .field("client_id", &self.client_id)
+            .finish()
+    }
+}
+
+fn read_oauth_tokens(
+    secrets: &dyn SecretStore,
+    host: &str,
+    instance_id: &str,
+) -> Option<GithubOAuthTokens> {
+    let blob = secrets
+        .get(&oauth_account_for(host, instance_id))
+        .ok()
+        .flatten()?;
+    match serde_json::from_str(&blob) {
+        Ok(tokens) => Some(tokens),
+        Err(error) => {
+            tracing::warn!(%error, "GitHub OAuth secret is unreadable");
+            None
+        }
+    }
+}
+
+/// Current access token for an instance: the OAuth blob when present,
+/// otherwise the plain token (Personal Access Token or non-expiring OAuth).
+pub(super) fn stored_access_token(
+    secrets: &dyn SecretStore,
+    host: &str,
+    instance_id: &str,
+) -> Option<String> {
+    read_oauth_tokens(secrets, host, instance_id)
+        .map(|tokens| tokens.access_token)
+        .or_else(|| secrets.get(&account_for(host, instance_id)).ok().flatten())
+}
+
+/// Persist the token of a fresh connection. A refreshable token goes to the
+/// OAuth blob; anything else to the plain secret. The other form is removed so
+/// a stale token can never shadow the new one.
+fn store_connection_token(
+    secrets: &dyn SecretStore,
+    host: &str,
+    instance_id: &str,
+    token: &str,
+    oauth: Option<&GithubOAuthTokens>,
+) -> Result<(), beebranch_store::StoreError> {
+    match oauth {
+        Some(tokens) => {
+            let blob = serde_json::to_string(tokens).map_err(|error| {
+                beebranch_store::StoreError::Invalid(format!("secret OAuth GitHub : {error}"))
+            })?;
+            secrets.set(&oauth_account_for(host, instance_id), &blob)?;
+            secrets.delete(&account_for(host, instance_id))
+        }
+        None => {
+            secrets.set(&account_for(host, instance_id), token)?;
+            secrets.delete(&oauth_account_for(host, instance_id))
+        }
+    }
+}
+
+fn cancel_oauth_refresh(state: &AppState) {
+    if let Ok(mut slot) = state.github_refresh_cancel.lock() {
+        if let Some(flag) = slot.take() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+fn emit_auth_expired(app: &AppHandle, instance_id: &str) {
+    let _ = app.emit(
+        "github://auth-expired",
+        serde_json::json!({ "instanceId": instance_id }),
+    );
+}
+
+/// Exchange the refresh token and persist the rotated pair. GitHub rotates the
+/// refresh token on every use: the old one stops working immediately.
+async fn refresh_oauth_once(
+    client_slot: &Arc<Mutex<Option<GithubClient>>>,
+    secrets: &Arc<dyn SecretStore>,
+    account: &str,
+    tokens: &GithubOAuthTokens,
+) -> Result<GithubOAuthTokens, beebranch_github::GithubError> {
+    let fresh = beebranch_github::device_flow::refresh_access_token(
+        GITHUB_CLOUD,
+        &tokens.client_id,
+        &tokens.refresh_token,
+        DEVICE_FLOW_TIMEOUT,
+    )
+    .await?;
+    let next = GithubOAuthTokens {
+        access_token: fresh.access_token,
+        // A response without a new refresh token would leave the old one
+        // dead; keep it only as a last resort so the session fails visibly.
+        refresh_token: fresh
+            .refresh_token
+            .unwrap_or_else(|| tokens.refresh_token.clone()),
+        expires_at: beebranch_core::now_unix()
+            .saturating_add(fresh.expires_in.unwrap_or(OAUTH_FALLBACK_LIFETIME) as i64),
+        client_id: tokens.client_id.clone(),
+    };
+    // Persist before swapping the client token: a crash in between must not
+    // lose the rotated refresh token.
+    match serde_json::to_string(&next) {
+        Ok(blob) => {
+            if let Err(error) = secrets.set(account, &blob) {
+                tracing::warn!(%error, "GitHub OAuth secret update failed");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "GitHub OAuth secret serialization failed"),
+    }
+    if let Some(client) = client_slot.lock().ok().and_then(|slot| slot.clone()) {
+        if let Err(error) = client.set_token(&next.access_token) {
+            tracing::warn!(%error, "GitHub OAuth token rotation failed");
+        }
+    }
+    Ok(next)
+}
+
+/// Drop an unusable OAuth session: no client, no stale secret, and an event so
+/// the panel reloads its status instead of failing every call one by one.
+fn expire_oauth_session(
+    app: &AppHandle,
+    client_slot: &Arc<Mutex<Option<GithubClient>>>,
+    secrets: &Arc<dyn SecretStore>,
+    account: &str,
+    instance_id: &str,
+) {
+    if let Ok(mut slot) = client_slot.lock() {
+        *slot = None;
+    }
+    let _ = secrets.delete(account);
+    emit_auth_expired(app, instance_id);
+}
+
+/// Start the background refresher when the active session came from an
+/// expiring OAuth token. Called at startup and from `github_status`.
+pub(crate) async fn ensure_oauth_refresh(app: &AppHandle, state: &AppState) {
+    let running = state
+        .github_refresh_cancel
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|flag| !flag.load(Ordering::Relaxed)))
+        .unwrap_or(false);
+    if running {
+        return;
+    }
+    let Some(instance) = state
+        .github_instance
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+    else {
+        return;
+    };
+    let Ok(url) = normalize_url(&instance.base_url) else {
+        return;
+    };
+    let Some(mut tokens) =
+        read_oauth_tokens(state.github_secrets.as_ref(), &url.host, &instance.id)
+    else {
+        return;
+    };
+    let account = oauth_account_for(&url.host, &instance.id);
+
+    // The token restored from the previous run may already be expired:
+    // refresh it before anything else uses it.
+    if tokens.expires_at <= beebranch_core::now_unix() + OAUTH_REFRESH_MARGIN {
+        match refresh_oauth_once(&state.github, &state.github_secrets, &account, &tokens).await {
+            Ok(next) => tokens = next,
+            Err(error) => {
+                tracing::warn!(code = error.code(), "GitHub OAuth refresh failed");
+                if error.code() == "github.oauth_refresh_failed"
+                    || beebranch_core::now_unix() >= tokens.expires_at - 10
+                {
+                    expire_oauth_session(
+                        app,
+                        &state.github,
+                        &state.github_secrets,
+                        &account,
+                        &instance.id,
+                    );
+                    return;
+                }
+            }
+        }
+    }
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    if let Ok(mut slot) = state.github_refresh_cancel.lock() {
+        *slot = Some(cancel.clone());
+    }
+    spawn_oauth_refresh(
+        app.clone(),
+        state.github.clone(),
+        state.github_secrets.clone(),
+        instance.id,
+        account,
+        tokens,
+        cancel,
+    );
+}
+
+/// Refresh the access token shortly before it expires and update every client
+/// clone in place. The wall clock is rechecked every few seconds because a
+/// monotonic sleep does not count the time a laptop spends asleep.
+fn spawn_oauth_refresh(
+    app: AppHandle,
+    client_slot: Arc<Mutex<Option<GithubClient>>>,
+    secrets: Arc<dyn SecretStore>,
+    instance_id: String,
+    account: String,
+    mut tokens: GithubOAuthTokens,
+    cancel: Arc<AtomicBool>,
+) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
+            let remaining = tokens.expires_at - OAUTH_REFRESH_MARGIN - beebranch_core::now_unix();
+            if remaining > 0 {
+                let step = (remaining as u64).min(OAUTH_POLL_STEP_SECS);
+                tokio::time::sleep(Duration::from_secs(step)).await;
+                continue;
+            }
+            match refresh_oauth_once(&client_slot, &secrets, &account, &tokens).await {
+                Ok(next) => tokens = next,
+                Err(error) => {
+                    tracing::warn!(code = error.code(), "GitHub OAuth refresh failed");
+                    if error.code() == "github.oauth_refresh_failed"
+                        || beebranch_core::now_unix() >= tokens.expires_at - 10
+                    {
+                        expire_oauth_session(&app, &client_slot, &secrets, &account, &instance_id);
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }
+            }
+        }
+    });
 }
 
 pub fn not_configured_public() -> AppError {
@@ -214,8 +488,8 @@ fn client_from_keychain(state: &AppState, instance: &InstanceRow) -> Option<Gith
     let Ok(url) = normalize_url(&instance.base_url) else {
         return None;
     };
-    let account = account_for(&url.host, &instance.id);
-    let Some(token) = state.github_secrets.get(&account).ok().flatten() else {
+    let Some(token) = stored_access_token(state.github_secrets.as_ref(), &url.host, &instance.id)
+    else {
         tracing::info!("GitHub instance configured but no token in the secret store");
         return None;
     };
@@ -390,10 +664,15 @@ pub async fn configure(
             validated_at: now,
         })
         .map_err(store_error)?;
-    state
-        .github_secrets
-        .set(&account_for(&normalized.host, &instance.id), &token)
-        .map_err(store_error)?;
+    cancel_oauth_refresh(state);
+    store_connection_token(
+        state.github_secrets.as_ref(),
+        &normalized.host,
+        &instance.id,
+        &token,
+        None,
+    )
+    .map_err(store_error)?;
     state
         .store
         .delete_cache_prefix(&normalized.api_url)
@@ -636,7 +915,10 @@ fn clear_device_flow(state: &AppState) {
     }
 }
 
-pub async fn device_flow_poll(state: &AppState) -> Result<GithubDeviceFlowPollDto, AppError> {
+pub async fn device_flow_poll(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<GithubDeviceFlowPollDto, AppError> {
     let pending = state
         .github_device_flow
         .lock()
@@ -675,7 +957,7 @@ pub async fn device_flow_poll(state: &AppState) -> Result<GithubDeviceFlowPollDt
         }
     };
 
-    let (token, scope) = match outcome {
+    let (token, scope, oauth) = match outcome {
         beebranch_github::device_flow::PollOutcome::Pending => {
             return Ok(pending_dto(pending.interval));
         }
@@ -688,7 +970,24 @@ pub async fn device_flow_poll(state: &AppState) -> Result<GithubDeviceFlowPollDt
             }
             return Ok(pending_dto(interval));
         }
-        beebranch_github::device_flow::PollOutcome::Authorized { token, scope } => (token, scope),
+        beebranch_github::device_flow::PollOutcome::Authorized {
+            token,
+            scope,
+            refresh_token,
+            expires_in,
+        } => {
+            // Only an expiring token with a refresh token needs the blob.
+            let oauth = match (refresh_token, expires_in) {
+                (Some(refresh_token), Some(expires_in)) => Some(GithubOAuthTokens {
+                    access_token: token.clone(),
+                    refresh_token,
+                    expires_at: beebranch_core::now_unix().saturating_add(expires_in as i64),
+                    client_id: pending.client_id.clone(),
+                }),
+                _ => None,
+            };
+            (token, scope, oauth)
+        }
     };
 
     let normalized = normalize_url(GITHUB_CLOUD).map_err(github_error)?;
@@ -733,10 +1032,15 @@ pub async fn device_flow_poll(state: &AppState) -> Result<GithubDeviceFlowPollDt
             validated_at: now,
         })
         .map_err(store_error)?;
-    state
-        .github_secrets
-        .set(&account_for(&normalized.host, &instance.id), &token)
-        .map_err(store_error)?;
+    cancel_oauth_refresh(state);
+    store_connection_token(
+        state.github_secrets.as_ref(),
+        &normalized.host,
+        &instance.id,
+        &token,
+        oauth.as_ref(),
+    )
+    .map_err(store_error)?;
     state
         .store
         .delete_cache_prefix(&normalized.api_url)
@@ -749,12 +1053,28 @@ pub async fn device_flow_poll(state: &AppState) -> Result<GithubDeviceFlowPollDt
     *state
         .github_instance
         .lock()
-        .map_err(|_| AppError::internal("verrou instance GitHub"))? = Some(instance);
+        .map_err(|_| AppError::internal("verrou instance GitHub"))? = Some(instance.clone());
     *state
         .github_credential
         .lock()
         .map_err(|_| AppError::internal("verrous credentials GitHub"))? = None;
     clear_device_flow(state);
+
+    if let Some(tokens) = oauth {
+        let cancel = Arc::new(AtomicBool::new(false));
+        if let Ok(mut slot) = state.github_refresh_cancel.lock() {
+            *slot = Some(cancel.clone());
+        }
+        spawn_oauth_refresh(
+            app.clone(),
+            state.github.clone(),
+            state.github_secrets.clone(),
+            instance.id.clone(),
+            oauth_account_for(&normalized.host, &instance.id),
+            tokens,
+            cancel,
+        );
+    }
 
     tracing::info!(
         granted = scope.as_deref().unwrap_or(""),
@@ -777,9 +1097,10 @@ pub async fn github_device_flow_start(
 
 #[tauri::command]
 pub async fn github_device_flow_poll(
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<GithubDeviceFlowPollDto, AppError> {
-    device_flow_poll(&state).await
+    device_flow_poll(&app, &state).await
 }
 
 #[tauri::command]
@@ -792,16 +1113,20 @@ pub fn github_device_flow_cancel(state: State<'_, AppState>) -> Result<bool, App
 }
 
 #[tauri::command]
-pub async fn github_status(state: State<'_, AppState>) -> Result<GithubSessionDto, AppError> {
+pub async fn github_status(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<GithubSessionDto, AppError> {
     let connected = state
         .github
         .lock()
         .map(|client| client.is_some())
         .unwrap_or(false);
-    if !connected {
-        if let Err(error) = detect_git_credentials(&state) {
-            tracing::warn!(%error, "GitHub credential discovery failed");
-        }
+    if connected {
+        // Expiring OAuth tokens are renewed in the background.
+        ensure_oauth_refresh(&app, &state).await;
+    } else if let Err(error) = detect_git_credentials(&state) {
+        tracing::warn!(%error, "GitHub credential discovery failed");
     }
     session(&state)
 }
@@ -931,6 +1256,7 @@ pub async fn github_projects_page(
 
 #[tauri::command]
 pub fn github_disconnect(state: State<'_, AppState>) -> Result<bool, AppError> {
+    cancel_oauth_refresh(&state);
     let instance = state
         .github_instance
         .lock()
@@ -942,6 +1268,9 @@ pub fn github_disconnect(state: State<'_, AppState>) -> Result<bool, AppError> {
             let _ = state
                 .github_secrets
                 .delete(&account_for(&url.host, &instance.id));
+            let _ = state
+                .github_secrets
+                .delete(&oauth_account_for(&url.host, &instance.id));
         }
         if let Some(ca_bundle_id) = instance.ca_bundle_id.as_deref() {
             let _ = state.store.delete_ca_bundle(ca_bundle_id);
@@ -970,7 +1299,94 @@ pub fn github_disconnect(state: State<'_, AppState>) -> Result<bool, AppError> {
 mod tests {
     use beebranch_git::credentials::{CredentialOrigin, DiscoveredCredential};
 
-    use super::select_credential;
+    use beebranch_store::{MemorySecretStore, SecretStore};
+
+    use super::{
+        oauth_account_for, select_credential, store_connection_token, stored_access_token,
+        GithubOAuthTokens,
+    };
+
+    fn oauth(access: &str) -> GithubOAuthTokens {
+        GithubOAuthTokens {
+            access_token: access.to_owned(),
+            refresh_token: "ghr_refresh".to_owned(),
+            expires_at: 1_000,
+            client_id: "client".to_owned(),
+        }
+    }
+
+    #[test]
+    fn oauth_tokens_are_never_debug_printed() {
+        let printed = format!("{:?}", oauth("gho_access"));
+        assert!(!printed.contains("gho_access"));
+        assert!(!printed.contains("ghr_refresh"));
+    }
+
+    #[test]
+    fn a_plain_token_is_still_read_without_an_oauth_blob() {
+        let secrets = MemorySecretStore::new();
+        secrets.set("github.com#id", "ghp_plain").expect("set");
+        assert_eq!(
+            stored_access_token(&secrets, "github.com", "id").as_deref(),
+            Some("ghp_plain")
+        );
+    }
+
+    #[test]
+    fn the_oauth_blob_wins_over_a_stale_plain_token() {
+        let secrets = MemorySecretStore::new();
+        secrets.set("github.com#id", "ghp_stale").expect("set");
+        store_connection_token(
+            &secrets,
+            "github.com",
+            "id",
+            "gho_new",
+            Some(&oauth("gho_new")),
+        )
+        .expect("store");
+        assert_eq!(
+            stored_access_token(&secrets, "github.com", "id").as_deref(),
+            Some("gho_new")
+        );
+        assert_eq!(secrets.get("github.com#id").expect("get"), None);
+    }
+
+    #[test]
+    fn a_plain_connection_removes_a_previous_oauth_blob() {
+        let secrets = MemorySecretStore::new();
+        store_connection_token(
+            &secrets,
+            "github.com",
+            "id",
+            "gho_old",
+            Some(&oauth("gho_old")),
+        )
+        .expect("store oauth");
+        store_connection_token(&secrets, "github.com", "id", "ghp_pat", None).expect("store pat");
+        assert_eq!(
+            secrets
+                .get(&oauth_account_for("github.com", "id"))
+                .expect("get"),
+            None
+        );
+        assert_eq!(
+            stored_access_token(&secrets, "github.com", "id").as_deref(),
+            Some("ghp_pat")
+        );
+    }
+
+    #[test]
+    fn a_corrupt_oauth_blob_falls_back_to_the_plain_token() {
+        let secrets = MemorySecretStore::new();
+        secrets
+            .set(&oauth_account_for("github.com", "id"), "not json")
+            .expect("set blob");
+        secrets.set("github.com#id", "ghp_plain").expect("set");
+        assert_eq!(
+            stored_access_token(&secrets, "github.com", "id").as_deref(),
+            Some("ghp_plain")
+        );
+    }
 
     fn credential(host: &str, password: &str) -> DiscoveredCredential {
         DiscoveredCredential {
