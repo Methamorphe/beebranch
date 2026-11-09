@@ -2,8 +2,15 @@ import { useState, type ReactNode } from 'react'
 import type { ViewId } from '../data/navigation'
 import { useI18n, type MessageKey } from '../i18n'
 import { filterBranches } from '../lib/branchList'
+import { buildBranchRows } from '../lib/branchTree'
 import type { RefEntry, StashEntry } from '../types/git'
 import styles from './RepositoryNavigator.module.css'
+
+const treeKey = 'beebranch.branches.view'
+/** Folders by default; only an explicit "list" choice turns them off. */
+function readTreePreference() {
+  try { return localStorage.getItem(treeKey) !== 'list' } catch { return true }
+}
 
 type Props = {
   name: string
@@ -35,6 +42,12 @@ export function RepositoryNavigator(props: Props) {
   const [manage, setManage] = useState<ViewId | null>(null)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ local: true })
+  const [folders, setFolders] = useState<Record<string, boolean>>({})
+  const [tree, setTreeState] = useState(readTreePreference)
+  const setTree = (value: boolean) => {
+    setTreeState(value)
+    try { localStorage.setItem(treeKey, value ? 'tree' : 'list') } catch { /* preference stays per session */ }
+  }
   const groups = filterBranches(props.entries, query, props.current)
   const matches = (value: string) => value.toLowerCase().includes(query.trim().toLowerCase())
   const tags = props.entries.filter((entry) => entry.kind === 'tag' && matches(entry.name))
@@ -48,16 +61,31 @@ export function RepositoryNavigator(props: Props) {
   // An annotated tag stores a tag object; only the commit it peels to exists as
   // a row of the history, so selecting the tag object opens the detail without
   // ever focusing the graph.
-  const refRow = (entry: RefEntry) => <button type="button" key={entry.fullName}
+  const refRow = (entry: RefEntry, label = entry.name, depth = 0) => <button type="button" key={entry.fullName}
     className={styles.row} data-ref={entry.fullName} data-current={entry.isHead}
+    style={depth > 0 ? { paddingLeft: 24 + depth * 14 } : undefined}
     aria-current={props.selected === (entry.peeledOid ?? entry.targetOid) ? 'true' : undefined}
     title={entry.name} disabled={props.busy}
     onClick={() => props.onSelect(entry.peeledOid ?? entry.targetOid)}
     onDoubleClick={() => entry.kind !== 'tag' && props.onCheckout(entry)}
     onContextMenu={(event) => { event.preventDefault(); props.onRefMenu(entry, event.clientX, event.clientY) }}>
     <span aria-hidden="true">{entry.kind === 'tag' ? '◇' : entry.kind === 'remoteBranch' ? '☁' : '⑂'}</span>
-    <span className={styles.name}>{entry.name}</span>{entry.isHead ? <span aria-hidden="true">✓</span> : null}
+    <span className={styles.name}>{label}</span>{entry.isHead ? <span aria-hidden="true">✓</span> : null}
   </button>
+  // Branches as folders on "/", or the flat sorted list. While filtering,
+  // every folder holding a match opens; a folder the user toggled keeps its state.
+  const branchRows = (scope: 'local' | 'remotes', list: RefEntry[]) => {
+    if (!tree) return list.map((entry) => refRow(entry))
+    return buildBranchRows(list, scope, folders, query.trim() !== '').map((row) => row.kind === 'branch'
+      ? refRow(row.entry, row.label, row.depth)
+      : <button type="button" key={row.key} className={styles.folder} data-folder={row.key}
+        style={{ paddingLeft: 12 + row.depth * 14 }} aria-expanded={row.open}
+        onClick={() => setFolders((state) => ({ ...state, [row.key]: !row.open }))}>
+        <span className={styles.chevron} data-open={row.open} aria-hidden="true">›</span>
+        <span className={styles.name}>{row.name}</span>
+        <span className={styles.count}>{row.count}</span>
+      </button>)
+  }
   const section = (id: string, label: MessageKey, content: ReactNode, count?: number,
     action?: () => void, view?: ViewId) => {
     const active = props.active === (view ?? id)
@@ -83,12 +111,18 @@ export function RepositoryNavigator(props: Props) {
   }
   return <aside className={styles.navigator} aria-label={t('workbench.repository.aria')}>
     <div className={styles.heading}><strong>{props.name}</strong></div>
-    <input type="search" className={styles.search} value={query} onChange={(event) => setQuery(event.target.value)}
-      aria-label={t('workbench.repository.filter')} placeholder={t('workbench.repository.filter')} />
+    <div className={styles.filterRow}>
+      <input type="search" className={styles.search} value={query} onChange={(event) => setQuery(event.target.value)}
+        aria-label={t('workbench.repository.filter')} placeholder={t('workbench.repository.filter')} />
+      <button type="button" className={styles.viewToggle} aria-pressed={tree}
+        title={t(tree ? 'workbench.repository.viewList' : 'workbench.repository.viewTree')}
+        aria-label={t(tree ? 'workbench.repository.viewList' : 'workbench.repository.viewTree')}
+        onClick={() => setTree(!tree)}>{tree ? '☷' : '≣'}</button>
+    </div>
     <div className={styles.sections}>
-      {section('local', 'workbench.branches.local', groups.local.map(refRow), groups.local.length, props.onCreateBranch)}
-      {section('remotes', 'workbench.branches.remote', groups.remote.map(refRow), groups.remote.length, () => { setManage('remotes'); setExpanded((state) => ({ ...state, remotes: true })) })}
-      {section('tags', 'nav.tags', tags.map(refRow), tags.length, props.onCreateTag)}
+      {section('local', 'workbench.branches.local', branchRows('local', groups.local), groups.local.length, props.onCreateBranch)}
+      {section('remotes', 'workbench.branches.remote', branchRows('remotes', groups.remote), groups.remote.length, () => { setManage('remotes'); setExpanded((state) => ({ ...state, remotes: true })) })}
+      {section('tags', 'nav.tags', tags.map((entry) => refRow(entry)), tags.length, props.onCreateTag)}
       {section('stash', 'nav.stash', stashes.map((entry) => <button type="button" className={styles.row}
         data-stash={entry.selector} key={entry.selector} title={entry.message}
         aria-current={props.selected === entry.sha ? 'true' : undefined}
