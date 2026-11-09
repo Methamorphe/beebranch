@@ -437,8 +437,6 @@ pub async fn workspace_remove_repo(
     .map_err(join_error)?
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceChangeCounts {
