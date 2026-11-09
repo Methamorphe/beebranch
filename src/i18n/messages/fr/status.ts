@@ -13,6 +13,10 @@ const messages = {
   'status.group.stageAll': 'Fichiers ajoutés à l’index.',
   'status.group.unstageAllAction': 'Tout retirer',
   'status.group.stageAllAction': 'Tout préparer',
+  'status.group.unstageSelection': 'Retirer la sélection',
+  'status.group.stageSelection': 'Préparer la sélection',
+  'status.group.selectAll': 'Sélectionner tous les fichiers de {group}',
+  'status.group.selectAllHint': 'Cochez tout, puis décochez les fichiers à exclure',
   'status.group.emptyStaged': 'Préparez les fichiers à inclure dans le commit.',
   'status.group.emptyUnstaged': 'Aucun fichier à préparer.',
 

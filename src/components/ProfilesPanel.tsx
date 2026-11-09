@@ -369,7 +369,7 @@ export function ProfilesPanel({
   }
 
   return (
-    <div className={p2.page}>
+    <div className={`${p2.page} ${p2.settingsPage}`}>
       <div className={p2.settingsGrid}>
         <h2 className={p2.cardTitle}>{t('settings.general.title')}</h2>
         <div className={p2.setting}>

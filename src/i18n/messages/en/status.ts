@@ -13,6 +13,10 @@ const messages = {
   'status.group.stageAll': 'Files staged.',
   'status.group.unstageAllAction': 'Unstage all',
   'status.group.stageAllAction': 'Stage all',
+  'status.group.unstageSelection': 'Unstage selection',
+  'status.group.stageSelection': 'Stage selection',
+  'status.group.selectAll': 'Select every file in {group}',
+  'status.group.selectAllHint': 'Select all, then uncheck the files to leave out',
   'status.group.emptyStaged': 'Stage the files to include in the commit.',
   'status.group.emptyUnstaged': 'No file to stage.',
 

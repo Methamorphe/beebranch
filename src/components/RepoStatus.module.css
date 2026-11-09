@@ -11,6 +11,8 @@
 .clearSelection { width:25px; padding:0 !important; font-size:16px !important; line-height:1; }
 .fileGroup { flex:1; min-height:64px; overflow:auto; }
 .groupHeading { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:32px; padding:0 8px; background:var(--surface); }
+.groupTitle { display:flex; align-items:center; gap:8px; min-width:0; }
+.groupSelect { flex:none; width:13px; height:13px; margin:0; padding:0; accent-color:var(--accent); }
 .groupHeading h2 { margin:0; color:var(--muted-strong); font-size:13px; font-weight:600; }
 .groupHeading h2 span { margin-left:5px; color:var(--muted); font-size:12px; font-weight:400; }
 .groupHeading button { padding:3px 6px; border:1px solid var(--border-strong); color:var(--muted-strong); font-size:11px; }
