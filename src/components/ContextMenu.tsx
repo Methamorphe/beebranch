@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { t } from '../i18n'
+import { ToolbarIcon } from './ToolbarIcon'
 import styles from './ContextMenu.module.css'
 
 export function ContextMenu({ x, y, title, subtitle, ariaLabel, children, onClose }: {
@@ -57,15 +58,19 @@ export function ContextMenu({ x, y, title, subtitle, ariaLabel, children, onClos
   </div>, document.body)
 }
 
-const SUBMENU_CLOSE_DELAY = 180
+const SUBMENU_CLOSE_DELAY = 260
 
 /**
  * A menu item that opens a nested menu to its right (left when there is no
  * room). It opens on hover, Enter, Space or ArrowRight; ArrowLeft returns to
  * the trigger. `className` styles the trigger like its sibling items.
  */
-export function ContextSubmenu({ label, className, disabled = false, children }: {
-  label: string; className?: string; disabled?: boolean; children: ReactNode
+export function ContextSubmenu({ label, leading, className, disabled = false, children }: {
+  label: string
+  leading?: ReactNode
+  className?: string
+  disabled?: boolean
+  children: ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -107,7 +112,11 @@ export function ContextSubmenu({ label, className, disabled = false, children }:
         if (event.key !== 'ArrowRight') return
         event.preventDefault(); event.stopPropagation(); openWithKeyboard()
       }}>
-      <span>{label}</span><span className={styles.chevron} aria-hidden="true">›</span>
+      <span className={styles.submenuLead}>
+        {leading}
+        <span>{label}</span>
+      </span>
+      <span className={styles.chevron} aria-hidden="true"><ToolbarIcon name="chevronRight" size={12} /></span>
     </button>
     {open ? createPortal(<div ref={panel} className={`${styles.menu} ${styles.submenu}`} role="menu" aria-label={label}
       data-context-submenu="" onPointerEnter={keepOpen} onPointerLeave={closeSoon}

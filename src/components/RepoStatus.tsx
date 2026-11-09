@@ -25,6 +25,7 @@ import { splitPath } from '../lib/paths'
 import type { Fingerprint, StatusEntry, StatusReport } from '../types/git'
 import { ActionMenu } from './ActionMenu'
 import { FileStatusIcon } from './FileStatusIcon'
+import { ToolbarIcon } from './ToolbarIcon'
 import { ConfirmBar } from './ConfirmBar'
 import { ContextMenu, ContextSubmenu } from './ContextMenu'
 import styles from './RepoStatus.module.css'
@@ -1049,11 +1050,11 @@ export function RepoStatus({
           <button type="button" className={styles.danger} disabled={busy || !canDiscardSelection} title={canDiscardSelection ? undefined : t('status.bulk.discardTitle')} onClick={() => void requestDiscard(discardableSelection.map((item) => item.entry))}>
             {t('status.bulk.discard')}
           </button>
-          <button type="button" className={styles.clearSelection} aria-label={t('common.clearSelection')} onClick={() => setSelectedKeys(new Set())}>×</button>
+          <button type="button" className={styles.clearSelection} aria-label={t('common.clearSelection')} onClick={() => setSelectedKeys(new Set())}><ToolbarIcon name="x" size={14} /></button>
         </div>
       ) : null}
       <div ref={fileListRef} className={styles.fileList}>
-        {status.entries.length === 0 ? <div className={styles.clean}><span aria-hidden="true">✓</span><strong>{t('status.clean.title')}</strong><p>{t('status.clean.body')}</p></div> : null}
+        {status.entries.length === 0 ? <div className={styles.clean}><span aria-hidden="true"><ToolbarIcon name="check" size={16} /></span><strong>{t('status.clean.title')}</strong><p>{t('status.clean.body')}</p></div> : null}
         {filter && entries.length === 0 ? <p className={styles.notice}>{t('status.filter.none', { filter })}</p> : null}
         {groups.map((group) => {
           if (group.entries.length === 0 && (group.id === 'conflicts' || group.id === 'ignored' || status.entries.length === 0)) {
@@ -1106,7 +1107,7 @@ export function RepoStatus({
                         navCursorRef.current = `dir:${row.key}`
                         toggleDir(row.key)
                       }} title={row.name}>
-                      <span className={styles.caret} aria-hidden="true">{row.open ? '▾' : '▸'}</span>
+                      <span className={styles.caret} aria-hidden="true"><ToolbarIcon name={row.open ? 'chevron' : 'chevronRight'} size={12} /></span>
                       <span className={styles.dirName}>{row.name}</span>
                       <span className={styles.dirCount}>{row.count}</span>
                     </button>

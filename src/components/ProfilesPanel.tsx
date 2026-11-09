@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
-import { LOCALES, LOCALE_NAMES, useI18n } from '../i18n'
+import { GitBranch, Keyboard, Palette, Settings2, Users, type LucideIcon } from 'lucide-react'
+import { LOCALES, LOCALE_NAMES, useI18n, type MessageKey } from '../i18n'
+import { AppIcon } from './IconSvg'
 import {
   commitIdentity,
   gitlabStatus,
@@ -72,6 +74,22 @@ type Props = {
   /** Labels of the actions reverted to their default because of a conflict. */
   shortcutConflict?: string[]
   onShortcutsChange: (next: ShortcutMap) => void
+}
+
+type SettingsTab = 'appearance' | 'general' | 'git' | 'profiles' | 'shortcuts'
+
+const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; icon: LucideIcon }[] = [
+  { id: 'appearance', labelKey: 'settings.tab.appearance', icon: Palette },
+  { id: 'general', labelKey: 'settings.tab.general', icon: Settings2 },
+  { id: 'git', labelKey: 'settings.tab.git', icon: GitBranch },
+  { id: 'profiles', labelKey: 'settings.tab.profiles', icon: Users },
+  { id: 'shortcuts', labelKey: 'settings.tab.shortcuts', icon: Keyboard },
+]
+
+const SETTINGS_TAB_KEY = 'ui.settingsTab'
+
+function isSettingsTab(value: string | null | undefined): value is SettingsTab {
+  return SETTINGS_TABS.some((tab) => tab.id === value)
 }
 
 const EMPTY = {
@@ -252,6 +270,33 @@ export function ProfilesPanel({
   const [restarting, setRestarting] = useState(false)
   const [pendingInstall, setPendingInstall] = useState(false)
   const [pendingRollback, setPendingRollback] = useState(false)
+  const [tab, setTab] = useState<SettingsTab>('appearance')
+
+  const selectTab = useCallback((next: SettingsTab) => {
+    setTab(next)
+    void preferenceSet(SETTINGS_TAB_KEY, next).catch(() => undefined)
+  }, [])
+
+  const onTabListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const horizontal = window.matchMedia('(max-width: 700px)').matches
+    const backward = horizontal ? event.key === 'ArrowLeft' : event.key === 'ArrowUp'
+    const forward = horizontal ? event.key === 'ArrowRight' : event.key === 'ArrowDown'
+    if (!backward && !forward && event.key !== 'Home' && event.key !== 'End') {
+      return
+    }
+    event.preventDefault()
+    const index = SETTINGS_TABS.findIndex((entry) => entry.id === tab)
+    let next = index
+    if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = SETTINGS_TABS.length - 1
+    else if (forward) next = (index + 1) % SETTINGS_TABS.length
+    else next = (index - 1 + SETTINGS_TABS.length) % SETTINGS_TABS.length
+    const target = SETTINGS_TABS[next]
+    if (!target) return
+    selectTab(target.id)
+    const button = event.currentTarget.querySelector<HTMLButtonElement>(`#settings-tab-${target.id}`)
+    button?.focus()
+  }
 
   const load = useCallback(async () => {
     try {
@@ -280,8 +325,9 @@ export function ProfilesPanel({
       preferenceGet('git.signingKey'),
       preferenceGet('git.signingFormat'),
       preferenceGet(AUTO_FETCH_PREFERENCE),
+      preferenceGet(SETTINGS_TAB_KEY),
     ])
-      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch]) => {
+      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch, savedTab]) => {
         if (cancelled) {
           return
         }
@@ -296,6 +342,9 @@ export function ProfilesPanel({
         setSigningKey(savedKey ?? '')
         if (savedFormat) {
           setSigningFormat(savedFormat)
+        }
+        if (isSettingsTab(savedTab)) {
+          setTab(savedTab)
         }
       })
       .catch(() => undefined)
@@ -368,10 +417,44 @@ export function ProfilesPanel({
     apply({ ...(current ?? DEFAULT_MEDIA_OPTIONS), path: selected })
   }
 
+  const activeTab = SETTINGS_TABS.find((entry) => entry.id === tab) ?? SETTINGS_TABS[0]!
+
   return (
-    <div className={`${p2.page} ${p2.settingsPage}`}>
+    <div className={`${p2.page} ${styles.shell}`}>
+      <div
+        className={styles.nav}
+        role="tablist"
+        aria-label={t('settings.tab.aria')}
+        aria-orientation="vertical"
+        onKeyDown={onTabListKeyDown}
+      >
+        {SETTINGS_TABS.map((entry) => (
+          <button
+            key={entry.id}
+            id={`settings-tab-${entry.id}`}
+            type="button"
+            role="tab"
+            className={styles.tab}
+            aria-selected={tab === entry.id}
+            aria-controls={`settings-panel-${entry.id}`}
+            tabIndex={tab === entry.id ? 0 : -1}
+            onClick={() => selectTab(entry.id)}
+          >
+            <AppIcon icon={entry.icon} size={16} />
+            <span>{t(entry.labelKey)}</span>
+          </button>
+        ))}
+      </div>
+      <div
+        id={`settings-panel-${tab}`}
+        className={styles.panel}
+        role="tabpanel"
+        aria-labelledby={`settings-tab-${tab}`}
+        aria-label={t('settings.tab.panelAria', { tab: t(activeTab.labelKey) })}
+      >
       <div className={p2.settingsGrid}>
-        <h2 className={p2.cardTitle}>{t('settings.general.title')}</h2>
+        {tab === 'appearance' ? <>
+        <h2 className={p2.cardTitle}>{t('settings.appearance.title')}</h2>
         <div className={p2.setting}>
           <div>
             <strong>{t('settings.appearance.title')}</strong>
@@ -401,25 +484,6 @@ export function ProfilesPanel({
             </select>
           </div>
         </div>
-        <div className={p2.setting}>
-          <div>
-            <strong>{t('settings.language.title')}</strong>
-            <p>{t('settings.language.description')}</p>
-          </div>
-          <div className={p2.settingControls}>
-            <select
-              value={locale}
-              onChange={(event) => changeLocale(event.target.value as typeof locale)}
-              aria-label={t('settings.language.aria')}
-            >
-              {LOCALES.map((value) => (
-                <option key={value} value={value}>
-                  {LOCALE_NAMES[value]}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
         <ImageSetting
           label={t('settings.media.wallpaper.suffix')}
           title={t('settings.media.wallpaper.title')}
@@ -443,6 +507,29 @@ export function ProfilesPanel({
           onPick={() => void pickImage(splash, onSplashChange)}
           onChange={onSplashChange}
         />
+        </> : null}
+
+        {tab === 'general' ? <>
+        <h2 className={p2.cardTitle}>{t('settings.general.title')}</h2>
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.language.title')}</strong>
+            <p>{t('settings.language.description')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={locale}
+              onChange={(event) => changeLocale(event.target.value as typeof locale)}
+              aria-label={t('settings.language.aria')}
+            >
+              {LOCALES.map((value) => (
+                <option key={value} value={value}>
+                  {LOCALE_NAMES[value]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className={p2.setting}>
           <div>
             <strong>{t('settings.updates.title')}</strong>
@@ -515,6 +602,35 @@ export function ProfilesPanel({
         ) : null}
         <div className={p2.setting}>
           <div>
+            <strong>{t('settings.autoFetch.title')}</strong>
+            <p>{t('settings.autoFetch.hint')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={autoFetch}
+              aria-label={t('ops.sync.autoFetchAria')}
+              onChange={(event) => {
+                const next = event.target.value
+                setAutoFetch(next)
+                void saveAutoFetchMinutes(next).catch((cause: unknown) =>
+                  setError(errorMessage(cause)),
+                )
+              }}
+            >
+              {AUTO_FETCH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        </> : null}
+
+        {tab === 'git' ? <>
+        <h2 className={p2.cardTitle}>{t('settings.tab.git')}</h2>
+        <div className={p2.setting}>
+          <div>
             <strong>{t('settings.identity.title')}</strong>
             <p>{t('settings.identity.description')}</p>
           </div>
@@ -545,6 +661,7 @@ export function ProfilesPanel({
         </div>
 
         <h2 className={p2.sectionTitle}>{t('settings.files.title')}</h2>
+
         <div className={p2.setting}>
           <div>
             <strong>{t('settings.files.encoding')}</strong>
@@ -592,32 +709,6 @@ export function ProfilesPanel({
             >
               {t('common.save')}
             </button>
-          </div>
-        </div>
-
-        <div className={p2.setting}>
-          <div>
-            <strong>{t('settings.autoFetch.title')}</strong>
-            <p>{t('settings.autoFetch.hint')}</p>
-          </div>
-          <div className={p2.settingControls}>
-            <select
-              value={autoFetch}
-              aria-label={t('ops.sync.autoFetchAria')}
-              onChange={(event) => {
-                const next = event.target.value
-                setAutoFetch(next)
-                void saveAutoFetchMinutes(next).catch((cause: unknown) =>
-                  setError(errorMessage(cause)),
-                )
-              }}
-            >
-              {AUTO_FETCH_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {t(option.labelKey)}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
 
@@ -679,8 +770,10 @@ export function ProfilesPanel({
             </button>
           </div>
         </div>
+        </> : null}
 
-        <h2 className={p2.sectionTitle}>{t('settings.shortcuts.title')}</h2>
+        {tab === 'shortcuts' ? <>
+        <h2 className={p2.cardTitle}>{t('settings.shortcuts.title')}</h2>
         <p className={p2.notice}>
           {t('settings.shortcuts.notice')}
         </p>
@@ -762,7 +855,9 @@ export function ProfilesPanel({
           </button>
           {shortcutError ? <span className={p2.errorText}>{shortcutError}</span> : null}
         </div>
+        </> : null}
 
+        {tab === 'profiles' ? <>
         <section className={styles.profiles} aria-labelledby="profiles-title">
           <div className={styles.sectionHeader}>
             <h2 id="profiles-title">{t('settings.profiles.title')}</h2>
@@ -815,6 +910,7 @@ export function ProfilesPanel({
                     <span className={styles.actionSpacer} />
                     <button type="button" className={p2.ghost} disabled={busy}
                       onClick={() => {
+                        selectTab('profiles')
                         setEditing(profile.id)
                         setForm({ name: profile.name, userName: profile.userName, userEmail: profile.userEmail,
                           defaultPull: profile.defaultPull, gitlabInstanceId: profile.gitlabInstanceId ?? '' })
@@ -914,8 +1010,10 @@ export function ProfilesPanel({
             {t('settings.profiles.activeNotice', { name: active.name })}
           </p>
         ) : null}
+        </> : null}
         {error ? <p className={p2.errorText} role="alert">{error}</p> : null}
         {notice ? <p className={p2.notice} role="status">{notice}</p> : null}
+      </div>
       </div>
 
       <ConfirmBar

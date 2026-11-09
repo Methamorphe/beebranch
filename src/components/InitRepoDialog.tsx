@@ -3,6 +3,7 @@ import type { InitInput } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { useI18n } from '../i18n'
 import { useModal } from '../hooks/useModal'
+import { ToolbarIcon } from './ToolbarIcon'
 import styles from './InitRepoDialog.module.css'
 
 type Props = {
@@ -106,7 +107,7 @@ export function InitRepoDialog({
             disabled={disabled}
             onClick={onClose}
           >
-            ×
+            <ToolbarIcon name="x" size={14} />
           </button>
         </header>
         <form onSubmit={(event) => void submit(event)}>

@@ -3,6 +3,8 @@ import { buildFileTree, flattenFileTree } from '../lib/fileTree'
 import { shortRevision } from '../lib/graphRefs'
 import { STATUS_LABELS, splitPath } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
+import { ToolbarIcon } from './ToolbarIcon'
+
 import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
 import type { CommitSummary, DiffReport, FileDiff } from '../types/git'
 import styles from './ComparisonPanel.module.css'
@@ -165,7 +167,7 @@ export function ComparisonPanel({
               title={t('diff.comparison.swap')}
               aria-label={t('diff.comparison.swapAria')}
             >
-              ⇄
+              <ToolbarIcon name="swap" size={15} />
             </button>
             <button
               type="button"
@@ -174,7 +176,7 @@ export function ComparisonPanel({
               title={t('diff.comparison.fullScreen')}
               aria-label={t('diff.comparison.fullScreen')}
             >
-              ⤢
+              <ToolbarIcon name="expand" size={15} />
             </button>
             <button
               type="button"
@@ -185,7 +187,7 @@ export function ComparisonPanel({
               title={t('diff.comparison.close')}
               aria-label={t('diff.comparison.close')}
             >
-              ×
+              <ToolbarIcon name="x" size={14} />
             </button>
           </div>
         </div>
@@ -194,7 +196,7 @@ export function ComparisonPanel({
         </code>
         <div className={styles.ends}>
           <span className={styles.end} title={base}>{baseLabel}</span>
-          <span className={styles.arrow} aria-hidden="true">→</span>
+          <span className={styles.arrow} aria-hidden="true"><ToolbarIcon name="arrowRight" size={14} /></span>
           <span className={styles.end} title={target}>{targetLabel}</span>
         </div>
         {commits.length > 1 ? (
@@ -279,7 +281,7 @@ export function ComparisonPanel({
                       title={row.name}
                     >
                       <span className={styles.caret} aria-hidden="true">
-                        {row.open ? '▾' : '▸'}
+                        <ToolbarIcon name={row.open ? 'chevron' : 'chevronRight'} size={12} />
                       </span>
                       <span className={styles.dirName}>{row.name}</span>
                       <span className={styles.dirCount}>{row.count}</span>

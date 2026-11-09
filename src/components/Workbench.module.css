@@ -64,12 +64,12 @@
 .worktreeHeading > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:55%; color:var(--accent-text); font-size:13px; }
 .worktreeRow { container:worktree / inline-size; position:relative; display:grid; grid-template-columns:var(--refs-width,0px) var(--graph-width,40px) minmax(0,1fr) var(--author-width,0px) var(--date-width,0px); align-items:center; gap:0; width:100%; height:32px; min-height:32px; flex-shrink:0; overflow:visible; padding:0; border:0; border-bottom:1px solid var(--border); border-radius:0; text-align:left; color:var(--muted); background:var(--surface); cursor:pointer; }
 .worktreeRow:hover { background:var(--surface-raised); }
-.worktreeRow[data-active='true'], .worktreeRow[data-active='true']:hover { background:var(--selection-bg); box-shadow:inset 2px 0 var(--accent); }
+.worktreeRow[data-active='true'], .worktreeRow[data-active='true']:hover { background:var(--accent-soft); color:var(--accent-text); }
 .worktreeRow:focus-visible { outline:2px solid var(--accent-text); outline-offset:-2px; }
 .wipRef { min-width:0; overflow:hidden; white-space:nowrap; }
 .wipRef > span { margin-left:10px; display:inline-flex; align-items:center; height:21px; padding:0 7px; border:1px solid var(--border-strong); border-radius:4px; color:var(--muted-strong); background:var(--bg); font:11px var(--mono); }
-.wipMarker { position:absolute; left:calc(var(--refs-width, 0px) + var(--graph-head-x, 50%) - 8px); top:50%; transform:translateY(-50%); width:16px; height:16px; border:2px dashed var(--graph-head-color, var(--accent-text)); border-radius:50%; }
-.worktreeRow[data-active='true'] .wipMarker { background:var(--accent-soft); }
+.wipMarker { position:absolute; left:calc(var(--refs-width, 0px) + var(--graph-head-x, 50%) - 8px); top:50%; transform:translateY(-50%); display:grid; place-items:center; width:16px; height:16px; color:var(--graph-head-color, var(--accent-text)); }
+.worktreeRow[data-active='true'] .wipMarker { color:var(--accent-text); }
 .wipMessage { grid-column:3 / -1; container:wip-message / inline-size; display:flex; align-items:center; gap:16px; min-width:0; overflow:hidden; padding:0 14px; white-space:nowrap; }
 .wipMessage strong { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:12px; font-weight:600; color:var(--text); }
 .wipStats { display:flex; align-items:center; flex:none; gap:12px; font-size:12px; font-variant-numeric:tabular-nums; }
@@ -105,7 +105,6 @@
 .contextAction span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .contextAction:focus-visible { background:var(--surface-raised); outline-offset:-2px; }
 .contextSeparator { height:1px; margin:4px 6px; background:var(--border); }
-.contextChevron { flex:none; margin-left:auto; color:var(--muted); font-size:11px; }
 .contextHint { margin:0; padding:2px 9px 6px; color:var(--muted); font-size:11px; line-height:1.5; }
 .inspectorDock { display:contents; }
 .inspectorResizer { position:relative; z-index:2; flex:none; width:6px; margin-left:-3px; margin-right:-3px; }

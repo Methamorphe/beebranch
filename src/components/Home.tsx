@@ -10,6 +10,8 @@ import {
 import { errorDetail, errorMessage } from '../ipc/client'
 import { formatNumber, useI18n } from '../i18n'
 import type { Favourite } from '../lib/favourites'
+import { ToolbarIcon } from './ToolbarIcon'
+import { ViewIcon } from './ViewIcon'
 import styles from './Home.module.css'
 
 type CloneInput = {
@@ -578,7 +580,7 @@ export function Home({
                   title={favourite.path}
                 >
                   <span className={styles.repoIcon} aria-hidden="true">
-                    ★
+                    <ToolbarIcon name="star" size={16} />
                   </span>
                   <span className={styles.repoText}>
                     <strong>{favourite.name}</strong>
@@ -619,7 +621,7 @@ export function Home({
                       })
                     }
                   >
-                    ×
+                    <ToolbarIcon name="x" size={12} />
                   </button>
                 </span>
               </div>
@@ -680,14 +682,14 @@ export function Home({
                     title={entry.path}
                   >
                     <span className={styles.repoIcon} aria-hidden="true">
-                      ⑂
+                      <ViewIcon view="graph" size={18} />
                     </span>
                     <span className={styles.repoText}>
                       <strong>{name}</strong>
                       <span>{entry.path}</span>
                     </span>
                     <span className={styles.arrow} aria-hidden="true">
-                      →
+                      <ToolbarIcon name="arrowRight" size={14} />
                     </span>
                   </button>
                   <button
@@ -702,7 +704,7 @@ export function Home({
                     )}
                     onClick={() => onToggleFavourite({ path: entry.path, name })}
                   >
-                    {isFavourite ? '★' : '☆'}
+                    <ToolbarIcon name={isFavourite ? 'star' : 'starOff'} size={14} />
                   </button>
                 </div>
               )

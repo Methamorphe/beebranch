@@ -6,6 +6,7 @@ import { useCommitDraft } from '../lib/commitDraft'
 import { useI18n } from '../i18n'
 import { SUBJECT_LIMIT, subjectRemaining } from '../lib/commitMessage'
 import type { CommitConfigView, CommitOutcome, OperationProgress, StatusReport, UndoEntry } from '../types/git'
+import { ToolbarIcon } from './ToolbarIcon'
 import shared from './p1.module.css'
 import styles from './CommitPanel.module.css'
 
@@ -188,7 +189,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = n
               ? plural('commit.panel.subjectRemaining.one', 'commit.panel.subjectRemaining.other', remaining, { limit: SUBJECT_LIMIT })
               : plural('commit.panel.subjectOver.one', 'commit.panel.subjectOver.other', -remaining, { limit: SUBJECT_LIMIT })}
           </p>
-          <details className={styles.options}><summary>{t('commit.panel.options')}{amend ? ` · ${t('commit.panel.optionsAmend')}` : ''}{allowEmpty ? ` · ${t('commit.panel.optionsEmpty')}` : ''}</summary><div className={shared.row}>
+          <details className={styles.options}><summary><ToolbarIcon name="chevron" size={12} /><span>{t('commit.panel.options')}{amend ? ` · ${t('commit.panel.optionsAmend')}` : ''}{allowEmpty ? ` · ${t('commit.panel.optionsEmpty')}` : ''}</span></summary><div className={shared.row}>
             <label className={shared.checkbox}>
               <input
                 type="checkbox"
@@ -223,7 +224,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = n
               {t('commit.panel.skipHooks')}
             </label>
           </div>
-          <details className={styles.identity}><summary>{t('commit.panel.identity')}</summary>
+          <details className={styles.identity}><summary><ToolbarIcon name="chevron" size={12} /><span>{t('commit.panel.identity')}</span></summary>
           {config ? (
             <div className={shared.stack}>
               <span>

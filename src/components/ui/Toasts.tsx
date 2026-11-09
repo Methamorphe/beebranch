@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { t } from '../../i18n'
+import { ToolbarIcon } from '../ToolbarIcon'
 import styles from './Toasts.module.css'
 
 export type ToastTone = 'success' | 'info' | 'error'
@@ -111,7 +112,7 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
         </button>
       ) : null}
       <button type="button" className={styles.close} aria-label={t('common.close')} onClick={onClose}>
-        ×
+        <ToolbarIcon name="x" size={14} />
       </button>
     </div>
   )

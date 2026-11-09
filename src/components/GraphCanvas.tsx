@@ -33,6 +33,15 @@ import {
 import { graphBranchFocus } from '../lib/graphBranchFocus'
 import { authorAvatarStyle } from '../lib/authorAvatar'
 import { parseHexColor, pillFill, readableTextColor } from '../lib/contrast'
+import {
+  ARCHIVE,
+  CIRCLE_DASHED,
+  CLOUD,
+  GIT_BRANCH,
+  TAG,
+  strokeLucideIcon,
+} from '../lib/lucideCanvas'
+import { ToolbarIcon } from './ToolbarIcon'
 import styles from './GraphCanvas.module.css'
 
 export type MrBadge = {
@@ -292,53 +301,16 @@ const BADGE_ICON_WIDTH = 12
 /** Horizontal pitch between two glyphs inside one pill. */
 const BADGE_ICON_PITCH = 13
 
-/** Drawn on every badge: fork for a local branch, cloud for a remote-tracking
- * ref, tag for a tag. Shapes match the sidebar icon set so the two agree. */
+/** Drawn on every badge: Lucide branch / cloud / tag, same as the sidebar. */
 function drawRefIcon(context: CanvasRenderingContext2D, kind: GraphRefKind, x: number, y: number, color: string) {
   if (kind === 'other') return
-  context.save()
-  context.strokeStyle = color
-  context.fillStyle = color
-  context.lineWidth = 1.3
-  context.lineCap = 'round'
-  context.lineJoin = 'round'
-  context.beginPath()
-  if (kind === 'local' || kind === 'head') {
-    context.moveTo(x + 2.5, y + 4)
-    context.lineTo(x + 2.5, y - 4)
-    context.moveTo(x + 2.5, y)
-    context.bezierCurveTo(x + 7, y, x + 7, y - 1.5, x + 7, y - 4)
-    context.stroke()
-    context.beginPath()
-    context.arc(x + 2.5, y - 4, 1.5, 0, Math.PI * 2)
-    context.arc(x + 2.5, y + 4, 1.5, 0, Math.PI * 2)
-    context.arc(x + 7, y - 4, 1.5, 0, Math.PI * 2)
-    context.fill()
-  } else if (kind === 'remote') {
-    context.moveTo(x, y + 3.4)
-    context.bezierCurveTo(x - 2.6, y + 3.4, x - 2.8, y - 0.4, x + 0.6, y - 0.6)
-    context.bezierCurveTo(x + 0.8, y - 4.6, x + 6.6, y - 4.8, x + 7, y - 1.2)
-    context.bezierCurveTo(x + 10.4, y - 1.6, x + 11, y + 3.4, x + 8.6, y + 3.4)
-    context.closePath()
-    context.stroke()
-  } else {
-    context.moveTo(x + 1, y - 4.5)
-    context.lineTo(x + 4.4, y - 4.5)
-    context.lineTo(x + 9.2, y)
-    context.lineTo(x + 5, y + 4.5)
-    context.lineTo(x + 1, y)
-    context.closePath()
-    context.stroke()
-    context.beginPath()
-    context.arc(x + 3.6, y - 2.6, 0.9, 0, Math.PI * 2)
-    context.fill()
-  }
-  context.restore()
+  const glyph =
+    kind === 'remote' ? CLOUD : kind === 'tag' ? TAG : GIT_BRANCH
+  strokeLucideIcon(context, glyph, x + BADGE_ICON_WIDTH / 2, y, BADGE_ICON_WIDTH, color, 1.5)
 }
 
-/** A stash entry is not a commit dot: the benchmark client draws a dashed medallion with
- * a chest inside, so the row reads as a stash at a glance. The medallion owns
- * its lane, hence the background fill that knocks the rail out. */
+/** A stash entry is not a commit dot: Lucide `Archive` on a knock-out pad with a
+ * permanent lane contour. Selection adds a dashed accent ring. */
 function drawStashNode(
   context: CanvasRenderingContext2D,
   x: number,
@@ -347,53 +319,20 @@ function drawStashNode(
   background: string,
   ring: string | null,
 ) {
+  const pad = STASH_RADIUS + 2
   context.save()
   context.fillStyle = background
   context.beginPath()
-  context.roundRect(
-    x - STASH_RADIUS - 2,
-    y - STASH_RADIUS - 2,
-    (STASH_RADIUS + 2) * 2,
-    (STASH_RADIUS + 2) * 2,
-    5,
-  )
+  context.roundRect(x - pad, y - pad, pad * 2, pad * 2, 5)
   context.fill()
   context.strokeStyle = color
-  context.lineCap = 'butt'
-  context.lineWidth = 1.2
-  context.setLineDash([2.4, 2.4])
+  context.lineWidth = ring ? 1.75 : 1.25
   context.beginPath()
-  context.roundRect(
-    x - STASH_RADIUS,
-    y - STASH_RADIUS,
-    STASH_RADIUS * 2,
-    STASH_RADIUS * 2,
-    3.5,
-  )
+  context.roundRect(x - pad, y - pad, pad * 2, pad * 2, 5)
   context.stroke()
-  context.setLineDash([])
-  // Chest: a body with a wavy lid. The two humps stay apart so the lid reads
-  // as a wave and not as a filled diamond at 1x.
-  context.lineCap = 'round'
-  context.lineJoin = 'round'
-  context.lineWidth = 1.3
-  context.beginPath()
-  context.roundRect(x - 6.5, y - 5, 13, 10, 2.5)
-  context.stroke()
-  context.beginPath()
-  context.moveTo(x - 6, y - 0.5)
-  context.bezierCurveTo(x - 5, y - 3, x - 3.5, y - 3, x - 2.5, y - 0.5)
-  context.stroke()
-  context.beginPath()
-  context.moveTo(x + 2.5, y - 0.5)
-  context.bezierCurveTo(x + 3.5, y - 3, x + 5, y - 3, x + 6, y - 0.5)
-  context.stroke()
+  strokeLucideIcon(context, ARCHIVE, x, y, STASH_RADIUS * 1.7, color, 1.5)
   if (ring) {
-    context.strokeStyle = ring
-    context.lineWidth = 1.5
-    context.beginPath()
-    context.arc(x, y, STASH_RADIUS + 3.2, 0, Math.PI * 2)
-    context.stroke()
+    strokeLucideIcon(context, CIRCLE_DASHED, x, y, (STASH_RADIUS + 4) * 2, ring, 1.4)
   }
   context.restore()
 }
@@ -1459,7 +1398,7 @@ export function GraphCanvas({
         <div className={styles.refsHeader}>
           <span>{layout.refs ? t('graph.column.refs') : ''}</span>
           {layout.refs && onBranchRequest ? (
-            <button type="button" className={styles.addRef} data-frame="icon" title={t('graph.branch.createTitle')} aria-label={t('graph.branch.create')} onClick={() => onBranchRequest(selected ?? null)}>+</button>
+            <button type="button" className={styles.addRef} data-frame="icon" title={t('graph.branch.createTitle')} aria-label={t('graph.branch.create')} onClick={() => onBranchRequest(selected ?? null)}><ToolbarIcon name="plus" size={14} /></button>
           ) : null}
         </div>
         <span>{t('graph.column.graph')}</span><div className={styles.messageHeader}><span>{t('graph.column.message')}</span>{headerTools}</div><span>{layout.author ? t('graph.column.author') : ''}</span><span>{layout.date ? t('graph.column.date') : ''}</span>

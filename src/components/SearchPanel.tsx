@@ -16,6 +16,7 @@ import type {
   SearchMode,
   SearchResult,
 } from '../types/git'
+import { ToolbarIcon } from './ToolbarIcon'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -393,7 +394,7 @@ export function SearchPanel({
                   void persistSaved(saved.filter((item) => item.id !== entry.id))
                 }
               >
-                ×
+                <ToolbarIcon name="x" size={12} />
               </button>
             </span>
           ))}
@@ -512,9 +513,7 @@ export function SearchPanel({
                     <span className={`${p2.entryTitle} ${p2.mono}`}>{item.path}</span>
                     <span className={p2.entryMeta}>{t('search.openFileHistory')}</span>
                   </span>
-                  <span className={p2.meta} aria-hidden="true">
-                    →
-                  </span>
+                  <span className={p2.meta} aria-hidden="true"><ToolbarIcon name="arrowRight" size={12} /></span>
                 </button>
               ))}
             </div>
@@ -536,9 +535,7 @@ export function SearchPanel({
                     <span className={`${p2.entryTitle} ${p2.mono}`}>{item.path}</span>
                     <span className={`${p2.entryMeta} ${p2.mono}`}>{item.text.trim()}</span>
                   </span>
-                  <span className={p2.meta} aria-hidden="true">
-                    →
-                  </span>
+                  <span className={p2.meta} aria-hidden="true"><ToolbarIcon name="arrowRight" size={12} /></span>
                 </button>
               ))}
             </div>
@@ -564,9 +561,7 @@ export function SearchPanel({
                       <span>{formatDateTime(dateFromSeconds(commit.author.timestamp))}</span>
                     </span>
                   </span>
-                  <span className={p2.meta} aria-hidden="true">
-                    →
-                  </span>
+                  <span className={p2.meta} aria-hidden="true"><ToolbarIcon name="arrowRight" size={12} /></span>
                 </button>
               ))}
             </div>

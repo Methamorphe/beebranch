@@ -1,6 +1,8 @@
+import { useEffect, useRef } from 'react'
 import type { CommitDetail } from '../types/git'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
+import { ToolbarIcon } from './ToolbarIcon'
 import { dateFromSeconds, formatDateTime, formatRelative, useI18n, type MessageKey } from '../i18n'
 import styles from './CommitDetailPanel.module.css'
 
@@ -20,6 +22,8 @@ type Props = {
   detail: CommitDetail | null
   loading: boolean
   error: string | null
+  /** Path currently shown in the diff viewer, when the commit diff is open. */
+  activePath?: string
   onShowDiff: (sha: string, path?: string) => void
   onClose: () => void
 }
@@ -38,11 +42,21 @@ function PathLabel({ path }: { path: string }) {
   )
 }
 
-export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose }: Props) {
+export function CommitDetailPanel({ detail, loading, error, activePath, onShowDiff, onClose }: Props) {
   const { t, plural } = useI18n()
+  const filesRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!activePath) return
+    const current = filesRef.current?.querySelector('[aria-current="true"]')
+    if (current instanceof HTMLElement) {
+      current.scrollIntoView({ block: 'nearest' })
+    }
+  }, [activePath])
+
   const close = (
     <button type="button" className={styles.close} data-frame="icon" data-kind="close" onClick={onClose} aria-label={t('diff.commit.closeAria')}>
-      ×
+      <ToolbarIcon name="x" size={14} />
     </button>
   )
 
@@ -155,12 +169,16 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
         {detail.filesTruncated ? (
           <p className={styles.note}>{t('diff.commit.filesPartial')}</p>
         ) : null}
-        <div className={styles.files}>
-          {detail.files.map((file) => (
+        <div ref={filesRef} className={styles.files}>
+          {detail.files.map((file) => {
+            const current = Boolean(activePath && activePath === file.path)
+            return (
             <div key={`${file.status}-${file.oldPath ?? ''}-${file.path}`} className={styles.fileRow}>
               <button
                 type="button"
-                className={styles.file}
+                className={current ? styles.fileActive : styles.file}
+                data-diff-file={file.path}
+                aria-current={current ? 'true' : undefined}
                 onClick={() => onShowDiff(file.revision ?? commit.sha, file.path)}
                 title={
                   file.oldPath
@@ -190,7 +208,7 @@ export function CommitDetailPanel({ detail, loading, error, onShowDiff, onClose 
                 </span>
               </button>
             </div>
-          ))}
+          )})}
         </div>
       </section>
     </aside>

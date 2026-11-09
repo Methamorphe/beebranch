@@ -1,6 +1,7 @@
 .sidebar { display:flex; flex-direction:column; width:var(--sidebar-width, 210px); min-height:0; border-right:1px solid var(--border); background:var(--surface); overflow-y:auto; overflow-x:hidden; }
 .caption { padding:22px 18px 6px; color:var(--muted); font-size:10px; letter-spacing:.12em; }
 .repoTitle { display:flex; align-items:center; gap:10px; padding:0 18px 20px; font-weight:600; }
+.repoTitle > svg { color:var(--accent-text); }
 .repoTitle span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nav { flex:1; padding:0 10px 16px; }
 .group + .group { margin-top:20px; }
@@ -10,7 +11,7 @@
 .items { display:flex; flex-direction:column; gap:3px; }
 .items[hidden] { display:none; }
 .item, .itemActive { display:flex; align-items:center; gap:10px; width:100%; min-height:36px; padding:8px 10px; color:var(--muted-strong); text-align:left; border-radius:var(--radius); font-size:13px; }
-.itemActive { color:var(--accent-text); background:var(--accent-soft); box-shadow:inset 2px 0 var(--accent); }
+.itemActive { color:var(--accent-text); background:var(--accent-soft); font-weight:600; }
 .itemActive:hover:not(:disabled) { background:var(--accent-soft); }
 .icon { width:18px; text-align:center; font-size:16px; }
 .label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

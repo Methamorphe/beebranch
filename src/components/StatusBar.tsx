@@ -5,6 +5,7 @@ import { errorMessage } from '../ipc/client'
 import { formatNumber, useI18n, type I18n, type MessageKey } from '../i18n'
 import type { OperationRecord, RepoView } from '../types/git'
 import { ActionMenu } from './ActionMenu'
+import { ViewIcon } from './ViewIcon'
 import styles from './StatusBar.module.css'
 
 type Props = {
@@ -131,7 +132,7 @@ export function StatusBar({
         triggerClassName={`${styles.segment} ${styles.branch}`}
         disabled={!repoId}
         onOpen={() => void loadBranches()}
-        triggerContent={<><span aria-hidden="true">⑂</span><span>{branchPending ? t('shell.statusBar.checkoutPending', { name: branchPending }) : branchName(repo)}</span></>}
+        triggerContent={<><ViewIcon view="branch" size={14} /><span>{branchPending ? t('shell.statusBar.checkoutPending', { name: branchPending }) : branchName(repo)}</span></>}
       >
         {branchesLoading ? <span className={styles.menuState}>{t('shell.statusBar.loadingBranches')}</span> : null}
         {!branchesLoading && branches.length === 0 ? <span className={styles.menuState}>{t('shell.statusBar.noLocalBranch')}</span> : null}

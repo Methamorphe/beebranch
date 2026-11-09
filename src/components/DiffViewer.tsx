@@ -12,6 +12,7 @@ import { indexDiscard, indexStage, indexUnstage } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
 import { STATUS_LABELS, splitPath } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
+import { ToolbarIcon } from './ToolbarIcon'
 import { dateFromSeconds, formatDate, formatNumber, useI18n, type MessageKey } from '../i18n'
 import { ConfirmBar } from './ConfirmBar'
 import { Markdown } from './Markdown'
@@ -324,6 +325,13 @@ type Props = {
   /** Path to select when the report loads; ignored when missing from the report. */
   initialPath?: string
   /**
+   * Hide the built-in file rail when an external inspector already lists the
+   * same files (e.g. commit details on the right).
+   */
+  hideFiles?: boolean
+  /** Notifies the parent when the visible file changes (arrows, clicks, …). */
+  onActivePathChange?: (path: string) => void
+  /**
    * Allows editing worktree files the staging controls do not cover, such as
    * untracked ones. Falls back to `staging`.
    */
@@ -471,6 +479,8 @@ export function DiffViewer({
   onShowHistory,
   lineComment,
   initialPath,
+  hideFiles = false,
+  onActivePathChange,
   editor = staging,
   initialEditPath,
 }: Props) {
@@ -622,6 +632,15 @@ export function DiffViewer({
   useEffect(() => {
     activeRef.current = active
   }, [active])
+
+  const onActivePathChangeRef = useRef(onActivePathChange)
+  onActivePathChangeRef.current = onActivePathChange
+  useEffect(() => {
+    if (!documentPath) {
+      return
+    }
+    onActivePathChangeRef.current?.(documentPath)
+  }, [documentPath])
 
   useEffect(() => {
     performance.mark('diff.first-paint')
@@ -1071,12 +1090,14 @@ export function DiffViewer({
     )
   }
 
+  const showFiles = report.files.length > 1 && !hideFiles
+
   return (
     <div
-      className={`${styles.root} ${report.files.length === 1 ? styles.singleFile : ''}`}
+      className={`${styles.root} ${showFiles ? '' : styles.singleFile}`}
       data-image={imageMode || undefined}
     >
-      {report.files.length > 1 ? <aside ref={filesRef} className={styles.files} aria-label={t('diff.files.aria')}>
+      {showFiles ? <aside ref={filesRef} className={styles.files} aria-label={t('diff.files.aria')}>
         {report.files.map((entry, index) => (
           <button
             key={`${entry.oldPath}->${entry.newPath}`}
@@ -1227,10 +1248,10 @@ export function DiffViewer({
                   <span className={styles.navLabel} aria-hidden="true">{t('diff.hunk.nav')}</span>
                   <div className={styles.modes} role="group" aria-label={t('diff.hunk.nav')}>
                     <button type="button" className={styles.mode} onClick={() => jump(-1)} aria-label={t('diff.hunk.previous')} title={t('diff.hunk.previous')}>
-                      ↑
+                      <ToolbarIcon name="chevronUp" size={14} />
                     </button>
                     <button type="button" className={styles.mode} onClick={() => jump(1)} aria-label={t('diff.hunk.next')} title={t('diff.hunk.next')}>
-                      ↓
+                      <ToolbarIcon name="chevronDown" size={14} />
                     </button>
                   </div>
                 </div>
@@ -1250,7 +1271,7 @@ export function DiffViewer({
                           setScrollTop(0)
                         }}
                       >
-                        ‹
+                        <ToolbarIcon name="chevronLeft" size={14} />
                       </button>
                       <button
                         type="button"
@@ -1266,7 +1287,7 @@ export function DiffViewer({
                           setScrollTop(0)
                         }}
                       >
-                        ›
+                        <ToolbarIcon name="chevronRight" size={14} />
                       </button>
                     </div>
                   </div>

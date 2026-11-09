@@ -202,8 +202,9 @@
 
 .listItemOn {
   border-color: transparent;
-  background: var(--selection-bg);
-  box-shadow: inset 2px 0 var(--accent);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  font-weight: 600;
 }
 
 .listSub {
@@ -729,8 +730,9 @@
 
 .entry[aria-current='true'],
 .entry[aria-current='true']:hover:not(:disabled) {
-  background: var(--selection-bg);
-  box-shadow: inset 2px 0 var(--accent);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  font-weight: 600;
 }
 
 .entryStack {
@@ -1431,7 +1433,7 @@
 
 .regionSideOn {
   border-color: var(--accent);
-  box-shadow: inset 2px 0 var(--accent);
+  background: var(--accent-soft);
 }
 
 .regionSideTitle {

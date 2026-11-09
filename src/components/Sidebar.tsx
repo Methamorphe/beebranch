@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { navigationItems, type ViewId } from '../data/navigation'
 import { useI18n, type MessageKey } from '../i18n'
+import { ToolbarIcon } from './ToolbarIcon'
 import { ViewIcon } from './ViewIcon'
 import styles from './Sidebar.module.css'
 
@@ -51,7 +52,7 @@ export function Sidebar(props: Props) {
   }
   return <aside className={styles.sidebar} aria-label={t('shell.sidebar.aria')}>
     <div className={styles.caption}>{t('shell.sidebar.caption')}</div>
-    <div className={styles.repoTitle} title={repoName ?? undefined}>◇ <span>{repoName ?? t('shell.sidebar.welcome')}</span></div>
+    <div className={styles.repoTitle} title={repoName ?? undefined}><ViewIcon view="graph" size={16} /><span>{repoName ?? t('shell.sidebar.welcome')}</span></div>
     <nav className={styles.nav}>
       {sections.map((section) => {
         const containsActive = section.ids.includes(current)
@@ -60,7 +61,7 @@ export function Sidebar(props: Props) {
           {section.expandable ? <button type="button" className={styles.summary}
             aria-expanded={open} aria-controls={`nav-${section.id}`}
             onClick={() => setExpanded((value) => ({ ...value, [section.id]: !open }))}>
-            {t(section.labelKey)}<span className={styles.chevron} data-open={open} aria-hidden="true">⌄</span>
+            {t(section.labelKey)}<span className={styles.chevron} data-open={open} aria-hidden="true"><ToolbarIcon name="chevron" size={14} /></span>
           </button> : <div className={styles.summary}>{t(section.labelKey)}</div>}
           <div id={`nav-${section.id}`} hidden={!open} className={styles.items}>
             {section.ids.map(item)}
@@ -83,7 +84,7 @@ export function Sidebar(props: Props) {
             : t('shell.sidebar.disconnectedHint')}
         </small>
       </span>
-      <span aria-hidden="true">↗</span>
+      <span aria-hidden="true"><ToolbarIcon name="externalLink" size={12} /></span>
     </button>
   </aside>
 }

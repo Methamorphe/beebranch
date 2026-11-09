@@ -257,7 +257,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
           <button type="button" className={styles.repoMain} onClick={() => { if (suppressClick.current) return; onActivate(id) }} title={entry.repo.worktree} aria-current={id === activeId ? 'page' : undefined}>
             <ToolbarIcon name="branch" /><span className={styles.repoName}>{entry.repo.name}</span>
           </button>
-          <button type="button" className={styles.close} onClick={() => onClose(id)} aria-label={t('shell.topbar.closeTab', { name: entry.repo.name })} disabled={busy}>×</button>
+          <button type="button" className={styles.close} onClick={() => onClose(id)} aria-label={t('shell.topbar.closeTab', { name: entry.repo.name })} disabled={busy}><ToolbarIcon name="x" size={14} /></button>
         </div>
       })}
       {launcherOpen ? <div className={styles.repoTabActive} data-launcher="true"
@@ -270,7 +270,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
         <button type="button" className={styles.repoMain} onClick={onAdd} aria-current="page" title={t('shell.topbar.launcherDescription')}>
           <ToolbarIcon name="folder" /><span className={styles.repoName}>{t('shell.topbar.openRepo')}</span>
         </button>
-        <button type="button" className={styles.close} onClick={onCloseLauncher} aria-label={t('shell.topbar.closeLauncher')}>×</button>
+        <button type="button" className={styles.close} onClick={onCloseLauncher} aria-label={t('shell.topbar.closeLauncher')}><ToolbarIcon name="x" size={14} /></button>
       </div> : null}
     </div>
       <div ref={overlay} className={styles.scrollBar} data-tab-overlay="" data-overflow={overflowing ? 'true' : undefined} data-dragging={overlayDrag ? 'true' : undefined} aria-hidden="true" onPointerDown={beginOverlayDrag}>

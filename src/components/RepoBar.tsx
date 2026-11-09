@@ -186,7 +186,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
         {repos.map((entry) => <button key={entry.repo.repoId} type="button" onClick={() => onActivate(entry.repo.repoId)} aria-current={entry.repo.repoId === repoId ? 'true' : undefined}>{entry.repo.repoId === repoId ? '✓ ' : ''}{entry.repo.name}</button>)}
         <button type="button" onClick={onOpenDialog}>{t('shell.repoBar.openAnotherRepo')}</button>
       </ActionMenu>
-      <span className={styles.contextSeparator} aria-hidden="true">›</span>
+      <span className={styles.contextSeparator} aria-hidden="true"><ToolbarIcon name="chevronRight" size={12} /></span>
       <ActionMenu label={t('shell.repoBar.chooseBranch')} triggerClassName={styles.selector} disabled={!repoId || busy || pending !== null} triggerContent={<><span className={styles.caption}>{t('shell.repoBar.branchCaption')}</span><span className={styles.value}><span className={styles.contextName}>{branchLabel(repo, t)}</span><ToolbarIcon name="chevron" /></span></>}>
         {branches.map((name) => <button key={name} type="button" disabled={name === branchLabel(repo, t) || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} aria-current={name === branchLabel(repo, t) ? 'true' : undefined} onClick={() => repoId && void confirmCheckout(repoId, {
           title: t('workbench.operationPreview.title.checkout', { target: name }),

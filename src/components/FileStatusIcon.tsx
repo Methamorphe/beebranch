@@ -1,16 +1,27 @@
+import {
+  ArrowRight,
+  Copy,
+  Minus,
+  Pencil,
+  Plus,
+  Replace,
+  TriangleExclamationPoint,
+  type LucideIcon,
+} from 'lucide-react'
 import { STATUS_LETTERS, letterFromStatus, type FileStatus } from '../lib/paths'
+import { AppIcon } from './IconSvg'
 
-const PATHS: Record<string, string[]> = {
-  M: ['m12 3 3 3-8 8-4 1 1-4z', 'M10 5l3 3'],
-  A: ['M12 5v14M5 12h14'],
-  D: ['M5 12h14'],
-  R: ['M4 12h16', 'm14 6 6 6-6 6'],
-  C: ['M8 8h13v13H8z', 'M16 8V3H3v13h5'],
-  U: ['m12 3 10 18H2z', 'M12 9v5', 'M12 17v.1'],
-  T: ['M4 7h16M9 7v10M15 7v10'],
-  N: ['M12 5v14M5 12h14'],
-  '?': ['M12 5v14M5 12h14'],
-  '!': ['m12 3 10 18H2z', 'M12 9v5', 'M12 17v.1'],
+const ICONS: Record<string, LucideIcon> = {
+  M: Pencil,
+  A: Plus,
+  D: Minus,
+  R: ArrowRight,
+  C: Copy,
+  U: TriangleExclamationPoint,
+  T: Replace,
+  N: Plus,
+  '?': Plus,
+  '!': TriangleExclamationPoint,
 }
 
 /** Git letter used to pick the file-status icon. */
@@ -38,23 +49,5 @@ export function FileStatusIcon({
   className?: string
 }) {
   const code = statusIconCode(kind, letter)
-  const paths = PATHS[code] ?? PATHS.M
-  return (
-    <svg
-      className={className}
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {paths.map((d) => (
-        <path key={d} d={d} />
-      ))}
-    </svg>
-  )
+  return <AppIcon className={className} icon={ICONS[code] ?? Pencil} size={14} />
 }

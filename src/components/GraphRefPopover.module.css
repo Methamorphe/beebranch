@@ -1,6 +1,6 @@
 .popup { position:fixed; z-index:45; width:max-content; min-width:96px; max-width:min(260px, calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:3px; border:1px solid var(--border-strong); border-radius:var(--radius); color:var(--text); background:var(--surface); box-shadow:var(--shadow-pop); }
 .reference { display:flex; align-items:center; gap:7px; width:100%; min-height:24px; padding:3px 6px; text-align:left; font-size:12px; line-height:1.35; }
-.reference > svg { flex:none; width:12px; height:12px; color:var(--accent-text); }
+.reference > svg { flex:none; width:14px; height:14px; color:var(--accent-text); }
 .reference > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .reference:disabled { opacity:1; color:var(--muted); cursor:default; }
 .reference:disabled > svg { color:var(--muted); }
