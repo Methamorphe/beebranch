@@ -72,7 +72,7 @@ export function RepositoryNavigator(props: Props) {
     onDoubleClick={() => entry.kind !== 'tag' && props.onCheckout(entry)}
     onContextMenu={(event) => { event.preventDefault(); props.onRefMenu(entry, event.clientX, event.clientY) }}>
     <span className={styles.kind} aria-hidden="true"><ViewIcon view={entry.kind === 'tag' ? 'tags' : entry.kind === 'remoteBranch' ? 'remotes' : 'branch'} size={14} /></span>
-    <span className={styles.name}>{entry.name}</span>{entry.isHead ? <span aria-hidden="true"><ToolbarIcon name="check" size={12} /></span> : null}
+    <span className={styles.name}>{label}</span>{entry.isHead ? <span aria-hidden="true"><ToolbarIcon name="check" size={12} /></span> : null}
   </button>
   // Branches as folders on "/", or the flat sorted list. While filtering,
   // every folder holding a match opens; a folder the user toggled keeps its state.
