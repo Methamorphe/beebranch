@@ -52,12 +52,13 @@
 .repoError { color: var(--error); }
 .repoStatus { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
 .branch { color: var(--muted-strong); font-family: var(--sans); font-size: 12px; }
-.changes { display: flex; flex-wrap: wrap; gap: 6px; }
-.added, .modified, .deleted, .clean { font-family: var(--sans); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.added { color: var(--success); }
-.modified { color: var(--warning, var(--muted-strong)); }
-.deleted { color: var(--error); }
-.clean { color: var(--muted); font-weight: 500; }
+.changes { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.change { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-strong); font-family: var(--sans); font-size: 12px; font-variant-numeric: tabular-nums; }
+.change svg { flex: none; color: var(--info); }
+.change[data-kind='modified'] svg { color: var(--warning); }
+.change[data-kind='new'] svg { color: var(--success); }
+.change[data-kind='conflicted'], .change[data-kind='conflicted'] svg { color: var(--error); }
+.change[data-empty='true'], .change[data-empty='true'] svg { color: var(--muted); }
 .path { overflow: hidden; color: var(--muted); font-family: var(--sans); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .repoActions { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
 .results { padding-bottom: 16px; }

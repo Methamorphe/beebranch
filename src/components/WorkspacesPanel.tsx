@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
-import { t, useI18n } from '../i18n'
+import { formatNumber, t, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
 import {
   toolOpen,
@@ -22,6 +22,7 @@ import type { PullStrategy, Workspace, WorkspaceRepoStatus, WorkspaceSyncResult 
 import { ActionMenu } from './ActionMenu'
 import { ConfirmBar } from './ConfirmBar'
 import { Dialog } from './ui/Dialog'
+import { FileStatusIcon } from './FileStatusIcon'
 import { ToolbarIcon } from './ToolbarIcon'
 import { WorkspaceCloneDialog } from './WorkspaceCloneDialog'
 import { WorkspaceIconDialog, type DraftWorkspaceIcon } from './WorkspaceIconDialog'
@@ -64,31 +65,48 @@ function headLabel(status: WorkspaceRepoStatus): string {
   return t('workspaces.panel.unknownBranch')
 }
 
-function ChangeCounts({ changes }: { changes?: { added: number; modified: number; deleted: number } }) {
-  const { t, plural } = useI18n()
-  const added = changes?.added ?? 0
-  const modified = changes?.modified ?? 0
-  const deleted = changes?.deleted ?? 0
-  if (added === 0 && modified === 0 && deleted === 0) {
-    return <span className={styles.clean}>{t('workspaces.panel.clean')}</span>
-  }
+function ChangeCounts({ worktree }: { worktree?: { staged: number; unstaged: number; untracked: number; conflicted: number } }) {
+  const { plural } = useI18n()
+  const staged = worktree?.staged ?? 0
+  const modified = worktree?.unstaged ?? 0
+  const added = worktree?.untracked ?? 0
+  const conflicted = worktree?.conflicted ?? 0
+  const stats = [
+    {
+      kind: 'staged',
+      count: staged,
+      icon: <ToolbarIcon name="check" size={14} />,
+      label: plural('workbench.graph.staged.one', 'workbench.graph.staged.other', staged, { count: formatNumber(staged) }),
+    },
+    {
+      kind: 'modified',
+      count: modified,
+      icon: <FileStatusIcon letter="M" />,
+      label: plural('workbench.graph.unstaged.one', 'workbench.graph.unstaged.other', modified, { count: formatNumber(modified) }),
+    },
+    {
+      kind: 'new',
+      count: added,
+      icon: <FileStatusIcon letter="A" />,
+      label: plural('workbench.graph.untracked.one', 'workbench.graph.untracked.other', added, { count: formatNumber(added) }),
+    },
+    ...(conflicted > 0
+      ? [{
+          kind: 'conflicted',
+          count: conflicted,
+          icon: <FileStatusIcon letter="U" />,
+          label: plural('shell.statusBar.conflicts.one', 'shell.statusBar.conflicts.other', conflicted, { count: formatNumber(conflicted) }),
+        }]
+      : []),
+  ]
   return (
     <span className={styles.changes}>
-      {added > 0 ? (
-        <span className={styles.added}>
-          {plural('workspaces.panel.added.one', 'workspaces.panel.added.other', added, { count: added })}
+      {stats.map((stat) => (
+        <span key={stat.kind} className={styles.change} data-kind={stat.kind} data-empty={stat.count === 0} title={stat.label}>
+          {stat.icon}
+          <span>{formatNumber(stat.count)}</span>
         </span>
-      ) : null}
-      {modified > 0 ? (
-        <span className={styles.modified}>
-          {plural('workspaces.panel.modified.one', 'workspaces.panel.modified.other', modified, { count: modified })}
-        </span>
-      ) : null}
-      {deleted > 0 ? (
-        <span className={styles.deleted}>
-          {plural('workspaces.panel.deletedCount.one', 'workspaces.panel.deletedCount.other', deleted, { count: deleted })}
-        </span>
-      ) : null}
+      ))}
     </span>
   )
 }
@@ -792,7 +810,7 @@ export function WorkspacesPanel({
                         {status.available ? (
                           <span className={styles.repoStatus}>
                             <span className={styles.branch}>{headLabel(status)}</span>
-                            <ChangeCounts changes={status.changes} />
+                            <ChangeCounts worktree={status.state?.worktree} />
                           </span>
                         ) : (
                           <span className={styles.repoError}>{status.error}</span>
