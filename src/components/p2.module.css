@@ -379,11 +379,22 @@
   white-space: nowrap;
 }
 
+.settingsPage {
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: none;
+}
+
 .settingsGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   gap: 0;
-  max-width: 900px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
 }
 
 .setting {

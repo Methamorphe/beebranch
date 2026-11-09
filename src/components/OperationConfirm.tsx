@@ -74,6 +74,14 @@ export function checkoutNeedsConfirmation(preview: OperationPreview): boolean {
   return Boolean(preview.blockedReason)
 }
 
+/**
+ * A stash pop asks only when Git would stop: an operation in progress, or
+ * conflicts already predicted. A clean reapply just runs.
+ */
+export function stashPopNeedsConfirmation(preview: OperationPreview): boolean {
+  return Boolean(preview.blockedReason) || preview.conflictCheck === 'conflicts'
+}
+
 /** Summary of a checkout, for confirmations rendered outside the provider. */
 export function readCheckoutPreview(
   repoId: string,
@@ -103,6 +111,24 @@ export function useCheckoutConfirm() {
       return confirmOperation(request)
     },
     [confirmOperation],
+  )
+}
+
+/** Stash pop confirmation that stays out of the way of a clean reapply. */
+export function useStashPopConfirm() {
+  const confirmOperation = useOperationConfirm()
+  const { t } = useI18n()
+  return useCallback(
+    async (repoId: string, selector: string) => {
+      const preview = await readPreview(repoId, { kind: 'stashPop', selector })
+      if (preview && !stashPopNeedsConfirmation(preview)) return true
+      return confirmOperation({
+        title: t('workbench.operationPreview.title.stashPop', { selector }),
+        confirmLabel: t('workbench.operationPreview.action.stashPop'),
+        operation: { kind: 'stashPop', selector },
+      })
+    },
+    [confirmOperation, t],
   )
 }
 

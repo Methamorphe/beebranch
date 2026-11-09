@@ -45,6 +45,15 @@ type Props = {
 
 const MAX_ROWS = 500
 
+function entrySelectionKey(staged: boolean, path: string): string {
+  return `${staged ? 'index' : 'worktree'}:${path}`
+}
+
+/** Files the group header can select: the ones actually listed, not the overflow. */
+function groupSelectionKeys(group: { entries: StatusEntry[]; staged: boolean }): string[] {
+  return group.entries.slice(0, MAX_ROWS).map((entry) => entrySelectionKey(group.staged, entry.path))
+}
+
 /** Persisted display mode of the file lists: flat paths or a directory tree. */
 const FILE_VIEW_KEY = 'ui.status.view'
 
@@ -909,14 +918,65 @@ export function RepoStatus({
   )
   const canDiscardSelection =
     selectedEntries.length > 0 && discardableSelection.length === selectedEntries.length
-  const stageGroup = (list: StatusEntry[], staged: boolean) => {
-    const paths = [...new Set(list.flatMap(entryPaths))]
+  const toggleGroupSelection = (group: { entries: StatusEntry[]; staged: boolean }) => {
+    const keys = groupSelectionKeys(group)
+    setSelectedKeys((current) => {
+      const next = new Set(current)
+      const allSelected = keys.length > 0 && keys.every((key) => next.has(key))
+      for (const key of keys) {
+        if (allSelected) {
+          next.delete(key)
+        } else {
+          next.add(key)
+        }
+      }
+      return next
+    })
+    selectionAnchor.current = keys[0] ?? null
+  }
+  /**
+   * With nothing checked, prepare or unstage the whole group. With a
+   * selection, keep the unchecked files out of the operation.
+   */
+  const stageGroup = async (group: { entries: StatusEntry[]; staged: boolean }) => {
+    const keys = groupSelectionKeys(group)
+    const selectedInGroup = keys.filter((key) => selectedKeys.has(key))
+    const selectedSet = new Set(selectedInGroup)
+    const coversEveryEntry = group.entries.length > 0
+      && group.entries.every((entry) => selectedSet.has(entrySelectionKey(group.staged, entry.path)))
+    const partial = selectedInGroup.length > 0 && !coversEveryEntry
+    const targets = partial
+      ? group.entries.filter((entry) => selectedSet.has(entrySelectionKey(group.staged, entry.path)))
+      : group.entries
+    if (targets.length === 0) {
+      return
+    }
+    const paths = [...new Set(targets.flatMap(entryPaths))]
     markFlash(paths)
-    void run(staged ? t('status.group.unstageAll') : t('status.group.stageAll'), () =>
-      (staged ? indexUnstage : indexStage)(repoId, paths.map((path) => ({ path, hunks: [] }))))
+    const label = partial
+      ? plural(
+          group.staged ? 'status.bulk.unstaged.one' : 'status.bulk.staged.one',
+          group.staged ? 'status.bulk.unstaged.other' : 'status.bulk.staged.other',
+          targets.length,
+          { count: targets.length },
+        )
+      : group.staged
+        ? t('status.group.unstageAll')
+        : t('status.group.stageAll')
+    const ok = await run(label, () =>
+      (group.staged ? indexUnstage : indexStage)(repoId, paths.map((path) => ({ path, hunks: [] }))))
+    if (ok && selectedInGroup.length > 0) {
+      setSelectedKeys((current) => {
+        const next = new Set(current)
+        for (const key of selectedInGroup) {
+          next.delete(key)
+        }
+        return next
+      })
+    }
   }
   const fileRow = (entry: StatusEntry, staged: boolean, selectable: boolean, depth: number) => {
-    const selectionKey = `${staged ? 'index' : 'worktree'}:${entry.path}`
+    const selectionKey = entrySelectionKey(staged, entry.path)
     const { directory, name } = splitPath(entry.path)
     const mark = entry.kind === 'untracked' ? 'N' : entry.kind === 'unmerged' ? '!' : staged ? entry.index : entry.worktree
     return (
@@ -1001,12 +1061,41 @@ export function RepoStatus({
             return null
           }
           const selectable = group.id === 'worktree' || group.id === 'index'
+          const keys = selectable ? groupSelectionKeys(group) : []
+          const selectedCount = keys.filter((key) => selectedKeys.has(key)).length
+          const allSelected = keys.length > 0 && selectedCount === keys.length
+          const partial = selectedCount > 0 && !group.entries.every((entry) => selectedKeys.has(entrySelectionKey(group.staged, entry.path)))
           // Ignored paths are not in `trees`, so they keep the flat list.
           const rows = trees?.get(group.id)
           return (
             <section key={group.id} className={styles.fileGroup} aria-label={group.label}>
-              <header className={styles.groupHeading}><h2>{group.label} <span>{group.entries.length}</span></h2>
-                {group.entries.length > 0 && selectable ? <button type="button" disabled={busy} onClick={() => stageGroup(group.entries, group.staged)}>{group.staged ? t('status.group.unstageAllAction') : t('status.group.stageAllAction')}</button> : null}
+              <header className={styles.groupHeading}>
+                <div className={styles.groupTitle}>
+                  {group.entries.length > 0 && selectable ? (
+                    <input
+                      type="checkbox"
+                      className={styles.groupSelect}
+                      checked={allSelected}
+                      ref={(node) => {
+                        if (node) {
+                          node.indeterminate = selectedCount > 0 && !allSelected
+                        }
+                      }}
+                      disabled={busy || keys.length === 0}
+                      aria-label={t('status.group.selectAll', { group: group.label })}
+                      title={t('status.group.selectAllHint')}
+                      onChange={() => toggleGroupSelection(group)}
+                    />
+                  ) : null}
+                  <h2>{group.label} <span>{group.entries.length}</span></h2>
+                </div>
+                {group.entries.length > 0 && selectable ? (
+                  <button type="button" disabled={busy} onClick={() => void stageGroup(group)}>
+                    {partial
+                      ? group.staged ? t('status.group.unstageSelection') : t('status.group.stageSelection')
+                      : group.staged ? t('status.group.unstageAllAction') : t('status.group.stageAllAction')}
+                  </button>
+                ) : null}
               </header>
               {group.entries.length === 0 ? <p className={styles.empty}>{group.staged ? t('status.group.emptyStaged') : t('status.group.emptyUnstaged')}</p> : null}
               {rows

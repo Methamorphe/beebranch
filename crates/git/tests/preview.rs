@@ -172,6 +172,29 @@ fn checkout_preview_flags_local_changes() {
 }
 
 #[test]
+fn stash_pop_preview_reports_files_without_blocking() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    fixture.write("a.txt", "edited\n");
+    beebranch_git::stash::create(fixture.runner(), fixture.path(), "wip", false, &[])
+        .expect("stash");
+
+    let discovery = fixture.discover();
+    let preview = preview::operation(
+        fixture.runner(),
+        &discovery,
+        &PreviewOperation::StashPop {
+            selector: "stash@{0}".to_owned(),
+        },
+        merge_tree(&fixture),
+    )
+    .expect("preview");
+
+    assert!(preview.files >= 1);
+    assert!(preview.blocked_reason.is_none());
+}
+
+#[test]
 fn cherry_pick_preview_counts_picked_commits() {
     let fixture = Fixture::new();
     fixture.commit("a.txt", "base\n", "base");
