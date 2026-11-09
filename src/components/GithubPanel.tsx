@@ -1,3 +1,4 @@
+import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   branchCheckout,
@@ -85,6 +86,29 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked }: Props) 
         window.clearTimeout(pollTimer.current)
       }
       void githubDeviceFlowCancel().catch(() => undefined)
+    }
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void listen('github://auth-expired', () => {
+      void githubStatus()
+        .then((value) => {
+          setSession(value)
+          setEditing(!value.connected)
+        })
+        .catch(() => undefined)
+    }).then((off) => {
+      if (disposed) {
+        off()
+      } else {
+        unlisten = off
+      }
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
     }
   }, [])
 

@@ -4,7 +4,9 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use super::{poll_access_token, request_device_code, PollOutcome, OAUTH_SCOPES};
+use super::{
+    poll_access_token, refresh_access_token, request_device_code, PollOutcome, OAUTH_SCOPES,
+};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -111,9 +113,16 @@ async fn an_authorized_token_is_returned_and_redacted() {
         .await
         .expect("token");
     match outcome {
-        PollOutcome::Authorized { token, scope } => {
+        PollOutcome::Authorized {
+            token,
+            scope,
+            refresh_token,
+            expires_in,
+        } => {
             assert_eq!(token, "gho_secret_token");
             assert_eq!(scope.as_deref(), Some("repo,read:user"));
+            assert_eq!(refresh_token, None);
+            assert_eq!(expires_in, None);
         }
         other => panic!("unexpected outcome: {other:?}"),
     }
@@ -155,4 +164,88 @@ async fn a_non_success_status_is_reported() {
         .await
         .expect_err("404");
     assert_eq!(failure.status(), Some(404));
+}
+
+#[tokio::test]
+async fn an_expiring_token_carries_its_refresh_token() {
+    let server = MockServer::start().await;
+    mount(
+        &server,
+        "/login/oauth/access_token",
+        json!({
+            "access_token": "gho_secret_token",
+            "refresh_token": "ghr_refresh_secret",
+            "expires_in": 28800,
+            "refresh_token_expires_in": 15811200,
+            "scope": "repo,read:user"
+        }),
+    )
+    .await;
+
+    let outcome = poll_access_token(&server.uri(), "client-id", "device", TIMEOUT)
+        .await
+        .expect("token");
+    assert!(
+        !format!("{outcome:?}").contains("ghr_refresh_secret"),
+        "the refresh token must never be debug-printed"
+    );
+    match outcome {
+        PollOutcome::Authorized {
+            refresh_token,
+            expires_in,
+            ..
+        } => {
+            assert_eq!(refresh_token.as_deref(), Some("ghr_refresh_secret"));
+            assert_eq!(expires_in, Some(28800));
+        }
+        other => panic!("unexpected outcome: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_refresh_returns_the_rotated_pair_without_client_secret() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login/oauth/access_token"))
+        .and(wiremock::matchers::body_string_contains(
+            "grant_type=refresh_token",
+        ))
+        .and(wiremock::matchers::body_string_contains(
+            "refresh_token=ghr_old",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "gho_new",
+            "refresh_token": "ghr_new",
+            "expires_in": 28800
+        })))
+        .mount(&server)
+        .await;
+
+    let fresh = refresh_access_token(&server.uri(), "client-id", "ghr_old", TIMEOUT)
+        .await
+        .expect("refresh");
+    assert_eq!(fresh.access_token, "gho_new");
+    assert_eq!(fresh.refresh_token.as_deref(), Some("ghr_new"));
+    assert_eq!(fresh.expires_in, Some(28800));
+    assert!(!format!("{fresh:?}").contains("gho_new"));
+
+    let requests = server.received_requests().await.expect("requests");
+    let body = String::from_utf8_lossy(&requests[0].body).into_owned();
+    assert!(!body.contains("client_secret"));
+}
+
+#[tokio::test]
+async fn a_rejected_refresh_token_maps_to_a_stable_code() {
+    let server = MockServer::start().await;
+    mount(
+        &server,
+        "/login/oauth/access_token",
+        json!({ "error": "bad_refresh_token" }),
+    )
+    .await;
+
+    let failure = refresh_access_token(&server.uri(), "client-id", "ghr_old", TIMEOUT)
+        .await
+        .expect_err("bad refresh token");
+    assert_eq!(failure.code(), "github.oauth_refresh_failed");
 }

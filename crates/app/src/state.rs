@@ -113,8 +113,10 @@ pub struct AppState {
     /// Credential read from the user's Git configuration when no token is
     /// stored in the keychain. Kept in memory only, never persisted.
     pub gitlab_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
-    /// GitHub session. Tokens live in `github_secrets`, never in the client.
-    pub github: Mutex<Option<beebranch_github::GithubClient>>,
+    /// GitHub session. Tokens live in `github_secrets`; the client only holds
+    /// the current access token. Shared so the background OAuth refresher can
+    /// rotate the token of the client already held by the commands.
+    pub github: Arc<Mutex<Option<beebranch_github::GithubClient>>>,
     pub github_instance: Mutex<Option<beebranch_store::InstanceRow>>,
     /// GitHub credential read from the Git configuration, kept in memory only.
     pub github_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
@@ -122,6 +124,8 @@ pub struct AppState {
     pub github_secrets: Arc<dyn SecretStore>,
     /// OAuth device flow waiting for authorization, if any.
     pub github_device_flow: Mutex<Option<GithubDeviceFlowPending>>,
+    /// Cancellation flag of the active GitHub OAuth refresh task.
+    pub github_refresh_cancel: Mutex<Option<Arc<AtomicBool>>>,
     /// Cancel flags for long-running operations, keyed by operation id.
     pub operations: OperationRegistry,
     /// PTY sessions of the built-in terminal.
@@ -257,7 +261,8 @@ fn build_state_inner(
         gitlab_device_flow: Mutex::new(None),
         gitlab_refresh_cancel: Mutex::new(None),
         gitlab_credential: Mutex::new(None),
-        github: Mutex::new(None),
+        github: Arc::new(Mutex::new(None)),
+        github_refresh_cancel: Mutex::new(None),
         github_instance: Mutex::new(None),
         github_credential: Mutex::new(None),
         github_secrets,
