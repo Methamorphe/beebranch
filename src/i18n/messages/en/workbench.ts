@@ -79,6 +79,8 @@ const messages = {
   'workbench.repository.deleteTag': 'Delete tag',
   'workbench.repository.aria': 'Repository explorer',
   'workbench.repository.filter': 'Filter repository…',
+  'workbench.repository.viewList': 'Show branches as a list',
+  'workbench.repository.viewTree': 'Show branches as folders',
   'workbench.workspace.closeTool': 'Close panel and return to graph',
   'workbench.history.details': 'Open dedicated view',
   'workbench.history.expand': 'Expand',
