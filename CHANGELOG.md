@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.11.0] — 2026-11-09
+
+### Added
+
+- **Branches gather into folders**: *Local* and *Remote* group refs by their `/` prefix into collapsible folders with a count, remotes nesting under their name. A toggle beside the filter returns to the flat list and the choice is remembered; the current branch's folder stays open, a folder opened or closed by hand keeps its state, and filtering opens every folder that contains a match.
+- **Settings split into categories**: *Appearance*, *General*, *Git*, *Profiles* and *Shortcuts* sit in a side rail with the selected tab remembered, and the panel fills the whole area to the right of the menu instead of stopping at 900 px.
+- **Stage only what is ticked**: the header of *To stage* and *Ready to commit* gains a checkbox that selects the whole group; unchecking files then *Stage selection* / *Unstage selection* acts only on the remaining ticked ones. With nothing ticked, *Stage all* / *Unstage all* keep their behaviour. Beyond 500 displayed files the header checkbox covers the visible list only.
+
+### Changed
+
+- **One icon set**: toolbar, sidebar, file status, refs, stash, work-in-progress marker, hunks and commit options draw Lucide glyphs, in the React chrome and on the graph canvas; the stash node keeps a permanent outline and takes a dashed accent when selected.
+- **Selection reads as a pill**: selected rows drop the yellow left edge for a soft background pill across history, work-in-progress, branches and profiles.
+- **Context submenus open as flyouts**: nested entries unfold beside their parent menu on hover instead of replacing it.
+- **Fewer confirmations**: a remote-branch checkout Git would accept switches at once, and a clean stash *Pop* applies immediately; the bar remains only for a checkout Git would refuse or a pop predicted to conflict.
+
+### Fixed
+
+- **GitHub OAuth tokens renew themselves**: an expiring token keeps its refresh token, expiry and client ID in the keychain, and a background refresher renews it two minutes before expiry, re-reading the wall clock every 30 s so sleep does not stop it. The rotated refresh token is saved before the shared client swaps its access token, push / fetch / pull read the current one, and a rejected refresh drops the session and warns the panel instead of leaving it “connected” through 401s. Tokens issued before this version carry no refresh token, so one reconnection from the GitHub panel is required.
+- **The commit diff no longer opens a second file list**: the diff viewer hides its rail when the commit detail already lists the files, and the detail marks the file currently shown, scrolling it into view — image diffs included.
+- **Stash *Pop* from the repo bar works**: it enables as soon as the stash list arrives, finds its entry by SHA so a double click cannot pop the next stash, and a failed diff or `merge-tree` preview no longer disables it.
+- **Programmatic focus stops painting the workspace**: the skip link's focus target no longer draws a yellow ring around the whole workbench.
+
 ## [1.10.0] — 2026-11-06
 
 ### Added
