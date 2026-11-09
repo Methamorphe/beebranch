@@ -9,7 +9,7 @@ import { useI18n, type I18n } from '../i18n'
 import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
 import { PipelineStatus } from './PipelineStatus'
-import { useCheckoutConfirm, useOperationConfirm, usePushConfirm } from './OperationConfirm'
+import { useCheckoutConfirm, useOperationConfirm, usePushConfirm, useStashPopConfirm } from './OperationConfirm'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
 import { useToastChannel } from './ui/Toasts'
@@ -46,6 +46,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const confirmOperation = useOperationConfirm()
   const confirmPush = usePushConfirm()
   const confirmCheckout = useCheckoutConfirm()
+  const confirmStashPop = useStashPopConfirm()
   const [pending, setPending] = useState<string | null>(null)
   const setNotice = useToastChannel('repobar-notice', 'success')
   const [branches, setBranches] = useState<string[]>([])
@@ -54,18 +55,28 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
   const [latestStash, setLatestStash] = useState<StashEntry | null>(null)
   const repoId = repo?.repo.repoId ?? null
   useEffect(() => {
-    let cancelled = false
     setLatestStash(null)
     setBranches([])
     setRemotes([])
-    if (repoId) void Promise.allSettled([stashList(repoId), refsGet(repoId)]).then(([stashes, refs]) => {
-      if (cancelled) return
-      if (stashes.status === 'fulfilled') setLatestStash(stashes.value[0] ?? null)
-      if (refs.status === 'fulfilled') {
-        setBranches(refs.value.data.entries.filter((entry) => entry.kind === 'branch').map((entry) => entry.name))
-        setRemotes(refs.value.data.remotes)
-      }
-    })
+  }, [repoId])
+  useEffect(() => {
+    let cancelled = false
+    if (!repoId) return
+    // Pop must not wait on refs: after a checkout the auto-stash is already
+    // `stash@{0}`, and wiping the button until both queries finish made it
+    // look dead.
+    void stashList(repoId)
+      .then((entries) => {
+        if (!cancelled) setLatestStash(entries[0] ?? null)
+      })
+      .catch(() => undefined)
+    void refsGet(repoId)
+      .then((refs) => {
+        if (cancelled) return
+        setBranches(refs.data.entries.filter((entry) => entry.kind === 'branch').map((entry) => entry.name))
+        setRemotes(refs.data.remotes)
+      })
+      .catch(() => undefined)
     return () => { cancelled = true }
   }, [repoId, repo?.generation])
   const head = repo?.state.head
@@ -95,6 +106,32 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       else onError(errorMessage(cause))
     }
     finally { setPending(null) }
+  }
+  const popLatest = () => {
+    if (!repoId || !latestStash || disabled) return
+    const { selector, sha } = latestStash
+    // Lock the toolbar before the preview: two clicks would both target
+    // `stash@{0}`, and the second would pop the next entry.
+    setPending('Pop')
+    void confirmStashPop(repoId, selector)
+      .then(async (confirmed) => {
+        if (!confirmed) {
+          setPending(null)
+          return
+        }
+        const entries = await stashList(repoId).catch(() => [])
+        const current = entries.find((entry) => entry.sha === sha)
+        if (!current) {
+          setPending(null)
+          onError(t('shell.repoBar.noStash'))
+          return
+        }
+        await run('Pop', () => stashPop(repoId, current.selector))
+      })
+      .catch((cause) => {
+        setPending(null)
+        onError(errorMessage(cause))
+      })
   }
   const publishBranch = () => {
     const target = publish
@@ -165,11 +202,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       <button type="button" className={`${styles.action} ${styles.gitPrimary}`} disabled={disabled} title={upstream ? t('shell.repoBar.pushTitle') : t('shell.repoBar.publishTitle')} onClick={() => sync('push')}><ToolbarIcon name="push" /><span>Push</span></button>
       <button type="button" className={styles.action} disabled={!repoId || busy} onClick={onNewBranch} title={t('shell.repoBar.branchTitle')}><ToolbarIcon name="branch" /><span>{t('common.branch')}</span></button>
       <button type="button" className={styles.action} disabled={disabled || stashBlocked} onClick={() => repoId && void run('Stash', () => stashCreate({ repoId, includeUntracked: true }), () => t('commit.stash.createdNotice'))} title={t('shell.repoBar.stashTitle')}><ToolbarIcon name="stash" /><span>Stash</span></button>
-      <button type="button" className={styles.action} disabled={disabled || !latestStash || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} title={latestStash ? t('shell.repoBar.popTitle', { message: latestStash.message }) : t('shell.repoBar.noStash')} onClick={() => repoId && latestStash && void confirmOperation({
-        title: t('workbench.operationPreview.title.stashPop', { selector: latestStash.selector }),
-        confirmLabel: t('workbench.operationPreview.action.stashPop'),
-        operation: { kind: 'stashPop', selector: latestStash.selector },
-      }).then((confirmed) => { if (confirmed) void run('Pop', () => stashPop(repoId, latestStash.selector)) })}><ToolbarIcon name="pop" /><span>Pop</span></button>
+      <button type="button" className={styles.action} disabled={disabled || !latestStash || Boolean(repo?.state.operation) || Boolean(repo?.state.conflicts.files.length)} title={latestStash ? t('shell.repoBar.popTitle', { message: latestStash.message }) : t('shell.repoBar.noStash')} onClick={popLatest}><ToolbarIcon name="pop" /><span>Pop</span></button>
       <span className={styles.divider} aria-hidden="true" />
       <button
         type="button"

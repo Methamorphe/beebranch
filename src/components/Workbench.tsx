@@ -93,7 +93,7 @@ import { ViewIcon } from './ViewIcon'
 import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
 import { ConfirmBar } from './ConfirmBar'
-import { useCheckoutConfirm, useOperationConfirm, usePushConfirm } from './OperationConfirm'
+import { useCheckoutConfirm, useOperationConfirm, usePushConfirm, useStashPopConfirm } from './OperationConfirm'
 import { useToastChannel } from './ui/Toasts'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
@@ -293,6 +293,7 @@ export function Workbench({
   const confirmOperation = useOperationConfirm()
   const confirmPush = usePushConfirm()
   const confirmCheckout = useCheckoutConfirm()
+  const confirmStashPop = useStashPopConfirm()
 
   /**
    * Rebase summary: a merge applies immediately, so this bar only ever
@@ -1742,20 +1743,15 @@ export function Workbench({
       entry.kind === 'branch'
         ? t('workbench.operationPreview.title.checkout', { target: entry.name })
         : t('workbench.operationPreview.title.checkoutDetached', { target: entry.name })
-    // Switching to a remote branch whose local counterpart sits elsewhere moves
-    // that branch tip: that destructive case keeps its summary.
-    const resetsLocalBranch = Boolean(tracking && tracking.targetOid !== entry.targetOid)
-    const confirmed = resetsLocalBranch
-      ? await confirmOperation({
-          title,
-          confirmLabel: t('workbench.operationPreview.action.checkout'),
-          operation,
-        })
-      : await confirmCheckout(repoId, {
-          title,
-          confirmLabel: t('workbench.operationPreview.action.checkout'),
-          operation,
-        })
+    // A checkout Git would not refuse switches directly, including a remote
+    // whose local tracking branch can fast-forward. Local changes are stashed
+    // by the switch itself; only a blocked checkout (operation in progress,
+    // unresolved conflicts) keeps the summary.
+    const confirmed = await confirmCheckout(repoId, {
+      title,
+      confirmLabel: t('workbench.operationPreview.action.checkout'),
+      operation,
+    })
     if (!confirmed) return
     checkoutPending.current = true
     setCheckoutBusy(true)
@@ -2589,11 +2585,7 @@ export function Workbench({
                   const selector = contextMenu.stash!
                   closeMenu()
                   if (!repoId) return
-                  void confirmOperation({
-                    title: t('workbench.operationPreview.title.stashPop', { selector }),
-                    confirmLabel: t('workbench.operationPreview.action.stashPop'),
-                    operation: { kind: 'stashPop', selector },
-                  }).then((confirmed) => {
+                  void confirmStashPop(repoId, selector).then((confirmed) => {
                     if (!confirmed) return
                     void runAction(t('workbench.notice.stashAppliedRemoved', { selector }), () =>
                       stashPop(repoId, selector),

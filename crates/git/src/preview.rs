@@ -238,13 +238,38 @@ pub fn operation(
             preview.conflict_check = ConflictCheck::Clean;
         }
         PreviewOperation::StashPop { selector } => {
-            let sha = crate::stash::resolve_selector(runner, worktree, selector)?;
-            let (files, additions, deletions) =
-                diff_stats(runner, worktree, &[format!("{sha}^1"), sha.clone()])?;
-            preview.files = files;
-            preview.additions = additions;
-            preview.deletions = deletions;
-            predict(runner, worktree, "HEAD", &sha, merge_tree, &mut preview)?;
+            let entry = crate::stash::list(runner, worktree)?
+                .into_iter()
+                .find(|entry| entry.selector == selector.as_str())
+                .ok_or_else(|| AppError::not_found(format!("Le stash {selector} n'existe pas.")))?;
+            let base = entry
+                .parents
+                .first()
+                .cloned()
+                .ok_or_else(|| AppError::internal("stash sans commit de base"))?;
+            match diff_stats(runner, worktree, &[base, entry.sha.clone()]) {
+                Ok((files, additions, deletions)) => {
+                    preview.files = files;
+                    preview.additions = additions;
+                    preview.deletions = deletions;
+                }
+                Err(_) => preview.conflict_check = ConflictCheck::Unavailable,
+            }
+            // A failed merge-tree must not disable the confirming action: Git
+            // re-checks conflicts when the pop actually runs.
+            if predict(
+                runner,
+                worktree,
+                "HEAD",
+                &entry.sha,
+                merge_tree,
+                &mut preview,
+            )
+            .is_err()
+            {
+                preview.conflict_check = ConflictCheck::Unavailable;
+                preview.conflicted_files.clear();
+            }
         }
         PreviewOperation::Checkout { name, detached_at } => {
             let target = match (name, detached_at) {

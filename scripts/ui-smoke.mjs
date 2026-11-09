@@ -2345,6 +2345,37 @@ try {
   assertUI('toolbar-stash-direct-with-default-name', await evaluate(client, `window.__quickStashCalls[0].repoId === 'repo_demo' && window.__quickStashCalls[0].includeUntracked === true && window.__quickStashCalls[0].message === undefined && !document.querySelector('[role="dialog"], [role="alertdialog"]') && !document.querySelector('input[aria-label="Message du stash"]') && Boolean(document.querySelector('canvas'))`))
   await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__beforeQuickStashInvoke; window.__scenarioDirty = false; [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Rafraîchir l')).click() })()`)
   assertUI('toolbar-no-empty-stash-pop', await evaluate(client, `[...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Pop').disabled`))
+  await evaluate(client, `(() => {
+    const original = window.__TAURI_INTERNALS__.invoke
+    window.__beforePopInvoke = original
+    window.__popCalls = []
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'stash_list') {
+        return [{ selector:'stash@{0}', sha:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', timestamp:1700000000, message:'WIP' }]
+      }
+      if (command === 'operation_preview' && args.request.operation.kind === 'stashPop') {
+        return {
+          commits:0, behind:0, files:1, additions:1, deletions:0, conflictCheck:'clean',
+          conflictedFiles:[], stashesLocalChanges:false, upstreamMissing:false, blockedReason:null,
+        }
+      }
+      if (command === 'stash_pop') {
+        window.__popCalls.push(args)
+        return { data:{ applied:true, conflicts:[], output:'' }, generation:2 }
+      }
+      const result = await original(command, args)
+      if (['repo_open', 'repo_refresh', 'repo_get_state'].includes(command)) {
+        return { ...result, generation: (result.generation ?? 1) + 1 }
+      }
+      return result
+    }
+    ;[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label')?.startsWith('Rafraîchir l')).click()
+  })()`)
+  await waitFor(client, `![...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Pop').disabled`, 'pop enabled with stash')
+  await evaluate(client, `[...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === 'Pop').click()`)
+  await waitFor(client, `window.__popCalls.length === 1`, 'direct stash pop')
+  assertUI('toolbar-pop-skips-clean-preview', await evaluate(client, `window.__popCalls.length === 1 && !document.querySelector('[role="alertdialog"]')`))
+  await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__beforePopInvoke; [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Rafraîchir l')).click() })()`)
   for (const label of ['Fetch', 'Pull', 'Push', 'Terminal']) {
     await evaluate(client, `(() => { const button = [...document.querySelectorAll('[aria-label="Actions Git"] button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}); button.click() })()`)
     await delay(150)
