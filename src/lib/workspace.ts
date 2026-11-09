@@ -10,6 +10,18 @@
  * character there, and rewriting it would change the identity of every
  * macOS/Linux repository.
  */
+/** Same cap as `WORKSPACE_REPO_LIMIT` in the store. */
+export const WORKSPACE_REPO_LIMIT = 20
+
+/**
+ * Where a newly opened repository should be recorded.
+ * `attachWorkspaceId: null` leaves it out of every workspace.
+ */
+export type WorkspaceAttach = {
+  attachWorkspaceId: string | null
+  showTab: boolean
+}
+
 export function normalizeRepoPath(path: string): string {
   const verbatim = path.startsWith('\\\\?\\UNC\\')
     ? `\\\\${path.slice(8)}`

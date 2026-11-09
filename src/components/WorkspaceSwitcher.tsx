@@ -4,6 +4,7 @@ import { displayShortcut } from '../lib/shortcuts'
 import type { Workspace } from '../types/git'
 import { ToolbarIcon } from './ToolbarIcon'
 import { ViewIcon } from './ViewIcon'
+import { WorkspaceMark } from './WorkspaceMark'
 import styles from './WorkspaceSwitcher.module.css'
 
 type Props = {
@@ -107,7 +108,18 @@ export function WorkspaceSwitcher({
         onClick={() => onOpenChange(!open)}
       >
         <span className={styles.glyph} aria-hidden="true">
-          <ViewIcon view="workspaces" size={14} />
+          {active ? (
+            <WorkspaceMark
+              name={active.name}
+              iconKind={active.iconKind}
+              iconKey={active.iconKey}
+              workspaceId={active.id}
+              updatedAt={active.updatedAt}
+              size={20}
+            />
+          ) : (
+            <ViewIcon view="workspaces" size={16} />
+          )}
         </span>
         <span className={styles.name}>{active?.name ?? t('workspaces.switcher.none')}</span>
         <span className={styles.chevron} aria-hidden="true">
@@ -155,6 +167,14 @@ export function WorkspaceSwitcher({
                   className={selected ? styles.itemActive : styles.item}
                   onClick={() => onSelect(workspace.id)}
                 >
+                  <WorkspaceMark
+                    name={workspace.name}
+                    iconKind={workspace.iconKind}
+                    iconKey={workspace.iconKey}
+                    workspaceId={workspace.id}
+                    updatedAt={workspace.updatedAt}
+                    size={20}
+                  />
                   <span className={styles.itemName}>{workspace.name}</span>
                   <span className={styles.count}>{workspace.repos.length}</span>
                   <span className={styles.check} aria-hidden="true">

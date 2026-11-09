@@ -88,6 +88,13 @@ const messages = {
   'settings.gitlab.manage': 'Manage the connection',
   'settings.gitlab.configure': 'Configure GitLab',
 
+  'settings.github.none': 'No account connected',
+  'settings.github.connected': '{instance} · @{user}',
+  'settings.github.instanceFallback': 'GitHub',
+  'settings.github.userFallback': 'connected',
+  'settings.github.manage': 'Manage connection',
+  'settings.github.configure': 'Configure GitHub',
+
   'settings.shortcuts.title': 'Keyboard shortcuts',
   'settings.files.title': 'Files and hooks',
   'settings.files.encoding': 'Read encoding',

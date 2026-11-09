@@ -4,7 +4,7 @@
 //! credential and no repository content; actions are performed by the
 //! application on each path independently.
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::error::StoreError;
@@ -20,6 +20,26 @@ pub struct WorkspaceRow {
     pub name: String,
     pub created_at: i64,
     pub updated_at: i64,
+    /// `lucide`, `image`, or absent when the workspace shows its monogram.
+    pub icon_kind: Option<String>,
+    /// Lucide icon name when `icon_kind` is `lucide`.
+    pub icon_key: Option<String>,
+}
+
+const WORKSPACE_LIST_SQL: &str = "SELECT id, name, created_at, updated_at, icon_kind, icon_key
+     FROM workspaces ORDER BY name COLLATE NOCASE";
+const WORKSPACE_BY_ID_SQL: &str =
+    "SELECT id, name, created_at, updated_at, icon_kind, icon_key FROM workspaces WHERE id = ?1";
+
+fn read_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
+    Ok(WorkspaceRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        created_at: row.get(2)?,
+        updated_at: row.get(3)?,
+        icon_kind: row.get(4)?,
+        icon_key: row.get(5)?,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,18 +54,8 @@ pub struct WorkspaceRepoRow {
 impl Store {
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceRow>, StoreError> {
         self.with_connection(|connection| {
-            let mut statement = connection.prepare(
-                "SELECT id, name, created_at, updated_at FROM workspaces
-                 ORDER BY name COLLATE NOCASE",
-            )?;
-            let rows = statement.query_map([], |row| {
-                Ok(WorkspaceRow {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    created_at: row.get(2)?,
-                    updated_at: row.get(3)?,
-                })
-            })?;
+            let mut statement = connection.prepare(WORKSPACE_LIST_SQL)?;
+            let rows = statement.query_map([], read_workspace)?;
             let mut workspaces = Vec::new();
             for row in rows {
                 workspaces.push(row?);
@@ -69,12 +79,9 @@ impl Store {
                  VALUES (?1, ?2, ?3, ?3)",
                 params![id, name, now],
             )?;
-            Ok(WorkspaceRow {
-                id,
-                name: name.to_owned(),
-                created_at: now,
-                updated_at: now,
-            })
+            connection
+                .query_row(WORKSPACE_BY_ID_SQL, params![id], read_workspace)
+                .map_err(StoreError::from)
         })
     }
 
@@ -95,18 +102,7 @@ impl Store {
                 return Err(StoreError::Invalid("workspace introuvable".to_owned()));
             }
             connection
-                .query_row(
-                    "SELECT id, name, created_at, updated_at FROM workspaces WHERE id = ?1",
-                    params![id],
-                    |row| {
-                        Ok(WorkspaceRow {
-                            id: row.get(0)?,
-                            name: row.get(1)?,
-                            created_at: row.get(2)?,
-                            updated_at: row.get(3)?,
-                        })
-                    },
-                )
+                .query_row(WORKSPACE_BY_ID_SQL, params![id], read_workspace)
                 .map_err(StoreError::from)
         })
     }
@@ -116,6 +112,40 @@ impl Store {
             let changed =
                 connection.execute("DELETE FROM workspaces WHERE id = ?1", params![id])?;
             Ok(changed > 0)
+        })
+    }
+
+    pub fn get_workspace(&self, id: &str) -> Result<Option<WorkspaceRow>, StoreError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(WORKSPACE_BY_ID_SQL, params![id], read_workspace)
+                .optional()
+                .map_err(StoreError::from)
+        })
+    }
+
+    /// `kind` is `lucide`, `image`, or `None` for the monogram.
+    /// `key` is the Lucide name when `kind` is `lucide`.
+    pub fn set_workspace_icon(
+        &self,
+        id: &str,
+        kind: Option<&str>,
+        key: Option<&str>,
+    ) -> Result<WorkspaceRow, StoreError> {
+        let now = beebranch_core::now_unix();
+        self.with_connection(|connection| {
+            let changed = connection.execute(
+                "UPDATE workspaces
+                 SET icon_kind = ?2, icon_key = ?3, updated_at = MAX(?4, updated_at + 1)
+                 WHERE id = ?1",
+                params![id, kind, key, now],
+            )?;
+            if changed == 0 {
+                return Err(StoreError::Invalid("workspace introuvable".to_owned()));
+            }
+            connection
+                .query_row(WORKSPACE_BY_ID_SQL, params![id], read_workspace)
+                .map_err(StoreError::from)
         })
     }
 
@@ -149,6 +179,24 @@ impl Store {
     ) -> Result<WorkspaceRepoRow, StoreError> {
         let now = beebranch_core::now_unix();
         self.with_connection(|connection| {
+            let existing = connection
+                .query_row(
+                    "SELECT workspace_id, path, name, added_at FROM workspace_repos
+                     WHERE workspace_id = ?1 AND path = ?2",
+                    params![workspace_id, path],
+                    |row| {
+                        Ok(WorkspaceRepoRow {
+                            workspace_id: row.get(0)?,
+                            path: row.get(1)?,
+                            name: row.get(2)?,
+                            added_at: row.get(3)?,
+                        })
+                    },
+                )
+                .optional()?;
+            if let Some(row) = existing {
+                return Ok(row);
+            }
             let count: i64 = connection.query_row(
                 "SELECT COUNT(*) FROM workspace_repos WHERE workspace_id = ?1",
                 params![workspace_id],
@@ -168,8 +216,7 @@ impl Store {
                 return Err(StoreError::Invalid("workspace introuvable".to_owned()));
             }
             connection.execute(
-                "INSERT OR REPLACE INTO workspace_repos
-                    (workspace_id, path, name, added_at)
+                "INSERT INTO workspace_repos (workspace_id, path, name, added_at)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![workspace_id, path, name, now],
             )?;
@@ -250,5 +297,44 @@ mod tests {
             .workspace_repos(&workspace.id)
             .expect("list")
             .is_empty());
+    }
+
+    #[test]
+    fn adding_the_same_path_keeps_its_place_and_name() {
+        let store = Store::open_in_memory().expect("store");
+        let workspace = store.create_workspace("Client").expect("create");
+        let first = store
+            .add_workspace_repo(&workspace.id, "/tmp/a", Some("a"))
+            .expect("first");
+        store
+            .add_workspace_repo(&workspace.id, "/tmp/b", None)
+            .expect("second");
+        let again = store
+            .add_workspace_repo(&workspace.id, "/tmp/a", Some("renamed"))
+            .expect("again");
+        assert_eq!(again.added_at, first.added_at);
+        assert_eq!(again.name.as_deref(), Some("a"));
+        let repos = store.workspace_repos(&workspace.id).expect("list");
+        assert_eq!(repos[0].path, "/tmp/a");
+        assert_eq!(repos[1].path, "/tmp/b");
+    }
+
+    #[test]
+    fn icon_is_optional_and_replaceable() {
+        let store = Store::open_in_memory().expect("store");
+        let workspace = store.create_workspace("Client").expect("create");
+        assert_eq!(workspace.icon_kind, None);
+        let with_icon = store
+            .set_workspace_icon(&workspace.id, Some("lucide"), Some("rocket"))
+            .expect("icon");
+        assert_eq!(with_icon.icon_kind.as_deref(), Some("lucide"));
+        assert_eq!(with_icon.icon_key.as_deref(), Some("rocket"));
+        assert!(with_icon.updated_at >= workspace.updated_at);
+        let cleared = store
+            .set_workspace_icon(&workspace.id, None, None)
+            .expect("clear");
+        assert_eq!(cleared.icon_kind, None);
+        assert_eq!(cleared.icon_key, None);
+        assert!(store.set_workspace_icon("missing", None, None).is_err());
     }
 }

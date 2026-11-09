@@ -35,6 +35,7 @@ import {
   gitlabStatus,
   preferenceGet,
   preferenceSet,
+  repoClose,
   repoCloseChecked,
   repoClone,
   repoGetState,
@@ -52,6 +53,7 @@ import {
   undoStatus,
   updateCheck,
   updateInstall,
+  workspaceAddRepo,
   workspaceList,
 } from './ipc/commands'
 import { useRepoEvents } from './hooks/useRepoEvents'
@@ -89,7 +91,7 @@ import {
   type ShortcutAction,
   type ShortcutMap,
 } from './lib/shortcuts'
-import { normalizeRepoPath } from './lib/workspace'
+import { WORKSPACE_REPO_LIMIT, normalizeRepoPath } from './lib/workspace'
 import { undoActionLabel, undoButtonLabel, undoNotice, undoOfferNotice } from './lib/undoLabel'
 import type { ChangeEvent, RecentRepo, RepoView, UndoOutcome, UndoStatus, Workspace } from './types/git'
 import type { CloneInput, InitInput } from './ipc/commands'
@@ -126,6 +128,10 @@ function applyDensity(density: Density) {
 
 export default function App() {
   const [repos, setRepos] = useState<RepoView[]>([])
+  const reposRef = useRef(repos)
+  useEffect(() => {
+    reposRef.current = repos
+  }, [repos])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [view, setView] = useState<ViewId>('graph')
   const navigationGuard = useRef<(() => boolean) | null>(null)
@@ -133,8 +139,20 @@ export default function App() {
     navigationGuard.current = guard
   }, [])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const workspacesRef = useRef(workspaces)
+  const replaceWorkspaces = useCallback((next: Workspace[]) => {
+    workspacesRef.current = next
+    setWorkspaces(next)
+  }, [])
+  useEffect(() => {
+    workspacesRef.current = workspaces
+  }, [workspaces])
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const activeWorkspaceRef = useRef(activeWorkspaceId)
+  useEffect(() => {
+    activeWorkspaceRef.current = activeWorkspaceId
+  }, [activeWorkspaceId])
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
   const [switching, setSwitching] = useState(false)
   // Last focused repository per workspace, so switching back restores it.
@@ -491,7 +509,7 @@ export default function App() {
               preferenceGet(ACTIVE_WORKSPACE_KEY),
               preferenceGet(WORKSPACE_LAST_REPO_KEY),
             ])
-          setWorkspaces(storedWorkspaces)
+          replaceWorkspaces(storedWorkspaces)
           if (storedActiveWorkspace) {
             setActiveWorkspaceId(
               storedWorkspaces.some(
@@ -726,8 +744,34 @@ export default function App() {
     }
   }, [repoId, generation, setUndoState])
 
+  const attachOpenedRepo = useCallback(async (workspaceId: string | null, repoPath: string) => {
+    if (!workspaceId || !repoPath) return
+    const workspace = workspacesRef.current.find((item) => item.id === workspaceId)
+    const key = normalizeRepoPath(repoPath)
+    if (workspace?.repos.some((repo) => normalizeRepoPath(repo.path) === key)) return
+    if (workspace && workspace.repos.length >= WORKSPACE_REPO_LIMIT) {
+      setNotice(t('workspaces.panel.attachLimit', {
+        name: workspace.name,
+        limit: WORKSPACE_REPO_LIMIT,
+      }))
+      return
+    }
+    try {
+      const updated = await workspaceAddRepo(workspaceId, repoPath)
+      const current = workspacesRef.current
+      replaceWorkspaces(
+        current.some((item) => item.id === updated.id)
+          ? current.map((item) => item.id === updated.id ? updated : item)
+          : [...current, updated],
+      )
+    } catch (cause) {
+      setNotice(errorMessage(cause))
+    }
+  }, [replaceWorkspaces])
+
   const openRepo = useCallback(
     async (path: string) => {
+      const attachId = activeWorkspaceRef.current
       setBusy(true)
       setError(null)
       try {
@@ -737,6 +781,7 @@ export default function App() {
         setDiffRequest(null)
         setView('graph')
         await reloadRecent()
+        await attachOpenedRepo(attachId, opened.repo.worktree)
         return true
       } catch (cause) {
         setError(errorMessage(cause))
@@ -745,7 +790,7 @@ export default function App() {
         setBusy(false)
       }
     },
-    [reloadRecent, upsert],
+    [attachOpenedRepo, reloadRecent, upsert],
   )
 
   /**
@@ -817,7 +862,7 @@ export default function App() {
    */
   const switchWorkspace = useCallback(
     async (workspaceId: string) => {
-      const target = workspaces.find((workspace) => workspace.id === workspaceId)
+      const target = workspacesRef.current.find((workspace) => workspace.id === workspaceId)
       if (!target || switching) {
         return
       }
@@ -942,24 +987,43 @@ export default function App() {
         setSwitching(false)
       }
     },
-    [repos, workspaces, switching, rememberWorkspaceRepo, reloadRecent, upsert],
+    [repos, switching, rememberWorkspaceRepo, reloadRecent, upsert],
   )
 
-  const cloneRepo = async (input: CloneInput) => {
+  const cloneRepo = async (
+    input: CloneInput,
+    mode?: { attachWorkspaceId?: string | null; showTab?: boolean; keepView?: boolean },
+  ): Promise<string> => {
+    const attachId = mode && 'attachWorkspaceId' in mode
+      ? mode.attachWorkspaceId ?? null
+      : activeWorkspaceRef.current
+    const showTab = mode?.showTab !== false
+    const keepView = mode?.keepView === true
     setBusy(true)
     try {
       const opened = await repoClone(input)
-      upsert(opened)
-      setLauncherOpen(false)
-      setDiffRequest(null)
-      setView('graph')
+      const clonedPath = opened.repo.worktree
+      if (showTab) {
+        upsert(opened)
+        if (!keepView) {
+          setLauncherOpen(false)
+          setDiffRequest(null)
+          setView('graph')
+        }
+      } else {
+        try { await repoClose(opened.repo.repoId) }
+        catch { /* The clone is on disk; the session is only closed when no tab is shown. */ }
+      }
       await reloadRecent()
+      await attachOpenedRepo(attachId, clonedPath)
+      return clonedPath
     } finally {
       setBusy(false)
     }
   }
 
   const initRepo = async (input: InitInput) => {
+    const attachId = activeWorkspaceRef.current
     setBusy(true)
     try {
       const opened = await repoInit(input)
@@ -969,6 +1033,7 @@ export default function App() {
       setView('graph')
       setInitDialogOpen(false)
       await reloadRecent()
+      await attachOpenedRepo(attachId, opened.repo.worktree)
     } finally {
       setBusy(false)
     }
@@ -1768,7 +1833,7 @@ export default function App() {
                 recent={recent}
                 focusRequest={launcherFocus}
                 onOpen={(path) => void openRepo(path)}
-                onClone={cloneRepo}
+                onClone={async (input) => { await cloneRepo(input) }}
                 onCreate={openInitDialog}
                 onPickDirectory={pickCloneDirectory}
                 favourites={favourites}
@@ -1820,8 +1885,10 @@ export default function App() {
                 layout={layout}
                 onLayoutChange={changeLayout}
                 activeWorkspaceId={activeWorkspaceId}
-                onActivateWorkspace={(workspaceId) => void switchWorkspace(workspaceId)}
-                onWorkspacesChanged={setWorkspaces}
+                onActivateWorkspace={(workspaceId) => switchWorkspace(workspaceId)}
+                onWorkspacesChanged={replaceWorkspaces}
+                onCloneIntoWorkspace={(input, attach) => cloneRepo(input, { ...attach, keepView: true })}
+                onPickDirectory={pickCloneDirectory}
                 onPushRejected={setPushRejected}
               />
             )}

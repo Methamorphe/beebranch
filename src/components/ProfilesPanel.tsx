@@ -5,6 +5,7 @@ import { LOCALES, LOCALE_NAMES, useI18n, type MessageKey } from '../i18n'
 import { AppIcon } from './IconSvg'
 import {
   commitIdentity,
+  githubStatus,
   gitlabStatus,
   profileApplyIdentity,
   profileCreate,
@@ -70,6 +71,7 @@ type Props = {
   onSplashChange: (next: MediaSettings | null) => void
   onMutated: () => void
   onOpenGitlab: () => void
+  onOpenGithub: () => void
   shortcuts: ShortcutMap
   /** Labels of the actions reverted to their default because of a conflict. */
   shortcutConflict?: string[]
@@ -240,6 +242,7 @@ export function ProfilesPanel({
   onSplashChange,
   onMutated,
   onOpenGitlab,
+  onOpenGithub,
   shortcuts,
   shortcutConflict,
   onShortcutsChange,
@@ -249,6 +252,7 @@ export function ProfilesPanel({
   const nameRef = useRef<HTMLInputElement>(null)
   const [view, setView] = useState<ProfilesView | null>(null)
   const [session, setSession] = useState<GitlabSession | null>(null)
+  const [githubSession, setGithubSession] = useState<GitlabSession | null>(null)
   const [identity, setIdentity] = useState<GitIdentity | null>(null)
   const [form, setForm] = useState(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
@@ -301,7 +305,12 @@ export function ProfilesPanel({
   const load = useCallback(async () => {
     try {
       setView(await profilesList())
-      setSession(await gitlabStatus())
+      const [gitlab, github] = await Promise.allSettled([gitlabStatus(), githubStatus()])
+      setSession(gitlab.status === 'fulfilled' ? gitlab.value : null)
+      setGithubSession(github.status === 'fulfilled' ? github.value : null)
+      if (gitlab.status === 'rejected' && github.status === 'rejected') {
+        throw gitlab.reason
+      }
       if (repoId) {
         setIdentity(await commitIdentity(repoId))
       } else {
@@ -656,6 +665,24 @@ export function ProfilesPanel({
           <div className={p2.settingControls}>
             <button type="button" className={p2.secondary} onClick={onOpenGitlab}>
               {connected ? t('settings.gitlab.manage') : t('settings.gitlab.configure')}
+            </button>
+          </div>
+        </div>
+        <div className={p2.setting}>
+          <div>
+            <strong>GitHub</strong>
+            <p>
+              {githubSession?.connected
+                ? t('settings.github.connected', {
+                    instance: githubSession.instance?.baseUrl ?? t('settings.github.instanceFallback'),
+                    user: githubSession.user?.username ?? t('settings.github.userFallback'),
+                  })
+                : t('settings.github.none')}
+            </p>
+          </div>
+          <div className={p2.settingControls}>
+            <button type="button" className={p2.secondary} onClick={onOpenGithub}>
+              {githubSession?.connected ? t('settings.github.manage') : t('settings.github.configure')}
             </button>
           </div>
         </div>

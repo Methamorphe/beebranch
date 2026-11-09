@@ -42,6 +42,7 @@ import {
   syncFetchAll,
   syncPull,
   syncPush,
+  type CloneInput,
   type DiffRequest,
 } from '../ipc/commands'
 import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
@@ -170,8 +171,10 @@ type Props = {
   layout: LayoutPreferences
   onLayoutChange: (patch: Partial<LayoutPreferences>) => void
   activeWorkspaceId: string | null
-  onActivateWorkspace: (workspaceId: string) => void
+  onActivateWorkspace: (workspaceId: string) => void | Promise<void>
   onWorkspacesChanged: (workspaces: Workspace[]) => void
+  onCloneIntoWorkspace: (input: CloneInput, attach: { attachWorkspaceId: string | null; showTab: boolean }) => Promise<string>
+  onPickDirectory?: (defaultPath?: string) => Promise<string | null>
   /** A push Git refused, handed to the recovery dialog. */
   onPushRejected: (rejection: PushRejection) => void
 }
@@ -286,6 +289,8 @@ export function Workbench({
   activeWorkspaceId,
   onActivateWorkspace,
   onWorkspacesChanged,
+  onCloneIntoWorkspace,
+  onPickDirectory,
   onPushRejected,
 }: Props) {
   const { t, plural } = useI18n()
@@ -1408,6 +1413,7 @@ export function Workbench({
             onSplashChange={onSplashChange}
             onMutated={onMutated}
             onOpenGitlab={() => onNavigate('gitlab')}
+            onOpenGithub={() => onNavigate('github')}
             shortcuts={shortcuts}
             shortcutConflict={shortcutConflict}
             onShortcutsChange={onShortcutsChange}
@@ -1448,6 +1454,9 @@ export function Workbench({
             activeWorkspaceId={activeWorkspaceId}
             onActivateWorkspace={onActivateWorkspace}
             onWorkspacesChanged={onWorkspacesChanged}
+            onClone={onCloneIntoWorkspace}
+            onPickDirectory={onPickDirectory}
+            onOpenProvider={(provider) => { onNavigate(provider) }}
           />
         </div>
       )

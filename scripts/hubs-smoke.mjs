@@ -90,7 +90,7 @@ export async function runHubsSmoke({ client, evaluate, screenshot, waitFor, dela
     input.dispatchEvent(new Event('input', {bubbles:true})); return true
   })()`)
   await screenshot('hub-workspace-ready.png')
-  await evaluate(client, `Array.from(document.querySelectorAll('[data-central-editor="workspaces"] button')).find((button) => button.textContent.trim() === 'Créer le workspace').click()`)
+  await evaluate(client, `Array.from(document.querySelectorAll('[data-central-editor="workspaces"] button')).find((button) => button.textContent.trim() === 'Créer et ouvrir').click()`)
   await waitFor(client, `document.querySelector('#workspace-detail-title')?.textContent === 'Mon équipe'`, 'created workspace')
   await check('workspace-created-with-picked-folders', `window.__workspaceHubCalls.filter(([name]) => name === 'workspace_add_repo').length === 2 && window.__hubWorkspaces[0].repos.length === 2`)
   await check('workspace-manual-path-optional', `!document.querySelector('details[class*="manualPath"]').open`)

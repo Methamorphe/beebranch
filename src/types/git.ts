@@ -346,11 +346,17 @@ export type WorkspaceRepo = {
   addedAt: number
 }
 
+export type WorkspaceIconKind = 'lucide' | 'image'
+
 export type Workspace = {
   id: string
   name: string
   createdAt: number
   updatedAt: number
+  /** Absent when the workspace shows the monogram of its name. */
+  iconKind?: WorkspaceIconKind | null
+  /** Lucide icon name when `iconKind` is `lucide`. */
+  iconKey?: string | null
   repos: WorkspaceRepo[]
 }
 
