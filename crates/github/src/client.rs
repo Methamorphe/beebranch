@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use beebranch_core::{now_unix, redaction, CachedResponse, ResponseCache};
@@ -250,7 +250,7 @@ pub struct JobsPage {
 pub struct GithubClient {
     http: Client,
     url: NormalizedUrl,
-    token: SecretToken,
+    token: Arc<RwLock<SecretToken>>,
     cache: Option<Arc<dyn ResponseCache>>,
     cache_ttl: Duration,
     max_pages: u32,
@@ -280,7 +280,7 @@ impl GithubClient {
         Ok(Self {
             http,
             url,
-            token,
+            token: Arc::new(RwLock::new(token)),
             cache: None,
             cache_ttl: DEFAULT_CACHE_TTL,
             max_pages: DEFAULT_MAX_PAGES,
@@ -307,7 +307,7 @@ impl GithubClient {
         Self {
             http: build_http_client(&config).expect("test HTTP client"),
             url,
-            token: SecretToken::new(token).expect("test token"),
+            token: Arc::new(RwLock::new(SecretToken::new(token).expect("test token"))),
             cache: None,
             cache_ttl: DEFAULT_CACHE_TTL,
             max_pages: DEFAULT_MAX_PAGES,
@@ -345,6 +345,26 @@ impl GithubClient {
     /// Instance host, including an explicit port.
     pub fn host(&self) -> &str {
         &self.url.host
+    }
+
+    /// Replace the access token in place.
+    ///
+    /// Clones share the same token cell, so an OAuth refresh updates every
+    /// client already held by the commands without rebuilding them.
+    pub fn set_token(&self, token: &str) -> Result<(), GithubError> {
+        let secret = SecretToken::new(token)?;
+        *self
+            .token
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = secret;
+        Ok(())
+    }
+
+    fn bearer(&self) -> HeaderValue {
+        self.token
+            .read()
+            .map(|token| token.bearer())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().bearer())
     }
 
     /// Validate the token with `GET /user`.
@@ -1373,7 +1393,7 @@ impl GithubClient {
             .http
             .get(url.clone())
             .header(ACCEPT, HeaderValue::from_static("*/*"))
-            .header(AUTHORIZATION, self.token.bearer())
+            .header(AUTHORIZATION, self.bearer())
             .send()
             .await
             .map_err(|error| self.transport_error(&error))?;
@@ -1562,7 +1582,7 @@ impl GithubClient {
                 ACCEPT,
                 HeaderValue::from_static("application/vnd.github+json"),
             )
-            .header(AUTHORIZATION, self.token.bearer())
+            .header(AUTHORIZATION, self.bearer())
             .header("X-GitHub-Api-Version", API_VERSION)
             .json(body)
             .send()
@@ -1591,7 +1611,7 @@ impl GithubClient {
                 ACCEPT,
                 HeaderValue::from_static("application/vnd.github+json"),
             )
-            .header(AUTHORIZATION, self.token.bearer())
+            .header(AUTHORIZATION, self.bearer())
             .header("X-GitHub-Api-Version", API_VERSION)
             .body(Vec::new())
             .send()
@@ -1780,7 +1800,7 @@ impl GithubClient {
                 ACCEPT,
                 HeaderValue::from_static("application/vnd.github+json"),
             )
-            .header(AUTHORIZATION, self.token.bearer())
+            .header(AUTHORIZATION, self.bearer())
             .header("X-GitHub-Api-Version", API_VERSION);
 
         if let Some(etag) = etag {
