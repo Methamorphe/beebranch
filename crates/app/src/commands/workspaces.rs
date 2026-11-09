@@ -439,12 +439,23 @@ pub async fn workspace_remove_repo(
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChangeCounts {
+    pub added: usize,
+    pub modified: usize,
+    pub deleted: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceRepoStatus {
     pub path: String,
     pub name: Option<String>,
     pub available: bool,
     pub repo_id: Option<String>,
     pub state: Option<RepoState>,
+    pub changes: Option<WorkspaceChangeCounts>,
     pub error: Option<String>,
 }
 
@@ -478,15 +489,21 @@ fn status_one(runner: &GitRunner, repo: WorkspaceRepoRow) -> WorkspaceRepoStatus
         let repo_id = beebranch_core::RepoId::from_path(worktree)
             .as_str()
             .to_owned();
-        Ok::<_, AppError>((repo_id, detected.state))
+        let changes = detected.status.changes;
+        Ok::<_, AppError>((repo_id, detected.state, changes))
     })();
     match result {
-        Ok((repo_id, state)) => WorkspaceRepoStatus {
+        Ok((repo_id, state, changes)) => WorkspaceRepoStatus {
             path: repo.path,
             name: repo.name,
             available: true,
             repo_id: Some(repo_id),
             state: Some(state),
+            changes: Some(WorkspaceChangeCounts {
+                added: changes.added,
+                modified: changes.modified,
+                deleted: changes.deleted,
+            }),
             error: None,
         },
         Err(error) => WorkspaceRepoStatus {
@@ -495,6 +512,7 @@ fn status_one(runner: &GitRunner, repo: WorkspaceRepoRow) -> WorkspaceRepoStatus
             available: false,
             repo_id: None,
             state: None,
+            changes: None,
             error: Some(format!(
                 "{} {}",
                 error.message,

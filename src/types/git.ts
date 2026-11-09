@@ -360,12 +360,19 @@ export type Workspace = {
   repos: WorkspaceRepo[]
 }
 
+export type WorkspaceChangeCounts = {
+  added: number
+  modified: number
+  deleted: number
+}
+
 export type WorkspaceRepoStatus = {
   path: string
   name?: string
   available: boolean
   repoId?: string
   state?: RepoState
+  changes?: WorkspaceChangeCounts
   error?: string
 }
 

@@ -64,6 +64,35 @@ function headLabel(status: WorkspaceRepoStatus): string {
   return t('workspaces.panel.unknownBranch')
 }
 
+function ChangeCounts({ changes }: { changes?: { added: number; modified: number; deleted: number } }) {
+  const { t, plural } = useI18n()
+  const added = changes?.added ?? 0
+  const modified = changes?.modified ?? 0
+  const deleted = changes?.deleted ?? 0
+  if (added === 0 && modified === 0 && deleted === 0) {
+    return <span className={styles.clean}>{t('workspaces.panel.clean')}</span>
+  }
+  return (
+    <span className={styles.changes}>
+      {added > 0 ? (
+        <span className={styles.added}>
+          {plural('workspaces.panel.added.one', 'workspaces.panel.added.other', added, { count: added })}
+        </span>
+      ) : null}
+      {modified > 0 ? (
+        <span className={styles.modified}>
+          {plural('workspaces.panel.modified.one', 'workspaces.panel.modified.other', modified, { count: modified })}
+        </span>
+      ) : null}
+      {deleted > 0 ? (
+        <span className={styles.deleted}>
+          {plural('workspaces.panel.deletedCount.one', 'workspaces.panel.deletedCount.other', deleted, { count: deleted })}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 function repoLeaf(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 }
@@ -759,17 +788,15 @@ export function WorkspacesPanel({
                       </label>
                       <div className={styles.repoBody}>
                         <span>{status.name ?? repoLeaf(status.path)}</span>
-                        <span className={styles.path} title={status.path}>{status.path}</span>
-                        <span className={styles.path}>
-                          {status.available
-                            ? t('workspaces.panel.statusCounts', {
-                                head: headLabel(status),
-                                staged: status.state?.worktree.staged ?? 0,
-                                unstaged: status.state?.worktree.unstaged ?? 0,
-                                untracked: status.state?.worktree.untracked ?? 0,
-                              })
-                            : status.error}
-                        </span>
+                        <span className={styles.repoPath} title={status.path}>{status.path}</span>
+                        {status.available ? (
+                          <span className={styles.repoStatus}>
+                            <span className={styles.branch}>{headLabel(status)}</span>
+                            <ChangeCounts changes={status.changes} />
+                          </span>
+                        ) : (
+                          <span className={styles.repoError}>{status.error}</span>
+                        )}
                       </div>
                       <div className={styles.repoActions}>
                         <button type="button" className={shared.small} disabled={!status.available} onClick={() => onOpenRepo(status.path)}>

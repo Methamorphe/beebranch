@@ -46,9 +46,19 @@
 .syncBody .selection { color: var(--muted); font-size: 11px; }
 .repos { display: flex; flex-direction: column; }
 .repoRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; min-width: 0; padding: 12px 24px; border-bottom: 1px solid var(--border); }
-.repoBody { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.repoBody { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-family: var(--sans); }
 .repoBody > span:first-child { font-size: 13px; font-weight: 600; }
-.path { overflow: hidden; color: var(--muted); font-family: var(--mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.repoPath, .repoError { overflow: hidden; color: var(--muted); font-family: var(--sans); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.repoError { color: var(--error); }
+.repoStatus { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.branch { color: var(--muted-strong); font-family: var(--sans); font-size: 12px; }
+.changes { display: flex; flex-wrap: wrap; gap: 6px; }
+.added, .modified, .deleted, .clean { font-family: var(--sans); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.added { color: var(--success); }
+.modified { color: var(--warning, var(--muted-strong)); }
+.deleted { color: var(--error); }
+.clean { color: var(--muted); font-weight: 500; }
+.path { overflow: hidden; color: var(--muted); font-family: var(--sans); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .repoActions { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
 .results { padding-bottom: 16px; }
 .resultRow { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: start; gap: 10px; min-width: 0; padding: 12px 24px; border-bottom: 1px solid var(--border); }

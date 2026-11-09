@@ -92,6 +92,13 @@ const messages = {
   'workspaces.panel.refreshStatus': 'Actualiser les états',
   'workspaces.panel.statusTitle': 'État par dépôt',
   'workspaces.panel.unknownBranch': 'branche inconnue',
+  'workspaces.panel.clean': 'propre',
+  'workspaces.panel.added.one': '+ {count} ajout',
+  'workspaces.panel.added.other': '+ {count} ajouts',
+  'workspaces.panel.modified.one': '~ {count} modif',
+  'workspaces.panel.modified.other': '~ {count} modifs',
+  'workspaces.panel.deletedCount.one': '− {count} suppression',
+  'workspaces.panel.deletedCount.other': '− {count} suppressions',
   'workspaces.panel.statusCounts':
     '{head} · {staged} préparé(s) / {unstaged} modifié(s) / {untracked} nouveau(x)',
   'workspaces.panel.repoRemoved': 'Dépôt retiré du workspace.',

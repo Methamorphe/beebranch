@@ -92,6 +92,13 @@ const messages = {
   'workspaces.panel.refreshStatus': 'Refresh the statuses',
   'workspaces.panel.statusTitle': 'Status per repository',
   'workspaces.panel.unknownBranch': 'unknown branch',
+  'workspaces.panel.clean': 'clean',
+  'workspaces.panel.added.one': '+ {count} addition',
+  'workspaces.panel.added.other': '+ {count} additions',
+  'workspaces.panel.modified.one': '~ {count} change',
+  'workspaces.panel.modified.other': '~ {count} changes',
+  'workspaces.panel.deletedCount.one': '− {count} deletion',
+  'workspaces.panel.deletedCount.other': '− {count} deletions',
   'workspaces.panel.statusCounts':
     '{head} · {staged} staged / {unstaged} modified / {untracked} new',
   'workspaces.panel.repoRemoved': 'Repository removed from the workspace.',
