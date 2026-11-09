@@ -979,6 +979,8 @@ export default function App() {
     if (!existing) {
       return
     }
+    // Clicking a repository tab leaves the settings / integration pages.
+    if (APP_PAGES.includes(view) && !navigate('graph')) return
     setActiveId(target)
     setGeneration(existing.generation)
     setLauncherOpen(false)

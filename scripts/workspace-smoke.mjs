@@ -924,6 +924,13 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await evaluate(client, `(() => { document.querySelectorAll('[data-toasts] button[aria-label="Fermer"]').forEach((button) => button.click()); window.__TAURI_INTERNALS__.invoke = window.__toastInvoke; return true })()`)
   await delay(60)
   await check('error-toast-dismisses', `!document.querySelector('[data-toasts] [role="alert"]')`)
+
+  // Clicking a repository tab while the settings page is open leaves it.
+  await click('button[aria-label="Profils et réglages"]')
+  await waitFor(client, `document.body.innerText.includes('Personnalisez votre environnement')`, 'settings page')
+  await click('[aria-label="Dépôts ouverts"] button[aria-current="page"]')
+  await waitFor(client, `!document.body.innerText.includes('Personnalisez votre environnement') && document.querySelector('canvas') !== null`, 'graph after clicking a repository tab')
+  await check('repository-tab-click-leaves-settings', `!document.body.innerText.includes('Personnalisez votre environnement')`)
   const { runHubsSmoke } = await import('./hubs-smoke.mjs')
   await runHubsSmoke({ client, evaluate, screenshot, waitFor, delay, check, click })
   for (const width of [1440,1024,390]) {
