@@ -79,6 +79,8 @@ const messages = {
   'workbench.repository.deleteTag': 'Supprimer le tag',
   'workbench.repository.aria': 'Explorateur du dépôt',
   'workbench.repository.filter': 'Filtrer le dépôt…',
+  'workbench.repository.viewList': 'Afficher les branches en liste',
+  'workbench.repository.viewTree': 'Afficher les branches en dossiers',
   'workbench.workspace.closeTool': 'Fermer le panneau et revenir à l’arbre',
   'workbench.history.details': 'Ouvrir la vue dédiée',
   'workbench.history.expand': 'Agrandir',
