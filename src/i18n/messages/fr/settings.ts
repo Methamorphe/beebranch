@@ -23,6 +23,12 @@ const messages = {
   'settings.appearance.density.comfortable': 'Confortable',
   'settings.appearance.density.compact': 'Compact',
 
+  'settings.graphDate.title': 'Dates de l’historique',
+  'settings.graphDate.description':
+    'Dans l’arbre de commits. « Relatif » affiche « il y a… » pendant sept jours, puis la date et l’heure. Les autres choix affichent toujours la date.',
+  'settings.graphDate.aria': 'Format des dates de l’arbre de commits',
+  'settings.graphDate.relative': 'Relatif, puis date et heure',
+
   'settings.media.wallpaper.title': 'Fond d’écran',
   'settings.media.wallpaper.description':
     'Image ou GIF animé derrière le poste de travail · png, jpg, gif, webp, avif, bmp · 32 Mo maximum.',

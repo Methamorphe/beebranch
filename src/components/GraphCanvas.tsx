@@ -20,7 +20,17 @@ import {
 } from '../lib/layout'
 import { Resizer } from './Resizer'
 import { GraphRefPopover, type RefAnchor } from './GraphRefPopover'
-import { formatDate, formatDateTime, formatRelative, useI18n } from '../i18n'
+import { useI18n } from '../i18n'
+import { preferenceGet } from '../ipc/commands'
+import {
+  GRAPH_DATE_PREFERENCE,
+  applyStoredGraphDate,
+  formatGraphCommitDate,
+  getGraphDateFormat,
+  graphDateEpoch,
+  onGraphDateFormatChanged,
+  type GraphDateFormat,
+} from '../lib/graphDate'
 import {
   foldUpstreamRefs,
   graphCommitRefs,
@@ -106,11 +116,6 @@ const OVERSCAN = 8
 const AVATAR_NODE_RADIUS = 11
 const AVATAR_LANE_RING = 2.25
 
-/** Relative age for the last week, then the date and local time. */
-function commitDateLabel(timestamp: number) {
-  const date = new Date(timestamp * 1000)
-  return formatRelative(date) ?? `${formatDate(date, { day: '2-digit', month: 'short', year: 'numeric' })} ${formatDateTime(date, { hour: '2-digit', minute: '2-digit' })}`
-}
 /** Constant distance between two lanes: the graph column grows with the lane
  * count instead of squeezing every lane into a fixed width, which used to turn
  * a branched history into an unreadable ladder. */
@@ -385,6 +390,7 @@ export function GraphCanvas({
 }: Props) {
   const [viewportWidth, setViewportWidth] = useState(1000)
   const { locale, t } = useI18n()
+  const [dateFormat, setDateFormat] = useState<GraphDateFormat>(getGraphDateFormat)
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
   // Every visible ref of a commit, in draw order. A remote-tracking mirror of
   // a local branch on the same commit is folded out: `main` and `origin/main`
@@ -985,7 +991,13 @@ export function GraphCanvas({
           y,
         )
       }
-      if (col.date) context.fillText(fitText(context, commitDateLabel(commit.committer.timestamp), col.date - 16), width - col.date + 8, y)
+      if (col.date) {
+        context.fillText(
+          fitText(context, formatGraphCommitDate(commit.committer.timestamp, dateFormat, locale), col.date - 16),
+          width - col.date + 8,
+          y,
+        )
+      }
 
     }
 
@@ -1004,7 +1016,7 @@ export function GraphCanvas({
     for (const x of [col.refs, col.refs + col.graph, ...(col.author ? [width - col.author - col.date] : []), ...(col.date ? [width - col.date] : [])]) {
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
-  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, branchFocus])
+  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, dateFormat, branchFocus])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -1039,6 +1051,21 @@ export function GraphCanvas({
       performance.mark('graph.first-page')
     }
   }, [scheduleDraw, draw, commits.length, generation, theme])
+
+  useEffect(() => {
+    const epoch = graphDateEpoch()
+    let cancelled = false
+    void preferenceGet(GRAPH_DATE_PREFERENCE)
+      .then((raw) => {
+        if (!cancelled) applyStoredGraphDate(raw, epoch)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => onGraphDateFormatChanged(setDateFormat), [])
 
   useEffect(() => {
     const container = containerRef.current
