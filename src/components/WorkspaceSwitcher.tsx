@@ -14,6 +14,8 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (workspaceId: string) => void
+  /** Leaves every workspace. Later clones and opens are not filed in a group. */
+  onClear: () => void
   onManage: () => void
   shortcut: string
 }
@@ -30,6 +32,7 @@ export function WorkspaceSwitcher({
   open,
   onOpenChange,
   onSelect,
+  onClear,
   onManage,
   shortcut,
 }: Props) {
@@ -49,8 +52,8 @@ export function WorkspaceSwitcher({
     }
     const frame = window.requestAnimationFrame(() => {
       const entries = menuEntries()
-      const index = workspaces.findIndex((workspace) => workspace.id === activeId)
-      ;(entries[Math.max(0, index)] ?? entries[0])?.focus()
+      const checked = entries.findIndex((button) => button.getAttribute('aria-checked') === 'true')
+      ;(entries[checked >= 0 ? checked : 0] ?? entries[0])?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
   }, [open, workspaces, activeId])
@@ -152,6 +155,22 @@ export function WorkspaceSwitcher({
             }
           }}
         >
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={active === null}
+            disabled={busy}
+            className={active === null ? styles.itemActive : styles.item}
+            title={t('workspaces.switcher.looseHint')}
+            onClick={onClear}
+          >
+            <ViewIcon view="workspaces" size={16} />
+            <span className={styles.itemName}>{t('workspaces.switcher.none')}</span>
+            <span className={styles.count} />
+            <span className={styles.check} aria-hidden="true">
+              {active === null ? <ToolbarIcon name="check" size={14} /> : null}
+            </span>
+          </button>
           {workspaces.length === 0 ? (
             <p className={styles.empty}>{t('workspaces.switcher.empty')}</p>
           ) : (

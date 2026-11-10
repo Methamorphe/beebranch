@@ -1005,6 +1005,13 @@ export default function App() {
     [repos, switching, rememberWorkspaceRepo, reloadRecent, upsert, view],
   )
 
+  /** Opens and clones stay out of every workspace until one is chosen again. */
+  const clearWorkspace = useCallback(() => {
+    if (switching) return
+    setWorkspaceMenuOpen(false)
+    setActiveWorkspaceId(null)
+  }, [switching])
+
   const cloneRepo = async (
     input: CloneInput,
     mode?: { attachWorkspaceId?: string | null; showTab?: boolean; keepView?: boolean },
@@ -1613,6 +1620,18 @@ export default function App() {
         run: () => repoId && requestClose(repoId),
       },
     )
+    if (workspaces.length > 0) {
+      items.push({
+        id: 'workspace-none',
+        label: activeWorkspaceId
+          ? t('workspaces.switcher.none')
+          : `${t('workspaces.switcher.none')} · ${t('workspaces.panel.active')}`,
+        group: t('shell.palette.group.workspaces'),
+        available: !switching,
+        unavailableReason: t('shell.palette.unavailable.workspaceSwitching'),
+        run: clearWorkspace,
+      })
+    }
     for (const workspace of workspaces) {
       const selected = workspace.id === activeWorkspaceId
       const count = workspace.repos.length
@@ -1664,7 +1683,7 @@ export default function App() {
       },
     })
     return items
-  }, [navigate, openHistoryAction, openFindInGraph, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
+  }, [navigate, openHistoryAction, openFindInGraph, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, clearWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
 
   useZoom()
 
@@ -1745,6 +1764,7 @@ export default function App() {
             open={workspaceMenuOpen}
             onOpenChange={setWorkspaceMenuOpen}
             onSelect={(workspaceId) => void switchWorkspace(workspaceId)}
+            onClear={clearWorkspace}
             onManage={() => {
               setWorkspaceMenuOpen(false)
               navigate('workspaces')

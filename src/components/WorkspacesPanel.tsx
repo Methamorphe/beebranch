@@ -350,8 +350,9 @@ export function WorkspacesPanel({
     })
   }
 
-  const createWorkspace = () => void run(t('workspaces.panel.created', { name: name.trim() }), async () => {
-    const created = await workspaceCreate(name.trim())
+  const commitCreate = async (paths: string[]) => {
+    const trimmed = name.trim()
+    const created = await workspaceCreate(trimmed)
     const failures: string[] = []
     try {
       if (draftIcon.kind === 'lucide') {
@@ -364,7 +365,7 @@ export function WorkspacesPanel({
         })
         rememberWorkspaceImage(updated.id, updated.updatedAt, draftIcon.previewUrl)
       }
-      for (const entry of draftPaths) {
+      for (const entry of paths) {
         try { await workspaceAddRepo(created.id, entry) }
         catch (cause) { failures.push(errorMessage(cause)) }
       }
@@ -379,7 +380,10 @@ export function WorkspacesPanel({
     }
     if (failures.length) setError(failures.join(' · '))
     await onActivateWorkspace(created.id)
-  })
+    return trimmed
+  }
+
+  const createWorkspace = () => void run(t('workspaces.panel.created', { name: name.trim() }), () => commitCreate(draftPaths))
 
   const saveRename = () => {
     if (skipRenameSave.current) {
@@ -400,6 +404,12 @@ export function WorkspacesPanel({
   }
 
   const cloneInto = async (input: CloneInput) => {
+    const trimmedName = name.trim()
+    if (showCreator && !trimmedName) {
+      const message = t('workspaces.panel.nameRequired')
+      setError(message)
+      throw new Error(message)
+    }
     const attachWorkspaceId = showCreator ? null : selected?.id ?? null
     if (attachWorkspaceId === null && draftPaths.length >= WORKSPACE_REPO_LIMIT) {
       throw new Error(t('workspaces.panel.limitReached', { limit: WORKSPACE_REPO_LIMIT }))
@@ -412,11 +422,12 @@ export function WorkspacesPanel({
         showTab: !showCreator && attachWorkspaceId === activeWorkspaceId,
       })
       if (!attachWorkspaceId) {
-        setDraftPaths((current) =>
-          current.some((entry) => normalizeRepoPath(entry) === normalizeRepoPath(cloned))
-            ? current
-            : [...current, cloned],
-        )
+        const paths = draftPaths.some((entry) => normalizeRepoPath(entry) === normalizeRepoPath(cloned))
+          ? draftPaths
+          : [...draftPaths, cloned]
+        setDraftPaths(paths)
+        const createdName = await commitCreate(paths)
+        setNotice(t('workspaces.panel.created', { name: createdName }))
         return
       }
       // The shell may already have recorded the clone. Adding again is a no-op

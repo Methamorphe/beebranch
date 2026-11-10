@@ -3614,7 +3614,7 @@ try {
   await waitFor(client, `document.querySelector('[role="menuitemradio"]') !== null`, 'workspace menu via shortcut')
   assertUI('workspace-shortcut-lists-workspaces', await evaluate(client, `(() => {
     const names = [...document.querySelectorAll('[role="menuitemradio"]')].map((button) => button.textContent)
-    return names.length === 2 && names.some((name) => name.includes('Produit')) && names.some((name) => name.includes('Infra'))
+    return names.length === 3 && names.some((name) => name.includes('Aucun workspace')) && names.some((name) => name.includes('Produit')) && names.some((name) => name.includes('Infra'))
   })()`))
   await key('Escape')
   await waitFor(client, `document.querySelector('[role="menu"]') === null`, 'workspace menu escape')
