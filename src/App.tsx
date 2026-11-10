@@ -873,6 +873,7 @@ export default function App() {
       if (!target || switching) {
         return
       }
+      if (navigationGuard.current?.() === false) return
       setWorkspaceMenuOpen(false)
       setLauncherOpen(false)
       setError(null)
@@ -970,8 +971,12 @@ export default function App() {
         setGeneration(focus?.generation ?? 0)
         setDiffRequest(null)
         setHistoryRequest(null)
-        setView('graph')
-        setGraphFocus((current) => current + 1)
+        // The workspace screen stays put so creating or opening a group
+        // keeps its detail. Everywhere else, the switch lands on the history.
+        if (view !== 'workspaces') {
+          setView('graph')
+          setGraphFocus((current) => current + 1)
+        }
         setActiveWorkspaceId(workspaceId)
         rememberWorkspaceRepo(workspaceId, focus?.repo.repoId ?? null)
         if (focus) {
@@ -997,7 +1002,7 @@ export default function App() {
         setSwitching(false)
       }
     },
-    [repos, switching, rememberWorkspaceRepo, reloadRecent, upsert],
+    [repos, switching, rememberWorkspaceRepo, reloadRecent, upsert, view],
   )
 
   const cloneRepo = async (
@@ -1054,6 +1059,9 @@ export default function App() {
     if (!existing) {
       return
     }
+    // A repository tab always returns to the history. An unsaved draft
+    // (conflicts, rebase) can still refuse the click, and the tab stays put.
+    if (navigationGuard.current?.() === false) return
     setActiveId(target)
     setGeneration(existing.generation)
     setLauncherOpen(false)
@@ -1728,6 +1736,7 @@ export default function App() {
         updateVersion={availableUpdate}
         updateBusy={installingUpdate}
         onInstallUpdate={() => void installUpdate()}
+        onOpenPalette={() => setPaletteOpen(true)}
         workspaceSelector={
           <WorkspaceSwitcher
             workspaces={workspaces}
@@ -1911,7 +1920,6 @@ export default function App() {
                     busy={busy}
                     onActivate={(target) => void activate(target)}
                     onOpenDialog={openRepositoryDialog}
-                    onOpenPalette={() => setPaletteOpen(true)}
                     onRefresh={() => void refresh()}
                     onNavigate={(target) => {
                       if (target === 'stash' || target === 'rebase' || target === 'conflicts') openHistoryAction(target)

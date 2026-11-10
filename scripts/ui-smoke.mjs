@@ -3179,7 +3179,7 @@ try {
   assertUI('graph-merge-applies-at-once', await evaluate(client, `document.querySelector('[role="alertdialog"]') === null`))
   assertUI('graph-integration-start', await evaluate(client, `(() => {
     const call = (window.__p3Calls ?? []).find(([name]) => name === 'branch_integration_start')
-    return call[1].request.mode === 'merge' && call[1].request.source === 'feature' && call[1].request.target === 'main' && call[1].request.fastForward === 'auto' && call[1].request.confirmation.acknowledged === true
+    return call[1].request.mode === 'merge' && call[1].request.source === 'feature' && call[1].request.target === 'main' && call[1].request.fastForward === 'never' && call[1].request.confirmation.acknowledged === true
   })()`))
   assertUI('graph-integration-notice', await evaluate(client, `document.body.innerText.includes('Fusion de feature appliqué')`))
   await screenshot(client, 'p3-graph-drop.png')

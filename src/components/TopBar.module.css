@@ -37,7 +37,6 @@
 .strip { position:relative; display:flex; min-width:0; height:100%; overflow:hidden; }
 .repoTabs { flex:1 1 auto; height:100%; }
 .scrollBar { position:absolute; left:8px; right:8px; bottom:1px; z-index:2; height:10px; opacity:0; pointer-events:none; cursor:pointer; transition:opacity var(--duration-fast) var(--ease-out); }
-.scrollBar[data-overflow='true'],
 .tabsGroup:hover .scrollBar[data-overflow='true'],
 .tabsGroup:focus-within .scrollBar[data-overflow='true'],
 .scrollBar[data-dragging='true'] { opacity:1; pointer-events:auto; }

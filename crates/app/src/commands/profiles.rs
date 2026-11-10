@@ -135,7 +135,11 @@ fn github_login(value: Option<String>) -> Result<Option<String>, AppError> {
     Ok(Some(trimmed.to_owned()))
 }
 
-fn reject_duplicate(profiles: &[Profile], skip_id: &str, profile: &Profile) -> Result<(), AppError> {
+fn reject_duplicate(
+    profiles: &[Profile],
+    skip_id: &str,
+    profile: &Profile,
+) -> Result<(), AppError> {
     if profiles
         .iter()
         .any(|existing| existing.id != skip_id && existing.name == profile.name)

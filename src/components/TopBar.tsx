@@ -23,6 +23,8 @@ type Props = {
   updateVersion?: string | null
   updateBusy?: boolean
   onInstallUpdate?: () => void
+  /** Opens the command palette. It stays in the top bar so every screen can reach it. */
+  onOpenPalette: () => void
   /** Active workspace switcher, rendered next to the open tabs. */
   workspaceSelector?: ReactNode
 }
@@ -45,7 +47,7 @@ function syncOverlay(el: HTMLElement, bar: HTMLElement) {
   return overflowing
 }
 
-export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, onOpenDialog, launcherOpen, onAdd, onCloseLauncher, updateVersion, updateBusy = false, onInstallUpdate, workspaceSelector }: Props) {
+export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, onOpenDialog, launcherOpen, onAdd, onCloseLauncher, updateVersion, updateBusy = false, onInstallUpdate, onOpenPalette, workspaceSelector }: Props) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [drop, setDrop] = useState<{ id: string; side: TabDropSide } | null>(null)
   const { t } = useI18n()
@@ -304,6 +306,9 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
       <button ref={addButton} type="button" className={styles.add} onClick={onAdd} aria-label={t('shell.topbar.addRepo')} title={t('shell.topbar.newTabHint')}><ToolbarIcon name="plus" /></button>
     </div>
     <div className={styles.spacer} />
+    <button type="button" className={styles.iconButton} onClick={onOpenPalette} aria-label={t('shell.repoBar.searchCommand')} title={t('shell.repoBar.paletteTitle')}>
+      <ToolbarIcon name="search" />
+    </button>
     {updateVersion ? (
       <button type="button" className={styles.updateButton} onClick={onInstallUpdate} data-update={updateVersion}
         disabled={updateBusy} aria-busy={updateBusy || undefined}

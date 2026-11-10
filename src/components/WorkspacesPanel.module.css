@@ -100,5 +100,6 @@
   .repoRow { grid-template-columns: auto minmax(0, 1fr); }
   .repoActions { grid-column: 2; justify-content: flex-start; }
   .detailHead { flex-wrap: wrap; }
-  .detailActions { margin-left: 0; }
+  .detailActions { flex-wrap: wrap; min-width: 0; margin-left: 0; }
+  .limit { white-space: normal; }
 }

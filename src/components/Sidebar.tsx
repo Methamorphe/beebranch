@@ -173,6 +173,7 @@ export function Sidebar(props: Props) {
           className={current === 'profiles' && settingsTab !== 'profiles' ? styles.itemActive : styles.item}
           data-view="profiles"
           aria-current={current === 'profiles' && settingsTab !== 'profiles' ? 'page' : undefined}
+          aria-label={t('shell.topbar.settings')}
           title={t('shell.topbar.settings')}
           onClick={onSettings}
         >

@@ -21,7 +21,6 @@ type Props = {
   busy: boolean
   onActivate: (repoId: string) => void
   onOpenDialog: () => void
-  onOpenPalette: () => void
   onRefresh: () => void
   onNavigate: (view: ViewId) => void
   onNewBranch: () => void
@@ -44,7 +43,7 @@ function branchLabel(repo: RepoView | null, t: I18n['t']) {
   return head?.kind === 'unborn' ? head.branch ?? t('shell.repoBar.newBranch') : t('shell.repoBar.noBranch')
 }
 
-export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo, onDockTerminal, terminalDocked }: Props) {
+export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo, onDockTerminal, terminalDocked }: Props) {
   const { t } = useI18n()
   const confirmOperation = useOperationConfirm()
   const confirmPush = usePushConfirm()
@@ -247,7 +246,6 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
         <button type="button" onClick={() => onNavigate('tools')} disabled={!repoId}>{t('shell.action.externalTools')}</button>
         <button type="button" onClick={() => onNavigate('recovery')}>{t('shell.action.journalAndRecovery')}</button>
       </ActionMenu>
-      <button type="button" className={styles.action} onClick={onOpenPalette} aria-label={t('shell.repoBar.searchCommand')} title={t('shell.repoBar.paletteTitle')}><ToolbarIcon name="search" /><span>{t('shell.repoBar.commands')}</span></button>
     </div>
     <PublishBranchBar
       target={publish}
