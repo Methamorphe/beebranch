@@ -12,6 +12,7 @@ import {
   syncPush,
 } from '../ipc/commands'
 import { errorDetail, errorMessage } from '../ipc/client'
+import { errorCopy } from '../i18n/errors'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import {
   AUTO_FETCH_OPTIONS,
@@ -162,7 +163,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
         const all = await syncFetchAll(repoId)
         const lines = all.data.map((entry) =>
           entry.error
-            ? `${entry.remote}: ${entry.error.code} — ${entry.error.message}`
+            ? `${entry.remote}: ${entry.error.code} — ${errorCopy({ code: entry.error.code, category: 'internal', message: entry.error.message, retryable: false }).message}`
             : `${entry.remote}: ${t('ops.sync.fetchAllOk')}`,
         )
         setLog((current) => [...current, ...lines])

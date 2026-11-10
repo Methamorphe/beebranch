@@ -22,6 +22,8 @@ const messages = {
   'nav.description.terminal': 'A shell in the repository folder.',
   'nav.sync': 'Sync',
   'nav.gitlab': 'GitLab connection',
+  'nav.integrations': 'Integrations',
+  'nav.description.integrations': 'Connect GitLab, GitHub and the forges that follow.',
   'nav.github': 'GitHub connection',
   'nav.rebase': 'Interactive rebase',
   'nav.patches': 'Patches',

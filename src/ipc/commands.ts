@@ -1198,6 +1198,7 @@ export function profileCreate(input: {
   userEmail: string
   defaultPull?: string
   gitlabInstanceId?: string
+  githubLogin?: string
 }): Promise<ProfilesView> {
   return call<ProfilesView>('profile_create', { input })
 }
@@ -1210,6 +1211,7 @@ export function profileUpdate(
     userEmail: string
     defaultPull?: string
     gitlabInstanceId?: string
+    githubLogin?: string
   },
 ): Promise<ProfilesView> {
   return call<ProfilesView>('profile_update', { request: { id, input } })

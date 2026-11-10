@@ -4,7 +4,7 @@
   flex: none;
   align-items: center;
   align-self: center;
-  min-width: 148px;
+  width: 168px;
   margin-right: 6px;
 }
 
@@ -14,8 +14,7 @@
   align-items: center;
   gap: 7px;
   width: 100%;
-  min-width: 148px;
-  max-width: 200px;
+  min-width: 0;
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--border);
@@ -158,10 +157,7 @@
 }
 
 @media (max-width: 600px) {
-  .root,
-  .trigger,
-  .triggerActive {
-    min-width: 128px;
-    max-width: 160px;
+  .root {
+    width: 140px;
   }
 }

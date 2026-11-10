@@ -1,5 +1,6 @@
 import { useI18n } from '../i18n'
 import type { GitlabSession } from '../types/git'
+import { ForgeLogo } from './ForgeLogo'
 import styles from './GitlabPanel.module.css'
 
 export type ForgeHubTab = 'reviews' | 'projects' | 'connection'
@@ -17,9 +18,8 @@ export function ForgeHubHeader({ provider, session, active, count, onSelect }: P
   const label = provider === 'gitlab' ? 'GitLab' : 'GitHub'
   return <>
     <header className={styles.hubHeader}>
-      <span className={styles.brandMark} data-provider={provider} aria-hidden="true">{provider === 'gitlab' ? 'GL' : 'GH'}</span>
+      <ForgeLogo provider={provider} size={22} />
       <div className={styles.hubHeading}>
-        <span>{t('forge.hub.integrations')}</span>
         <h2>{label}</h2>
         <p>{t(provider === 'gitlab' ? 'forge.hub.gitlab.subtitle' : 'forge.hub.github.subtitle')}</p>
       </div>
@@ -34,10 +34,9 @@ export function ForgeHubHeader({ provider, session, active, count, onSelect }: P
       </div>
     </header>
     <div className={styles.hubTabs} role="tablist" aria-label={label}>
-      {(['reviews', 'projects', 'connection'] as const).map((tab) => <button key={tab} type="button"
+      {(['projects', 'reviews', 'connection'] as const).map((tab) => <button key={tab} type="button"
         role="tab" id={`${provider}-tab-${tab}`} aria-controls={`${provider}-panel-${tab}`}
         aria-selected={active === tab} tabIndex={active === tab ? 0 : -1}
-        disabled={tab !== 'connection' && !session?.connected}
         onClick={() => onSelect(tab)}
         onKeyDown={(event) => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return

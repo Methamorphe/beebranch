@@ -16,6 +16,8 @@ import {
   gitlabDeviceFlowStart,
   gitlabDisconnect,
   gitlabProjectsPage,
+  gitlabRepoLink,
+  gitlabRepoLinkGet,
   gitlabRepoLinkManual,
   gitlabStatus,
   branchCheckout,
@@ -28,6 +30,7 @@ import {
 } from '../i18n'
 import type { GitlabProject, GitlabSession } from '../types/git'
 import { gitlabForge, tokenCreateUrl, type ForgeNotice } from '../lib/forge'
+import { groupProjects } from '../lib/forgeProjects'
 import { useCheckoutConfirm } from './OperationConfirm'
 import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import { ForgeHubHeader, type ForgeHubTab } from './ForgeHubHeader'
@@ -37,6 +40,13 @@ type Props = {
   repoId?: string | null
   generation?: number
   onLinked?: () => void
+  /** Shared with the other forges so the section underline does not jump. */
+  hubTab?: ForgeHubTab
+  onHubTab?: (tab: ForgeHubTab) => void
+  grouped?: boolean
+  onGrouped?: (grouped: boolean) => void
+  collapsedGroups?: ReadonlySet<string>
+  onToggleGroup?: (key: string) => void
 }
 
 /**
@@ -62,7 +72,7 @@ export function RichMessage({
   )
 }
 
-export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) {
+export function GitlabPanel({ repoId = null, generation = 0, onLinked, hubTab: hubTabProp, onHubTab, grouped = false, onGrouped, collapsedGroups, onToggleGroup }: Props) {
   const { t } = useI18n()
   const confirmCheckout = useCheckoutConfirm()
   const [session, setSession] = useState<GitlabSession | null>(null)
@@ -77,7 +87,13 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<ForgeNotice>(null)
   const [editing, setEditing] = useState(false)
-  const [hubTab, setHubTab] = useState<ForgeHubTab>('reviews')
+  const [linkedId, setLinkedId] = useState<number | null>(null)
+  const [ownHubTab, setOwnHubTab] = useState<ForgeHubTab>('projects')
+  const hubTab = hubTabProp ?? ownHubTab
+  const setHubTab = (tab: ForgeHubTab) => {
+    onHubTab?.(tab)
+    setOwnHubTab(tab)
+  }
   const [device, setDevice] = useState<{
     userCode: string
     verificationUri: string
@@ -146,6 +162,31 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
   }, [])
 
   useEffect(() => {
+    if (!repoId) {
+      setLinkedId(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const existing = await gitlabRepoLinkGet(repoId)
+        if (cancelled) return
+        if (existing) {
+          setLinkedId(existing.projectId)
+          return
+        }
+        const discovered = await gitlabRepoLink(repoId)
+        if (!cancelled) setLinkedId(discovered.projectId)
+      } catch {
+        if (!cancelled) setLinkedId(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [repoId])
+
+  useEffect(() => {
     let cancelled = false
     void gitlabStatus()
       .then((value) => {
@@ -185,7 +226,7 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
         caPem: caPem.trim() || undefined,
       })
       setSession(connected)
-      setHubTab('reviews')
+      setHubTab('projects')
       onLinked?.()
       setToken('')
       setEditing(false)
@@ -208,7 +249,7 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
         displayName: displayName || undefined,
       })
       setSession(connected)
-      setHubTab('reviews')
+      setHubTab('projects')
       onLinked?.()
       setEditing(false)
       setNotice(
@@ -234,7 +275,7 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
         clearPoll()
         setDevice(null)
         setSession(result.session)
-        setHubTab('reviews')
+        setHubTab('projects')
         onLinked?.()
         setEditing(false)
         setNotice({ key: 'forge.connect.notice.oauthGitlab' })
@@ -305,7 +346,7 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
     }
   }
 
-  const activeTab = session?.connected ? hubTab : 'connection'
+  const activeTab = hubTab
   const supportsDeviceFlow = !baseUrl.trim() || /^https:\/\/gitlab\.com(\/|$)/i.test(baseUrl.trim())
 
   return (
@@ -499,7 +540,17 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
       {session?.connected ? (
         <section className={styles.projects} role="tabpanel" id="gitlab-panel-projects" aria-labelledby="gitlab-tab-projects" hidden={activeTab !== 'projects'}>
           <header className={styles.projectsHeader}>
-            <h3>{t('forge.projects.gitlab.title')}</h3>
+            <div className={styles.projectsIntro}>
+              <h3>{t('forge.projects.gitlab.title')}</h3>
+              <label className={styles.groupToggle}>
+                <input
+                  type="checkbox"
+                  checked={grouped}
+                  onChange={(event) => onGrouped?.(event.target.checked)}
+                />
+                {t('forge.projects.groupByGitlab')}
+              </label>
+            </div>
             <form
               className={styles.search}
               onSubmit={(event) => {
@@ -522,7 +573,22 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
             {projects.length === 0 ? (
               <p className={styles.empty}>{t('forge.projects.emptyGitlab')}</p>
             ) : null}
-            {projects.map((project) => (
+            {(grouped ? groupProjects(projects) : [{ key: '', items: projects }]).map((group) => (
+              <div key={group.key || 'all'}>
+                {grouped ? (
+                  <button
+                    type="button"
+                    className={styles.groupHeading}
+                    aria-expanded={!collapsedGroups?.has(group.key)}
+                    aria-label={t('forge.projects.groupAria', { name: group.key || t('forge.projects.ungroupedGitlab'), count: group.items.length })}
+                    onClick={() => onToggleGroup?.(group.key)}
+                  >
+                    <span className={styles.chevron} aria-hidden="true">›</span>
+                    <span>{group.key || t('forge.projects.ungroupedGitlab')}</span>
+                    <span className={styles.groupCount}>{group.items.length}</span>
+                  </button>
+                ) : null}
+                {grouped && collapsedGroups?.has(group.key) ? null : group.items.map((project) => (
               <article key={project.id} className={styles.project}>
                 <div>
                   <strong>{project.name}</strong>
@@ -554,15 +620,20 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
                             },
                           })
                           onLinked?.()
-                          setHubTab('reviews')
+                          setLinkedId(project.id)
+                          setHubTab('projects')
                         })
                         .catch((cause: unknown) => setError(errorMessage(cause)))
                     }}
+                    title={t('forge.projects.linkTitle')}
+                    disabled={linkedId === project.id}
                   >
-                    {t('forge.projects.link')}
+                    {linkedId === project.id ? t('forge.projects.linkCurrent') : t('forge.projects.link')}
                   </button>
                 ) : null}
               </article>
+                ))}
+              </div>
             ))}
           </div>
 
@@ -575,6 +646,10 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
               {t('forge.projects.nextPage', { page: nextPage })}
             </button>
           ) : null}
+        </section>
+      ) : activeTab === 'projects' ? (
+        <section className={styles.projects} role="tabpanel" id="gitlab-panel-projects" aria-labelledby="gitlab-tab-projects">
+          <p className={styles.empty}>{t('forge.hub.connectHint')}</p>
         </section>
       ) : null}
       </div>
@@ -596,6 +671,10 @@ export function GitlabPanel({ repoId = null, generation = 0, onLinked }: Props) 
             })
           }}
         />
+        </div>
+      ) : activeTab === 'reviews' ? (
+        <div className={styles.reviews} role="tabpanel" id="gitlab-panel-reviews" aria-labelledby="gitlab-tab-reviews">
+          <p className={styles.empty}>{t('forge.hub.connectHint')}</p>
         </div>
       ) : null}
     </div>

@@ -72,9 +72,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   const rowHeight = Number(await evaluate(client, `document.querySelector('canvas').dataset.rowHeight`))
   if (!rowHeight) throw new Error('Repository workspace: canvas row height')
   await check('one-repository-explorer', `document.querySelectorAll('aside[aria-label="Explorateur du dépôt"]').length === 1`)
-  await check('no-destination-sidebar', `!document.querySelector('aside button[data-view]')`)
+  await check('destination-rail', `document.querySelector('aside button[data-view="workspaces"]') !== null`)
   await check('no-extra-branch-panel', `!document.querySelector('#branch-list-panel')`)
-  await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','patches','search','operations'].every((id) => document.querySelector('[data-repository-section="' + id + '"]'))`)
+  await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','search'].every((id) => document.querySelector('[data-repository-section="' + id + '"]')) && !document.querySelector('[data-repository-section="operations"]')`)
   await check('graph-fills-height', `document.querySelector('canvas').getBoundingClientRect().height > 600`)
   await check('repo-tabs-fill-header', `(() => {
     const header = document.querySelector('header').getBoundingClientRect()

@@ -1,0 +1,76 @@
+.shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.providers {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 12px 52px 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.providers button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted-strong);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.providers button[aria-selected='true'] {
+  color: var(--text);
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.providers svg[data-provider='gitlab'] {
+  color: #e24329;
+}
+
+.providers svg[data-provider='github'] {
+  color: var(--text);
+}
+
+.providers i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.providers i[data-connected='true'] {
+  background: var(--success);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 520px) {
+  .providers {
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .providers button {
+    flex: 1;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+}

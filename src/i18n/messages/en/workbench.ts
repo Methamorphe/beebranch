@@ -101,7 +101,7 @@ const messages = {
   'workbench.integration.dialogRebase': 'Rebase {source} onto {target}',
   'workbench.integration.during.merge': 'the merge',
   'workbench.integration.during.rebase': 'the rebase',
-  'workbench.integration.fastForwardHint': 'Fast-forward when possible, otherwise a merge commit',
+  'workbench.integration.fastForwardHint': 'Create a merge commit, even when a fast-forward is possible',
   'workbench.integration.noMutation':
     '{parts}. {operation} without any mutation before confirmation.',
   'workbench.integration.operation.merge': 'Merge',
@@ -144,7 +144,7 @@ const messages = {
   'workbench.drop.advanceTitle': 'Advance {target} to {source} without a merge commit',
   'workbench.drop.compare': 'Compare {source} and {target}',
   'workbench.drop.merge': 'Merge {source} into {target}',
-  'workbench.drop.mergeTitle': 'Merge {source} into {target}: fast-forward or merge commit',
+  'workbench.drop.mergeTitle': 'Create a merge commit of {source} into {target}',
   'workbench.drop.rebase': 'Rebase {source} onto {target}',
   'workbench.drop.rebaseTitle': 'Rebase {source} onto {target}',
 
@@ -300,6 +300,8 @@ const messages = {
   'workbench.operationPreview.title.reset': 'Reset to {revision}?',
   'workbench.operationPreview.title.stashPop': 'Reapply {selector}?',
   'workbench.operationPreview.upstreamMissing': 'the remote branch does not exist yet',
+  'terminal.close': 'Close the terminal',
+  'terminal.resize': 'Resize the terminal',
   'terminal.opening': 'Opening the shell…',
   'terminal.shell': '{shell} — repository folder',
   'workbench.wip.editMessage': 'Double-click to write the commit message',

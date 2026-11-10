@@ -101,7 +101,7 @@ const messages = {
   'workbench.integration.during.merge': 'la fusion',
   'workbench.integration.during.rebase': 'le rebase',
   'workbench.integration.fastForwardHint':
-    'Avance rapide si possible, sinon commit de fusion',
+    'Créer un commit de fusion, même si une avance rapide est possible',
   'workbench.integration.noMutation':
     '{parts}. {operation} sans mutation avant confirmation.',
   'workbench.integration.operation.merge': 'Fusion',
@@ -145,7 +145,7 @@ const messages = {
   'workbench.drop.compare': 'Comparer {source} et {target}',
   'workbench.drop.merge': 'Fusionner {source} dans {target}',
   'workbench.drop.mergeTitle':
-    'Fusionner {source} dans {target} : avance rapide ou commit de fusion',
+    'Créer un commit de fusion de {source} dans {target}',
   'workbench.drop.rebase': 'Rebaser {source} sur {target}',
   'workbench.drop.rebaseTitle': 'Rebaser {source} sur {target}',
 
@@ -304,6 +304,8 @@ const messages = {
   'workbench.operationPreview.title.reset': 'Réinitialiser sur {revision} ?',
   'workbench.operationPreview.title.stashPop': 'Réappliquer {selector} ?',
   'workbench.operationPreview.upstreamMissing': 'la branche distante n’existe pas encore',
+  'terminal.close': 'Fermer le terminal',
+  'terminal.resize': 'Redimensionner le terminal',
   'terminal.opening': 'Ouverture du shell…',
   'terminal.shell': '{shell} — dossier du dépôt',
   'workbench.wip.editMessage': 'Double-cliquez pour écrire le message de commit',

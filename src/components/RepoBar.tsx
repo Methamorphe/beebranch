@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { RepoView, StashEntry, UndoEntry } from '../types/git'
 import { errorMessage } from '../ipc/client'
-import { branchCheckout, refsGet, stashCreate, stashList, stashPop, syncFetch, syncPull, syncPush, toolOpen } from '../ipc/commands'
+import { branchCheckout, refsGet, stashCreate, stashList, stashPop, syncFetch, syncPull, syncPush } from '../ipc/commands'
 import { pullNotice } from '../lib/syncNotice'
 import { undoButtonLabel } from '../lib/undoLabel'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
@@ -32,6 +32,9 @@ type Props = {
   redo: UndoEntry | null
   onUndo: () => Promise<unknown>
   onRedo: () => Promise<unknown>
+  /** Opens the integrated terminal along the bottom of the current screen. */
+  onDockTerminal: () => void
+  terminalDocked: boolean
 }
 
 function branchLabel(repo: RepoView | null, t: I18n['t']) {
@@ -41,7 +44,7 @@ function branchLabel(repo: RepoView | null, t: I18n['t']) {
   return head?.kind === 'unborn' ? head.branch ?? t('shell.repoBar.newBranch') : t('shell.repoBar.noBranch')
 }
 
-export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo }: Props) {
+export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPalette, onRefresh, onNavigate, onNewBranch, onError, onPushRejected, undo, redo, onUndo, onRedo, onDockTerminal, terminalDocked }: Props) {
   const { t } = useI18n()
   const confirmOperation = useOperationConfirm()
   const confirmPush = usePushConfirm()
@@ -224,7 +227,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
       >
         <ToolbarIcon name="redo" /><span>Redo</span>
       </button>
-      <button type="button" className={`${styles.action} ${styles.wideOnly}`} disabled={disabled} title={t('shell.repoBar.terminalTitle')} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }), () => null)}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
+      <button type="button" className={`${styles.action} ${styles.wideOnly}`} disabled={!repoId} aria-pressed={terminalDocked} title={t('shell.repoBar.terminalTitle')} onClick={onDockTerminal}><ToolbarIcon name="terminal" /><span>Terminal</span></button>
     </div>
     <div className={styles.utilities}>
       <PipelineStatus repoId={repoId} generation={repo?.generation ?? 0} />
@@ -236,7 +239,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onOpenPal
         <button type="button" disabled={!repoId || busy || pending !== null || !redo || Boolean(redoBlocked)} title={redoBlocked ?? undefined} onClick={() => void run(t('shell.redo.pending'), onRedo, () => null)}>
           {redo ? undoButtonLabel(redo, 'redo') : t('shell.undo.redoAction', { action: t('shell.undo.none') })}
         </button>
-        <button type="button" disabled={disabled} onClick={() => repoId && void run('Terminal', () => toolOpen({ repoId, kind:'terminal' }), () => null)}>
+        <button type="button" disabled={!repoId} aria-pressed={terminalDocked} onClick={onDockTerminal}>
           {t('shell.action.openTerminal')}
         </button>
         <button type="button" onClick={onRefresh} disabled={!repoId || busy} aria-label={t('shell.repoBar.refreshState')}>{t('shell.repoBar.refreshState')}</button>

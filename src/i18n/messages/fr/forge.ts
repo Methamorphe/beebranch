@@ -82,9 +82,16 @@ const messages = {
   'forge.projects.emptyGitlab': 'Aucun projet chargé.',
   'forge.projects.emptyGithub': 'Aucun dépôt chargé.',
   'forge.projects.defaultBranchUnknown': 'branche par défaut inconnue',
-  'forge.projects.linked': 'Dépôt associé à {path} (#{id}).',
-  'forge.projects.link': 'Associer ce dépôt',
+  'forge.projects.linked': 'Ce dossier utilisera {path} pour les revues et les pipelines.',
+  'forge.projects.link': 'Utiliser pour ce dossier',
+  'forge.projects.linkCurrent': 'Projet de ce dossier',
+  'forge.projects.linkTitle': 'Beebranch s’en sert pour les revues et les pipelines. Git n’est pas modifié. Choisir une autre ligne remplace ce choix.',
   'forge.projects.nextPage': 'Charger la page suivante ({page})',
+  'forge.projects.groupByGitlab': 'Regrouper par groupe',
+  'forge.projects.groupByGithub': 'Regrouper par organisation',
+  'forge.projects.ungroupedGitlab': 'Sans groupe',
+  'forge.projects.ungroupedGithub': 'Sans organisation',
+  'forge.projects.groupAria': '{name}, {count} dépôts',
 
   // Review list.
   'forge.review.noProject': 'aucun projet associé',
@@ -105,7 +112,7 @@ const messages = {
   'forge.review.emptyConnectedHint':
     'La connexion est disponible dans les préférences {label}.',
   'forge.review.emptyLinkHint':
-    'Utilisez « Associer au projet » pour retrouver les revues du dépôt.',
+    'Dans Dépôts, choisis « Utiliser pour ce dossier ». Git n’est pas modifié.',
   'forge.review.emptyFilterHint':
     'Les {title} correspondant à ce filtre apparaîtront ici.',
   'forge.review.nextPage': 'Page suivante',

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { formatNumber, t, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
+import { errorCopy } from '../i18n/errors'
 import {
   toolOpen,
   workspaceAddRepo,
@@ -29,6 +30,12 @@ import { WorkspaceIconDialog, type DraftWorkspaceIcon } from './WorkspaceIconDia
 import { WorkspaceMark } from './WorkspaceMark'
 import shared from './p1.module.css'
 import styles from './WorkspacesPanel.module.css'
+
+function syncFailure(code: string | undefined, message: string): string {
+  if (!code) return message
+  const copy = errorCopy({ code, category: 'internal', message, retryable: false })
+  return copy.remediation ? `${copy.message} ${copy.remediation}` : copy.message
+}
 
 type Props = {
   onOpenRepo: (path: string) => void
@@ -453,9 +460,13 @@ export function WorkspacesPanel({
     }
   }
 
-  const pullLabel = selectedPaths.length === 0
-    ? t('workspaces.panel.pullAll')
-    : t('workspaces.panel.pullSome', { count: selectedPaths.length })
+  const scoped = selectedPaths.length > 0
+  const pullLabel = scoped
+    ? t('workspaces.panel.pullSome', { count: selectedPaths.length })
+    : t('workspaces.panel.pullAll')
+  const fetchLabel = scoped
+    ? t('workspaces.panel.fetchSome', { count: selectedPaths.length })
+    : t('workspaces.panel.fetchAll')
 
   const addBar = (
     <div className={styles.addBar}>
@@ -682,7 +693,7 @@ export function WorkspacesPanel({
                   <div className={styles.detailActions}>
                   <ActionMenu
                     label={t('workspaces.panel.sync')}
-                    triggerContent={t('workspaces.panel.sync')}
+                    triggerContent={`${t('workspaces.panel.sync')} · ${pullLabel}`}
                     triggerClassName={styles.syncTrigger}
                     menuClassName={styles.syncMenu}
                   >
@@ -712,7 +723,7 @@ export function WorkspacesPanel({
                       </button>
                     ) : null}
                     <button type="button" disabled={busy || selected.repos.length === 0} onClick={() => void sync('fetch')}>
-                      {t('workspaces.panel.fetchAll')}
+                      {fetchLabel}
                     </button>
                     <button type="button" disabled={busy || selected.repos.length === 0} onClick={() => setPendingPull(true)}>
                       {pullLabel}
@@ -773,6 +784,12 @@ export function WorkspacesPanel({
                     >
                       {t('workspaces.panel.openEditor')}
                     </button>
+                  </ActionMenu>
+                  <ActionMenu
+                    label={t('workspaces.panel.dangerZone')}
+                    triggerContent={t('workspaces.panel.dangerZone')}
+                    triggerClassName={styles.dangerTrigger}
+                  >
                     <button type="button" className={styles.menuDanger} onClick={() => setPendingDelete(true)}>
                       {t('common.delete')}
                     </button>
@@ -846,7 +863,7 @@ export function WorkspacesPanel({
                     {results.map((result) => {
                       const detail = result.ok
                         ? result.message.trim()
-                        : [result.errorCode, result.message].filter(Boolean).join(' · ')
+                        : syncFailure(result.errorCode, result.message)
                       return (
                         <div key={result.path} className={styles.resultRow} data-ok={result.ok ? 'true' : 'false'}>
                           <span className={styles.resultMark} aria-hidden="true">{result.ok ? '✓' : '✗'}</span>
@@ -906,7 +923,7 @@ export function WorkspacesPanel({
         open={pendingPull}
         title={t('workspaces.panel.pullTitle', { count: selectedPaths.length || (selected?.repos.length ?? 0) })}
         consequence={t('workspaces.panel.pullConsequence')}
-        confirmLabel={t('workspaces.panel.pullConfirm')}
+        confirmLabel={pullLabel}
         busy={busy}
         onCancel={() => setPendingPull(false)}
         onConfirm={() => {

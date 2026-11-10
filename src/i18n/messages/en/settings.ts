@@ -147,6 +147,8 @@ const messages = {
   'settings.profiles.pull.ffOnly': 'Fast-forward only',
   'settings.profiles.gitlabLinked': 'Linked GitLab instance',
   'settings.profiles.gitlabNone': 'Without GitLab instance',
+  'settings.profiles.githubLinked': 'GitHub account {login}',
+  'settings.profiles.githubNone': 'Without a GitHub account',
   'settings.profiles.activated': 'Profile {name} activated.',
   'settings.profiles.current': 'Active profile',
   'settings.profiles.activate': 'Activate',
@@ -182,6 +184,12 @@ const messages = {
   'settings.profiles.useConnectedInstance': 'Use the connected instance · {instance}',
   'settings.profiles.gitlabHint':
     'Leave the instance empty to use this profile without GitLab. Tokens stay in the system keychain.',
+  'settings.profiles.githubAccount': 'GitHub account',
+  'settings.profiles.githubOptional': 'Optional',
+  'settings.profiles.githubPlaceholder': 'No linked account',
+  'settings.profiles.useConnectedGithub': 'Use the connected account · {login}',
+  'settings.profiles.githubHint':
+    'The profile remembers the account, the same way it remembers the GitLab instance. The connection itself is made on the GitHub screen.',
   'settings.profiles.repoNote': 'The profile does not automatically change the repository identity.',
   'settings.profiles.saving': 'Saving…',
   'settings.profiles.saveChanges': 'Save the changes',

@@ -860,6 +860,7 @@ export type Profile = {
   userEmail: string
   defaultPull: string
   gitlabInstanceId?: string
+  githubLogin?: string
   createdAt: number
 }
 

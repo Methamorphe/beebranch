@@ -1,19 +1,24 @@
 export async function runHubsSmoke({ client, evaluate, screenshot, waitFor, delay, check, click }) {
-  for (const provider of ['gitlab', 'github']) {
-    await check(provider + '-always-accessible', `(() => {
-      const link = document.querySelector('[data-forge-link="${provider}"]')
-      const rect = link?.getBoundingClientRect()
-      return Boolean(rect && rect.height > 0 && rect.top >= 0 && rect.bottom <= innerHeight)
-    })()`)
+  await check('integrations-accessible', `(() => {
+    const link = document.querySelector('[data-view="integrations"]')
+    const rect = link?.getBoundingClientRect()
+    return Boolean(rect && rect.height > 0 && rect.top >= 0 && rect.bottom <= innerHeight)
+  })()`)
+  const openForge = async (provider) => {
+    await click('[data-view="integrations"]')
     await click(`[data-forge-link="${provider}"]`)
-    await waitFor(client, `document.querySelector('#${provider}-tab-reviews[aria-selected="true"]') !== null`, provider + ' hub')
-    await check(provider + '-reviews-default', `document.querySelector('#${provider}-panel-reviews').hidden === false && document.querySelector('canvas').closest('[hidden]') !== null`)
-    await check(provider + '-name-visible', `document.querySelector('[data-forge="${provider}"] header h2').textContent === ${JSON.stringify(provider === 'gitlab' ? 'GitLab' : 'GitHub')}`)
-    await screenshot('hub-' + provider + '-reviews.png')
-    await click(`#${provider}-tab-projects`)
+  }
+  for (const provider of ['gitlab', 'github']) {
+    await openForge(provider)
+    await waitFor(client, `document.querySelector('#${provider}-tab-projects[aria-selected="true"]') !== null`, provider + ' hub')
     await waitFor(client, `document.querySelector('#${provider}-panel-projects').textContent.includes('team/')`, provider + ' repositories')
     await check(provider + '-repositories-tab', `document.querySelector('#${provider}-panel-projects').hidden === false && document.querySelector('#${provider}-panel-reviews').hidden === true`)
     await screenshot('hub-' + provider + '-projects.png')
+    await click(`#${provider}-tab-reviews`)
+    await waitFor(client, `document.querySelector('#${provider}-tab-reviews[aria-selected="true"]') !== null`, provider + ' reviews')
+    await check(provider + '-reviews-default', `document.querySelector('#${provider}-panel-reviews').hidden === false && document.querySelector('canvas').closest('[hidden]') !== null`)
+    await check(provider + '-name-visible', `document.querySelector('[data-forge="${provider}"] header h2').textContent === ${JSON.stringify(provider === 'gitlab' ? 'GitLab' : 'GitHub')}`)
+    await screenshot('hub-' + provider + '-reviews.png')
     await click(`#${provider}-tab-connection`)
     await check(provider + '-connection-tab', `document.querySelector('#${provider}-panel-connection').hidden === false`)
     await screenshot('hub-' + provider + '-connection.png')
@@ -32,13 +37,14 @@ export async function runHubsSmoke({ client, evaluate, screenshot, waitFor, dela
     await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')
     // Exercise browser authorization from the primary connection action.
     await evaluate(client, `(() => { window.__${provider}Disconnected = true; window.__${provider === 'gitlab' ? 'gitlabDevicePolls' : 'devicePolls'} = 0; return true })()`)
-    await click(`[data-forge-link="${provider}"]`)
+    await openForge(provider)
+    await click(`#${provider}-tab-connection`)
     await waitFor(client, `document.querySelector('#${provider}-panel-connection').hidden === false`, provider + ' sign in')
     await check(provider + '-manual-form-collapsed', `!document.querySelector('#${provider}-panel-connection details[class*="advanced"]').open`)
     await screenshot('hub-' + provider + '-sign-in.png')
     await evaluate(client, `Array.from(document.querySelectorAll('#${provider}-panel-connection button')).find((button) => button.textContent.includes(${JSON.stringify(provider === 'gitlab' ? 'Se connecter avec GitLab.com' : 'Se connecter avec GitHub')})).click()`)
     await waitFor(client, `document.querySelector('#${provider}-panel-connection').textContent.includes('${provider === 'gitlab' ? 'WXYZ-9876' : 'ABCD-1234'}')`, provider + ' device code')
-    await waitFor(client, `document.querySelector('#${provider}-tab-reviews[aria-selected="true"]') !== null`, provider + ' authorization complete')
+    await waitFor(client, `document.querySelector('#${provider}-tab-projects[aria-selected="true"]') !== null`, provider + ' authorization complete')
     await check(provider + '-authorization-keeps-hub', `Boolean(document.querySelector('[data-forge="${provider}"]')) && window.__openUrls.some((url) => url.includes('${provider}.com'))`)
     await evaluate(client, `(() => { window.__${provider}Disconnected = false; return true })()`)
     await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')

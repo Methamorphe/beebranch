@@ -20,11 +20,9 @@ type Props = {
   launcherOpen: boolean
   onAdd: () => void
   onCloseLauncher: () => void
-  onSettings: () => void
   updateVersion?: string | null
   updateBusy?: boolean
   onInstallUpdate?: () => void
-  user?: string | null
   /** Active workspace switcher, rendered next to the open tabs. */
   workspaceSelector?: ReactNode
 }
@@ -47,7 +45,7 @@ function syncOverlay(el: HTMLElement, bar: HTMLElement) {
   return overflowing
 }
 
-export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, onOpenDialog, launcherOpen, onAdd, onCloseLauncher, onSettings, updateVersion, updateBusy = false, onInstallUpdate, user, workspaceSelector }: Props) {
+export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, onOpenDialog, launcherOpen, onAdd, onCloseLauncher, updateVersion, updateBusy = false, onInstallUpdate, workspaceSelector }: Props) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [drop, setDrop] = useState<{ id: string; side: TabDropSide } | null>(null)
   const { t } = useI18n()
@@ -60,6 +58,7 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
   const strip = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLDivElement>(null)
   const [overflowing, setOverflowing] = useState(false)
+  const [clipped, setClipped] = useState<string[]>([])
   const [overlayDrag, setOverlayDrag] = useState(false)
   const live = useRef({ onReorder, onClose, busy })
   // Live values for the gesture, which outlives the render that started it.
@@ -157,6 +156,19 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
     const sync = () => {
       const next = syncOverlay(el, bar)
       setOverflowing((prev) => (prev === next ? prev : next))
+      const visible = el.getBoundingClientRect()
+      const hidden: string[] = []
+      for (const [id, node] of tabs.current) {
+        const rect = node.getBoundingClientRect()
+        if (rect.width === 0) continue
+        if (rect.left < visible.left - 1 || rect.right > visible.right + 1) hidden.push(id)
+      }
+      const launcher = el.querySelector('[data-launcher="true"]')
+      if (launcher instanceof HTMLElement) {
+        const rect = launcher.getBoundingClientRect()
+        if (rect.width > 0 && (rect.left < visible.left - 1 || rect.right > visible.right + 1)) hidden.push('__launcher__')
+      }
+      setClipped((prev) => (prev.length === hidden.length && prev.every((id, index) => id === hidden[index]) ? prev : hidden))
     }
     const onWheel = (event: WheelEvent) => {
       const max = el.scrollWidth - el.clientWidth
@@ -277,6 +289,18 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
         <div className={styles.scrollThumb} />
       </div>
     </div>
+      {clipped.length > 0 ? (
+        <ActionMenu label={t('shell.topbar.hiddenTabs')} triggerClassName={styles.overflowButton} triggerContent={<ToolbarIcon name="chevronDown" size={16} />}>
+          {clipped.map((id) => id === '__launcher__' ? (
+            <button key={id} type="button" onClick={onAdd}>{t('shell.topbar.openRepo')}</button>
+          ) : (
+            <button key={id} type="button" onClick={() => {
+              onActivate(id)
+              tabs.current.get(id)?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+            }}>{repos.find((entry) => entry.repo.repoId === id)?.repo.name ?? id}</button>
+          ))}
+        </ActionMenu>
+      ) : null}
       <button ref={addButton} type="button" className={styles.add} onClick={onAdd} aria-label={t('shell.topbar.addRepo')} title={t('shell.topbar.newTabHint')}><ToolbarIcon name="plus" /></button>
     </div>
     <div className={styles.spacer} />
@@ -288,9 +312,5 @@ export function TopBar({ repos, activeId, busy, onActivate, onClose, onReorder, 
         <ToolbarIcon name="update" />{updateBusy ? null : <span className={styles.updateDot} aria-hidden="true" />}
       </button>
     ) : null}
-    <button type="button" className={styles.iconButton} onClick={onSettings} aria-label={t('shell.topbar.settings')} title={t('shell.topbar.settingsShortcut')}><ToolbarIcon name="settings" /></button>
-    <ActionMenu label={t('shell.topbar.profileMenu')} triggerClassName={styles.profile} triggerContent={<><span className={styles.avatar}>{(user ?? 'P').slice(0, 1).toUpperCase()}</span><span className={styles.userName}>{user ?? t('shell.topbar.localProfile')}</span><ToolbarIcon name="chevron" /></>}>
-      <button type="button" onClick={onSettings}>{t('shell.topbar.settings')}</button>
-    </ActionMenu>
   </header>
 }

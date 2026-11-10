@@ -147,6 +147,8 @@ const messages = {
   'settings.profiles.pull.ffOnly': 'Avance rapide uniquement',
   'settings.profiles.gitlabLinked': 'Instance GitLab associée',
   'settings.profiles.gitlabNone': 'Sans instance GitLab',
+  'settings.profiles.githubLinked': 'Compte GitHub {login}',
+  'settings.profiles.githubNone': 'Sans compte GitHub',
   'settings.profiles.activated': 'Profil {name} activé.',
   'settings.profiles.current': 'Profil actif',
   'settings.profiles.activate': 'Activer',
@@ -182,6 +184,12 @@ const messages = {
   'settings.profiles.useConnectedInstance': 'Utiliser l’instance connectée · {instance}',
   'settings.profiles.gitlabHint':
     'Laissez l’instance vide pour utiliser ce profil sans GitLab. Les jetons restent dans le trousseau du système.',
+  'settings.profiles.githubAccount': 'Compte GitHub',
+  'settings.profiles.githubOptional': 'Optionnel',
+  'settings.profiles.githubPlaceholder': 'Aucun compte associé',
+  'settings.profiles.useConnectedGithub': 'Utiliser le compte connecté · {login}',
+  'settings.profiles.githubHint':
+    'Le profil retient le compte, comme il retient l’instance GitLab. La connexion elle-même se fait dans l’écran GitHub.',
   'settings.profiles.repoNote':
     'Le profil ne modifie pas automatiquement l’identité du dépôt.',
   'settings.profiles.saving': 'Enregistrement…',
