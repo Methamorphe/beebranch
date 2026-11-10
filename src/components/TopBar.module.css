@@ -40,6 +40,7 @@
 .tabsGroup:hover .scrollBar[data-overflow='true'],
 .tabsGroup:focus-within .scrollBar[data-overflow='true'],
 .scrollBar[data-dragging='true'] { opacity:1; pointer-events:auto; }
+.overflowButton { display:flex; align-self:stretch; align-items:center; justify-content:center; width:28px; min-width:28px; height:100%; margin:0; padding:0; border:0; border-radius:0; color:var(--muted); }
 .scrollThumb { position:absolute; left:0; bottom:2px; width:var(--thumb-width, 24px); height:4px; border-radius:999px; background:var(--muted); transform:translateX(var(--thumb-left, 0px)); cursor:grab; }
 .scrollBar:hover .scrollThumb { background:var(--muted-strong); }
 .scrollBar[data-dragging='true'],

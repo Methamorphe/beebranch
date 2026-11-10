@@ -1,4 +1,7 @@
 .content { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; width:100%; gap:0; }
+.terminalDock { display:flex; flex:none; flex-direction:column; min-height:0; border-top:1px solid var(--border); background:var(--bg); }
+.terminalDockGrip { flex:none; height:6px; cursor:ns-resize; background:var(--surface); }
+.terminalDockGrip:hover { background:var(--border-strong); }
 .graphLayout { display:flex; flex:1; min-height:0; }
 .historyMain { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
 .graphRegion { flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; }
@@ -155,7 +158,7 @@
 @media(max-width:700px) { .navigatorResizer { display:none; } }
 
 .centralEditor { position:relative; }
-.centralEditor:is([data-central-editor='gitlab'], [data-central-editor='github'], [data-central-editor='workspaces']) > .previewHeading { position:absolute; top:12px; right:12px; z-index:2; border:0; padding:0; }
+.centralEditor:is([data-central-editor='gitlab'], [data-central-editor='github'], [data-central-editor='integrations'], [data-central-editor='workspaces']) > .previewHeading { position:absolute; top:0; right:0; z-index:2; display:flex; align-items:center; height:58px; border:0; padding:0 12px 0 0; }
 .centralEditor:is([data-central-editor='gitlab'], [data-central-editor='github'], [data-central-editor='workspaces']) > .previewHeading > :is(span, code) { display:none; }
 
 /* The WIP message is editable in the graph; the badge keeps opening the panel. */

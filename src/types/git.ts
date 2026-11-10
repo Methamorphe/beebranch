@@ -346,12 +346,24 @@ export type WorkspaceRepo = {
   addedAt: number
 }
 
+export type WorkspaceIconKind = 'lucide' | 'image'
+
 export type Workspace = {
   id: string
   name: string
   createdAt: number
   updatedAt: number
+  /** Absent when the workspace shows the monogram of its name. */
+  iconKind?: WorkspaceIconKind | null
+  /** Lucide icon name when `iconKind` is `lucide`. */
+  iconKey?: string | null
   repos: WorkspaceRepo[]
+}
+
+export type WorkspaceChangeCounts = {
+  added: number
+  modified: number
+  deleted: number
 }
 
 export type WorkspaceRepoStatus = {
@@ -360,6 +372,7 @@ export type WorkspaceRepoStatus = {
   available: boolean
   repoId?: string
   state?: RepoState
+  changes?: WorkspaceChangeCounts
   error?: string
 }
 
@@ -847,6 +860,7 @@ export type Profile = {
   userEmail: string
   defaultPull: string
   gitlabInstanceId?: string
+  githubLogin?: string
   createdAt: number
 }
 

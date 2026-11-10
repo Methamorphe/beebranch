@@ -11,6 +11,7 @@
 .action > span { font-size:12px; line-height:1.2; font-weight:400; white-space:nowrap; }
 .action > svg { width:16px; height:16px; flex:none; }
 .action:hover:not(:disabled) { color:var(--text); }
+.action[aria-pressed='true'] { color:var(--accent-text); background:var(--accent-soft); }
 .divider { height:18px; border-left:1px solid var(--border-strong); margin:0 4px; }
 .notice { max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--accent-text); }
 .notice:empty { display:none; }

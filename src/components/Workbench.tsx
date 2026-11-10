@@ -42,6 +42,7 @@ import {
   syncFetchAll,
   syncPull,
   syncPush,
+  type CloneInput,
   type DiffRequest,
 } from '../ipc/commands'
 import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
@@ -102,7 +103,7 @@ import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
 import { PipelinesPanel } from './PipelinesPanel'
-import { ProfilesPanel } from './ProfilesPanel'
+import { ProfilesPanel, type SettingsTab } from './ProfilesPanel'
 import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
 import { RebasePanel } from './RebasePanel'
 import { RefsAdminPanel } from './RefsAdminPanel'
@@ -114,8 +115,7 @@ import { ReviewRequestsPanel } from './ReviewRequestsPanel'
 import { CommitPanel } from './CommitPanel'
 import { TerminalPanel } from './TerminalPanel'
 import { DiffViewer, type DocumentReader, type ImageReader } from './DiffViewer'
-import { GitlabPanel } from './GitlabPanel'
-import { GithubPanel } from './GithubPanel'
+import { IntegrationsPanel } from './IntegrationsPanel'
 import { githubForge, gitlabForge } from '../lib/forge'
 import { RepositoryNavigator } from './RepositoryNavigator'
 import { GraphCanvas } from './GraphCanvas'
@@ -141,6 +141,8 @@ type Props = {
   /** Bumped by Mod+F / palette to open the in-graph find bar. */
   findRequest: number
   historyRequest: { kind: 'stash' | 'rebase' | 'conflicts'; serial: number } | null
+  /** Bumped when the shell asks for the history instead of a docked tool. */
+  graphFocus: number
   diffRequest: DiffRequest | null
   onOpenDiff: (request: DiffRequest) => void
   onOpenRepo: (path: string) => void
@@ -170,10 +172,19 @@ type Props = {
   layout: LayoutPreferences
   onLayoutChange: (patch: Partial<LayoutPreferences>) => void
   activeWorkspaceId: string | null
-  onActivateWorkspace: (workspaceId: string) => void
+  onActivateWorkspace: (workspaceId: string) => void | Promise<void>
   onWorkspacesChanged: (workspaces: Workspace[]) => void
+  onCloneIntoWorkspace: (input: CloneInput, attach: { attachWorkspaceId: string | null; showTab: boolean }) => Promise<string>
+  onPickDirectory?: (defaultPath?: string) => Promise<string | null>
   /** A push Git refused, handed to the recovery dialog. */
   onPushRejected: (rejection: PushRejection) => void
+  /** Fetch, pull and the other history actions. Only the history screen shows it. */
+  historyToolbar?: ReactNode
+  /** Integrated terminal along the bottom of the repository screen. */
+  terminalDock: boolean
+  onTerminalDockClose: () => void
+  /** Which settings tab the gear or the account mark asked for. */
+  settingsRequest?: { tab: SettingsTab; serial: number } | null
 }
 
 /** The two revisions of an A→B comparison, as git revspecs. */
@@ -259,6 +270,7 @@ export function Workbench({
   findRequest,
   diffRequest,
   historyRequest,
+  graphFocus,
   onOpenDiff,
   onOpenRepo,
   onMutated,
@@ -286,7 +298,13 @@ export function Workbench({
   activeWorkspaceId,
   onActivateWorkspace,
   onWorkspacesChanged,
+  onCloneIntoWorkspace,
+  onPickDirectory,
   onPushRejected,
+  settingsRequest = null,
+  historyToolbar = null,
+  terminalDock,
+  onTerminalDockClose,
 }: Props) {
   const { t, plural } = useI18n()
   const confirmOperation = useOperationConfirm()
@@ -356,6 +374,7 @@ export function Workbench({
   const stashPending = useRef(false)
   const [stashEntries, setStashEntries] = useState<StashEntry[]>([])
   const [historyTool, setHistoryTool] = useState<'stash' | 'rebase' | 'conflicts' | null>(null)
+  const [terminalHeight, setTerminalHeight] = useState(220)
   /** Unsaved conflict draft or rebase plan owned by the lower dock. */
   const [toolDirty, setToolDirty] = useState(false)
   useEffect(() => {
@@ -622,6 +641,15 @@ export function Workbench({
     if (historyRequest.kind === 'rebase') setRebaseBase('')
     setComparePath(null)
   }, [historyRequest, toolDirty, t, onNavigate])
+  const previousGraphFocus = useRef(graphFocus)
+  useEffect(() => {
+    if (previousGraphFocus.current === graphFocus) return
+    previousGraphFocus.current = graphFocus
+    setHistoryTool(null)
+    setToolDirty(false)
+    setLocalDiff(null)
+    setComparePath(null)
+  }, [graphFocus])
   const operationKey = repo?.state.operation?.kind ?? (repo?.state.conflicts.files.length ? 'conflicts' : null)
   const previousOperation = useRef(operationKey)
   useEffect(() => {
@@ -1311,13 +1339,15 @@ export function Workbench({
                 sha: stash.sha.slice(0, 8),
               })
         : ''
-      // `--ff` fast-forwards when the preview said the target is an ancestor,
-      // and creates a merge commit otherwise; `--ff-only` always advances.
+      // "Fusionner" asks for a merge commit (`never`). "Avance rapide" asks
+      // for `--ff-only`. `auto` still follows Git: fast-forward when it can.
       const mergeNote =
         mode === 'merge'
-          ? fastForward === 'only' || preview.fastForward
-            ? t('workbench.notice.fastForwardNote')
-            : t('workbench.notice.mergeCommitNote')
+          ? fastForward === 'never'
+            ? t('workbench.notice.mergeCommitNote')
+            : fastForward === 'only' || preview.fastForward
+              ? t('workbench.notice.fastForwardNote')
+              : t('workbench.notice.mergeCommitNote')
           : ''
       setActionNotice(
         (result.data.outcome.conflicted
@@ -1347,8 +1377,9 @@ export function Workbench({
   }
 
   /**
-   * A merge applies immediately, like Git: the only choice it used to ask,
-   * fast-forward instead of a merge commit, is its own menu action.
+   * A merge applies immediately. `never` is the "Fusionner" action: a merge
+   * commit, even when a fast-forward is possible. Fast-forward is the other
+   * menu item.
    */
   const requestMerge = async (
     source: RefEntry,
@@ -1408,9 +1439,11 @@ export function Workbench({
             onSplashChange={onSplashChange}
             onMutated={onMutated}
             onOpenGitlab={() => onNavigate('gitlab')}
+            onOpenGithub={() => onNavigate('github')}
             shortcuts={shortcuts}
             shortcutConflict={shortcutConflict}
             onShortcutsChange={onShortcutsChange}
+            settingsRequest={settingsRequest}
           />
         </div>
       )
@@ -1424,18 +1457,16 @@ export function Workbench({
       )
     }
 
-    if (toolView === 'gitlab') {
+    if (toolView === 'gitlab' || toolView === 'github' || toolView === 'integrations') {
       return (
         <div className={styles.content}>
-          <GitlabPanel repoId={repoId} generation={generation} onLinked={onMutated} />
-        </div>
-      )
-    }
-
-    if (toolView === 'github') {
-      return (
-        <div className={styles.content}>
-          <GithubPanel repoId={repoId} generation={generation} onLinked={onMutated} />
+          <IntegrationsPanel
+            provider={toolView === 'github' ? 'github' : 'gitlab'}
+            repoId={repoId}
+            generation={generation}
+            onLinked={onMutated}
+            onProvider={(next) => onNavigate(next)}
+          />
         </div>
       )
     }
@@ -1448,6 +1479,9 @@ export function Workbench({
             activeWorkspaceId={activeWorkspaceId}
             onActivateWorkspace={onActivateWorkspace}
             onWorkspacesChanged={onWorkspacesChanged}
+            onClone={onCloneIntoWorkspace}
+            onPickDirectory={onPickDirectory}
+            onOpenProvider={(provider) => { onNavigate(provider) }}
           />
         </div>
       )
@@ -1726,7 +1760,7 @@ export function Workbench({
   // Application pages are not about this repository: its references and
   // actions stay out of the way while they are open.
   const appPage = APP_PAGES.includes(view)
-  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'recovery', 'terminal'].includes(view) ? tool : null
+  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'integrations', 'recovery', 'terminal'].includes(view) ? tool : null
   const centerActive = Boolean(previewDiff || centerTool || historyTool)
   const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'pipelines', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
 
@@ -2205,6 +2239,7 @@ export function Workbench({
 
   return (
     <div className={styles.content}>
+      {view === 'graph' ? historyToolbar : null}
       {picked.length > 0 ? <div className={styles.graphToolbar}>
         {picked.length > 0 ? (
           <>
@@ -2534,7 +2569,7 @@ export function Workbench({
             </div>
           </div> : null}
         </div>
-        {!['gitlab', 'github', 'workspaces', 'profiles', 'recovery'].includes(view) && (comparison || selected || showWorktree) ? (
+        {!['gitlab', 'github', 'integrations', 'workspaces', 'profiles', 'recovery'].includes(view) && (comparison || selected || showWorktree) ? (
           <div className={styles.inspectorDock}>
             <Resizer
               className={styles.inspectorResizer}
@@ -2836,8 +2871,8 @@ export function Workbench({
               type="button"
               className={styles.contextAction}
               role="menuitem"
-              title={t('workbench.drop.mergeTitle', { source: dropMenu.source.name, target: dropMenu.target.name })}
-              onClick={() => void requestMerge(dropMenu.source, dropMenu.target)}
+                title={t('workbench.drop.mergeTitle', { source: dropMenu.source.name, target: dropMenu.target.name })}
+                onClick={() => void requestMerge(dropMenu.source, dropMenu.target, 'never')}
             >
               <ViewIcon view="mrs" /><span>{t('workbench.drop.merge', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
@@ -3071,9 +3106,14 @@ export function Workbench({
                   () => {
                     const entry = refMenu.entry
                     setRefMenu(null)
-                    void requestMerge(currentBranchEntry, entry)
+                    void requestMerge(currentBranchEntry, entry, 'never')
                   },
-                  { title: t('workbench.integration.fastForwardHint') },
+                  {
+                    title: t('workbench.drop.mergeTitle', {
+                      source: currentBranchEntry.name,
+                      target: refMenu.entry.name,
+                    }),
+                  },
                 )}
                 {action(
                   'rebase',
@@ -3474,6 +3514,33 @@ export function Workbench({
           )
         }}
       />
+      {terminalDock && view !== 'terminal' && repoId ? (
+        <div className={styles.terminalDock} style={{ height: terminalHeight }}>
+          <div
+            className={styles.terminalDockGrip}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={t('terminal.resize')}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return
+              event.preventDefault()
+              const startY = event.clientY
+              const startHeight = terminalHeight
+              const move = (moveEvent: PointerEvent) => {
+                const next = Math.min(window.innerHeight * 0.7, Math.max(140, startHeight + startY - moveEvent.clientY))
+                setTerminalHeight(next)
+              }
+              const stop = () => {
+                window.removeEventListener('pointermove', move)
+                window.removeEventListener('pointerup', stop)
+              }
+              window.addEventListener('pointermove', move)
+              window.addEventListener('pointerup', stop)
+            }}
+          />
+          <TerminalPanel repoId={repoId} onClose={onTerminalDockClose} />
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -139,24 +139,10 @@ export function RepositoryNavigator(props: Props) {
       {props.linkProvider !== null || props.gitlabConnected || props.githubConnected
         ? section('pipelines', 'nav.pipelines', null, undefined, undefined, 'pipelines')
         : null}
-      {section('patches', 'nav.patches', null, undefined, undefined, 'patches')}
       {section('search', 'nav.search', null, undefined, undefined, 'search')}
-      {section('operations', 'nav.group.operations', <div className={styles.operations}>
-        {(['rebase', 'conflicts', 'sync', 'fileHistory', 'activity', 'tools'] as const).map((view) =>
-          <button type="button" key={view} onClick={() => props.onNavigate(view)}>{t(`nav.${view}`)}</button>)}
-      </div>)}
+      {props.active === 'patches' ? section('patches', 'nav.patches', null, undefined, undefined, 'patches') : null}
       {props.tools[props.active] && !['remotes', 'tags', 'worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search'].includes(props.active)
         ? <div className={styles.inlineTool} data-repository-tool={props.active}>{props.tools[props.active]}</div> : null}
     </div>
-    <nav className={styles.forges} aria-label={t('forge.hub.integrations')}>
-      {(['gitlab', 'github'] as const).map((provider) => <button type="button" key={provider}
-        data-forge-link={provider} aria-pressed={props.active === provider}
-        onClick={() => props.onNavigate(provider)}>
-        <span className={styles.forgeMark} data-provider={provider} aria-hidden="true">{provider === 'gitlab' ? 'GL' : 'GH'}</span>
-        <span>{provider === 'gitlab' ? 'GitLab' : 'GitHub'}</span>
-        <span className={styles.forgeStatus} data-connected={provider === 'gitlab' ? props.gitlabConnected : props.githubConnected}
-          aria-label={t((provider === 'gitlab' ? props.gitlabConnected : props.githubConnected) ? 'forge.connect.badge.connected' : 'forge.hub.disconnected')} />
-      </button>)}
-    </nav>
   </aside>
 }

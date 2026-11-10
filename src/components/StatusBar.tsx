@@ -10,8 +10,6 @@ import styles from './StatusBar.module.css'
 
 type Props = {
   repo: RepoView | null
-  gitlabConnected: boolean
-  githubConnected: boolean
   lastOperation?: string | null
   canUndo?: boolean
   onNavigate: (view: ViewId) => void
@@ -60,8 +58,6 @@ const OPERATION_STATE_KEYS: Record<OperationRecord['state'], MessageKey> = {
 
 export function StatusBar({
   repo,
-  gitlabConnected,
-  githubConnected,
   lastOperation,
   canUndo = false,
   onNavigate,
@@ -167,27 +163,6 @@ export function StatusBar({
       ) : null}
       <span className={styles.spacer} />
 
-      <button
-        type="button"
-        className={styles.segment}
-        onClick={() => onNavigate(gitlabConnected ? 'gitlab' : 'github')}
-        title={gitlabConnected ? t('shell.statusBar.openGitlab') : t('shell.statusBar.openGithub')}
-      >
-        <span
-          className={styles.dot}
-          data-connected={gitlabConnected || githubConnected}
-          aria-hidden="true"
-        />
-        <span className={styles.muted}>
-          {gitlabConnected && githubConnected
-            ? 'GitLab + GitHub'
-            : gitlabConnected
-              ? t('shell.statusBar.gitlabConnected')
-              : githubConnected
-                ? t('shell.statusBar.githubConnected')
-                : t('shell.statusBar.localFirst')}
-        </span>
-      </button>
       <ActionMenu
         label={t('shell.statusBar.journal')}
         triggerClassName={`${styles.segment} ${styles.journal}`}

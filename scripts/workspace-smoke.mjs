@@ -72,9 +72,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   const rowHeight = Number(await evaluate(client, `document.querySelector('canvas').dataset.rowHeight`))
   if (!rowHeight) throw new Error('Repository workspace: canvas row height')
   await check('one-repository-explorer', `document.querySelectorAll('aside[aria-label="Explorateur du dépôt"]').length === 1`)
-  await check('no-destination-sidebar', `!document.querySelector('aside button[data-view]')`)
+  await check('destination-rail', `document.querySelector('aside button[data-view="workspaces"]') !== null`)
   await check('no-extra-branch-panel', `!document.querySelector('#branch-list-panel')`)
-  await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','patches','search','operations'].every((id) => document.querySelector('[data-repository-section="' + id + '"]'))`)
+  await check('repository-sections', `['local','remotes','tags','stash','worktrees','submodules','mrs','prs','search'].every((id) => document.querySelector('[data-repository-section="' + id + '"]')) && !document.querySelector('[data-repository-section="operations"]')`)
   await check('graph-fills-height', `document.querySelector('canvas').getBoundingClientRect().height > 600`)
   await check('repo-tabs-fill-header', `(() => {
     const header = document.querySelector('header').getBoundingClientRect()
@@ -208,18 +208,23 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   })()`)
   await click('[data-repository-section="tags"] button[aria-expanded]')
 
-  for (const id of ['remotes', 'tags', 'stash', 'worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search', 'operations']) {
+  for (const id of ['remotes', 'tags', 'stash', 'worktrees', 'submodules', 'mrs', 'prs', 'search']) {
     await click(`[data-repository-section="${id}"] button[aria-expanded]`)
     await check(id + '-expands-in-place', `document.querySelector('#repository-${id}').hidden === false && document.querySelector('canvas') === window.__workspaceCanvas && document.querySelector('canvas').getBoundingClientRect().height > 600 && !document.querySelector('[data-central-editor]')`)
-    if (['worktrees', 'submodules', 'mrs', 'prs', 'patches', 'search'].includes(id)) {
+    if (['worktrees', 'submodules', 'mrs', 'prs', 'search'].includes(id)) {
       await verifyInlineWidth(id)
     }
     await click(`[data-repository-section="${id}"] button[aria-expanded]`)
   }
-  await click('[data-repository-section="operations"] button[aria-expanded]')
-  for (const [id, label] of [['sync','Synchronisation'], ['activity','Journal d’activité'], ['tools','Outils externes']]) {
-    await evaluate(client, `Array.from(document.querySelectorAll('#repository-operations button')).find((button) => button.textContent === ${JSON.stringify(label)}).click()`)
+  // Sync, activity, tools and patches left the repository navigator. They open
+  // from the left menu, still beside the graph.
+  if (await evaluate(client, `document.querySelector('aside[aria-label="Navigation principale"]').dataset.compact === 'true'`)) {
+    await click('aside[aria-label="Navigation principale"] button[aria-label="Agrandir la navigation"]')
+  }
+  for (const id of ['sync', 'activity', 'tools', 'patches']) {
+    await click(`aside[aria-label="Navigation principale"] button[data-view="${id}"]`)
     await waitFor(client, `document.querySelector('[data-repository-tool="${id}"]') !== null`, 'inline ' + id)
+    await check(id + '-opens-beside-graph', `document.querySelector('canvas') === window.__workspaceCanvas && document.querySelector('canvas').getBoundingClientRect().height > 600 && !document.querySelector('[data-central-editor]')`)
     await verifyInlineWidth(id)
     if (id === 'sync') {
       // A forced push asks once: the force bar replaces the push summary, so
@@ -274,6 +279,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
       await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__syncOriginalInvoke; return true })()`)
       await delay(120)
     }
+  }
+  if (await evaluate(client, `document.querySelector('aside[aria-label="Navigation principale"]').dataset.compact !== 'true'`)) {
+    await click('aside[aria-label="Navigation principale"] button[aria-label="Réduire la navigation"]')
   }
   await click('[data-repository-section="local"] [data-ref="refs/heads/feature"]')
   await waitFor(client, `document.querySelector('aside[aria-label="Détail du commit"]') !== null`, 'selected branch commit')
@@ -473,8 +481,8 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await delay(80)
   await check('navigator-drop-cancel', `!document.querySelector('[role="menu"]')`)
 
-  // Choosing Merge applies it at once: the choice a merge used to ask —
-  // fast-forward or merge commit — is the separate menu action above.
+  // Fusionner always creates a merge commit. Avance rapide is the action
+  // that moves the branch without one.
   await client.send('Input.dispatchMouseEvent', { type:'mousePressed', button:'left', clickCount:1, buttons:1, x: navDrop.source.x, y: navDrop.source.y })
   for (const ratio of [0.2, 0.4, 0.6, 0.8, 1]) {
     await client.send('Input.dispatchMouseEvent', {
@@ -491,11 +499,11 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await evaluate(client, `([...document.querySelectorAll('[role="menu"] button')].find((button) => button.textContent.includes('Fusionner feature dans main'))).click()`)
   await waitFor(client, `(window.__workspaceCalls ?? []).some(([command]) => command === 'branch_integration_start')`, 'direct merge')
   await check('navigator-drop-merge-applies-at-once', `!document.querySelector('[role="alertdialog"]')`)
-  await check('navigator-drop-merge-defaults-to-fast-forward', `(() => {
+  await check('navigator-drop-merge-creates-a-merge-commit', `(() => {
     const call = (window.__workspaceCalls ?? []).find(([command]) => command === 'branch_integration_start')
     return Boolean(call) && call[1].request.mode === 'merge'
       && call[1].request.source === 'feature' && call[1].request.target === 'main'
-      && call[1].request.fastForward === 'auto' && call[1].request.confirmation.acknowledged === true
+      && call[1].request.fastForward === 'never' && call[1].request.confirmation.acknowledged === true
   })()`)
   await waitFor(client, `document.body.innerText.includes('Fusion de feature appliqué')`, 'merge notice')
 
@@ -919,11 +927,18 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   })()`)
   await evaluate(client, `Array.from(document.querySelectorAll('button')).find((button) => button.textContent.trim() === 'Fetch').click()`)
   await waitFor(client, `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('authentification'))`, 'error toast')
-  await check('error-toast-shows-remediation', `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('Vérifiez le token.'))`)
+  await check('error-toast-shows-remediation', `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('Vérifiez le token ou le credential helper associé.'))`)
   await screenshot('workspace-error-toast.png')
   await evaluate(client, `(() => { document.querySelectorAll('[data-toasts] button[aria-label="Fermer"]').forEach((button) => button.click()); window.__TAURI_INTERNALS__.invoke = window.__toastInvoke; return true })()`)
   await delay(60)
   await check('error-toast-dismisses', `!document.querySelector('[data-toasts] [role="alert"]')`)
+
+  // Clicking a repository tab while settings are open leaves them for the graph.
+  await click('button[aria-label="Profils et réglages"]')
+  await waitFor(client, `document.querySelector('#settings-panel-appearance') !== null`, 'settings page')
+  await click('[aria-label="Dépôts ouverts"] button[aria-current="page"]')
+  await waitFor(client, `document.querySelector('#settings-panel-appearance') === null && document.querySelector('canvas') !== null`, 'graph after clicking a repository tab')
+  await check('repository-tab-click-leaves-settings', `document.querySelector('#settings-panel-appearance') === null && document.querySelector('canvas') !== null`)
   const { runHubsSmoke } = await import('./hubs-smoke.mjs')
   await runHubsSmoke({ client, evaluate, screenshot, waitFor, delay, check, click })
   for (const width of [1440,1024,390]) {

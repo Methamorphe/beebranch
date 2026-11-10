@@ -5,6 +5,7 @@ import { LOCALES, LOCALE_NAMES, useI18n, type MessageKey } from '../i18n'
 import { AppIcon } from './IconSvg'
 import {
   commitIdentity,
+  githubStatus,
   gitlabStatus,
   profileApplyIdentity,
   profileCreate,
@@ -70,13 +71,16 @@ type Props = {
   onSplashChange: (next: MediaSettings | null) => void
   onMutated: () => void
   onOpenGitlab: () => void
+  onOpenGithub: () => void
   shortcuts: ShortcutMap
   /** Labels of the actions reverted to their default because of a conflict. */
   shortcutConflict?: string[]
   onShortcutsChange: (next: ShortcutMap) => void
+  /** Gear opens the settings tabs; the account mark opens the profiles tab. */
+  settingsRequest?: { tab: SettingsTab; serial: number } | null
 }
 
-type SettingsTab = 'appearance' | 'general' | 'git' | 'profiles' | 'shortcuts'
+export type SettingsTab = 'appearance' | 'general' | 'git' | 'profiles' | 'shortcuts'
 
 const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; icon: LucideIcon }[] = [
   { id: 'appearance', labelKey: 'settings.tab.appearance', icon: Palette },
@@ -98,6 +102,7 @@ const EMPTY = {
   userEmail: '',
   defaultPull: 'rebase',
   gitlabInstanceId: '',
+  githubLogin: '',
 }
 
 type ImageSettingProps = {
@@ -240,15 +245,18 @@ export function ProfilesPanel({
   onSplashChange,
   onMutated,
   onOpenGitlab,
+  onOpenGithub,
   shortcuts,
   shortcutConflict,
   onShortcutsChange,
+  settingsRequest = null,
 }: Props) {
   const { t, locale, changeLocale } = useI18n()
   const editorRef = useRef<HTMLFormElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const [view, setView] = useState<ProfilesView | null>(null)
   const [session, setSession] = useState<GitlabSession | null>(null)
+  const [githubSession, setGithubSession] = useState<GitlabSession | null>(null)
   const [identity, setIdentity] = useState<GitIdentity | null>(null)
   const [form, setForm] = useState(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
@@ -301,7 +309,12 @@ export function ProfilesPanel({
   const load = useCallback(async () => {
     try {
       setView(await profilesList())
-      setSession(await gitlabStatus())
+      const [gitlab, github] = await Promise.allSettled([gitlabStatus(), githubStatus()])
+      setSession(gitlab.status === 'fulfilled' ? gitlab.value : null)
+      setGithubSession(github.status === 'fulfilled' ? github.value : null)
+      if (gitlab.status === 'rejected' && github.status === 'rejected') {
+        throw gitlab.reason
+      }
       if (repoId) {
         setIdentity(await commitIdentity(repoId))
       } else {
@@ -343,7 +356,7 @@ export function ProfilesPanel({
         if (savedFormat) {
           setSigningFormat(savedFormat)
         }
-        if (isSettingsTab(savedTab)) {
+        if (!settingsRequest && isSettingsTab(savedTab)) {
           setTab(savedTab)
         }
       })
@@ -351,7 +364,11 @@ export function ProfilesPanel({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [settingsRequest])
+
+  useEffect(() => {
+    if (settingsRequest) selectTab(settingsRequest.tab)
+  }, [settingsRequest, selectTab])
 
   useEffect(() => {
     void updateStatus()
@@ -387,6 +404,7 @@ export function ProfilesPanel({
       userEmail: form.userEmail.trim(),
       defaultPull: form.defaultPull,
       gitlabInstanceId: form.gitlabInstanceId.trim() || undefined,
+      githubLogin: form.githubLogin.trim() || undefined,
     }
     void run(editing ? t('settings.profiles.updated') : t('settings.profiles.created'), async () => {
       if (editing) {
@@ -659,6 +677,24 @@ export function ProfilesPanel({
             </button>
           </div>
         </div>
+        <div className={p2.setting}>
+          <div>
+            <strong>GitHub</strong>
+            <p>
+              {githubSession?.connected
+                ? t('settings.github.connected', {
+                    instance: githubSession.instance?.baseUrl ?? t('settings.github.instanceFallback'),
+                    user: githubSession.user?.username ?? t('settings.github.userFallback'),
+                  })
+                : t('settings.github.none')}
+            </p>
+          </div>
+          <div className={p2.settingControls}>
+            <button type="button" className={p2.secondary} onClick={onOpenGithub}>
+              {githubSession?.connected ? t('settings.github.manage') : t('settings.github.configure')}
+            </button>
+          </div>
+        </div>
 
         <h2 className={p2.sectionTitle}>{t('settings.files.title')}</h2>
 
@@ -887,6 +923,7 @@ export function ProfilesPanel({
                             : t('settings.profiles.pull.rebase'),
                     })}</span>
                     <span>{profile.gitlabInstanceId ? t('settings.profiles.gitlabLinked') : t('settings.profiles.gitlabNone')}</span>
+                    <span>{profile.githubLogin ? t('settings.profiles.githubLinked', { login: profile.githubLogin }) : t('settings.profiles.githubNone')}</span>
                   </div>
                   <div className={styles.profileActions}>
                     <button type="button" className={p2.secondary} disabled={busy || activeProfile}
@@ -913,7 +950,8 @@ export function ProfilesPanel({
                         selectTab('profiles')
                         setEditing(profile.id)
                         setForm({ name: profile.name, userName: profile.userName, userEmail: profile.userEmail,
-                          defaultPull: profile.defaultPull, gitlabInstanceId: profile.gitlabInstanceId ?? '' })
+                          defaultPull: profile.defaultPull, gitlabInstanceId: profile.gitlabInstanceId ?? '',
+                          githubLogin: profile.githubLogin ?? '' })
                         requestAnimationFrame(() => {
                           editorRef.current?.scrollIntoView({ block: 'nearest' })
                           nameRef.current?.focus({ preventScroll: true })
@@ -988,6 +1026,19 @@ export function ProfilesPanel({
                   </button>
                 ) : null}
                 <p id="profile-gitlab-hint">{t('settings.profiles.gitlabHint')}</p>
+                <label className={styles.field}>
+                  {t('settings.profiles.githubAccount')} <span className={styles.optional}>{t('settings.profiles.githubOptional')}</span>
+                  <input name="githubLogin" value={form.githubLogin}
+                    onChange={(event) => setForm({ ...form, githubLogin: event.target.value })}
+                    placeholder={t('settings.profiles.githubPlaceholder')} spellCheck={false} aria-describedby="profile-github-hint" />
+                </label>
+                {githubSession?.connected && githubSession.user?.username && form.githubLogin !== githubSession.user.username ? (
+                  <button type="button" className={`${p2.secondary} ${styles.instanceButton}`}
+                    onClick={() => setForm({ ...form, githubLogin: githubSession.user!.username })}>
+                    {t('settings.profiles.useConnectedGithub', { login: githubSession.user.username })}
+                  </button>
+                ) : null}
+                <p id="profile-github-hint">{t('settings.profiles.githubHint')}</p>
               </div>
             </fieldset>
             <div className={styles.editorFooter}>

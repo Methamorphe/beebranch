@@ -4,6 +4,7 @@ import { displayShortcut } from '../lib/shortcuts'
 import type { Workspace } from '../types/git'
 import { ToolbarIcon } from './ToolbarIcon'
 import { ViewIcon } from './ViewIcon'
+import { WorkspaceMark } from './WorkspaceMark'
 import styles from './WorkspaceSwitcher.module.css'
 
 type Props = {
@@ -13,6 +14,8 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (workspaceId: string) => void
+  /** Leaves every workspace. Later clones and opens are not filed in a group. */
+  onClear: () => void
   onManage: () => void
   shortcut: string
 }
@@ -29,6 +32,7 @@ export function WorkspaceSwitcher({
   open,
   onOpenChange,
   onSelect,
+  onClear,
   onManage,
   shortcut,
 }: Props) {
@@ -48,8 +52,8 @@ export function WorkspaceSwitcher({
     }
     const frame = window.requestAnimationFrame(() => {
       const entries = menuEntries()
-      const index = workspaces.findIndex((workspace) => workspace.id === activeId)
-      ;(entries[Math.max(0, index)] ?? entries[0])?.focus()
+      const checked = entries.findIndex((button) => button.getAttribute('aria-checked') === 'true')
+      ;(entries[checked >= 0 ? checked : 0] ?? entries[0])?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
   }, [open, workspaces, activeId])
@@ -107,7 +111,18 @@ export function WorkspaceSwitcher({
         onClick={() => onOpenChange(!open)}
       >
         <span className={styles.glyph} aria-hidden="true">
-          <ViewIcon view="workspaces" size={14} />
+          {active ? (
+            <WorkspaceMark
+              name={active.name}
+              iconKind={active.iconKind}
+              iconKey={active.iconKey}
+              workspaceId={active.id}
+              updatedAt={active.updatedAt}
+              size={20}
+            />
+          ) : (
+            <ViewIcon view="workspaces" size={16} />
+          )}
         </span>
         <span className={styles.name}>{active?.name ?? t('workspaces.switcher.none')}</span>
         <span className={styles.chevron} aria-hidden="true">
@@ -140,6 +155,22 @@ export function WorkspaceSwitcher({
             }
           }}
         >
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={active === null}
+            disabled={busy}
+            className={active === null ? styles.itemActive : styles.item}
+            title={t('workspaces.switcher.looseHint')}
+            onClick={onClear}
+          >
+            <ViewIcon view="workspaces" size={16} />
+            <span className={styles.itemName}>{t('workspaces.switcher.none')}</span>
+            <span className={styles.count} />
+            <span className={styles.check} aria-hidden="true">
+              {active === null ? <ToolbarIcon name="check" size={14} /> : null}
+            </span>
+          </button>
           {workspaces.length === 0 ? (
             <p className={styles.empty}>{t('workspaces.switcher.empty')}</p>
           ) : (
@@ -155,6 +186,14 @@ export function WorkspaceSwitcher({
                   className={selected ? styles.itemActive : styles.item}
                   onClick={() => onSelect(workspace.id)}
                 >
+                  <WorkspaceMark
+                    name={workspace.name}
+                    iconKind={workspace.iconKind}
+                    iconKey={workspace.iconKey}
+                    workspaceId={workspace.id}
+                    updatedAt={workspace.updatedAt}
+                    size={20}
+                  />
                   <span className={styles.itemName}>{workspace.name}</span>
                   <span className={styles.count}>{workspace.repos.length}</span>
                   <span className={styles.check} aria-hidden="true">

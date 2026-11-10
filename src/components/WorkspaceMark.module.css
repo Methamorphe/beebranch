@@ -1,0 +1,24 @@
+.mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--mark-size);
+  height: var(--mark-size);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--muted-strong);
+  font-weight: 650;
+  line-height: 1;
+}
+
+.mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.letter {
+  font-size: calc(var(--mark-size) * 0.46);
+}

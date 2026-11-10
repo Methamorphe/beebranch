@@ -83,9 +83,16 @@ const messages = {
   'forge.projects.emptyGitlab': 'No project loaded.',
   'forge.projects.emptyGithub': 'No repository loaded.',
   'forge.projects.defaultBranchUnknown': 'unknown default branch',
-  'forge.projects.linked': 'Repository linked to {path} (#{id}).',
-  'forge.projects.link': 'Link this repository',
+  'forge.projects.linked': 'This folder will use {path} for reviews and pipelines.',
+  'forge.projects.link': 'Use for this folder',
+  'forge.projects.linkCurrent': 'Project for this folder',
+  'forge.projects.linkTitle': 'Beebranch uses it for reviews and pipelines. Git is not changed. Choosing another row replaces this one.',
   'forge.projects.nextPage': 'Load the next page ({page})',
+  'forge.projects.groupByGitlab': 'Group under their group',
+  'forge.projects.groupByGithub': 'Group by organisation',
+  'forge.projects.ungroupedGitlab': 'No group',
+  'forge.projects.ungroupedGithub': 'No organisation',
+  'forge.projects.groupAria': '{name}, {count} repositories',
 
   // Review list.
   'forge.review.noProject': 'no project linked',
@@ -106,7 +113,7 @@ const messages = {
   'forge.review.emptyConnectedHint':
     'The connection is available in the {label} preferences.',
   'forge.review.emptyLinkHint':
-    'Use “Link to the project” to find the reviews of the repository.',
+    'On Repositories, choose “Use for this folder”. Git is not changed.',
   'forge.review.emptyFilterHint':
     'The {title} matching this filter will appear here.',
   'forge.review.nextPage': 'Next page',

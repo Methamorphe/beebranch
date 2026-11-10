@@ -46,6 +46,7 @@
 .body {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -161,4 +162,3 @@
   .crumb { display: none; }
 }
 
-.body[data-repository='true'] { grid-template-columns:minmax(0,1fr); }

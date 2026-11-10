@@ -1,9 +1,9 @@
-//! Profiles: Git identity, preferences and one GitLab instance per profile
-//! (P2-T13).
+//! Profiles: Git identity, preferences, one GitLab instance and one GitHub
+//! account per profile.
 //!
-//! Profiles live in the preferences store. Each profile references an existing
-//! GitLab instance id; its token remains in the OS keychain under that
-//! instance's account, so no secret is copied between profiles.
+//! Profiles live in the preferences store. A profile references an existing
+//! GitLab instance id and, the same way, a GitHub login. Tokens remain in the
+//! OS keychain, so no secret is copied between profiles.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,6 +32,8 @@ pub struct Profile {
     #[serde(default = "default_pull")]
     pub default_pull: String,
     pub gitlab_instance_id: Option<String>,
+    #[serde(default)]
+    pub github_login: Option<String>,
     pub created_at: i64,
 }
 
@@ -85,22 +87,91 @@ fn view(state: &AppState) -> Result<ProfilesView, AppError> {
     })
 }
 
-fn validate_text(value: &str, what: &str, max: usize) -> Result<String, AppError> {
+fn input_error(code: &'static str, message: &str) -> AppError {
+    AppError::new(code, ErrorCategory::Input, message)
+}
+
+struct FieldFault {
+    code: &'static str,
+    message: &'static str,
+}
+
+fn validate_field(
+    value: &str,
+    max: usize,
+    empty: FieldFault,
+    control: FieldFault,
+    too_long: FieldFault,
+) -> Result<String, AppError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(AppError::invalid_input(format!("{what} est vide.")));
+        return Err(input_error(empty.code, empty.message));
     }
     if trimmed.chars().any(char::is_control) {
-        return Err(AppError::invalid_input(format!(
-            "{what} contient un caractère de contrôle."
-        )));
+        return Err(input_error(control.code, control.message));
     }
     if trimmed.chars().count() > max {
-        return Err(AppError::invalid_input(format!(
-            "{what} dépasse {max} caractères."
-        )));
+        return Err(input_error(too_long.code, too_long.message));
     }
     Ok(trimmed.to_owned())
+}
+
+fn github_login(value: Option<String>) -> Result<Option<String>, AppError> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let valid = trimmed.chars().count() <= 39
+        && trimmed
+            .chars()
+            .all(|character| !character.is_control() && !character.is_whitespace());
+    if !valid {
+        return Err(input_error(
+            "profile.github_invalid",
+            "Le compte GitHub est invalide.",
+        ));
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
+fn reject_duplicate(
+    profiles: &[Profile],
+    skip_id: &str,
+    profile: &Profile,
+) -> Result<(), AppError> {
+    if profiles
+        .iter()
+        .any(|existing| existing.id != skip_id && existing.name == profile.name)
+    {
+        return Err(input_error(
+            "profile.name_taken",
+            "Un profil porte déjà ce nom.",
+        ));
+    }
+    if let Some(instance) = profile.gitlab_instance_id.as_deref() {
+        if profiles.iter().any(|existing| {
+            existing.id != skip_id && existing.gitlab_instance_id.as_deref() == Some(instance)
+        }) {
+            return Err(input_error(
+                "profile.gitlab_taken",
+                "Cette instance GitLab est déjà associée à un autre profil.",
+            ));
+        }
+    }
+    if let Some(login) = profile.github_login.as_deref() {
+        if profiles.iter().any(|existing| {
+            existing.id != skip_id && existing.github_login.as_deref() == Some(login)
+        }) {
+            return Err(input_error(
+                "profile.github_taken",
+                "Ce compte GitHub est déjà associé à un autre profil.",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -118,27 +189,77 @@ pub struct ProfileInput {
     pub default_pull: Option<String>,
     #[serde(default)]
     pub gitlab_instance_id: Option<String>,
+    #[serde(default)]
+    pub github_login: Option<String>,
 }
 
 fn build_profile(input: ProfileInput, id: String, created_at: i64) -> Result<Profile, AppError> {
-    let name = validate_text(&input.name, "le nom du profil", 80)?;
-    let user_name = validate_text(&input.user_name, "le nom Git", 120)?;
-    let user_email = validate_text(&input.user_email, "l'email Git", 200)?;
+    let name = validate_field(
+        &input.name,
+        80,
+        FieldFault {
+            code: "profile.name_empty",
+            message: "Le nom du profil est vide.",
+        },
+        FieldFault {
+            code: "profile.name_control",
+            message: "Le nom du profil contient un caractère de contrôle.",
+        },
+        FieldFault {
+            code: "profile.name_too_long",
+            message: "Le nom du profil dépasse 80 caractères.",
+        },
+    )?;
+    let user_name = validate_field(
+        &input.user_name,
+        120,
+        FieldFault {
+            code: "profile.git_name_empty",
+            message: "Le nom Git est vide.",
+        },
+        FieldFault {
+            code: "profile.git_name_control",
+            message: "Le nom Git contient un caractère de contrôle.",
+        },
+        FieldFault {
+            code: "profile.git_name_too_long",
+            message: "Le nom Git dépasse 120 caractères.",
+        },
+    )?;
+    let user_email = validate_field(
+        &input.user_email,
+        200,
+        FieldFault {
+            code: "profile.email_empty",
+            message: "L'email Git est vide.",
+        },
+        FieldFault {
+            code: "profile.email_control",
+            message: "L'email Git contient un caractère de contrôle.",
+        },
+        FieldFault {
+            code: "profile.email_too_long",
+            message: "L'email Git dépasse 200 caractères.",
+        },
+    )?;
     if !user_email.contains('@') {
-        return Err(AppError::invalid_input(
-            "L'email Git ne contient pas de `@`.".to_owned(),
+        return Err(input_error(
+            "profile.email_invalid",
+            "L'email Git ne contient pas de `@`.",
         ));
     }
     let default_pull = input.default_pull.unwrap_or_else(default_pull);
     if !matches!(default_pull.as_str(), "merge" | "rebase" | "ffOnly") {
-        return Err(AppError::invalid_input(
-            "La stratégie de pull doit être `merge`, `rebase` ou `ffOnly`.".to_owned(),
+        return Err(input_error(
+            "profile.pull_invalid",
+            "La stratégie de pull doit être `merge`, `rebase` ou `ffOnly`.",
         ));
     }
     if let Some(instance) = input.gitlab_instance_id.as_deref() {
         if instance.trim().is_empty() {
-            return Err(AppError::invalid_input(
-                "L'identifiant d'instance GitLab est vide.".to_owned(),
+            return Err(input_error(
+                "profile.gitlab_empty",
+                "L'identifiant d'instance GitLab est vide.",
             ));
         }
     }
@@ -149,6 +270,7 @@ fn build_profile(input: ProfileInput, id: String, created_at: i64) -> Result<Pro
         user_email,
         default_pull,
         gitlab_instance_id: input.gitlab_instance_id,
+        github_login: github_login(input.github_login)?,
         created_at,
     })
 }
@@ -160,20 +282,14 @@ pub fn profile_create(
 ) -> Result<ProfilesView, AppError> {
     let mut profiles = load(&state)?;
     if profiles.len() >= 20 {
-        return Err(AppError::invalid_input(
-            "Le nombre maximal de profils (20) est atteint.".to_owned(),
+        return Err(input_error(
+            "profile.limit",
+            "Le nombre maximal de profils (20) est atteint.",
         ));
     }
     let id = format!("profile-{}", now_unix());
     let profile = build_profile(input, id.clone(), now_unix())?;
-    if profiles
-        .iter()
-        .any(|existing| existing.name == profile.name)
-    {
-        return Err(AppError::invalid_input(
-            "Un profil porte déjà ce nom.".to_owned(),
-        ));
-    }
+    reject_duplicate(&profiles, &id, &profile)?;
     profiles.push(profile);
     save(&state, &profiles)?;
     if active_id(&state)?.is_none() {
@@ -201,28 +317,10 @@ pub fn profile_update(
     let index = profiles
         .iter()
         .position(|profile| profile.id == request.id)
-        .ok_or_else(|| AppError::not_found("Profil introuvable.".to_owned()))?;
+        .ok_or_else(|| input_error("profile.not_found", "Profil introuvable."))?;
     let created_at = profiles[index].created_at;
     let updated = build_profile(request.input, request.id.clone(), created_at)?;
-    if profiles
-        .iter()
-        .enumerate()
-        .any(|(position, profile)| position != index && profile.name == updated.name)
-    {
-        return Err(AppError::invalid_input(
-            "Un profil porte déjà ce nom.".to_owned(),
-        ));
-    }
-    if let Some(instance) = updated.gitlab_instance_id.as_deref() {
-        let used = profiles.iter().enumerate().any(|(position, profile)| {
-            position != index && profile.gitlab_instance_id.as_deref() == Some(instance)
-        });
-        if used {
-            return Err(AppError::invalid_input(
-                "Cette instance GitLab est déjà associée à un autre profil.".to_owned(),
-            ));
-        }
-    }
+    reject_duplicate(&profiles, &request.id, &updated)?;
     profiles[index] = updated;
     save(&state, &profiles)?;
     view(&state)
@@ -245,7 +343,7 @@ pub fn profile_delete(
     let before = profiles.len();
     profiles.retain(|profile| profile.id != request.id);
     if profiles.len() == before {
-        return Err(AppError::not_found("Profil introuvable.".to_owned()));
+        return Err(input_error("profile.not_found", "Profil introuvable."));
     }
     save(&state, &profiles)?;
     if active_id(&state)?.as_deref() == Some(request.id.as_str()) {
@@ -265,7 +363,7 @@ pub fn profile_set_active(
 ) -> Result<ProfilesView, AppError> {
     let profiles = load(&state)?;
     if !profiles.iter().any(|profile| profile.id == request.id) {
-        return Err(AppError::not_found("Profil introuvable.".to_owned()));
+        return Err(input_error("profile.not_found", "Profil introuvable."));
     }
     state
         .store
@@ -293,7 +391,7 @@ pub async fn profile_apply_identity(
     let profile = profiles
         .iter()
         .find(|profile| profile.id == request.id)
-        .ok_or_else(|| AppError::not_found("Profil introuvable.".to_owned()))?
+        .ok_or_else(|| input_error("profile.not_found", "Profil introuvable."))?
         .clone();
     let repo_id = match request.repo_id.clone() {
         Some(repo_id) => repo_id,
@@ -353,7 +451,7 @@ pub async fn profile_gitlab_activate(
     let profile = profiles
         .iter()
         .find(|profile| profile.id == request.id)
-        .ok_or_else(|| AppError::not_found("Profil introuvable.".to_owned()))?;
+        .ok_or_else(|| input_error("profile.not_found", "Profil introuvable."))?;
     let instance_id = profile.gitlab_instance_id.clone().ok_or_else(|| {
         AppError::new(
             "profile.gitlab_unconfigured",
@@ -418,6 +516,7 @@ mod tests {
             user_email: "alice@example.test".into(),
             default_pull: None,
             gitlab_instance_id: None,
+            github_login: None,
         }
     }
 
@@ -426,6 +525,17 @@ mod tests {
         let profile = build_profile(input(), "profile-1".into(), 1).expect("valid");
         assert_eq!(profile.default_pull, "rebase");
         assert_eq!(profile.user_email, "alice@example.test");
+        assert_eq!(profile.github_login, None);
+
+        let mut with_github = input();
+        with_github.github_login = Some(" octocat ".into());
+        let linked = build_profile(with_github, "profile-gh".into(), 1).expect("github");
+        assert_eq!(linked.github_login.as_deref(), Some("octocat"));
+
+        let mut blank_github = input();
+        blank_github.github_login = Some("  ".into());
+        let unlinked = build_profile(blank_github, "profile-blank".into(), 1).expect("blank");
+        assert_eq!(unlinked.github_login, None);
 
         let mut bad_email = input();
         bad_email.user_email = "alice".into();

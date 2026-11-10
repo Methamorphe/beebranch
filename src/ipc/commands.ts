@@ -873,6 +873,26 @@ export function workspaceStatus(
   })
 }
 
+export function workspaceSetIcon(request: {
+  workspaceId: string
+  kind: 'none' | 'lucide' | 'image'
+  key?: string
+  pngBase64?: string
+}): Promise<Workspace> {
+  return call<Workspace>('workspace_set_icon', { request })
+}
+
+export function workspaceIconImage(workspaceId: string): Promise<string | null> {
+  return call<string | null>('workspace_icon_image', {
+    request: { workspaceId },
+  })
+}
+
+/** Read a png, jpeg, webp or gif (1.5 MB max) and return a data URL. */
+export function workspaceReadIcon(path: string): Promise<string> {
+  return call<string>('workspace_read_icon', { path })
+}
+
 export function workspaceSync(
   workspaceId: string,
   action: 'fetch' | 'pull',
@@ -1178,6 +1198,7 @@ export function profileCreate(input: {
   userEmail: string
   defaultPull?: string
   gitlabInstanceId?: string
+  githubLogin?: string
 }): Promise<ProfilesView> {
   return call<ProfilesView>('profile_create', { input })
 }
@@ -1190,6 +1211,7 @@ export function profileUpdate(
     userEmail: string
     defaultPull?: string
     gitlabInstanceId?: string
+    githubLogin?: string
   },
 ): Promise<ProfilesView> {
   return call<ProfilesView>('profile_update', { request: { id, input } })

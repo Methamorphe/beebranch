@@ -6,10 +6,11 @@
 //! closed afterwards so memory stays bounded.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use beebranch_core::{AppError, Confirmation, DestructiveAction, HeadState, RepoState};
 use beebranch_git::session::{InvalidationArea, RepoSession, SessionOptions, SessionRegistry};
 use beebranch_git::sync::{self, PullStrategy, SyncKind};
@@ -30,6 +31,8 @@ pub struct WorkspaceDto {
     pub name: String,
     pub created_at: i64,
     pub updated_at: i64,
+    pub icon_kind: Option<String>,
+    pub icon_key: Option<String>,
     pub repos: Vec<WorkspaceRepoDto>,
 }
 
@@ -57,6 +60,8 @@ fn workspace_dto(store: &Store, row: &WorkspaceRow) -> Result<WorkspaceDto, AppE
         name: row.name.clone(),
         created_at: row.created_at,
         updated_at: row.updated_at,
+        icon_kind: row.icon_kind.clone(),
+        icon_key: row.icon_key.clone(),
         repos,
     })
 }
@@ -131,13 +136,237 @@ pub async fn workspace_delete(
     request: WorkspaceIdRequest,
 ) -> Result<bool, AppError> {
     let store = state.store.clone();
+    let paths = state.paths.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store
+        let deleted = store
             .delete_workspace(&request.workspace_id)
-            .map_err(store_error)
+            .map_err(store_error)?;
+        if deleted {
+            if let Ok(file) = workspace_icon_file(&paths, &request.workspace_id) {
+                remove_workspace_icon(&file);
+            }
+        }
+        Ok(deleted)
     })
     .await
     .map_err(join_error)?
+}
+
+const LUCIDE_ICONS: &[&str] = &[
+    "book-open",
+    "bot",
+    "box",
+    "boxes",
+    "briefcase",
+    "bug",
+    "cloud",
+    "cpu",
+    "database",
+    "flame",
+    "flask-conical",
+    "folder-git-2",
+    "folders",
+    "globe",
+    "heart",
+    "hexagon",
+    "layers",
+    "package",
+    "palette",
+    "puzzle",
+    "rocket",
+    "shield",
+    "star",
+    "terminal",
+    "workflow",
+    "wrench",
+    "zap",
+];
+
+/// Source images are copied and resized by the webview; refuse anything the
+/// icon slot would not keep.
+const MAX_ICON_SOURCE_BYTES: u64 = 1_572_864;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceIconRequest {
+    pub workspace_id: String,
+    pub kind: String,
+    pub key: Option<String>,
+    pub png_base64: Option<String>,
+}
+
+#[tauri::command]
+pub async fn workspace_set_icon(
+    state: State<'_, AppState>,
+    request: WorkspaceIconRequest,
+) -> Result<WorkspaceDto, AppError> {
+    let store = state.store.clone();
+    let paths = state.paths.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = workspace_icon_file(&paths, &request.workspace_id)?;
+        let (kind, key, png) = match request.kind.as_str() {
+            "none" => (None, None, None),
+            "lucide" => {
+                let key = request.key.as_deref().unwrap_or("").trim();
+                if !LUCIDE_ICONS.contains(&key) {
+                    return Err(AppError::invalid_input(
+                        "icône de workspace inconnue".to_owned(),
+                    ));
+                }
+                (Some("lucide".to_owned()), Some(key.to_owned()), None)
+            }
+            "image" => {
+                let bytes = decode_icon_png(request.png_base64.as_deref().unwrap_or(""))?;
+                (Some("image".to_owned()), None, Some(bytes))
+            }
+            _ => return Err(AppError::invalid_input("type d'icône inconnu".to_owned())),
+        };
+        let row = store
+            .set_workspace_icon(&request.workspace_id, kind.as_deref(), key.as_deref())
+            .map_err(store_error)?;
+        if let Some(bytes) = png {
+            write_workspace_icon(&file, &bytes)?;
+        } else {
+            remove_workspace_icon(&file);
+        }
+        workspace_dto(&store, &row)
+    })
+    .await
+    .map_err(join_error)?
+}
+
+#[tauri::command]
+pub async fn workspace_icon_image(
+    state: State<'_, AppState>,
+    request: WorkspaceIdRequest,
+) -> Result<Option<String>, AppError> {
+    let store = state.store.clone();
+    let paths = state.paths.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let row = store
+            .get_workspace(&request.workspace_id)
+            .map_err(store_error)?
+            .ok_or_else(|| AppError::not_found("Workspace introuvable."))?;
+        if row.icon_kind.as_deref() != Some("image") {
+            return Ok(None);
+        }
+        let file = workspace_icon_file(&paths, &request.workspace_id)?;
+        match std::fs::read(&file) {
+            Ok(bytes) => Ok(Some(format!(
+                "data:image/png;base64,{}",
+                STANDARD.encode(bytes)
+            ))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(AppError::internal(format!(
+                "lecture de l'icône impossible: {error}"
+            ))),
+        }
+    })
+    .await
+    .map_err(join_error)?
+}
+
+#[tauri::command]
+pub async fn workspace_read_icon(path: String) -> Result<String, AppError> {
+    tauri::async_runtime::spawn_blocking(move || read_icon_source(&path))
+        .await
+        .map_err(|error| AppError::internal(format!("lecture de l'icône interrompue: {error}")))?
+}
+
+fn workspace_icon_file(paths: &crate::state::AppPaths, id: &str) -> Result<PathBuf, AppError> {
+    if id.is_empty()
+        || !id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '_' || character == '-'
+        })
+    {
+        return Err(AppError::invalid_input(
+            "identifiant de workspace invalide".to_owned(),
+        ));
+    }
+    Ok(paths
+        .data_dir()
+        .join("workspace-icons")
+        .join(format!("{id}.png")))
+}
+
+fn write_workspace_icon(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            AppError::internal(format!("dossier des icônes inaccessible: {error}"))
+        })?;
+    }
+    let temporary = path.with_extension("png.part");
+    std::fs::write(&temporary, bytes)
+        .map_err(|error| AppError::internal(format!("écriture de l'icône impossible: {error}")))?;
+    std::fs::rename(&temporary, path).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        AppError::internal(format!("enregistrement de l'icône impossible: {error}"))
+    })
+}
+
+fn remove_workspace_icon(path: &Path) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {}
+    }
+}
+
+fn decode_icon_png(value: &str) -> Result<Vec<u8>, AppError> {
+    let payload = value.trim();
+    let payload = payload
+        .strip_prefix("data:image/png;base64,")
+        .unwrap_or(payload);
+    let bytes = STANDARD
+        .decode(payload.trim())
+        .map_err(|_| AppError::invalid_input("image illisible".to_owned()))?;
+    if bytes.len() > MAX_ICON_SOURCE_BYTES as usize {
+        return Err(AppError::invalid_input(
+            "image trop volumineuse (maximum 1,5 Mo)".to_owned(),
+        ));
+    }
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err(AppError::invalid_input(
+            "l'icône doit être une image PNG".to_owned(),
+        ));
+    }
+    Ok(bytes)
+}
+
+fn read_icon_source(path: &str) -> Result<String, AppError> {
+    let file = Path::new(path);
+    let extension = file
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => {
+            return Err(AppError::invalid_input(
+                "format d'image non pris en charge (png, jpg, webp, gif)".to_owned(),
+            ))
+        }
+    };
+    let metadata = std::fs::metadata(file)
+        .map_err(|error| AppError::invalid_input(format!("image introuvable ({path}): {error}")))?;
+    if !metadata.is_file() {
+        return Err(AppError::invalid_input(format!(
+            "l'icône sélectionnée n'est pas un fichier: {path}"
+        )));
+    }
+    if metadata.len() > MAX_ICON_SOURCE_BYTES {
+        return Err(AppError::invalid_input(
+            "image trop volumineuse (maximum 1,5 Mo)".to_owned(),
+        ));
+    }
+    let bytes = std::fs::read(file).map_err(|error| {
+        AppError::invalid_input(format!("lecture de l'image impossible ({path}): {error}"))
+    })?;
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -208,6 +437,14 @@ pub async fn workspace_remove_repo(
     .map_err(join_error)?
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChangeCounts {
+    pub added: usize,
+    pub modified: usize,
+    pub deleted: usize,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRepoStatus {
@@ -216,6 +453,7 @@ pub struct WorkspaceRepoStatus {
     pub available: bool,
     pub repo_id: Option<String>,
     pub state: Option<RepoState>,
+    pub changes: Option<WorkspaceChangeCounts>,
     pub error: Option<String>,
 }
 
@@ -249,15 +487,21 @@ fn status_one(runner: &GitRunner, repo: WorkspaceRepoRow) -> WorkspaceRepoStatus
         let repo_id = beebranch_core::RepoId::from_path(worktree)
             .as_str()
             .to_owned();
-        Ok::<_, AppError>((repo_id, detected.state))
+        let changes = detected.status.changes;
+        Ok::<_, AppError>((repo_id, detected.state, changes))
     })();
     match result {
-        Ok((repo_id, state)) => WorkspaceRepoStatus {
+        Ok((repo_id, state, changes)) => WorkspaceRepoStatus {
             path: repo.path,
             name: repo.name,
             available: true,
             repo_id: Some(repo_id),
             state: Some(state),
+            changes: Some(WorkspaceChangeCounts {
+                added: changes.added,
+                modified: changes.modified,
+                deleted: changes.deleted,
+            }),
             error: None,
         },
         Err(error) => WorkspaceRepoStatus {
@@ -266,6 +510,7 @@ fn status_one(runner: &GitRunner, repo: WorkspaceRepoRow) -> WorkspaceRepoStatus
             available: false,
             repo_id: None,
             state: None,
+            changes: None,
             error: Some(format!(
                 "{} {}",
                 error.message,
@@ -320,7 +565,10 @@ pub async fn workspace_sync(
             .confirmation
             .verify(DestructiveAction::WorkspaceSync)?;
     }
-    let runner = state.runner()?.clone();
+    // Same forge tokens as a single-repository fetch. Without them, HTTPS
+    // remotes that Git cannot authenticate on its own fail, while SSH remotes
+    // and hosts already known to a credential helper succeed.
+    let runner = crate::commands::sync::authenticated_runner(&state, &state.runner()?.clone())?;
     let registry = state.sessions.clone();
     let store = state.store.clone();
     let mut rows = store
@@ -438,7 +686,7 @@ fn run_one(
             },
         )?;
         let repo_id = session.id().as_str().to_owned();
-        let outcome = run_repo_action(&session, store, action, index, worker, strategy);
+        let outcome = run_repo_action(&session, runner, store, action, index, worker, strategy);
         let state = session.refresh_state().ok();
         if created {
             registry.close(session.id());
@@ -477,6 +725,7 @@ fn run_one(
 
 fn run_repo_action(
     session: &RepoSession,
+    auth_runner: &GitRunner,
     store: Option<Arc<Store>>,
     action: WorkspaceAction,
     index: usize,
@@ -527,19 +776,25 @@ fn run_repo_action(
     let slot: Arc<Mutex<Option<sync::SyncOutcome>>> = Arc::new(Mutex::new(None));
     let writer = slot.clone();
     let repo_id = session.id().as_str().to_owned();
-    session.mutate(move |runner, discovery| {
+    let auth_runner = auth_runner.clone();
+    session.mutate(move |_runner, discovery| {
         let worktree = discovery.worktree()?;
         let context = OperationContext::new(&operation_id, "workspace sync");
         let result = (|| -> Result<sync::SyncOutcome, AppError> {
             Ok(match action_for_job {
                 WorkspaceAction::Fetch => {
-                    let command =
-                        sync::spawn_fetch(runner, worktree, &remote_for_job, &context, |_| {})?;
+                    let command = sync::spawn_fetch(
+                        &auth_runner,
+                        worktree,
+                        &remote_for_job,
+                        &context,
+                        |_| {},
+                    )?;
                     sync::finish(command, SyncKind::Fetch, || None)?
                 }
                 WorkspaceAction::Pull => {
                     let command = sync::spawn_pull(
-                        runner,
+                        &auth_runner,
                         worktree,
                         &remote_for_job,
                         &branch_for_job,
@@ -606,5 +861,20 @@ mod tests {
         let text = bounded_output(&format!("token glpat-secret {}", "x".repeat(600)));
         assert!(text.chars().count() <= 501);
         assert!(!text.contains("glpat-"));
+    }
+
+    #[test]
+    fn icon_png_must_be_a_real_png_under_the_size_cap() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        assert!(decode_icon_png("not base64!!!").is_err());
+        assert!(decode_icon_png(&STANDARD.encode(b"not a png")).is_err());
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend_from_slice(&[1, 2, 3, 4]);
+        let encoded = STANDARD.encode(&png);
+        assert_eq!(decode_icon_png(&encoded).expect("png"), png);
+        assert_eq!(
+            decode_icon_png(&format!("data:image/png;base64,{encoded}")).expect("prefixed"),
+            png
+        );
     }
 }

@@ -59,6 +59,15 @@ pub struct BranchStatus {
     pub behind: u32,
 }
 
+/// Files grouped by what happened to them, independent of staged or unstaged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeCounts {
+    pub added: usize,
+    pub modified: usize,
+    pub deleted: usize,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusReport {
@@ -66,6 +75,7 @@ pub struct StatusReport {
     pub entries: Vec<StatusEntry>,
     pub ignored: Vec<String>,
     pub counts: WorktreeState,
+    pub changes: ChangeCounts,
     /// True when the entry list was capped; counts remain exact.
     pub truncated: bool,
 }
@@ -194,6 +204,12 @@ pub fn parse_status(input: &[u8], max_entries: usize) -> Result<StatusReport, St
         }
 
         total += 1;
+        match change_kind(&entry) {
+            Some(ChangeKind::Added) => report.changes.added += 1,
+            Some(ChangeKind::Modified) => report.changes.modified += 1,
+            Some(ChangeKind::Deleted) => report.changes.deleted += 1,
+            None => {}
+        }
         match entry.kind {
             EntryKind::Untracked => report.counts.untracked += 1,
             EntryKind::Ignored => report.ignored.push(entry.path.clone()),
@@ -220,6 +236,37 @@ pub fn parse_status(input: &[u8], max_entries: usize) -> Result<StatusReport, St
 
     let _ = total;
     Ok(report)
+}
+
+enum ChangeKind {
+    Added,
+    Modified,
+    Deleted,
+}
+
+/// One file, one bucket. A deletion wins over an addition, which wins over a
+/// content edit, so a staged new file that was edited again stays an addition.
+fn change_kind(entry: &StatusEntry) -> Option<ChangeKind> {
+    match entry.kind {
+        EntryKind::Ignored => None,
+        EntryKind::Untracked => Some(ChangeKind::Added),
+        EntryKind::Unmerged => Some(ChangeKind::Modified),
+        EntryKind::Ordinary | EntryKind::Renamed | EntryKind::Copied => {
+            let letters = [entry.index, entry.worktree];
+            if letters.contains(&'D') {
+                Some(ChangeKind::Deleted)
+            } else if letters.contains(&'A') {
+                Some(ChangeKind::Added)
+            } else if letters
+                .iter()
+                .any(|letter| matches!(letter, 'M' | 'T' | 'R' | 'C'))
+            {
+                Some(ChangeKind::Modified)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 fn parse_ordinary(line: &str) -> Result<StatusEntry, String> {
@@ -424,6 +471,26 @@ mod tests {
         assert_eq!(report.entries.len(), 3);
         assert!(report.truncated);
         assert_eq!(report.counts.untracked, 10);
+        assert_eq!(report.changes.added, 10);
+    }
+
+    #[test]
+    fn groups_files_into_added_modified_and_deleted() {
+        let mut input = Vec::new();
+        input.extend(record(
+            "1 M. N... 100644 100644 100644 1111111 2222222 path/edited.txt",
+        ));
+        input.extend(record(
+            "1 .D N... 100644 100644 100644 1111111 2222222 path/removed.txt",
+        ));
+        input.extend(record(
+            "1 A. N... 100644 100644 100644 1111111 2222222 path/new.txt",
+        ));
+        input.extend(record("? path/untracked.txt"));
+        let report = parse_status(&input, 10).expect("parse");
+        assert_eq!(report.changes.added, 2);
+        assert_eq!(report.changes.modified, 1);
+        assert_eq!(report.changes.deleted, 1);
     }
 
     #[test]

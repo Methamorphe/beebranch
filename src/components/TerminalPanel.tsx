@@ -11,9 +11,10 @@ import {
   terminalWrite,
 } from '../ipc/commands'
 import { useI18n } from '../i18n'
+import { ToolbarIcon } from './ToolbarIcon'
 import styles from './TerminalPanel.module.css'
 
-type Props = { repoId: string }
+type Props = { repoId: string; onClose?: () => void }
 
 type DataEvent = { sessionId: string; data: string }
 type ExitEvent = { sessionId: string; code: number | null }
@@ -39,7 +40,7 @@ function decode(data: string): Uint8Array {
  * forwards keystrokes, resizes and closes it on unmount, and never chooses the
  * program (the backend uses the user's shell in the worktree).
  */
-export function TerminalPanel({ repoId }: Props) {
+export function TerminalPanel({ repoId, onClose }: Props) {
   const { t } = useI18n()
   const host = useRef<HTMLDivElement>(null)
   const [shell, setShell] = useState<string | null>(null)
@@ -127,6 +128,11 @@ export function TerminalPanel({ repoId }: Props) {
     <div className={styles.panel} data-terminal={repoId}>
       <div className={styles.head}>
         <span>{shell ? t('terminal.shell', { shell }) : t('terminal.opening')}</span>
+        {onClose ? (
+          <button type="button" className={styles.close} onClick={onClose} aria-label={t('terminal.close')}>
+            <ToolbarIcon name="x" size={14} />
+          </button>
+        ) : null}
       </div>
       {error ? (
         <p className={styles.error} role="alert">

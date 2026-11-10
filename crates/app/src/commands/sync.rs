@@ -14,7 +14,7 @@ use crate::commands::util::{
 use crate::state::AppState;
 
 /// Build a short-lived runner; Git's existing helpers remain first in order.
-fn authenticated_runner(
+pub(crate) fn authenticated_runner(
     state: &AppState,
     runner: &beebranch_git::GitRunner,
 ) -> Result<beebranch_git::GitRunner, AppError> {

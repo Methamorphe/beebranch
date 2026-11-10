@@ -35,6 +35,7 @@ import {
   gitlabStatus,
   preferenceGet,
   preferenceSet,
+  repoClose,
   repoCloseChecked,
   repoClone,
   repoGetState,
@@ -52,6 +53,7 @@ import {
   undoStatus,
   updateCheck,
   updateInstall,
+  workspaceAddRepo,
   workspaceList,
 } from './ipc/commands'
 import { useRepoEvents } from './hooks/useRepoEvents'
@@ -89,7 +91,7 @@ import {
   type ShortcutAction,
   type ShortcutMap,
 } from './lib/shortcuts'
-import { normalizeRepoPath } from './lib/workspace'
+import { WORKSPACE_REPO_LIMIT, normalizeRepoPath } from './lib/workspace'
 import { undoActionLabel, undoButtonLabel, undoNotice, undoOfferNotice } from './lib/undoLabel'
 import type { ChangeEvent, RecentRepo, RepoView, UndoOutcome, UndoStatus, Workspace } from './types/git'
 import type { CloneInput, InitInput } from './ipc/commands'
@@ -126,6 +128,10 @@ function applyDensity(density: Density) {
 
 export default function App() {
   const [repos, setRepos] = useState<RepoView[]>([])
+  const reposRef = useRef(repos)
+  useEffect(() => {
+    reposRef.current = repos
+  }, [repos])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [view, setView] = useState<ViewId>('graph')
   const navigationGuard = useRef<(() => boolean) | null>(null)
@@ -133,8 +139,20 @@ export default function App() {
     navigationGuard.current = guard
   }, [])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const workspacesRef = useRef(workspaces)
+  const replaceWorkspaces = useCallback((next: Workspace[]) => {
+    workspacesRef.current = next
+    setWorkspaces(next)
+  }, [])
+  useEffect(() => {
+    workspacesRef.current = workspaces
+  }, [workspaces])
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const activeWorkspaceRef = useRef(activeWorkspaceId)
+  useEffect(() => {
+    activeWorkspaceRef.current = activeWorkspaceId
+  }, [activeWorkspaceId])
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
   const [switching, setSwitching] = useState(false)
   // Last focused repository per workspace, so switching back restores it.
@@ -149,6 +167,9 @@ export default function App() {
   const [branchRequest, setBranchRequest] = useState(0)
   const [findRequest, setFindRequest] = useState(0)
   const [historyRequest, setHistoryRequest] = useState<Parameters<typeof Workbench>[0]['historyRequest']>(null)
+  /** Bumped when a repository tab must show the history, not a leftover tool. */
+  const [graphFocus, setGraphFocus] = useState(0)
+  const [terminalDock, setTerminalDock] = useState(false)
   const [generation, setGeneration] = useState(0)
   const [diffRequest, setDiffRequest] = useState<Parameters<typeof Workbench>[0]['diffRequest']>(null)
   const [recent, setRecent] = useState<RecentRepo[]>([])
@@ -159,6 +180,10 @@ export default function App() {
   const [launcherOpen, setLauncherOpen] = useState(false)
   // Bumped on every new-tab request so the launcher re-focuses its search.
   const [launcherFocus, setLauncherFocus] = useState(0)
+  const [settingsRequest, setSettingsRequest] = useState<{ tab: 'appearance' | 'profiles'; serial: number } | null>(null)
+  const [navExpanded, setNavExpanded] = useState(() => {
+    try { return localStorage.getItem('beebranch.nav.mode') === 'expanded' } catch { return false }
+  })
   const [initDialogOpen, setInitDialogOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
@@ -491,7 +516,7 @@ export default function App() {
               preferenceGet(ACTIVE_WORKSPACE_KEY),
               preferenceGet(WORKSPACE_LAST_REPO_KEY),
             ])
-          setWorkspaces(storedWorkspaces)
+          replaceWorkspaces(storedWorkspaces)
           if (storedActiveWorkspace) {
             setActiveWorkspaceId(
               storedWorkspaces.some(
@@ -726,8 +751,34 @@ export default function App() {
     }
   }, [repoId, generation, setUndoState])
 
+  const attachOpenedRepo = useCallback(async (workspaceId: string | null, repoPath: string) => {
+    if (!workspaceId || !repoPath) return
+    const workspace = workspacesRef.current.find((item) => item.id === workspaceId)
+    const key = normalizeRepoPath(repoPath)
+    if (workspace?.repos.some((repo) => normalizeRepoPath(repo.path) === key)) return
+    if (workspace && workspace.repos.length >= WORKSPACE_REPO_LIMIT) {
+      setNotice(t('workspaces.panel.attachLimit', {
+        name: workspace.name,
+        limit: WORKSPACE_REPO_LIMIT,
+      }))
+      return
+    }
+    try {
+      const updated = await workspaceAddRepo(workspaceId, repoPath)
+      const current = workspacesRef.current
+      replaceWorkspaces(
+        current.some((item) => item.id === updated.id)
+          ? current.map((item) => item.id === updated.id ? updated : item)
+          : [...current, updated],
+      )
+    } catch (cause) {
+      setNotice(errorMessage(cause))
+    }
+  }, [replaceWorkspaces])
+
   const openRepo = useCallback(
     async (path: string) => {
+      const attachId = activeWorkspaceRef.current
       setBusy(true)
       setError(null)
       try {
@@ -737,6 +788,7 @@ export default function App() {
         setDiffRequest(null)
         setView('graph')
         await reloadRecent()
+        await attachOpenedRepo(attachId, opened.repo.worktree)
         return true
       } catch (cause) {
         setError(errorMessage(cause))
@@ -745,7 +797,7 @@ export default function App() {
         setBusy(false)
       }
     },
-    [reloadRecent, upsert],
+    [attachOpenedRepo, reloadRecent, upsert],
   )
 
   /**
@@ -817,10 +869,11 @@ export default function App() {
    */
   const switchWorkspace = useCallback(
     async (workspaceId: string) => {
-      const target = workspaces.find((workspace) => workspace.id === workspaceId)
+      const target = workspacesRef.current.find((workspace) => workspace.id === workspaceId)
       if (!target || switching) {
         return
       }
+      if (navigationGuard.current?.() === false) return
       setWorkspaceMenuOpen(false)
       setLauncherOpen(false)
       setError(null)
@@ -917,6 +970,13 @@ export default function App() {
         setActiveId(focus?.repo.repoId ?? null)
         setGeneration(focus?.generation ?? 0)
         setDiffRequest(null)
+        setHistoryRequest(null)
+        // The workspace screen stays put so creating or opening a group
+        // keeps its detail. Everywhere else, the switch lands on the history.
+        if (view !== 'workspaces') {
+          setView('graph')
+          setGraphFocus((current) => current + 1)
+        }
         setActiveWorkspaceId(workspaceId)
         rememberWorkspaceRepo(workspaceId, focus?.repo.repoId ?? null)
         if (focus) {
@@ -942,24 +1002,50 @@ export default function App() {
         setSwitching(false)
       }
     },
-    [repos, workspaces, switching, rememberWorkspaceRepo, reloadRecent, upsert],
+    [repos, switching, rememberWorkspaceRepo, reloadRecent, upsert, view],
   )
 
-  const cloneRepo = async (input: CloneInput) => {
+  /** Opens and clones stay out of every workspace until one is chosen again. */
+  const clearWorkspace = useCallback(() => {
+    if (switching) return
+    setWorkspaceMenuOpen(false)
+    setActiveWorkspaceId(null)
+  }, [switching])
+
+  const cloneRepo = async (
+    input: CloneInput,
+    mode?: { attachWorkspaceId?: string | null; showTab?: boolean; keepView?: boolean },
+  ): Promise<string> => {
+    const attachId = mode && 'attachWorkspaceId' in mode
+      ? mode.attachWorkspaceId ?? null
+      : activeWorkspaceRef.current
+    const showTab = mode?.showTab !== false
+    const keepView = mode?.keepView === true
     setBusy(true)
     try {
       const opened = await repoClone(input)
-      upsert(opened)
-      setLauncherOpen(false)
-      setDiffRequest(null)
-      setView('graph')
+      const clonedPath = opened.repo.worktree
+      if (showTab) {
+        upsert(opened)
+        if (!keepView) {
+          setLauncherOpen(false)
+          setDiffRequest(null)
+          setView('graph')
+        }
+      } else {
+        try { await repoClose(opened.repo.repoId) }
+        catch { /* The clone is on disk; the session is only closed when no tab is shown. */ }
+      }
       await reloadRecent()
+      await attachOpenedRepo(attachId, clonedPath)
+      return clonedPath
     } finally {
       setBusy(false)
     }
   }
 
   const initRepo = async (input: InitInput) => {
+    const attachId = activeWorkspaceRef.current
     setBusy(true)
     try {
       const opened = await repoInit(input)
@@ -969,6 +1055,7 @@ export default function App() {
       setView('graph')
       setInitDialogOpen(false)
       await reloadRecent()
+      await attachOpenedRepo(attachId, opened.repo.worktree)
     } finally {
       setBusy(false)
     }
@@ -979,10 +1066,16 @@ export default function App() {
     if (!existing) {
       return
     }
+    // A repository tab always returns to the history. An unsaved draft
+    // (conflicts, rebase) can still refuse the click, and the tab stays put.
+    if (navigationGuard.current?.() === false) return
     setActiveId(target)
     setGeneration(existing.generation)
     setLauncherOpen(false)
     setDiffRequest(null)
+    setHistoryRequest(null)
+    setView('graph')
+    setGraphFocus((current) => current + 1)
     rememberWorkspaceRepo(activeWorkspaceId, target)
     try {
       const refreshed = await repoGetState(target)
@@ -1204,6 +1297,7 @@ export default function App() {
   const navigate = useCallback((target: ViewId) => {
     if (navigationGuard.current?.() === false) return false
     setLauncherOpen(false)
+    if (target === 'terminal') setTerminalDock(false)
     if (target === 'status' || target === 'commit') {
       setView('graph')
       setWorktreeRequest((value) => value + 1)
@@ -1305,7 +1399,7 @@ export default function App() {
     // palette opens on what the current view can do.
     const graphContext = Boolean(repoId)
     const items: PaletteCommand[] = navigationGroups.flatMap((group) =>
-      group.items.filter((item) => item.id !== 'commit' && item.id !== 'diff').map((item) => ({
+      group.items.filter((item) => item.catalog !== false).map((item) => ({
         id: `view-${item.id}`,
         label: t('shell.palette.goTo', { view: t(item.labelKey) }),
         group: t(group.labelKey),
@@ -1526,6 +1620,18 @@ export default function App() {
         run: () => repoId && requestClose(repoId),
       },
     )
+    if (workspaces.length > 0) {
+      items.push({
+        id: 'workspace-none',
+        label: activeWorkspaceId
+          ? t('workspaces.switcher.none')
+          : `${t('workspaces.switcher.none')} · ${t('workspaces.panel.active')}`,
+        group: t('shell.palette.group.workspaces'),
+        available: !switching,
+        unavailableReason: t('shell.palette.unavailable.workspaceSwitching'),
+        run: clearWorkspace,
+      })
+    }
     for (const workspace of workspaces) {
       const selected = workspace.id === activeWorkspaceId
       const count = workspace.repos.length
@@ -1577,13 +1683,16 @@ export default function App() {
       },
     })
     return items
-  }, [navigate, openHistoryAction, openFindInGraph, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
+  }, [navigate, openHistoryAction, openFindInGraph, newBranch, repoId, repo, refresh, requestClose, theme, openRepositoryDialog, openInitDialog, openLauncher, undoState, performUndo, workspaces, activeWorkspaceId, switching, switchWorkspace, clearWorkspace, shortcuts, locale, view, favourites, openFavourite, rememberFavourite])
 
   useZoom()
 
   useShortcuts({
     palette: () => setPaletteOpen(true),
-    settings: () => navigate('profiles'),
+    settings: () => {
+      setSettingsRequest((current) => ({ tab: 'appearance', serial: (current?.serial ?? 0) + 1 }))
+      navigate('profiles')
+    },
     newBranch: () => repoId && newBranch(),
     search: () => repoId && navigate('search'),
     findInGraph: openFindInGraph,
@@ -1604,15 +1713,14 @@ export default function App() {
   }, shortcuts)
 
   const showHome =
-    !repo && !['profiles', 'gitlab', 'github', 'recovery', 'workspaces'].includes(view)
+    !repo && !['profiles', 'gitlab', 'github', 'integrations', 'recovery', 'workspaces'].includes(view)
   // The launcher is a tab of its own: it shows the same start screen as the
   // empty state without closing the repository tabs.
   const showStart = launcherOpen || showHome
+  const railCompact = Boolean(repo) && !showStart && !navExpanded
   // Repository toolbar and operation banner belong to the open repository,
   // not to the launcher or the application pages (workspaces, forges…).
   const repoChrome = !showStart && !APP_PAGES.includes(view)
-  const branch =
-    repo?.state.head?.kind === 'branch' ? repo.state.head.name : null
 
   return (
     <I18nProvider locale={locale} onChange={changeLocale}>
@@ -1620,7 +1728,7 @@ export default function App() {
     <OperationConfirmProvider repoId={repoId} store={confirmOperation}>
     <div
       className={styles.app}
-      data-toolbar={repoChrome ? undefined : 'hidden'}
+      data-toolbar="hidden"
       data-background={background && backgroundUrl ? 'image' : undefined}
       style={{ '--sidebar-width': `${layout.sidebar}px` } as CSSProperties}
     >
@@ -1644,11 +1752,10 @@ export default function App() {
         launcherOpen={launcherOpen}
         onAdd={openLauncher}
         onCloseLauncher={() => setLauncherOpen(false)}
-        onSettings={() => navigate('profiles')}
         updateVersion={availableUpdate}
         updateBusy={installingUpdate}
         onInstallUpdate={() => void installUpdate()}
-        user={forgeUser}
+        onOpenPalette={() => setPaletteOpen(true)}
         workspaceSelector={
           <WorkspaceSwitcher
             workspaces={workspaces}
@@ -1657,6 +1764,7 @@ export default function App() {
             open={workspaceMenuOpen}
             onOpenChange={setWorkspaceMenuOpen}
             onSelect={(workspaceId) => void switchWorkspace(workspaceId)}
+            onClear={clearWorkspace}
             onManage={() => {
               setWorkspaceMenuOpen(false)
               navigate('workspaces')
@@ -1674,43 +1782,39 @@ export default function App() {
           onDismiss={() => setDismissedUpdate(availableUpdate)}
         />
       ) : null}
-      {repoChrome ? (
-        <RepoBar
-          repo={repo}
-          repos={repos}
-          busy={busy}
-          onActivate={(target) => void activate(target)}
-          onOpenDialog={openRepositoryDialog}
-          onOpenPalette={() => setPaletteOpen(true)}
-          onRefresh={() => void refresh()}
-          onNavigate={(target) => {
-            if (target === 'stash' || target === 'rebase' || target === 'conflicts') openHistoryAction(target)
-            else navigate(target)
-          }}
-          onNewBranch={newBranch}
-          onError={setError}
-          onPushRejected={setPushRejected}
-          undo={undoState?.undo ?? null}
-          redo={undoState?.redo ?? null}
-          onUndo={() => performUndo('undo')}
-          onRedo={() => performUndo('redo')}
-        />
-      ) : null}
       <div className={styles.body} data-repository={Boolean(repo) && !showStart}>
-        {!repo || showStart ? <Sidebar
+        <Sidebar
           active={view}
+          homeActive={showStart}
+          compact={railCompact}
           repoName={repo?.repo.name ?? null}
-          branch={branch}
           conflicts={repo?.state.conflicts.files.length ?? 0}
           stashes={stashCount}
-          mergeRequests={0}
           gitlabConnected={gitlabConnected}
           githubConnected={githubConnected}
-          version="0.4.0"
+          userName={forgeUser}
+          settingsTab={settingsRequest?.tab ?? null}
           onSelect={navigate}
-        /> : null}
+          onHome={openLauncher}
+          onSettings={() => {
+            setSettingsRequest((current) => ({ tab: 'appearance', serial: (current?.serial ?? 0) + 1 }))
+            navigate('profiles')
+          }}
+          onAccount={() => {
+            setSettingsRequest((current) => ({ tab: 'profiles', serial: (current?.serial ?? 0) + 1 }))
+            navigate('profiles')
+          }}
+          onOpenRepository={() => void openRepositoryDialog()}
+          onToggleCompact={repo && !showStart ? () => {
+            setNavExpanded((value) => {
+              const next = !value
+              try { localStorage.setItem('beebranch.nav.mode', next ? 'expanded' : 'compact') } catch { /* the rail still toggles for this session */ }
+              return next
+            })
+          } : undefined}
+        />
         <main id="main-content" tabIndex={-1} className={styles.main} aria-busy={busy}>
-          {!repo || showStart ? <Resizer
+          {!railCompact ? <Resizer
             className={styles.sidebarResizer}
             label={t('shell.resizer.navigation')}
             side="right"
@@ -1720,7 +1824,7 @@ export default function App() {
             onChange={(sidebar) => changeLayout({ sidebar })}
             onReset={() => changeLayout({ sidebar: 210 })}
           /> : null}
-          <div className={`${styles.viewbar} ${repo && !showStart ? styles.compactViewbar : ''}`}>
+          <div className={`${styles.viewbar} ${repo ? styles.compactViewbar : ''}`}>
             {view === 'diff' ? <button type="button" className={styles.back} onClick={() => navigate(previousView)}>{t('shell.viewbar.back')}</button> : null}
             <div className={styles.viewHeading}>
               <h1>{showStart ? t('shell.welcome') : t(VIEW_LABELS[view])}</h1>
@@ -1768,7 +1872,7 @@ export default function App() {
                 recent={recent}
                 focusRequest={launcherFocus}
                 onOpen={(path) => void openRepo(path)}
-                onClone={cloneRepo}
+                onClone={async (input) => { await cloneRepo(input) }}
                 onCreate={openInitDialog}
                 onPickDirectory={pickCloneDirectory}
                 favourites={favourites}
@@ -1791,6 +1895,7 @@ export default function App() {
                 branchRequest={branchRequest}
                 findRequest={findRequest}
                 historyRequest={historyRequest}
+                graphFocus={graphFocus}
                 diffRequest={diffRequest}
                 onOpenDiff={openDiff}
                 onOpenRepo={(path) => void openRepo(path)}
@@ -1820,9 +1925,37 @@ export default function App() {
                 layout={layout}
                 onLayoutChange={changeLayout}
                 activeWorkspaceId={activeWorkspaceId}
-                onActivateWorkspace={(workspaceId) => void switchWorkspace(workspaceId)}
-                onWorkspacesChanged={setWorkspaces}
+                onActivateWorkspace={(workspaceId) => switchWorkspace(workspaceId)}
+                onWorkspacesChanged={replaceWorkspaces}
+                onCloneIntoWorkspace={(input, attach) => cloneRepo(input, { ...attach, keepView: true })}
+                onPickDirectory={pickCloneDirectory}
                 onPushRejected={setPushRejected}
+                settingsRequest={settingsRequest}
+                terminalDock={terminalDock}
+                onTerminalDockClose={() => setTerminalDock(false)}
+                historyToolbar={view === 'graph' ? (
+                  <RepoBar
+                    repo={repo}
+                    repos={repos}
+                    busy={busy}
+                    onActivate={(target) => void activate(target)}
+                    onOpenDialog={openRepositoryDialog}
+                    onRefresh={() => void refresh()}
+                    onNavigate={(target) => {
+                      if (target === 'stash' || target === 'rebase' || target === 'conflicts') openHistoryAction(target)
+                      else navigate(target)
+                    }}
+                    onNewBranch={newBranch}
+                    onError={setError}
+                    onPushRejected={setPushRejected}
+                    undo={undoState?.undo ?? null}
+                    redo={undoState?.redo ?? null}
+                    onUndo={() => performUndo('undo')}
+                    onRedo={() => performUndo('redo')}
+                    terminalDocked={terminalDock}
+                    onDockTerminal={() => setTerminalDock((open) => !open)}
+                  />
+                ) : null}
               />
             )}
           </div>
@@ -1830,8 +1963,6 @@ export default function App() {
       </div>
       <StatusBar
         repo={repo}
-        gitlabConnected={gitlabConnected}
-        githubConnected={githubConnected}
         lastOperation={undoState?.undo ? undoActionLabel(undoState.undo) : null}
         canUndo={Boolean(undoState?.undo && !undoState.undo.blocked)}
         onNavigate={navigate}

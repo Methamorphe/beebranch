@@ -1,9 +1,9 @@
-.sidebar { display:flex; flex-direction:column; width:var(--sidebar-width, 210px); min-height:0; border-right:1px solid var(--border); background:var(--surface); overflow-y:auto; overflow-x:hidden; }
+.sidebar { display:flex; flex-direction:column; width:var(--sidebar-width, 210px); min-height:0; border-right:1px solid var(--border); background:var(--surface); overflow:hidden; }
 .caption { padding:22px 18px 6px; color:var(--muted); font-size:10px; letter-spacing:.12em; }
 .repoTitle { display:flex; align-items:center; gap:10px; padding:0 18px 20px; font-weight:600; }
 .repoTitle > svg { color:var(--accent-text); }
 .repoTitle span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.nav { flex:1; padding:0 10px 16px; }
+.nav { flex:1; min-height:0; padding:0 10px 16px; overflow-y:auto; overflow-x:hidden; }
 .group + .group { margin-top:20px; }
 .summary { display:flex; align-items:center; justify-content:space-between; width:100%; padding:8px; color:var(--muted); font-size:11px; font-weight:500; text-align:left; }
 .chevron { transition:transform var(--duration-fast) var(--ease-out); }
@@ -14,21 +14,63 @@
 .itemActive { color:var(--accent-text); background:var(--accent-soft); font-weight:600; }
 .itemActive:hover:not(:disabled) { background:var(--accent-soft); }
 .icon { width:18px; text-align:center; font-size:16px; }
-.label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.label { display:flex; flex-direction:column; min-width:0; }
+.label > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .count { margin-left:auto; color:var(--muted-strong); font:10px var(--mono); }
-.connection { display:flex; align-items:center; gap:10px; margin:10px; padding:12px 8px; border-top:1px solid var(--border); color:var(--muted-strong); text-align:left; font-size:12px; }
-.connection small { display:block; color:var(--muted); font-size:10px; margin-top:2px; }
-.dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--muted); }
-.dot[data-connected='true'] { background:var(--success); }
-@media(max-width:1000px) { .sidebar { width:180px; } .caption { padding-top:14px; } }
-@media(max-width:700px) { .sidebar { width:54px; } .caption,.repoTitle,.summary,.label,.count,.connection { display:none; } .nav { padding:10px 5px; } .group + .group { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); } .items[hidden] { display:flex; } .item,.itemActive { justify-content:center; padding:10px; min-height:40px; } .icon { flex:none; } }
-
+.label small { display:block; overflow:hidden; color:var(--muted); font-size:10px; font-weight:500; line-height:1.3; text-overflow:ellipsis; white-space:nowrap; }
+.itemActive .label small { color:var(--accent-text); }
+.connections { display:flex; flex-direction:column; gap:2px; margin:8px; padding-top:8px; border-top:1px solid var(--border); }
+.connection { display:flex; align-items:center; gap:10px; width:100%; padding:8px; border-radius:var(--radius); color:var(--muted-strong); text-align:left; font-size:12px; }
+.connection[aria-pressed='true'] { color:var(--accent-text); background:var(--accent-soft); }
+.connectionText small { display:block; color:var(--muted); font-size:10px; margin-top:2px; }
+.pin { flex:none; display:flex; align-items:center; justify-content:center; width:22px; height:22px; margin-left:auto; padding:0; color:var(--muted); border-radius:var(--radius-sm); }
+.pin:hover { color:var(--text); background:var(--surface-raised); }
+.repoTitle .pin { margin-left:auto; }
 .icon { display:flex; align-items:center; justify-content:center; }
-
 .caption { display:none; }
 .repoTitle { padding:16px 18px; font-size:14px; }
-.group:first-child > .summary { display:none; }
+.nav > .group:first-of-type > .summary { display:none; }
 .item,.itemActive { min-height:34px; padding:6px 10px; font-size:14px; }
 .group + .group { margin-top:14px; }
 .summary { font-size:12px; }
-@media(max-width:700px) { .repoTitle { display:none; } .item,.itemActive { padding:8px; min-height:38px; } }
+
+.sidebar[data-compact='true'] { width:54px; }
+.sidebar[data-compact='true'] .summary,
+.sidebar[data-compact='true'] .label,
+.sidebar[data-compact='true'] .count,
+.sidebar[data-compact='true'] .connectionText,
+.sidebar[data-compact='true'] .repoTitle > span,
+.sidebar[data-compact='true'] .repoTitle > svg { display:none; }
+.sidebar[data-compact='true'] .nav { padding:8px 5px; }
+.sidebar[data-compact='true'] .group + .group { margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
+.sidebar[data-compact='true'] .items[hidden] { display:flex; }
+.sidebar[data-compact='true'] .item,
+.sidebar[data-compact='true'] .itemActive,
+.sidebar[data-compact='true'] .connection { justify-content:center; padding:8px; min-height:36px; }
+.sidebar[data-compact='true'] .connections { margin:6px 4px; }
+.sidebar[data-compact='true'] .repoTitle { justify-content:center; gap:0; padding:10px 4px; }
+.sidebar[data-compact='true'] .pin { margin-left:0; }
+.accountBlock { display:flex; flex-direction:column; gap:2px; margin:4px 8px 8px; padding-top:8px; border-top:1px solid var(--border); }
+.account, .accountActive { display:flex; align-items:center; gap:10px; width:100%; min-height:34px; padding:6px 10px; border-radius:var(--radius); color:var(--text); text-align:left; }
+.accountActive { color:var(--accent-text); background:var(--accent-soft); }
+.avatar { display:grid; place-items:center; flex:none; width:22px; height:22px; border-radius:5px; color:var(--accent-text); background:var(--surface-raised); font-size:12px; font-weight:600; }
+.accountName { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; }
+.sidebar[data-compact='true'] .accountName { display:none; }
+.sidebar[data-compact='true'] .account,
+.sidebar[data-compact='true'] .accountActive { justify-content:center; padding:8px; }
+.sidebar[data-compact='true'] .accountBlock { margin:4px; }
+
+@media(max-width:1000px) {
+  .sidebar:not([data-compact='true']) { width:180px; }
+}
+@media(max-width:700px) {
+  .sidebar { width:54px; }
+  .summary,.label,.count,.connectionText,.accountName,.repoTitle > span,.repoTitle > svg { display:none; }
+  .account,.accountActive { justify-content:center; padding:8px; }
+  .nav { padding:8px 5px; }
+  .group + .group { margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
+  .items[hidden] { display:flex; }
+  .item,.itemActive,.connection { justify-content:center; padding:8px; min-height:36px; }
+  .connections { margin:6px 4px; }
+  .repoTitle { justify-content:center; gap:0; padding:10px 4px; }
+}

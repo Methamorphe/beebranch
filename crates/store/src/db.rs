@@ -135,6 +135,10 @@ ALTER TABLE gitlab_instances ADD COLUMN provider TEXT NOT NULL DEFAULT 'gitlab';
 CREATE INDEX IF NOT EXISTS gitlab_instances_provider
     ON gitlab_instances(provider);
 "#,
+    r#"
+ALTER TABLE workspaces ADD COLUMN icon_kind TEXT;
+ALTER TABLE workspaces ADD COLUMN icon_key TEXT;
+"#,
 ];
 
 pub(crate) fn configure(connection: &Connection) -> Result<(), StoreError> {
