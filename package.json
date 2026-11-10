@@ -20,6 +20,7 @@
     "tauri": "tauri",
     "ui:smoke": "node scripts/ui-smoke.mjs",
     "ui:workspace": "node scripts/ui-smoke.mjs target/ui-workspace --workspace",
+    "shots": "node scripts/marketing-shots.mjs",
     "audit:telemetry": "node scripts/audit-no-telemetry.mjs",
     "release:manifest": "node scripts/update-manifest.mjs",
     "release:build": "bash scripts/release-build.sh"
