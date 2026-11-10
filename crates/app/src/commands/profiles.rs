@@ -91,25 +91,27 @@ fn input_error(code: &'static str, message: &str) -> AppError {
     AppError::new(code, ErrorCategory::Input, message)
 }
 
+struct FieldFault {
+    code: &'static str,
+    message: &'static str,
+}
+
 fn validate_field(
     value: &str,
     max: usize,
-    empty: &'static str,
-    empty_message: &str,
-    control: &'static str,
-    control_message: &str,
-    too_long: &'static str,
-    too_long_message: &str,
+    empty: FieldFault,
+    control: FieldFault,
+    too_long: FieldFault,
 ) -> Result<String, AppError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(input_error(empty, empty_message));
+        return Err(input_error(empty.code, empty.message));
     }
     if trimmed.chars().any(char::is_control) {
-        return Err(input_error(control, control_message));
+        return Err(input_error(control.code, control.message));
     }
     if trimmed.chars().count() > max {
-        return Err(input_error(too_long, too_long_message));
+        return Err(input_error(too_long.code, too_long.message));
     }
     Ok(trimmed.to_owned())
 }
@@ -195,32 +197,50 @@ fn build_profile(input: ProfileInput, id: String, created_at: i64) -> Result<Pro
     let name = validate_field(
         &input.name,
         80,
-        "profile.name_empty",
-        "Le nom du profil est vide.",
-        "profile.name_control",
-        "Le nom du profil contient un caractère de contrôle.",
-        "profile.name_too_long",
-        "Le nom du profil dépasse 80 caractères.",
+        FieldFault {
+            code: "profile.name_empty",
+            message: "Le nom du profil est vide.",
+        },
+        FieldFault {
+            code: "profile.name_control",
+            message: "Le nom du profil contient un caractère de contrôle.",
+        },
+        FieldFault {
+            code: "profile.name_too_long",
+            message: "Le nom du profil dépasse 80 caractères.",
+        },
     )?;
     let user_name = validate_field(
         &input.user_name,
         120,
-        "profile.git_name_empty",
-        "Le nom Git est vide.",
-        "profile.git_name_control",
-        "Le nom Git contient un caractère de contrôle.",
-        "profile.git_name_too_long",
-        "Le nom Git dépasse 120 caractères.",
+        FieldFault {
+            code: "profile.git_name_empty",
+            message: "Le nom Git est vide.",
+        },
+        FieldFault {
+            code: "profile.git_name_control",
+            message: "Le nom Git contient un caractère de contrôle.",
+        },
+        FieldFault {
+            code: "profile.git_name_too_long",
+            message: "Le nom Git dépasse 120 caractères.",
+        },
     )?;
     let user_email = validate_field(
         &input.user_email,
         200,
-        "profile.email_empty",
-        "L'email Git est vide.",
-        "profile.email_control",
-        "L'email Git contient un caractère de contrôle.",
-        "profile.email_too_long",
-        "L'email Git dépasse 200 caractères.",
+        FieldFault {
+            code: "profile.email_empty",
+            message: "L'email Git est vide.",
+        },
+        FieldFault {
+            code: "profile.email_control",
+            message: "L'email Git contient un caractère de contrôle.",
+        },
+        FieldFault {
+            code: "profile.email_too_long",
+            message: "L'email Git dépasse 200 caractères.",
+        },
     )?;
     if !user_email.contains('@') {
         return Err(input_error(
