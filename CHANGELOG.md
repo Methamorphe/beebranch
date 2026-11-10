@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.0.0] — 2026-11-10
+
+### Added
+
+- **Workspaces group repositories**: an opened, cloned or created tab joins the active workspace, and closing the tab keeps it in the group; each workspace carries a Lucide icon, an image or a monogram, and a grouped fetch uses the same credentials as a single-repository fetch, so private HTTPS remotes no longer fail with `auth.failed` merely because the action is grouped.
+- **A single Integrations screen**: GitLab and GitHub share one page with a forge tab per provider showing its logo and state, then *Repositories*, *Reviews* and *Connection*; the selected sub-tab no longer jumps when the forge changes.
+- **Repositories group by group or organisation**: a remembered checkbox collapses GitLab groups or GitHub organisations into accordions with a repository count.
+- **Link a folder to its remote project**: *Use for this folder* records which remote project the open folder maps to, without touching Git; the matched row, including an automatic match from the remote URL, shows *Project of this folder*, choosing another row replaces it, and there is no button to clear the link.
+- **The commit tree dates are configurable**: Settings → Appearance offers *Relative, then date and time* (the previous behaviour, “ago” for seven days), then short, numeric or ISO dates with or without the time; the choice is remembered and follows the interface language.
+- **Profiles remember a GitHub account**: a profile can hold the connected GitHub account the way it already holds a GitLab instance.
+
+### Changed
+
+- **Navigation is the same with or without a repository**: the sidebar stays visible with a repository open, collapsing to an icon rail beside the graph browser and expanding back to the full list; *Home* reopens the map without closing the last tab, and one catalogue feeds the sidebar and the command menu, so conflicts, search and synchronisation no longer change group depending on where they are opened.
+- **Repository-only screens leave the left menu**: stash, search, worktrees, tags, remotes, submodules, merge requests, pull requests and pipelines already live in the repository browser; the left menu keeps history, workspaces, conflicts, synchronisation, terminal, rebase, patches, file history, tools, log and recovery. An entry that needs a repository shows *Open a repository* and opens the picker instead of a greyed button.
+- **Forge connection moves under one entry**: GitLab and GitHub are no longer a single button that preferred GitLab; the bottom of the sidebar has one *Integrations* entry with the number of connected forges, and the avatar leaves the top bar for below *Settings* (the wheel opens appearance, the avatar opens profiles).
+- **The workspace selector keeps its width**: fixed at 168 px, it no longer changes size between *Home* and *History*.
+- **History owns the repository bar**: Fetch / Pull / Push / branch / stash / undo live in the history instead of the window frame, so switching between *Home* and *History* no longer shifts the whole interface.
+- **Merging always creates a merge commit**: *Merge* by drag-and-drop or from a branch menu passes `--no-ff`; *Fast-forward* remains the action that moves the branch without a commit.
+- **The terminal opens in place or full screen**: the *Terminal* button in the history bar opens an integrated panel at the bottom, closed by a second click or its cross, with a draggable edge; *Terminal* in the left menu opens the same terminal full screen.
+- **The clone form is shared**: cloning from *Home* and from a workspace use the same form.
+- **Synchronisation announces its scope**: the button reads *Pull all* or *Pull 3* (and the same for Fetch) before the click, including in the menu and the confirmation; no ticked box still means every repository.
+
+### Fixed
+
+- **Clicking a repository tab leaves Settings**: from Settings or an integration page, activating a repository tab returns to the graph through the navigation guard, so an unsaved draft still refuses the click instead of being lost.
+- **A tab click returns to the tree**: opening a repository tab or switching workspace no longer reopens the *Conflicts* screen or the in-progress operation on the next repository.
+- **Workspace and profile errors follow the interface language**: known error codes are translated.
+- **Overflowing tabs stay reachable**: the tab strip has a visible scrollbar and a menu for the hidden tabs.
+
 ## [1.11.0] — 2026-11-09
 
 ### Added
