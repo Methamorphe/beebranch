@@ -29,6 +29,18 @@ import {
   saveAutoFetchMinutes,
 } from '../lib/autoFetch'
 import {
+  GRAPH_DATE_FORMATS,
+  GRAPH_DATE_PREFERENCE,
+  applyStoredGraphDate,
+  getGraphDateFormat,
+  graphDateEpoch,
+  graphDateExample,
+  isGraphDateFormat,
+  onGraphDateFormatChanged,
+  rememberGraphDateFormat,
+  type GraphDateFormat,
+} from '../lib/graphDate'
+import {
   DEFAULT_MEDIA_OPTIONS,
   MEDIA_EXTENSIONS,
   mediaLabel,
@@ -269,6 +281,7 @@ export function ProfilesPanel({
   const [encoding, setEncoding] = useState('utf8')
   const [hooksPath, setHooksPath] = useState('')
   const [autoFetch, setAutoFetch] = useState('0')
+  const [graphDate, setGraphDate] = useState<GraphDateFormat>(getGraphDateFormat)
   const [signMode, setSignMode] = useState('')
   const [signingKey, setSigningKey] = useState('')
   const [signingFormat, setSigningFormat] = useState('openpgp')
@@ -331,6 +344,7 @@ export function ProfilesPanel({
 
   useEffect(() => {
     let cancelled = false
+    const dateEpoch = graphDateEpoch()
     void Promise.all([
       preferenceGet('ui.encoding'),
       preferenceGet('git.hooksPath'),
@@ -339,8 +353,9 @@ export function ProfilesPanel({
       preferenceGet('git.signingFormat'),
       preferenceGet(AUTO_FETCH_PREFERENCE),
       preferenceGet(SETTINGS_TAB_KEY),
+      preferenceGet(GRAPH_DATE_PREFERENCE),
     ])
-      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch, savedTab]) => {
+      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch, savedTab, savedGraphDate]) => {
         if (cancelled) {
           return
         }
@@ -359,6 +374,7 @@ export function ProfilesPanel({
         if (!settingsRequest && isSettingsTab(savedTab)) {
           setTab(savedTab)
         }
+        applyStoredGraphDate(savedGraphDate, dateEpoch)
       })
       .catch(() => undefined)
     return () => {
@@ -369,6 +385,8 @@ export function ProfilesPanel({
   useEffect(() => {
     if (settingsRequest) selectTab(settingsRequest.tab)
   }, [settingsRequest, selectTab])
+
+  useEffect(() => onGraphDateFormatChanged(setGraphDate), [])
 
   useEffect(() => {
     void updateStatus()
@@ -499,6 +517,32 @@ export function ProfilesPanel({
             >
               <option value="comfortable">{t('settings.appearance.density.comfortable')}</option>
               <option value="compact">{t('settings.appearance.density.compact')}</option>
+            </select>
+          </div>
+        </div>
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.graphDate.title')}</strong>
+            <p>{t('settings.graphDate.description')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={graphDate}
+              aria-label={t('settings.graphDate.aria')}
+              onChange={(event) => {
+                const next = event.target.value
+                if (!isGraphDateFormat(next)) return
+                rememberGraphDateFormat(next)
+                void preferenceSet(GRAPH_DATE_PREFERENCE, next).catch((cause: unknown) =>
+                  setError(errorMessage(cause)),
+                )
+              }}
+            >
+              {GRAPH_DATE_FORMATS.map((format) => (
+                <option key={format} value={format}>
+                  {format === 'relative' ? t('settings.graphDate.relative') : graphDateExample(format, locale)}
+                </option>
+              ))}
             </select>
           </div>
         </div>

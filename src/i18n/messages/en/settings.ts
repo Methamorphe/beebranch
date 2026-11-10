@@ -23,6 +23,12 @@ const messages = {
   'settings.appearance.density.comfortable': 'Comfortable',
   'settings.appearance.density.compact': 'Compact',
 
+  'settings.graphDate.title': 'History dates',
+  'settings.graphDate.description':
+    'In the commit tree. “Relative” shows “3 hours ago” for seven days, then the date and time. The other choices always show the date.',
+  'settings.graphDate.aria': 'Commit tree date format',
+  'settings.graphDate.relative': 'Relative, then date and time',
+
   'settings.media.wallpaper.title': 'Wallpaper',
   'settings.media.wallpaper.description':
     'Image or animated GIF behind the desktop · png, jpg, gif, webp, avif, bmp · 32 MB maximum.',
