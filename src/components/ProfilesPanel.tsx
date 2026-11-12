@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { GitBranch, Keyboard, Palette, Settings2, Users, type LucideIcon } from 'lucide-react'
+import { PIPELINE_NOTIFY_PREFERENCE, setPipelineNotifyEnabled } from '../lib/pipelineNotify'
+import { ensureNotificationPermission } from '../lib/usePipelineNotifications'
 import { LOCALES, LOCALE_NAMES, useI18n, type MessageKey } from '../i18n'
 import { AppIcon } from './IconSvg'
 import {
@@ -281,6 +283,7 @@ export function ProfilesPanel({
   const [encoding, setEncoding] = useState('utf8')
   const [hooksPath, setHooksPath] = useState('')
   const [autoFetch, setAutoFetch] = useState('0')
+  const [pipelineNotify, setPipelineNotify] = useState('0')
   const [graphDate, setGraphDate] = useState<GraphDateFormat>(getGraphDateFormat)
   const [signMode, setSignMode] = useState('')
   const [signingKey, setSigningKey] = useState('')
@@ -352,15 +355,19 @@ export function ProfilesPanel({
       preferenceGet('git.signingKey'),
       preferenceGet('git.signingFormat'),
       preferenceGet(AUTO_FETCH_PREFERENCE),
+      preferenceGet(PIPELINE_NOTIFY_PREFERENCE),
       preferenceGet(SETTINGS_TAB_KEY),
       preferenceGet(GRAPH_DATE_PREFERENCE),
     ])
-      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch, savedTab, savedGraphDate]) => {
+      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch, savedPipelineNotify, savedTab, savedGraphDate]) => {
         if (cancelled) {
           return
         }
         if (isAutoFetchOption(savedAutoFetch)) {
           setAutoFetch(savedAutoFetch)
+        }
+        if (savedPipelineNotify === '1') {
+          setPipelineNotify('1')
         }
         if (savedEncoding) {
           setEncoding(savedEncoding)
@@ -691,6 +698,43 @@ export function ProfilesPanel({
 
         {tab === 'git' ? <>
         <h2 className={p2.cardTitle}>{t('settings.tab.git')}</h2>
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.pipelineNotify.title')}</strong>
+            <p>{t('settings.pipelineNotify.description')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={pipelineNotify}
+              aria-label={t('settings.pipelineNotify.aria')}
+              onChange={(event) => {
+                const next = event.target.value === '1' ? '1' : '0'
+                void (async () => {
+                  if (next === '1') {
+                    try {
+                      const allowed = await ensureNotificationPermission()
+                      if (!allowed) {
+                        setError(t('settings.pipelineNotify.denied'))
+                        return
+                      }
+                    } catch (cause) {
+                      setError(errorMessage(cause))
+                      return
+                    }
+                  }
+                  setPipelineNotify(next)
+                  setPipelineNotifyEnabled(next === '1')
+                  await preferenceSet(PIPELINE_NOTIFY_PREFERENCE, next).catch((cause: unknown) =>
+                    setError(errorMessage(cause)),
+                  )
+                })()
+              }}
+            >
+              <option value="0">{t('settings.pipelineNotify.off')}</option>
+              <option value="1">{t('settings.pipelineNotify.on')}</option>
+            </select>
+          </div>
+        </div>
         <div className={p2.setting}>
           <div>
             <strong>{t('settings.identity.title')}</strong>

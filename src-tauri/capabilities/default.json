@@ -9,6 +9,7 @@
     "core:default",
     "core:webview:allow-set-webview-zoom",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "notification:default"
   ]
 }
