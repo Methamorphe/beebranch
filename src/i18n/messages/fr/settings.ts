@@ -119,6 +119,12 @@ const messages = {
   'settings.autoFetch.title': 'Fetch automatique',
   'settings.autoFetch.hint':
     'Récupère en arrière-plan les nouveautés des remotes du dépôt ouvert, à intervalle régulier ; s’applique à toute l’application.',
+  'settings.checkoutStash.title': 'Modifications locales au checkout',
+  'settings.checkoutStash.description':
+    'Quand un changement de branche doit remiser vos modifications, choisir si ce stash est réappliqué sur la branche d’arrivée ou laissé dans la liste.',
+  'settings.checkoutStash.aria': 'Comportement du stash de checkout',
+  'settings.checkoutStash.keep': 'Conserver le stash',
+  'settings.checkoutStash.reapply': 'Réappliquer sur la nouvelle branche',
   'settings.signing.title': 'Signature des commits',
   'settings.signing.hint':
     'S’applique aux commits créés dans l’application ; « hériter » suit la configuration Git du dépôt.',

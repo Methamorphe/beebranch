@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { GitBranch, Keyboard, Palette, Settings2, Users, type LucideIcon } from 'lucide-react'
+import { CHECKOUT_STASH_PREFERENCE, isCheckoutStashMode, type CheckoutStashMode } from '../lib/checkoutStash'
 import { LOCALES, LOCALE_NAMES, useI18n, type MessageKey } from '../i18n'
 import { AppIcon } from './IconSvg'
 import {
@@ -281,6 +282,7 @@ export function ProfilesPanel({
   const [encoding, setEncoding] = useState('utf8')
   const [hooksPath, setHooksPath] = useState('')
   const [autoFetch, setAutoFetch] = useState('0')
+  const [checkoutStash, setCheckoutStash] = useState<CheckoutStashMode>('keep')
   const [graphDate, setGraphDate] = useState<GraphDateFormat>(getGraphDateFormat)
   const [signMode, setSignMode] = useState('')
   const [signingKey, setSigningKey] = useState('')
@@ -352,15 +354,19 @@ export function ProfilesPanel({
       preferenceGet('git.signingKey'),
       preferenceGet('git.signingFormat'),
       preferenceGet(AUTO_FETCH_PREFERENCE),
+      preferenceGet(CHECKOUT_STASH_PREFERENCE),
       preferenceGet(SETTINGS_TAB_KEY),
       preferenceGet(GRAPH_DATE_PREFERENCE),
     ])
-      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch, savedTab, savedGraphDate]) => {
+      .then(([savedEncoding, savedHooks, savedSign, savedKey, savedFormat, savedAutoFetch, savedCheckoutStash, savedTab, savedGraphDate]) => {
         if (cancelled) {
           return
         }
         if (isAutoFetchOption(savedAutoFetch)) {
           setAutoFetch(savedAutoFetch)
+        }
+        if (isCheckoutStashMode(savedCheckoutStash)) {
+          setCheckoutStash(savedCheckoutStash)
         }
         if (savedEncoding) {
           setEncoding(savedEncoding)
@@ -691,6 +697,29 @@ export function ProfilesPanel({
 
         {tab === 'git' ? <>
         <h2 className={p2.cardTitle}>{t('settings.tab.git')}</h2>
+        <div className={p2.setting}>
+          <div>
+            <strong>{t('settings.checkoutStash.title')}</strong>
+            <p>{t('settings.checkoutStash.description')}</p>
+          </div>
+          <div className={p2.settingControls}>
+            <select
+              value={checkoutStash}
+              aria-label={t('settings.checkoutStash.aria')}
+              onChange={(event) => {
+                const next = event.target.value
+                if (!isCheckoutStashMode(next)) return
+                setCheckoutStash(next)
+                void preferenceSet(CHECKOUT_STASH_PREFERENCE, next).catch((cause: unknown) =>
+                  setError(errorMessage(cause)),
+                )
+              }}
+            >
+              <option value="keep">{t('settings.checkoutStash.keep')}</option>
+              <option value="reapply">{t('settings.checkoutStash.reapply')}</option>
+            </select>
+          </div>
+        </div>
         <div className={p2.setting}>
           <div>
             <strong>{t('settings.identity.title')}</strong>

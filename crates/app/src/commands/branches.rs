@@ -25,11 +25,34 @@ fn checkout_inverse(fingerprint: &Fingerprint) -> ReversibleAction {
 
 fn checkout_stash_inverse(
     before: &Fingerprint,
+    after: &Fingerprint,
     inverse: ReversibleAction,
     redo: ReversibleAction,
-    stash: Option<&beebranch_git::stash::StashEntry>,
+    stash: Option<&branches::CheckoutAutoStash>,
 ) -> (ReversibleAction, Option<ReversibleAction>) {
     match stash {
+        // The changes are already in the worktree and the stash entry is
+        // gone. Clean that worktree, restore the previous checkout, then
+        // reapply the stash commit which `pop` left reachable by its SHA.
+        Some(stash) if stash.popped => {
+            let mut actions = Vec::new();
+            if after.head_sha.is_some() {
+                actions.push(ReversibleAction::RestoreHead {
+                    target: undo::head_target(after),
+                    sha: after.head_sha.clone(),
+                    mode: RestoreMode::HardBeforeStash,
+                    index_tree: after.head_sha.clone(),
+                });
+            }
+            actions.push(inverse);
+            actions.push(ReversibleAction::ApplyStash {
+                selector: stash.selector.clone(),
+                expected_sha: stash.sha.clone(),
+                drop: false,
+                expected_status_hash: None,
+            });
+            (sequence(actions), None)
+        }
         Some(stash) => (
             sequence(vec![
                 inverse,
@@ -44,6 +67,45 @@ fn checkout_stash_inverse(
         ),
         None => (inverse, Some(redo)),
     }
+}
+
+const CHECKOUT_STASH_PREFERENCE: &str = "git.checkoutStash";
+
+fn checkout_reapplies_stash(store: &beebranch_store::Store) -> bool {
+    store
+        .preference(CHECKOUT_STASH_PREFERENCE)
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("reapply")
+}
+
+fn checkout_result(stash: &Option<branches::CheckoutAutoStash>) -> CheckoutResult {
+    match stash {
+        Some(stash) if stash.popped => CheckoutResult {
+            stash_popped: true,
+            stash_kept: false,
+            stash_conflicts: Vec::new(),
+        },
+        Some(stash) => CheckoutResult {
+            stash_popped: false,
+            stash_kept: true,
+            stash_conflicts: stash.conflicts.clone(),
+        },
+        None => CheckoutResult {
+            stash_popped: false,
+            stash_kept: false,
+            stash_conflicts: Vec::new(),
+        },
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutResult {
+    pub stash_popped: bool,
+    pub stash_kept: bool,
+    pub stash_conflicts: Vec<String>,
 }
 
 fn sequence(mut actions: Vec<ReversibleAction>) -> ReversibleAction {
@@ -449,9 +511,10 @@ pub async fn branch_create(
 pub async fn branch_checkout(
     state: State<'_, AppState>,
     request: CheckoutRequest,
-) -> Result<MutationResult<()>, AppError> {
+) -> Result<MutationResult<CheckoutResult>, AppError> {
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
+    let preferences = store.clone();
     let label = request
         .name
         .clone()
@@ -473,11 +536,14 @@ pub async fn branch_checkout(
                 worktree,
                 request.name.as_deref(),
                 request.detached_at.as_deref(),
+                checkout_reapplies_stash(&preferences),
             )?;
             let label = format!("checkout {label}");
+            let outcome = checkout_result(&stash);
             let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
                 let (undo, redo) = checkout_stash_inverse(
                     before,
+                    after,
                     checkout_inverse(before),
                     checkout_inverse(after),
                     stash.as_ref(),
@@ -490,7 +556,7 @@ pub async fn branch_checkout(
                 }
             });
             Ok((
-                (),
+                outcome,
                 vec![
                     InvalidationArea::Refs,
                     InvalidationArea::Head,
@@ -511,9 +577,10 @@ pub async fn branch_checkout(
 pub async fn branch_checkout_at(
     state: State<'_, AppState>,
     request: CheckoutAtRequest,
-) -> Result<MutationResult<()>, AppError> {
+) -> Result<MutationResult<CheckoutResult>, AppError> {
     let session = state.session(&request.repo_id)?;
     let store = state.store.clone();
+    let preferences = store.clone();
     let reference = format!("refs/heads/{}", request.name);
     let name = request.name.clone();
     let start = request.start.clone();
@@ -528,12 +595,19 @@ pub async fn branch_checkout_at(
         },
         move |runner, discovery| {
             let worktree = discovery.worktree()?;
-            let stash = branches::checkout_reset_stashed(runner, worktree, &name, &start)?;
+            let stash = branches::checkout_reset_stashed(
+                runner,
+                worktree,
+                &name,
+                &start,
+                checkout_reapplies_stash(&preferences),
+            )?;
             let label = format!("checkout de {name} sur {start}");
             let reference = reference.clone();
+            let outcome = checkout_result(&stash);
             let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
                 let (undo, redo) = checkout_reset_inverse(&name, &reference, before, after);
-                let (undo, redo) = checkout_stash_inverse(before, undo, redo, stash.as_ref());
+                let (undo, redo) = checkout_stash_inverse(before, after, undo, redo, stash.as_ref());
                 UndoDraft {
                     kind: "branch.checkout-at".to_owned(),
                     label,
@@ -542,7 +616,7 @@ pub async fn branch_checkout_at(
                 }
             });
             Ok((
-                (),
+                outcome,
                 vec![
                     InvalidationArea::Refs,
                     InvalidationArea::Head,
@@ -973,9 +1047,9 @@ mod tests {
             ];
             let before = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
             let stash = if reset {
-                branches::checkout_reset_stashed(&runner, dir.path(), "remote-feature", "feature")
+                branches::checkout_reset_stashed(&runner, dir.path(), "remote-feature", "feature", false)
             } else {
-                branches::checkout_stashed(&runner, dir.path(), Some("feature"), None)
+                branches::checkout_stashed(&runner, dir.path(), Some("feature"), None, false)
             }
             .unwrap();
             let after = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
@@ -989,7 +1063,7 @@ mod tests {
             } else {
                 (checkout_inverse(&before), checkout_inverse(&after))
             };
-            let (action, redo) = checkout_stash_inverse(&before, inverse, redo, stash.as_ref());
+            let (action, redo) = checkout_stash_inverse(&before, &after, inverse, redo, stash.as_ref());
             assert!(redo.is_none());
             undo::apply(&runner, &discovery, &action, &mut |_| Ok(())).unwrap();
             let restored = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
