@@ -13,7 +13,9 @@ import { errorMessage } from '../ipc/client'
 import { STATUS_LABELS, splitPath } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
 import { ToolbarIcon } from './ToolbarIcon'
-import { dateFromSeconds, formatDate, formatNumber, useI18n, type MessageKey } from '../i18n'
+import { formatNumber, useI18n, type MessageKey } from '../i18n'
+import { formatGraphCommitDate } from '../lib/graphDate'
+import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import { ConfirmBar } from './ConfirmBar'
 import { Markdown } from './Markdown'
 import shared from './p1.module.css'
@@ -484,7 +486,8 @@ export function DiffViewer({
   editor = staging,
   initialEditPath,
 }: Props) {
-  const { t, plural } = useI18n()
+  const { t, plural, locale } = useI18n()
+  const graphDate = useGraphDateFormat()
   const [mode, setMode] = useState<Mode>('inline')
   const [wrap, setWrap] = useState(() => {
     try {
@@ -1168,7 +1171,7 @@ export function DiffViewer({
                 )}
                 <span className={styles.commitMeta}>
                   {commit.author} ·{' '}
-                  {formatDate(dateFromSeconds(commit.timestamp))}
+                  {formatGraphCommitDate(commit.timestamp, graphDate, locale)}
                 </span>
               </span>
             ) : source ? (

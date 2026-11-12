@@ -112,7 +112,7 @@ export function formatDateTime(
 /**
  * "3 hours ago", "yesterday" for a date within the last week, `null` beyond
  * (or in the future, e.g. a skewed committer clock): callers then show the
- * absolute date.
+ * absolute date. The phrase follows the interface language.
  */
 export function formatRelative(value: Date, now: Date = new Date()): string | null {
   return formatRelativeTime(value, activeLocale, now)

@@ -5,7 +5,9 @@ import {
   statusGet,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
-import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
+import { useI18n } from '../i18n'
+import { formatGraphCommitDate } from '../lib/graphDate'
+import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import type { BlameReport, FileHistory } from '../types/git'
 import p2 from './p2.module.css'
 
@@ -49,7 +51,8 @@ export function FileHistoryPanel({
   onShowCommit,
   onShowDiff,
 }: Props) {
-  const { t, plural } = useI18n()
+  const { t, plural, locale } = useI18n()
+  const graphDate = useGraphDateFormat()
   const [paths, setPaths] = useState<string[]>([])
   const [path, setPath] = useState(initialPath ?? '')
   const [revision, setRevision] = useState('')
@@ -298,7 +301,7 @@ export function FileHistoryPanel({
                           <span>·</span>
                           <span>{entry.author}</span>
                           <span>·</span>
-                          <span>{formatDateTime(dateFromSeconds(entry.authorTime))}</span>
+                          <span>{formatGraphCommitDate(entry.authorTime, graphDate, locale)}</span>
                           {entry.previousPath ? (
                             <>
                               <span>·</span>
@@ -355,7 +358,7 @@ export function FileHistoryPanel({
                         <span className={p2.dot} data-tone={authorTone(group.author) || undefined} />
                         <span>{group.author}</span>
                         <span>·</span>
-                        <span>{formatDateTime(dateFromSeconds(group.time))}</span>
+                        <span>{formatGraphCommitDate(group.time, graphDate, locale)}</span>
                         <span>·</span>
                         <span>{group.summary}</span>
                       </span>

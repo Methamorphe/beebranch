@@ -3,7 +3,9 @@ import type { CommitDetail } from '../types/git'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
 import { ToolbarIcon } from './ToolbarIcon'
-import { dateFromSeconds, formatDateTime, formatRelative, useI18n, type MessageKey } from '../i18n'
+import { useI18n, type MessageKey } from '../i18n'
+import { formatGraphCommitDate } from '../lib/graphDate'
+import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import styles from './CommitDetailPanel.module.css'
 
 /** Verification code from `git show --format=%G?`, mapped to a label. */
@@ -43,7 +45,8 @@ function PathLabel({ path }: { path: string }) {
 }
 
 export function CommitDetailPanel({ detail, loading, error, activePath, onShowDiff, onClose }: Props) {
-  const { t, plural } = useI18n()
+  const { t, plural, locale } = useI18n()
+  const graphDate = useGraphDateFormat()
   const filesRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -87,7 +90,13 @@ export function CommitDetailPanel({ detail, loading, error, activePath, onShowDi
 
   const commit = detail.summary
   const subject = commit.subject.trim()
-  const relativeAge = formatRelative(dateFromSeconds(commit.author.timestamp))
+  const authoredAt = commit.author.timestamp
+  const authoredLabel = formatGraphCommitDate(authoredAt, graphDate, locale)
+  const authoredExact = formatGraphCommitDate(
+    authoredAt,
+    graphDate === 'relative' ? 'dateTime' : graphDate,
+    locale,
+  )
   const rawBody = detail.message.trim()
   const body = rawBody.startsWith(subject) ? rawBody.slice(subject.length).trim() : rawBody
   const additions = detail.files.reduce((total, file) => total + (file.additions ?? 0), 0)
@@ -120,9 +129,9 @@ export function CommitDetailPanel({ detail, loading, error, activePath, onShowDi
           </span>
           <span className={styles.metaItem}>
             <span className={styles.metaLabel}>{t('diff.commit.date')}</span>
-            <span>
-              {formatDateTime(dateFromSeconds(commit.author.timestamp))}
-              {relativeAge ? ` · ${relativeAge}` : ''}
+            <span title={authoredExact}>
+              {authoredLabel}
+              {authoredLabel !== authoredExact ? ` · ${authoredExact}` : ''}
             </span>
           </span>
           <span className={styles.metaItem}>

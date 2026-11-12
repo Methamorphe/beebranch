@@ -5,7 +5,9 @@ import { STATUS_LABELS, splitPath } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
 import { ToolbarIcon } from './ToolbarIcon'
 
-import { dateFromSeconds, formatDateTime, useI18n } from '../i18n'
+import { useI18n } from '../i18n'
+import { formatGraphCommitDate } from '../lib/graphDate'
+import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import type { CommitSummary, DiffReport, FileDiff } from '../types/git'
 import styles from './ComparisonPanel.module.css'
 
@@ -69,7 +71,8 @@ export function ComparisonPanel({
   onSwap,
   onFullScreen,
 }: Props) {
-  const { t, plural } = useI18n()
+  const { t, plural, locale } = useI18n()
+  const graphDate = useGraphDateFormat()
   const [fileView, setFileView] = useState<FileView>('tree')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const files = report?.files ?? NO_FILES
@@ -213,7 +216,7 @@ export function ComparisonPanel({
                       {commit.subject}
                     </span>
                     <span className={styles.commitMeta}>
-                      {formatDateTime(dateFromSeconds(commit.author.timestamp))} · {commit.author.name}
+                      {formatGraphCommitDate(commit.author.timestamp, graphDate, locale)} · {commit.author.name}
                     </span>
                   </span>
                 </li>

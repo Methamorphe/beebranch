@@ -25,7 +25,7 @@ const messages = {
 
   'settings.graphDate.title': 'History dates',
   'settings.graphDate.description':
-    'In the commit tree. “Relative” shows “3 hours ago” for seven days, then the date and time. The other choices always show the date.',
+    'In history. “Relative” shows “3 hours ago” for seven days, in the interface language, then the system date. The other formats do not follow the application language: the month and the order come from the system, and ISO stays numeric.',
   'settings.graphDate.aria': 'Commit tree date format',
   'settings.graphDate.relative': 'Relative, then date and time',
 
