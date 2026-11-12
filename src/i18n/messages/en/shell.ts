@@ -215,6 +215,9 @@ const messages = {
   'shell.repoBar.commands': 'Commands',
 
   'shell.pipeline.aria': 'Repository pipeline status',
+  'shell.pipeline.notifyTitle': 'Pipeline failed',
+  'shell.pipeline.notifyBody': '{repo} · {ref} · #{id}',
+  'shell.pipeline.notifyBodyNoRef': '{repo} · #{id}',
   'shell.pipeline.state.pending': 'Pending',
   'shell.pipeline.state.running': 'Running',
   'shell.pipeline.state.success': 'Success',

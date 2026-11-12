@@ -17,4 +17,5 @@ beebranch-app = { path = "../crates/app" }
 tauri.workspace = true
 serde_json.workspace = true
 tauri-plugin-dialog = "=2.8.3"
+tauri-plugin-notification = "2"
 tauri-plugin-updater.workspace = true

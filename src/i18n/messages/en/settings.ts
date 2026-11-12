@@ -119,6 +119,13 @@ const messages = {
   'settings.autoFetch.title': 'Automatic fetch',
   'settings.autoFetch.hint':
     'Fetches the remotes of the open repository in the background at a regular interval; applies to the whole application.',
+  'settings.pipelineNotify.title': 'Pipeline failure',
+  'settings.pipelineNotify.description':
+    'System notification when a pipeline of an open repository turns red. Only the forge you already connected is contacted. On Windows the installed application is required.',
+  'settings.pipelineNotify.aria': 'Pipeline failure notifications',
+  'settings.pipelineNotify.off': 'Off',
+  'settings.pipelineNotify.on': 'On',
+  'settings.pipelineNotify.denied': 'The system refused BeeBranch notifications.',
   'settings.signing.title': 'Commit signing',
   'settings.signing.hint':
     'Applies to commits created in the application; “inherit” follows the repository Git configuration.',
