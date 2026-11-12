@@ -1,14 +1,16 @@
 /**
- * Date column of the commit graph.
+ * Dates shown in commit history.
  *
- * `relative` keeps the historical behaviour: a relative age for the last seven
- * days, then the short date and time. Every other value always shows that
- * absolute format, including for recent commits.
+ * `relative` keeps a relative age for the last seven days, in the interface
+ * language, then the absolute date. Every other value always shows that
+ * absolute format. Absolute dates follow the operating system locale, never
+ * the interface language: an English UI on a French system still shows
+ * « 28 mars 2026 ».
  */
 
 // Explicit extensions: `scripts/graph-date-format-check.ts` imports this module
 // straight from Node, which resolves ESM specifiers literally.
-import { localeTag, type Locale } from '../i18n/locale.ts'
+import { type Locale } from '../i18n/locale.ts'
 import { formatRelativeTime } from '../i18n/relativeTime.ts'
 
 export const GRAPH_DATE_PREFERENCE = 'ui.graphDateFormat'
@@ -44,11 +46,18 @@ const DATE_FIELDS: Record<
 
 const dateFormatters = new Map<string, Intl.DateTimeFormat>()
 
-function dateFormatter(locale: Locale, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = `${locale}|${JSON.stringify(options)}`
+/** Operating system language. Independent of the interface language. */
+function regionalTag(override?: string): string | undefined {
+  if (override) return override
+  if (typeof navigator !== 'undefined' && navigator.language) return navigator.language
+  return undefined
+}
+
+function dateFormatter(locale: string | undefined, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale ?? ''}|${JSON.stringify(options)}`
   let formatter = dateFormatters.get(key)
   if (!formatter) {
-    formatter = new Intl.DateTimeFormat(localeTag(locale), options)
+    formatter = new Intl.DateTimeFormat(locale, options)
     dateFormatters.set(key, formatter)
   }
   return formatter
@@ -89,27 +98,34 @@ function formatIso(date: Date, withTime: boolean): string {
 function formatAbsolute(
   date: Date,
   format: Exclude<GraphDateFormat, 'relative'>,
-  locale: Locale,
+  regional?: string,
 ): string {
   if (format === 'iso' || format === 'isoTime') return formatIso(date, format === 'isoTime')
-  const day = dateFormatter(locale, DATE_FIELDS[format]).format(date)
+  const tag = regionalTag(regional)
+  const day = dateFormatter(tag, DATE_FIELDS[format]).format(date)
   if (!WITH_TIME.has(format)) return day
-  const time = dateFormatter(locale, { hour: '2-digit', minute: '2-digit' }).format(date)
+  const time = dateFormatter(tag, { hour: '2-digit', minute: '2-digit' }).format(date)
   return `${day} ${time}`
 }
 
-/** Label drawn in the graph date column. `timestamp` is Unix seconds. */
+/**
+ * History date. `timestamp` is Unix seconds.
+ *
+ * `locale` is the interface language and is used only for a relative age.
+ * `regional` overrides the operating system locale, for tests.
+ */
 export function formatGraphCommitDate(
   timestamp: number,
   format: GraphDateFormat,
   locale: Locale,
   now: Date = new Date(),
+  regional?: string,
 ): string {
   const date = new Date(timestamp * 1000)
   if (format === 'relative') {
-    return formatRelativeTime(date, locale, now) ?? formatAbsolute(date, 'dateTime', locale)
+    return formatRelativeTime(date, locale, now) ?? formatAbsolute(date, 'dateTime', regional)
   }
-  return formatAbsolute(date, format, locale)
+  return formatAbsolute(date, format, regional)
 }
 
 /** Example shown on a format option, in the active language. */
