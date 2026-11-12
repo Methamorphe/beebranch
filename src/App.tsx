@@ -1025,8 +1025,12 @@ export default function App() {
     try {
       const opened = await repoClone(input)
       const clonedPath = opened.repo.worktree
+      // Record the membership before any tab change. Activating the clone
+      // remounts the workbench (its key is the open repository), and the
+      // workspace screen would reload before this attach and miss the repo.
+      await attachOpenedRepo(attachId, clonedPath)
       if (showTab) {
-        upsert(opened)
+        upsert(opened, !keepView)
         if (!keepView) {
           setLauncherOpen(false)
           setDiffRequest(null)
@@ -1037,7 +1041,6 @@ export default function App() {
         catch { /* The clone is on disk; the session is only closed when no tab is shown. */ }
       }
       await reloadRecent()
-      await attachOpenedRepo(attachId, clonedPath)
       return clonedPath
     } finally {
       setBusy(false)
