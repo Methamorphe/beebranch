@@ -1,4 +1,5 @@
 import { call } from './client'
+import type { CheckoutResult } from '../lib/checkoutStash'
 import type {
   AppInfo,
 } from '../types/app'
@@ -402,16 +403,16 @@ export function branchCheckout(input: {
   repoId: string
   name?: string
   detachedAt?: string
-}): Promise<MutationResult<null>> {
-  return call<MutationResult<null>>('branch_checkout', { request: input })
+}): Promise<MutationResult<CheckoutResult>> {
+  return call<MutationResult<CheckoutResult>>('branch_checkout', { request: input })
 }
 
 export function branchCheckoutAt(input: {
   repoId: string
   name: string
   start: string
-}): Promise<MutationResult<null>> {
-  return call<MutationResult<null>>('branch_checkout_at', { request: input })
+}): Promise<MutationResult<CheckoutResult>> {
+  return call<MutationResult<CheckoutResult>>('branch_checkout_at', { request: input })
 }
 
 export function branchRename(input: {

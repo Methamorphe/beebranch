@@ -27,6 +27,7 @@ import { Workbench } from './components/Workbench'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { APP_PAGES, navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
 import { errorMessage } from './ipc/client'
+import { checkoutStashMessage } from './lib/checkoutStash'
 import { I18nProvider, LANGUAGE_PREFERENCE_KEY, detectLocale, isLocale, plural, setLocale, t, type Locale, type MessageKey } from './i18n'
 import {
   backgroundRead,
@@ -1122,7 +1123,9 @@ export default function App() {
     setBusy(true)
     setError(null)
     try {
-      await branchCheckout({ repoId, name })
+      const result = await branchCheckout({ repoId, name })
+      const stashNote = checkoutStashMessage(result.data)
+      if (stashNote) setNotice(t(stashNote))
       const refreshed = await repoRefresh(repoId)
       upsert(refreshed, false)
       setGeneration(refreshed.generation)
