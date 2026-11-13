@@ -95,6 +95,14 @@ pub struct PipelineOverviewDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PipelineJobStepDto {
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PipelineJobDto {
     pub id: u64,
     pub name: String,
@@ -104,6 +112,9 @@ pub struct PipelineJobDto {
     pub duration: Option<f64>,
     pub created_at: Option<String>,
     pub finished_at: Option<String>,
+    /// GitHub Actions steps. Empty for GitLab, which stops at the job.
+    #[serde(default)]
+    pub steps: Vec<PipelineJobStepDto>,
 }
 
 impl From<GitlabPipeline> for PipelineSummaryDto {
@@ -147,6 +158,7 @@ impl From<GitlabJob> for PipelineJobDto {
             duration: job.duration,
             created_at: job.created_at,
             finished_at: job.finished_at,
+            steps: Vec::new(),
         }
     }
 }
@@ -162,6 +174,15 @@ impl From<GithubJob> for PipelineJobDto {
             duration: job.duration,
             created_at: job.created_at,
             finished_at: job.finished_at,
+            steps: job
+                .steps
+                .into_iter()
+                .map(|step| PipelineJobStepDto {
+                    name: step.name,
+                    status: step.status,
+                    conclusion: step.conclusion,
+                })
+                .collect(),
         }
     }
 }
