@@ -37,6 +37,20 @@ type EntriesProps = {
   onToggle: (pipeline: GitlabPipeline) => void
 }
 
+function isBroken(status: string): boolean {
+  const state = pipelineState(status)
+  return state === 'failed' || state === 'canceled'
+}
+
+/** Stage, job, and the GitHub step that actually failed. */
+function failurePlace(job: PipelineJob): string {
+  const step = job.steps?.find((item) => {
+    const conclusion = (item.conclusion ?? '').toLowerCase()
+    return conclusion === 'failure' || conclusion === 'timed_out' || conclusion === 'cancelled'
+  })?.name
+  return [job.stage, job.name, step].filter((part) => part && part.length > 0).join(' · ')
+}
+
 function PipelineEntries({ pipelines, empty, showRef, expanded, jobs, jobsBusy, onToggle }: EntriesProps) {
   const { t } = useI18n()
   if (pipelines.length === 0) {
@@ -48,8 +62,9 @@ function PipelineEntries({ pipelines, empty, showRef, expanded, jobs, jobsBusy, 
         const itemState = pipelineState(pipeline.status)
         const open = expanded === pipeline.id
         const items = jobs[pipeline.id]
+        const broken = (items ?? []).filter((job) => isBroken(job.status))
         return (
-          <li key={pipeline.id} className={styles.entry}>
+          <li key={pipeline.id} className={styles.entry} data-state={itemState}>
             <div className={styles.row}>
               <button
                 type="button"
@@ -58,33 +73,60 @@ function PipelineEntries({ pipelines, empty, showRef, expanded, jobs, jobsBusy, 
                 onClick={() => onToggle(pipeline)}
               >
                 <span className={styles.dot} data-state={itemState} />
+                <span className={styles.entryName}>#{pipeline.id}</span>
                 {showRef ? (
-                  <>
-                    <span className={styles.ref} title={pipeline.refName ?? undefined}>
-                      {pipelineRefLabel(pipeline.refName) ?? t('shell.pipeline.detached')}
-                    </span>
-                    <span className={styles.mono}>#{pipeline.id}</span>
-                    {pipeline.sha ? (
-                      <span className={styles.mono}>{pipeline.sha.slice(0, 10)}</span>
-                    ) : null}
-                  </>
-                ) : (
-                  <span className={styles.entryName}>
-                    {pipeline.detailedStatus ?? `#${pipeline.id}`}
+                  <span className={styles.ref} title={pipeline.refName ?? undefined}>
+                    {pipelineRefLabel(pipeline.refName) ?? t('shell.pipeline.detached')}
                   </span>
-                )}
-                <span className={styles.entryState}>{t(PIPELINE_STATE_KEYS[itemState])}</span>
+                ) : null}
+                {pipeline.sha && showRef ? (
+                  <span className={styles.sha}>{pipeline.sha.slice(0, 8)}</span>
+                ) : null}
+                <span className={styles.pill} data-state={itemState}>{t(PIPELINE_STATE_KEYS[itemState])}</span>
               </button>
               {pipeline.webUrl ? (
                 <button
                   type="button"
-                  className={styles.ghost}
+                  className={styles.iconButton}
+                  aria-label={t('common.open')}
+                  title={t('common.open')}
                   onClick={() => void openExternalUrl(pipeline.webUrl!)}
                 >
-                  {t('common.open')}
+                  <ToolbarIcon name="externalLink" size={13} />
                 </button>
               ) : null}
             </div>
+            {isBroken(pipeline.status) ? (
+              <div className={styles.where}>
+                {jobsBusy && !items ? (
+                  <p className={styles.hint}>{t('shell.pipeline.locating')}</p>
+                ) : broken.length > 0 ? (
+                  <ul className={styles.whereList}>
+                    {broken.map((job) => {
+                      const place = failurePlace(job)
+                      return (
+                        <li key={job.id}>
+                          {job.webUrl ? (
+                            <button
+                              type="button"
+                              className={styles.whereLink}
+                              title={t('shell.pipeline.openJob', { place })}
+                              onClick={() => void openExternalUrl(job.webUrl!)}
+                            >
+                              {t('shell.pipeline.failedWhere', { place })}
+                            </button>
+                          ) : (
+                            <span>{t('shell.pipeline.failedWhere', { place })}</span>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : items ? (
+                  <p className={styles.hint}>{t('shell.pipeline.noJobs')}</p>
+                ) : null}
+              </div>
+            ) : null}
             {open ? (
               <div className={styles.jobs}>
                 {jobsBusy && !items ? (
@@ -220,10 +262,19 @@ export function PipelineStatus({ repoId, generation }: Props) {
     return () => window.clearInterval(timer)
   }, [repoId, load, loadRecent, scope])
 
-  // A poll may have changed the run behind the open panel: refresh its jobs.
+  // Failed runs name the job without waiting for a click.
+  const askedJobs = useRef(new Set<number>())
   useEffect(() => {
-    if (expanded !== null) void loadJobs(expanded)
-  }, [expanded, overview, recent, loadJobs])
+    askedJobs.current.clear()
+  }, [repoId, generation])
+  useEffect(() => {
+    const list = scope === 'repository' ? recent ?? [] : overview?.pipelines ?? []
+    for (const pipeline of list) {
+      if (!isBroken(pipeline.status) || askedJobs.current.has(pipeline.id)) continue
+      askedJobs.current.add(pipeline.id)
+      void loadJobs(pipeline.id)
+    }
+  }, [scope, overview, recent, loadJobs])
 
   if (!overview) return null
 
@@ -280,9 +331,13 @@ export function PipelineStatus({ repoId, generation }: Props) {
       }
     >
       <div className={styles.head}>
-        <h2 className={styles.title}>{t('shell.pipeline.aria')}</h2>
+        <div className={styles.headText}>
+          <h2 className={styles.title}>{t('shell.pipeline.heading')}</h2>
+          <span className={styles.project} title={overview.projectPath || overview.projectName}>
+            {overview.projectPath || overview.projectName}
+          </span>
+        </div>
         <span className={styles.provider}>{provider}</span>
-        <span className={styles.spacer} />
         <button
           type="button"
           className={styles.ghost}
