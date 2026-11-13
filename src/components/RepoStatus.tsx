@@ -370,6 +370,19 @@ export function RepoStatus({
   selectedPathRef.current = selectedPath
   const onSelectDiffRef = useRef(onSelectDiff)
   onSelectDiffRef.current = onSelectDiff
+  const rootRef = useRef<HTMLDivElement>(null)
+  const clickModifiers = useRef<{ shift: boolean; toggle: boolean }>({ shift: false, toggle: true })
+  const selectionApi = useRef<{
+    selectAll: () => void
+    selectRange: (key: string) => void
+    clear: () => void
+    hasSelection: () => boolean
+  }>({
+    selectAll: () => undefined,
+    selectRange: () => undefined,
+    clear: () => undefined,
+    hasSelection: () => false,
+  })
 
   const select = (entry: StatusEntry, staged: boolean) => {
     navCursorRef.current = `${staged ? 'index' : 'worktree'}:${entry.path}`
@@ -437,15 +450,34 @@ export function RepoStatus({
   // swallow the next arrow).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.altKey || event.metaKey || event.ctrlKey || event.defaultPrevented) {
-        return
-      }
       if (document.querySelector('[popover]:popover-open, [role="menu"], [role="dialog"], [role="alertdialog"]')) {
         return
       }
       const filter = filterRef.current
       const inFilter = event.target === filter
-      if (isTypingField(event.target, filter)) {
+      const typing = isTypingField(event.target, filter)
+      const command = event.metaKey || event.ctrlKey
+      const root = rootRef.current
+      const inList = event.target instanceof Node && root?.contains(event.target) === true
+      if (command && event.key.toLowerCase() === 'a' && !event.shiftKey && !event.altKey) {
+        if (!inList || inFilter || typing) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        selectionApi.current.selectAll()
+        return
+      }
+      if (event.key === 'Escape' && inList && !inFilter && selectionApi.current.hasSelection()) {
+        event.preventDefault()
+        event.stopPropagation()
+        selectionApi.current.clear()
+        return
+      }
+      if (event.altKey || command || event.defaultPrevented) {
+        return
+      }
+      if (typing) {
         return
       }
       const rows = navRowsRef.current
@@ -460,6 +492,10 @@ export function RepoStatus({
         event.preventDefault()
         event.stopPropagation()
         const index = navIndexOf(event.target)
+        const currentRow = index >= 0 ? rows[index] : undefined
+        if (event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && currentRow?.kind === 'file' && selectionAnchor.current == null) {
+          selectionAnchor.current = currentRow.key
+        }
         const nextIndex = event.key === 'Home' || (inFilter && event.key === 'ArrowDown')
           ? 0
           : event.key === 'End'
@@ -476,6 +512,9 @@ export function RepoStatus({
         const row = rows[nextIndex]
         if (row) {
           focusNavRow(row)
+          if (event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && row.kind === 'file') {
+            selectionApi.current.selectRange(row.key)
+          }
         }
         return
       }
@@ -847,39 +886,60 @@ export function RepoStatus({
       )
     })
 
-  const toggleSelection = (key: string, shiftKey: boolean) => {
+  const toggleSelection = (key: string, modifier: { shift: boolean; toggle: boolean }) => {
     const index = selectionIndex.get(key)
     if (index === undefined) {
       return
     }
     setSelectedKeys((current) => {
-      const next = new Set(current)
+      const next = modifier.shift && !modifier.toggle ? new Set<string>() : new Set(current)
       const anchor = selectionAnchor.current
       const anchorIndex = anchor === null ? undefined : selectionIndex.get(anchor)
-      if (shiftKey && anchorIndex !== undefined) {
-        const selecting = !current.has(key)
+      if (modifier.shift && anchorIndex !== undefined) {
         const start = Math.min(anchorIndex, index)
         const end = Math.max(anchorIndex, index)
         for (let position = start; position <= end; position += 1) {
           const item = selectionOrder[position]
-          if (!item) {
-            continue
-          }
-          if (selecting) {
-            next.add(item.key)
-          } else {
-            next.delete(item.key)
-          }
+          if (item) next.add(item.key)
         }
-      } else if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
+        return next
+      }
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+    if (!modifier.shift) selectionAnchor.current = key
+  }
+  const selectRange = (key: string) => {
+    const index = selectionIndex.get(key)
+    const anchor = selectionAnchor.current
+    const anchorIndex = anchor === null ? undefined : selectionIndex.get(anchor)
+    if (index === undefined || anchorIndex === undefined) {
+      return
+    }
+    setSelectedKeys(() => {
+      const next = new Set<string>()
+      const start = Math.min(anchorIndex, index)
+      const end = Math.max(anchorIndex, index)
+      for (let position = start; position <= end; position += 1) {
+        const item = selectionOrder[position]
+        if (item) next.add(item.key)
       }
       return next
     })
-    selectionAnchor.current = key
   }
+  const selectAllVisible = () => {
+    const keys = selectionOrder.map((item) => item.key)
+    setSelectedKeys(new Set(keys))
+    selectionAnchor.current = keys[0] ?? null
+  }
+  selectionApi.current = {
+    selectAll: selectAllVisible,
+    selectRange,
+    clear: () => setSelectedKeys(new Set()),
+    hasSelection: () => selectedKeys.size > 0,
+  }
+  const modifierLabel = IS_MAC ? '⌘' : 'Ctrl'
   const bulkStage = async () => {
     const targets = selectedEntries.filter((item) => !item.staged)
     if (targets.length === 0) {
@@ -996,17 +1056,39 @@ export function RepoStatus({
           checked={selectedKeys.has(selectionKey)}
           disabled={!selectable || busy}
           aria-label={t('status.row.select', { path: entry.path })}
-          title={selectable ? t('status.row.selectRange', { path: entry.path }) : undefined}
-          onChange={(event) => {
-            const native = event.nativeEvent
-            toggleSelection(selectionKey, Boolean('shiftKey' in native && native.shiftKey))
+          title={selectable ? t('status.row.selectRange', { path: entry.path, mod: modifierLabel }) : undefined}
+          onMouseDown={(event) => {
+            clickModifiers.current = {
+              shift: event.shiftKey,
+              toggle: event.metaKey || event.ctrlKey || !event.shiftKey,
+            }
+          }}
+          onChange={() => {
+            if (!selectable || busy) return
+            const modifier = clickModifiers.current
+            clickModifiers.current = { shift: false, toggle: true }
+            toggleSelection(selectionKey, modifier)
           }}
         />
         <span className={styles.state} title={entryLabel(entry)} data-kind={entry.kind}>
           <FileStatusIcon kind={entry.kind} letter={mark} />
         </span>
         <button type="button" className={styles.filePath} data-nav-focus title={entry.origPath ? `${entry.origPath} → ${entry.path}` : entry.path}
-          disabled={entry.kind === 'ignored'} onClick={() => entry.kind === 'unmerged' ? onNavigate('conflicts') : select(entry, staged)}>
+          disabled={entry.kind === 'ignored'} onClick={(event) => {
+            if (entry.kind === 'unmerged') {
+              onNavigate('conflicts')
+              return
+            }
+            if (selectable && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+              toggleSelection(selectionKey, {
+                shift: event.shiftKey,
+                toggle: event.metaKey || event.ctrlKey,
+              })
+              return
+            }
+            selectionAnchor.current = selectionKey
+            select(entry, staged)
+          }}>
           {fileView === 'tree' ? <span className={styles.filename}>{name}</span> : <><span className={styles.folder}>{directory}</span><span className={styles.filename}>{name}</span></>}
         </button>
         {entry.kind === 'unmerged' ? <button type="button" className={styles.stage} onClick={() => onNavigate('conflicts')}>{t('status.row.resolve')}</button> : entry.kind !== 'ignored' ? <button type="button" className={`${styles.stage} ${styles.rowTool}`} disabled={busy} title={staged ? t('status.row.unstageTitle') : t('status.row.stageTitle')} aria-label={staged ? t('status.row.unstageAria', { path: entry.path }) : t('status.row.stageAria', { path: entry.path })} onClick={() => void (staged ? unstage(entry) : stage(entry))}>{staged ? '−' : '+'}</button> : null}
@@ -1017,7 +1099,7 @@ export function RepoStatus({
     )
   }
   return (
-    <div className={styles.root} aria-busy={busy || loading} data-bulk={selectedKeys.size > 0}>
+    <div ref={rootRef} className={styles.root} aria-busy={busy || loading} data-bulk={selectedKeys.size > 0}>
       <div className={styles.meta}>
         <input ref={filterRef} className={styles.filter} value={filter} onChange={(event) => {
           setFilter(event.target.value)
