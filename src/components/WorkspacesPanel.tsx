@@ -150,6 +150,9 @@ export function WorkspacesPanel({
   const [pendingDelete, setPendingDelete] = useState(false)
   const [pendingPull, setPendingPull] = useState(false)
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const repoAnchor = useRef<string | null>(null)
+  const repoListRef = useRef<HTMLDivElement>(null)
+  const repoClick = useRef({ shift: false, meta: false, ctrl: false })
   const [strategy, setStrategy] = useState<PullStrategy>('auto')
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
@@ -184,6 +187,25 @@ export function WorkspacesPanel({
   }, [activeWorkspaceId, onWorkspacesChanged])
 
   const statusRequest = useRef(0)
+  const toggleRepo = (path: string, event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+    const order = statuses.map((status) => status.path)
+    const index = order.indexOf(path)
+    const toggle = event.metaKey || event.ctrlKey
+    setSelectedPaths((current) => {
+      if (event.shiftKey && repoAnchor.current) {
+        const anchorIndex = order.indexOf(repoAnchor.current)
+        if (anchorIndex >= 0 && index >= 0) {
+          const start = Math.min(anchorIndex, index)
+          const end = Math.max(anchorIndex, index)
+          const range = order.slice(start, end + 1)
+          return toggle ? [...new Set([...current, ...range])] : range
+        }
+      }
+      if (current.includes(path)) return current.filter((value) => value !== path)
+      return [...current, path]
+    })
+    if (!event.shiftKey) repoAnchor.current = path
+  }
   const loadStatus = useCallback(async (workspaceId: string) => {
     const token = ++statusRequest.current
     try {
@@ -817,7 +839,19 @@ export function WorkspacesPanel({
                     {t('workspaces.panel.refreshStatus')}
                   </button>
                 </div>
-                <div className={styles.repos}>
+                <div
+                  className={styles.repos}
+                  ref={repoListRef}
+                  onKeyDown={(event) => {
+                    if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== 'a') return
+                    const target = event.target
+                    if (target instanceof HTMLInputElement && target.type !== 'checkbox') return
+                    if (target instanceof HTMLTextAreaElement) return
+                    event.preventDefault()
+                    setSelectedPaths(statuses.map((item) => item.path))
+                    repoAnchor.current = statuses[0]?.path ?? null
+                  }}
+                >
                   {statuses.map((status) => (
                     <div key={status.path} className={styles.repoRow}>
                       <label className={shared.checkbox}>
@@ -825,11 +859,18 @@ export function WorkspacesPanel({
                           type="checkbox"
                           checked={selectedPaths.includes(status.path)}
                           aria-label={t('workspaces.panel.selectRepoAria', { name: status.name ?? status.path })}
-                          onChange={(event) => setSelectedPaths((current) =>
-                            event.target.checked
-                              ? [...current, status.path]
-                              : current.filter((value) => value !== status.path),
-                          )}
+                          onMouseDown={(event) => {
+                            repoClick.current = {
+                              shift: event.shiftKey,
+                              meta: event.metaKey,
+                              ctrl: event.ctrlKey,
+                            }
+                          }}
+                          onChange={() => toggleRepo(status.path, {
+                            shiftKey: repoClick.current.shift,
+                            metaKey: repoClick.current.meta,
+                            ctrlKey: repoClick.current.ctrl,
+                          })}
                         />
                       </label>
                       <div className={styles.repoBody}>

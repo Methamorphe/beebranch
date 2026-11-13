@@ -57,7 +57,7 @@ const messages = {
   'status.bulk.discardTitle': 'Select only modified, unstaged files.',
 
   'status.row.select': 'Select {path}',
-  'status.row.selectRange': 'Select {path} · Shift+click for a range',
+  'status.row.selectRange': 'Select {path}. Shift+click: range. {mod}+click: add or remove. {mod}+A: select all.',
   'status.row.resolve': 'Resolve',
   'status.row.unstageTitle': 'Unstage',
   'status.row.stageTitle': 'Stage this file',
