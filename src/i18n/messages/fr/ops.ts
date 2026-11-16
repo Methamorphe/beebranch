@@ -389,7 +389,7 @@ const messages = {
   'ops.sync.pushHint':
     'Publie {branch} sur {remote}. Un force push exige une confirmation explicite.',
   'ops.sync.currentBranch': 'la branche',
-  'ops.sync.setUpstream': 'définir l’upstream',
+  'ops.sync.setUpstream': 'faire de ce remote le suivi',
   'ops.sync.forceWithLease': 'force-with-lease',
   'ops.sync.cancelNote':
     'Annulation : arrêt gracieux puis forcé. Un push annulé peut avoir abouti ; l’état distant est revérifié et affiché.',

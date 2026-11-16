@@ -10,7 +10,7 @@ import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
 import { PipelineStatus } from './PipelineStatus'
 import { useCheckoutConfirm, useOperationConfirm, usePushConfirm, useStashPopConfirm } from './OperationConfirm'
-import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
+import { PublishBranchBar, type PublishChoice, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
 import { useToastChannel } from './ui/Toasts'
 import styles from './RepoBar.module.css'
@@ -135,15 +135,20 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
         onError(errorMessage(cause))
       })
   }
-  const publishBranch = () => {
+  const publishBranch = (choice: PublishChoice) => {
     const target = publish
     setPublish(null)
     if (!repoId || !target) return
     void run(
       'Publish',
-      () => syncPush({ repoId, remote: target.remote, branch: target.branch, setUpstream: true }),
-      () => t('workbench.notice.branchPushed', { branch: target.branch, remote: target.remote }),
-      { repoId, remote: target.remote, branch: target.branch },
+      () => syncPush({
+        repoId,
+        remote: choice.remote,
+        branch: target.branch,
+        setUpstream: choice.setUpstream,
+      }),
+      () => t('workbench.notice.branchPushed', { branch: target.branch, remote: choice.remote }),
+      { repoId, remote: choice.remote, branch: target.branch },
     )
   }
   const sync = (kind: 'pull' | 'push') => {
@@ -156,7 +161,12 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
       const target = remotes.includes('origin') ? 'origin' : remotes[0]
       if (kind === 'push' && current && target) {
         setNotice(null)
-        setPublish({ branch: current, remote: target })
+        setPublish({
+          branch: current,
+          remote: target,
+          remotes: remotes.length > 0 ? remotes : [target],
+          setUpstream: true,
+        })
         return
       }
       onNavigate('sync')

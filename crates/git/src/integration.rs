@@ -4,6 +4,12 @@
 //! - merge: check out `target`, then merge `source` into it;
 //! - rebase: check out `source`, then rebase `source` onto `target`.
 //!
+//! Either side may be a remote-tracking ref (`refs/remotes/upstream/main`).
+//! The branch that would be checked out — the merge target, or the rebase
+//! source — must be a local branch. Merging into a remote-tracking ref is
+//! refused here; the caller creates or selects the local branch that
+//! represents it, then pushes that branch back.
+//!
 //! The preview performs no mutation and reports every blocking reason. A merge
 //! starts by stashing tracked changes (`git stash push`) so the checkout and
 //! the merge never refuse on a dirty worktree; the stash is popped as soon as
@@ -100,6 +106,65 @@ pub struct BranchIntegrationOutcome {
     pub outcome: HistoryOutcome,
 }
 
+/// A local branch or a remote-tracking ref that names a real branch.
+fn is_endpoint(entry: &crate::refs::RefEntry) -> bool {
+    matches!(entry.kind, RefKind::Branch | RefKind::RemoteBranch) && entry.symref.is_none()
+}
+
+/// Revision Git should receive. A remote-tracking ref is passed in full so
+/// `upstream/main` cannot be read as a local branch of that name.
+fn git_revision(entry: &crate::refs::RefEntry) -> String {
+    if entry.kind == RefKind::RemoteBranch {
+        entry.full_name.clone()
+    } else {
+        entry.name.clone()
+    }
+}
+
+/// Resolve `name` to a local branch or a remote-tracking ref.
+///
+/// A full ref (`refs/heads/…`, `refs/remotes/…`) matches that ref only. A
+/// short name prefers the local branch, then a single remote-tracking ref.
+fn resolve_endpoint<'a>(
+    refs: &'a crate::refs::RefsSnapshot,
+    name: &str,
+) -> Option<&'a crate::refs::RefEntry> {
+    if let Some(entry) = refs
+        .entries
+        .iter()
+        .find(|entry| entry.full_name == name && is_endpoint(entry))
+    {
+        return Some(entry);
+    }
+    if name.starts_with("refs/") {
+        return None;
+    }
+    refs.entries
+        .iter()
+        .find(|entry| entry.kind == RefKind::Branch && entry.name == name)
+        .or_else(|| {
+            refs.entries.iter().find(|entry| {
+                entry.kind == RefKind::RemoteBranch && entry.symref.is_none() && entry.name == name
+            })
+        })
+}
+
+fn missing_endpoint(code: &'static str, name: &str) -> AppError {
+    let role = if code == "branch.source_missing" {
+        "source"
+    } else {
+        "cible"
+    };
+    AppError::new(
+        code,
+        ErrorCategory::Input,
+        format!("La branche {role} {name} n'existe pas."),
+    )
+    .with_remediation(
+        "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
+    )
+}
+
 /// Compute the preview without mutating the repository.
 pub fn preview(
     runner: &GitRunner,
@@ -108,36 +173,21 @@ pub fn preview(
     target: &str,
     mode: IntegrationMode,
 ) -> Result<BranchIntegrationPreview, AppError> {
-    branches::validate_branch_name(runner, worktree, source)?;
-    branches::validate_branch_name(runner, worktree, target)?;
+    if !source.starts_with("refs/") {
+        branches::validate_branch_name(runner, worktree, source)?;
+    }
+    if !target.starts_with("refs/") {
+        branches::validate_branch_name(runner, worktree, target)?;
+    }
     let refs = read_refs(runner, worktree)?;
-    let find = |name: &str| {
-        refs.entries
-            .iter()
-            .find(|entry| entry.kind == RefKind::Branch && entry.name == name)
-    };
-    let source_entry = find(source).ok_or_else(|| {
-        AppError::new(
-            "branch.source_missing",
-            ErrorCategory::Input,
-            format!("La branche source {source} n'existe pas."),
-        )
-        .with_remediation(
-            "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
-        )
-    })?;
-    let target_entry = find(target).ok_or_else(|| {
-        AppError::new(
-            "branch.target_missing",
-            ErrorCategory::Input,
-            format!("La branche cible {target} n'existe pas."),
-        )
-        .with_remediation(
-            "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
-        )
-    })?;
+    let source_entry = resolve_endpoint(&refs, source)
+        .ok_or_else(|| missing_endpoint("branch.source_missing", source))?;
+    let target_entry = resolve_endpoint(&refs, target)
+        .ok_or_else(|| missing_endpoint("branch.target_missing", target))?;
+    let source_revision = git_revision(source_entry);
+    let target_revision = git_revision(target_entry);
 
-    let comparison = branches::compare(runner, worktree, target, source)?;
+    let comparison = branches::compare(runner, worktree, &target_revision, &source_revision)?;
     let status = read_status(runner, worktree, Some(1))?;
     let discovery = discover(runner, worktree)?;
     let detected = detect(runner, &discovery, Some(1))?;
@@ -146,9 +196,15 @@ pub fn preview(
         .head
         .clone()
         .filter(|_| !status.branch.detached);
+    let updates_local = match mode {
+        IntegrationMode::Merge => target_entry.kind == RefKind::Branch,
+        IntegrationMode::Rebase => source_entry.kind == RefKind::Branch,
+    };
+    // Checkout always uses the local short name. A remote-tracking ref is not
+    // a branch that can be checked out; that case is refused below.
     let branch_to_update = match mode {
-        IntegrationMode::Merge => target,
-        IntegrationMode::Rebase => source,
+        IntegrationMode::Merge => target_entry.name.as_str(),
+        IntegrationMode::Rebase => source_entry.name.as_str(),
     };
     let canonical_worktree =
         std::fs::canonicalize(worktree).unwrap_or_else(|_| worktree.to_path_buf());
@@ -166,8 +222,24 @@ pub fn preview(
     let dirty = status.counts.is_dirty();
     let tracked_changes = status.counts.staged > 0 || status.counts.unstaged > 0;
     let operation = detected.state.operation;
-    let blocked_reason = if source == target {
+    let remote_blocks = if updates_local {
+        None
+    } else {
+        Some(match mode {
+            IntegrationMode::Merge => format!(
+                "La cible {} est une branche distante. Fusionnez dans la branche locale qui la suit, ou créez-la, puis poussez cette branche.",
+                target_entry.name
+            ),
+            IntegrationMode::Rebase => format!(
+                "La source {} est une branche distante et ne peut pas être réécrite.",
+                source_entry.name
+            ),
+        })
+    };
+    let blocked_reason = if source_entry.full_name == target_entry.full_name {
         Some("La source et la cible sont la même branche.".to_owned())
+    } else if let Some(reason) = remote_blocks {
+        Some(reason)
     } else if operation.is_some() {
         Some("Une opération Git est déjà en cours.".to_owned())
     } else if !detected.state.conflicts.is_empty() {
@@ -185,8 +257,8 @@ pub fn preview(
     };
 
     Ok(BranchIntegrationPreview {
-        source: source.to_owned(),
-        target: target.to_owned(),
+        source: source_revision,
+        target: target_revision,
         source_sha: source_entry.target_oid.clone(),
         target_sha: target_entry.target_oid.clone(),
         source_subject: None,
@@ -198,7 +270,7 @@ pub fn preview(
             && comparison.behind == 0
             && comparison.ahead > 0,
         current_branch: current_branch.clone(),
-        requires_checkout: current_branch.as_deref() != Some(branch_to_update),
+        requires_checkout: updates_local && current_branch.as_deref() != Some(branch_to_update),
         worktree_dirty: dirty,
         stash_required: tracked_changes && mode == IntegrationMode::Merge,
         checked_out_elsewhere,
@@ -243,27 +315,31 @@ pub fn start(
         return Err(merge_not_fast_forward(&preview));
     }
     let original_branch = preview.current_branch.clone();
+    let source_revision = preview.source.clone();
+    let target_revision = preview.target.clone();
     let stashed = if preview.stash_required {
-        let message = auto_stash_message(mode, source, target);
+        let message = auto_stash_message(mode, &source_revision, &target_revision);
         Some(stash_worktree(runner, worktree, &message)?)
     } else {
         None
     };
 
+    // The preview stored the local short name on the side that is checked out
+    // (merge target, rebase source). The other side may be a remote-tracking ref.
     let branch_to_update = match mode {
-        IntegrationMode::Merge => target,
-        IntegrationMode::Rebase => source,
+        IntegrationMode::Merge => target_revision.clone(),
+        IntegrationMode::Rebase => source_revision.clone(),
     };
     let mut checked_out = false;
     if preview.requires_checkout {
-        if let Err(error) = branches::checkout(runner, worktree, Some(branch_to_update), None) {
+        if let Err(error) = branches::checkout(runner, worktree, Some(&branch_to_update), None) {
             return Err(restore_stash_on_failure(runner, worktree, error, &stashed));
         }
         checked_out = true;
     }
     let result = match mode {
-        IntegrationMode::Merge => history::merge(runner, worktree, source, fast_forward),
-        IntegrationMode::Rebase => history::rebase(runner, worktree, target),
+        IntegrationMode::Merge => history::merge(runner, worktree, &source_revision, fast_forward),
+        IntegrationMode::Rebase => history::rebase(runner, worktree, &target_revision),
     };
     match result {
         Ok(mut outcome) => {

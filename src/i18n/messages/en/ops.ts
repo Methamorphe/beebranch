@@ -387,7 +387,7 @@ const messages = {
   'ops.sync.pushHint':
     'Publishes {branch} on {remote}. A force push requires an explicit confirmation.',
   'ops.sync.currentBranch': 'the branch',
-  'ops.sync.setUpstream': 'set the upstream',
+  'ops.sync.setUpstream': 'make this remote the tracking upstream',
   'ops.sync.forceWithLease': 'force-with-lease',
   'ops.sync.cancelNote':
     'Cancellation: graceful stop then forced stop. A cancelled push may have succeeded; the remote state is checked again and displayed.',

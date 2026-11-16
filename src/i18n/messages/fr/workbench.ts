@@ -27,7 +27,9 @@ const messages = {
     'Presse-papiers indisponible : autorisez l’accès et réessayez.',
   'workbench.error.integrationImpossible': 'Intégration impossible pour ces branches.',
   'workbench.error.localBranchAlreadyTracks':
-    'La branche locale « {name} » existe déjà avec un autre suivi. Sélectionnez-la directement ou configurez son upstream dans Branches.',
+    'La branche locale « {name} » suit déjà un autre upstream. Basculez dessus sans la déplacer, amenez-la sur cette remote, ou créez une autre branche locale.',
+  'workbench.error.localNameTaken':
+    'La branche locale « {name} » existe déjà et suit autre chose.',
   'workbench.error.mergeRequestUnavailable':
     'Associez le dépôt à un projet GitLab et poussez la branche.',
   'workbench.error.remoteBranchNameUndetermined':
@@ -192,8 +194,24 @@ const messages = {
 
   'workbench.publish.title': 'Publier la branche {branch}',
   'workbench.publish.consequence':
-    'La branche locale n’a pas encore d’upstream. Le push crée ou met à jour {remote}/{branch} et la branche locale la suivra.',
-  'workbench.publish.confirm': 'Pousser et créer {remote}/{branch}',
+    'Le push crée ou met à jour {remote}/{branch} et la branche locale la suivra.',
+  'workbench.publish.consequenceKeep':
+    'Le push crée ou met à jour {remote}/{branch} sans changer le suivi.',
+  'workbench.publish.confirm': 'Pousser {remote}/{branch}',
+  'workbench.publish.remoteLabel': 'Remote',
+  'workbench.publish.trackLabel': 'Faire de ce remote le suivi',
+
+  'workbench.checkout.remoteTitle': '{remote} est déjà représentée par {branch}',
+  'workbench.checkout.switchExisting': 'Basculer sur {branch}',
+  'workbench.checkout.moveExisting': 'Amener {branch} sur {remote}',
+  'workbench.checkout.createOther': 'Créer {name}',
+  'workbench.checkout.otherName': 'Autre branche locale',
+
+  'workbench.mergeRemote.title': 'Fusionner {source} dans {remote}',
+  'workbench.mergeRemote.consequence':
+    'Crée ou extrait {branch} depuis {remote}, y fusionne {source}, puis propose de pousser {branch}. Le suivi de {source} ne change pas.',
+  'workbench.mergeRemote.localName': 'Branche locale qui reçoit la fusion',
+  'workbench.mergeRemote.confirm': 'Fusionner',
 
   'workbench.preview.ariaLabel': 'Aperçu des modifications',
   'workbench.preview.closeAriaLabel': 'Fermer l’aperçu',
@@ -224,8 +242,10 @@ const messages = {
     'Aucune copie distante de cette branche : lancez un fetch ou publiez-la.',
   'workbench.refMenu.pin': 'Épingler à gauche du graphe',
   'workbench.refMenu.pullFastForwardOnly': 'Pull (fast-forward seulement)',
+  'workbench.refMenu.push': 'Pousser',
   'workbench.refMenu.pushTo': 'Pousser vers {target}',
   'workbench.refMenu.publishTo': 'Publier vers {target}',
+  'workbench.refMenu.trackingSuffix': ' · suivi',
   'workbench.refMenu.remoteBranch': 'branche distante',
   'workbench.refMenu.rename': 'Renommer…',
   'workbench.refMenu.renameBranchAria': 'Nouveau nom de branche',
