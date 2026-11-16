@@ -275,6 +275,15 @@ function pushTarget(entry: RefEntry) {
   return { remote: name, target: `${name}/${entry.name}` }
 }
 
+/**
+ * Local branches keep the short name the rest of the app already sends.
+ * A remote-tracking ref is passed in full so `origin/main` cannot be read
+ * as a local branch of that name.
+ */
+function integrationRevision(entry: RefEntry): string {
+  return entry.kind === 'remoteBranch' ? entry.fullName : entry.name
+}
+
 export function Workbench({
   repo,
   generation,
@@ -1294,8 +1303,8 @@ export function Workbench({
     setDropMenu({ source, target, x, y, fastForward: false })
     void branchIntegrationPreview({
       repoId,
-      source: source.fullName,
-      target: target.fullName,
+      source: integrationRevision(source),
+      target: integrationRevision(target),
       mode: 'merge',
     })
       .then((preview) => {
@@ -1320,8 +1329,8 @@ export function Workbench({
     try {
       const preview = await branchIntegrationPreview({
         repoId,
-        source: source.fullName,
-        target: target.fullName,
+        source: integrationRevision(source),
+        target: integrationRevision(target),
         mode,
       })
       if (!preview.applicable) {
@@ -1349,8 +1358,8 @@ export function Workbench({
     try {
       const result = await branchIntegrationStart({
         repoId,
-        source: source.fullName,
-        target: target.fullName,
+        source: integrationRevision(source),
+        target: integrationRevision(target),
         mode,
         fastForward,
         confirmation: { acknowledged: true },
@@ -3207,7 +3216,8 @@ export function Workbench({
                         tracking: false,
                       }]
                   const labelFor = (destination: PushDestination) => {
-                    const verb = destination.existing
+                    const known = Boolean(destination.existing) || destination.tracking
+                    const verb = known
                       ? t('workbench.refMenu.pushTo', { target: destination.target })
                       : t('workbench.refMenu.publishTo', { target: destination.target })
                     return destination.tracking
@@ -3215,7 +3225,11 @@ export function Workbench({
                       : verb
                   }
                   const run = (destination: PushDestination) =>
-                    pushBranchTo(entry, destination.remote, Boolean(destination.existing))
+                    pushBranchTo(
+                      entry,
+                      destination.remote,
+                      Boolean(destination.existing) || destination.tracking,
+                    )
                   if (items.length === 1) {
                     return action('push', 'sync', labelFor(items[0]!), () => run(items[0]!))
                   }

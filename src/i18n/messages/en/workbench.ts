@@ -196,7 +196,7 @@ const messages = {
     'The push creates or updates {remote}/{branch} and makes the local branch track it.',
   'workbench.publish.consequenceKeep':
     'The push creates or updates {remote}/{branch} and leaves the tracking upstream unchanged.',
-  'workbench.publish.confirm': 'Push {remote}/{branch}',
+  'workbench.publish.confirm': 'Push and create {remote}/{branch}',
   'workbench.publish.remoteLabel': 'Remote',
   'workbench.publish.trackLabel': 'Make this remote the tracking upstream',
 

@@ -27,7 +27,7 @@ const messages = {
     'Presse-papiers indisponible : autorisez l’accès et réessayez.',
   'workbench.error.integrationImpossible': 'Intégration impossible pour ces branches.',
   'workbench.error.localBranchAlreadyTracks':
-    'La branche locale « {name} » suit déjà un autre upstream. Basculez dessus sans la déplacer, amenez-la sur cette remote, ou créez une autre branche locale.',
+    'La branche locale « {name} » existe déjà et suit un autre upstream. Basculez dessus sans la déplacer, amenez-la sur cette remote, ou créez une autre branche locale.',
   'workbench.error.localNameTaken':
     'La branche locale « {name} » existe déjà et suit autre chose.',
   'workbench.error.mergeRequestUnavailable':
@@ -197,9 +197,9 @@ const messages = {
     'Le push crée ou met à jour {remote}/{branch} et la branche locale la suivra.',
   'workbench.publish.consequenceKeep':
     'Le push crée ou met à jour {remote}/{branch} sans changer le suivi.',
-  'workbench.publish.confirm': 'Pousser {remote}/{branch}',
+  'workbench.publish.confirm': 'Pousser et créer {remote}/{branch}',
   'workbench.publish.remoteLabel': 'Remote',
-  'workbench.publish.trackLabel': 'Faire de ce remote le suivi',
+  'workbench.publish.trackLabel': 'Faire de ce remote l’upstream',
 
   'workbench.checkout.remoteTitle': '{remote} est déjà représentée par {branch}',
   'workbench.checkout.switchExisting': 'Basculer sur {branch}',
