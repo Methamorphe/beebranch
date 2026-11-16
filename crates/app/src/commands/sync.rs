@@ -182,8 +182,8 @@ pub async fn sync_fetch_all(
                 outcome: None,
                 error: Some(FetchFailure {
                     code: error.code.to_string(),
-                    message: error.message.clone(),
-                    params: error.params.clone(),
+                    message: error.message.into(),
+                    params: error.params.as_ref().clone(),
                 }),
             }),
         }

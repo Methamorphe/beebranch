@@ -35,15 +35,21 @@ pub enum ErrorCategory {
 pub struct AppError {
     pub code: &'static str,
     pub category: ErrorCategory,
-    pub message: String,
+    pub message: Box<str>,
     pub detail: Option<String>,
     pub remediation: Option<String>,
     pub retryable: bool,
     pub operation_id: Option<String>,
     /// Values the interface interpolates into the catalogue (`host`, `branch`, `seconds`).
-    /// Empty for a static sentence. Never contains a secret.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub params: BTreeMap<String, String>,
+    /// Empty for a static sentence. Never contains a secret. Boxed so `AppError`
+    /// stays under clippy's `result_large_err` limit.
+    #[serde(default, skip_serializing_if = "params_are_empty")]
+    pub params: Box<BTreeMap<String, String>>,
+}
+
+#[allow(clippy::borrowed_box)]
+fn params_are_empty(params: &Box<BTreeMap<String, String>>) -> bool {
+    params.is_empty()
 }
 
 impl AppError {
@@ -51,12 +57,12 @@ impl AppError {
         Self {
             code,
             category,
-            message: message.into(),
+            message: message.into().into_boxed_str(),
             detail: None,
             remediation: None,
             retryable: false,
             operation_id: None,
-            params: BTreeMap::new(),
+            params: Box::new(BTreeMap::new()),
         }
     }
 

@@ -1738,7 +1738,7 @@ fn failure(
         detail: error
             .detail
             .clone()
-            .unwrap_or_else(|| error.message.clone()),
+            .unwrap_or_else(|| error.message.to_string()),
         error,
     }
 }
