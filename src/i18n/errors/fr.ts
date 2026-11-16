@@ -26,107 +26,110 @@ const errors = {
 
   // Git failures classified from the command output (crates/core/src/error.rs).
   'repo.safe_directory': {
-    message: "Le dépôt appartient à un autre utilisateur.",
+    message: "Git refuse ce dossier parce qu'il appartient à un autre compte.",
     remediation:
-      'Ajoutez explicitement le dépôt à safe.directory si vous lui faites confiance.',
+      'Si vous faites confiance à ce dossier, ajoutez-le explicitement à safe.directory. La commande est dans les détails.',
   },
   'repo.busy': {
-    message: 'Un autre processus Git utilise ce dépôt.',
+    message: 'Un autre programme Git utilise ce dépôt.',
     remediation:
-      "Vérifiez qu'aucun Git n'est en cours, puis réessayez. Le verrou n'est jamais supprimé automatiquement.",
+      "Attendez qu'il se termine, puis réessayez. Le fichier de verrou n'est jamais supprimé automatiquement.",
   },
   'repo.bare': {
-    message: 'Cette opération exige un worktree.',
-    remediation: 'Ouvrez un worktree associé au dépôt.',
+    message: "Cette opération a besoin d'une copie de travail.",
+    remediation: 'Ouvrez un dossier de travail lié à ce dépôt.',
   },
   'repo.not_git': {
-    message: "Le dossier n'est pas un dépôt Git.",
-    remediation: 'Vérifiez le chemin ou initialisez un dépôt.',
+    message: "Ce dossier n'est pas un dépôt Git.",
+    remediation: 'Vérifiez le chemin, ou créez un dépôt.',
   },
   'auth.host_key': {
-    message: "La clé d'hôte SSH n'est pas vérifiée.",
-    remediation: 'Vérifiez known_hosts ou connectez-vous une première fois en SSH.',
+    message: "Ce serveur SSH n'est pas encore reconnu.",
+    remediation: 'Vérifiez son empreinte, puis acceptez-la une première fois.',
   },
   'auth.ssh_key': {
-    message: "L'authentification SSH a échoué.",
+    message: 'La clé SSH a été refusée.',
     remediation:
-      "Déverrouillez votre clé avec sa passphrase ou ajoutez-la à l'agent avec `ssh-add <clé>`, puis réessayez. Vérifiez aussi l'accès avec `ssh -T git@<hôte>`.",
+      "Déverrouillez la clé ou ajoutez-la à l'agent, puis réessayez. Les commandes sont dans les détails.",
   },
   'auth.failed': {
     message: "L'authentification Git a échoué.",
-    remediation: 'Vérifiez le token ou le credential helper associé.',
+    remediation: "Vérifiez le jeton ou l'identifiant enregistré pour cet hôte.",
   },
   'git.untracked_collision': {
     message: 'Des fichiers non suivis seraient écrasés.',
-    remediation:
-      'Déplacez ou renommez les fichiers non suivis concernés, puis réessayez.',
+    remediation: 'Déplacez ou renommez ces fichiers, puis réessayez.',
   },
   'git.dirty_worktree': {
-    message: "Des modifications locales empêchent l'opération.",
-    remediation: 'Committez ou stashez les modifications, puis réessayez.',
+    message: 'Des fichiers modifiés seraient écrasés.',
+    remediation: 'Enregistrez-les dans un commit ou un remisage, puis recommencez.',
   },
   'git.unrelated_histories': {
-    message: 'Les historiques ne partagent aucun ancêtre.',
-    remediation: "Décidez explicitement d'autoriser `--allow-unrelated-histories`.",
+    message: "Ces historiques n'ont aucun commit en commun.",
+    remediation:
+      "Ne les fusionnez que si vous le décidez explicitement. L'option Git est dans les détails.",
   },
   'git.pull_not_fast_forward': {
-    message: "Le pull n'a pas pu s'intégrer en avance rapide.",
-    remediation:
-      "L'historique local a divergé de la branche distante : rebasez ou fusionnez, ou relâchez `pull.ff`.",
+    message: 'La branche locale et la branche distante ont divergé.',
+    remediation: 'Intégrez les commits distants, puis réessayez.',
   },
   'git.pull_strategy_missing': {
-    message: 'Git exige une stratégie pour réconcilier les branches divergentes.',
-    remediation:
-      'Configurez `pull.rebase` ou `pull.ff`, ou choisissez une stratégie de pull dans BeeBranch.',
+    message: 'Git ne sait pas comment réunir ces branches divergentes.',
+    remediation: 'Choisissez une stratégie de pull dans BeeBranch.',
   },
   'git.non_fast_forward': {
-    message: "Le push n'est pas un fast-forward.",
-    remediation: 'Fetchez puis mergez ou rebasez avant de pousser.',
+    message: "La branche distante a des commits que vous n'avez pas.",
+    remediation: 'Récupérez-les, puis renvoyez votre branche.',
   },
   'git.push_lease_stale': {
-    message: "Le remote a changé pendant l'envoi.",
+    message: "Quelqu'un a modifié la branche distante pendant l'envoi.",
+    remediation: "Relancez l'envoi : la référence distante est relue juste avant.",
+  },
+  'git.push_rejected': {
+    message: "Le serveur a refusé l'envoi.",
     remediation:
-      'Relancez le push : le SHA distant attendu est relu juste avant chaque envoi.',
+      "Lisez le motif dans les détails : une branche protégée ou un hook peut bloquer l'envoi.",
   },
   'git.unresolved_conflicts': {
-    message: 'Des conflits ne sont pas résolus.',
-    remediation: 'Résolvez les fichiers en conflit, ajoutez-les, puis continuez.',
+    message: 'Il reste des conflits à résoudre.',
+    remediation: "Corrigez les fichiers signalés, puis continuez l'opération.",
   },
   'git.conflict': {
-    message: "L'opération a produit un conflit.",
+    message: "L'opération s'est arrêtée sur un conflit.",
     remediation: "Résolvez les conflits, puis continuez ou abandonnez l'opération.",
   },
   'git.identity_missing': {
-    message: "L'identité Git est incomplète.",
-    remediation: 'Configurez user.name et user.email.',
+    message: 'Git ne connaît pas votre nom ou votre e-mail.',
+    remediation: 'Renseignez-les dans les profils, puis recommencez.',
   },
   'git.signing_failed': {
     message: 'La signature du commit a échoué.',
-    remediation: "Vérifiez la clé de signature et l'agent GPG/SSH.",
+    remediation: "Vérifiez la clé de signature et l'agent qui la détient.",
   },
   'git.remote_missing': {
-    message: "Le remote demandé n'existe pas.",
-    remediation: 'Vérifiez la configuration des remotes.',
+    message: "Ce dépôt distant n'existe pas.",
+    remediation: 'Vérifiez le nom du remote dans la configuration.',
   },
   'git.pathspec': {
-    message: 'Le chemin demandé ne correspond à aucun fichier.',
-    remediation: "Vérifiez le chemin et son encodage.",
+    message: 'Ce chemin ne correspond à aucun fichier.',
+    remediation: 'Vérifiez le chemin, y compris les caractères spéciaux.',
   },
   'git.detached': {
-    message: 'HEAD est détaché.',
-    remediation: 'Créez une branche avant cette opération.',
+    message: "Vous n'êtes sur aucune branche.",
+    remediation: 'Créez une branche, puis recommencez.',
   },
   'git.bad_ref': {
-    message: 'La référence Git est inconnue.',
-    remediation: 'Vérifiez le nom de la branche, du tag ou du SHA.',
+    message: 'Cette référence est inconnue.',
+    remediation: 'Vérifiez le nom de la branche, du tag ou du commit.',
   },
   'git.shallow_unsupported': {
-    message: 'Le dépôt est shallow et ne permet pas cette opération.',
-    remediation: 'Récupérez l\'historique complet (`git fetch --unshallow`).',
+    message: "Ce dépôt n'a qu'une partie de l'historique.",
+    remediation:
+      "Récupérez l'historique complet, puis recommencez. La commande est dans les détails.",
   },
   'git.exit_unknown': {
-    message: 'La commande Git a échoué (code {code}).',
-    remediation: 'Consultez le détail pour la sortie Git complète.',
+    message: "L'opération Git a échoué.",
+    remediation: 'Le message de Git est dans les détails.',
   },
 
   // Git process layer (crates/git/src/error.rs).
@@ -152,11 +155,12 @@ const errors = {
     message: "Erreur d'entrée/sortie pendant l'exécution de Git.",
   },
   'git.timeout': {
-    message: 'La commande Git a dépassé le délai de {seconds} s.',
+    message: 'Git a été interrompu après {seconds} s.',
     remediation: 'Vérifiez le réseau ou le dépôt, puis réessayez.',
   },
   'git.exit_failure': {
-    message: 'La commande Git a échoué (code {code}).',
+    message: "L'opération Git a échoué.",
+    remediation: 'Le message de Git est dans les détails.',
   },
   'git.version_unsupported': {
     message: 'Version de Git non prise en charge (minimum 2.34).',
@@ -257,24 +261,22 @@ const errors = {
     message: "Aucun endpoint de rollback n'est configuré.",
   },
   'update.signature_invalid': {
-    message: 'La mise à jour a échoué.',
+    message: 'La signature de la mise à jour est invalide.',
     remediation:
-      'Aucun binaire non signé n\'est installé. Vérifiez le manifeste et la signature de publication.',
+      "Aucun fichier n'a été installé. Téléchargez la version depuis la page officielle.",
   },
   'update.tls': {
-    message: 'La mise à jour a échoué.',
-    remediation:
-      'Aucun binaire non signé n\'est installé. Vérifiez le manifeste et la signature de publication.',
+    message: 'La connexion sécurisée vers le serveur de mise à jour a échoué.',
+    remediation: 'Vérifiez le réseau et le certificat, puis réessayez.',
   },
   'update.timeout': {
-    message: 'La mise à jour a échoué.',
-    remediation:
-      'Aucun binaire non signé n\'est installé. Vérifiez le manifeste et la signature de publication.',
+    message: "Le serveur de mise à jour n'a pas répondu à temps.",
+    remediation: 'Vérifiez le réseau, puis réessayez.',
   },
   'update.failed': {
-    message: 'La mise à jour a échoué.',
+    message: "La mise à jour n'a pas pu être installée.",
     remediation:
-      'Aucun binaire non signé n\'est installé. Vérifiez le manifeste et la signature de publication.',
+      "Aucun fichier n'a été modifié. Réessayez, ou installez la version depuis la page officielle.",
   },
   'update.none': {
     message: "Aucune mise à jour n'est disponible.",
@@ -285,20 +287,20 @@ const errors = {
 
   // Local store and keychain.
   'store.database': {
-    message: 'erreur SQLite: {error}',
-    remediation: "Vérifiez les permissions du dossier de données de l'application.",
+    message: "Les données de l'application n'ont pas pu être lues.",
+    remediation: 'Fermez les autres fenêtres de BeeBranch, puis réessayez.',
   },
   'store.io': {
-    message: "erreur d'entrée/sortie: {error}",
-    remediation: "Vérifiez les permissions du dossier de données de l'application.",
+    message: "Un fichier de l'application n'a pas pu être lu ou écrit.",
+    remediation: 'Vérifiez que le dossier de données est accessible, puis réessayez.',
   },
   'store.keychain': {
-    message: 'erreur de keychain: {error}',
-    remediation: "Vérifiez les permissions du dossier de données de l'application.",
+    message: "Le trousseau du système a refusé l'accès au secret.",
+    remediation: 'Déverrouillez le trousseau, ou autorisez BeeBranch à l\'utiliser.',
   },
   'store.invalid': {
-    message: 'données invalides: {error}',
-    remediation: "Vérifiez les permissions du dossier de données de l'application.",
+    message: 'Des données enregistrées sont illisibles.',
+    remediation: 'Le détail technique précise ce qui est en cause.',
   },
 
   // Profiles.
@@ -317,18 +319,16 @@ const errors = {
 
   // Authentication, network and TLS, shared by Git, GitLab and GitHub.
   'tls.ca_required': {
-    message:
-      "La connexion TLS à {host} a échoué. Importez le certificat CA de l'instance dans les réglages.",
-    remediation: "Importez le certificat PEM de l'autorité interne de l'instance.",
+    message: 'La connexion sécurisée a échoué.',
+    remediation: "Importez le certificat de l'autorité dans les réglages, puis réessayez.",
   },
   'tls.ca_invalid': {
     message: 'Le certificat CA importé est invalide.',
     remediation: "Importez le certificat PEM de l'autorité interne de l'instance.",
   },
   'network.unreachable': {
-    message: 'Le serveur {host} est injoignable.',
-    remediation:
-      "Vérifiez l'adresse de l'instance, le proxy et la connexion réseau.",
+    message: 'Le serveur est injoignable.',
+    remediation: "Vérifiez l'adresse, le proxy et la connexion, puis réessayez.",
   },
 
   // GitLab client and commands.
@@ -374,6 +374,16 @@ const errors = {
   'gitlab.request_failed': {
     message: 'La requête GitLab a échoué.',
   },
+  'gitlab.auth_failed': {
+    message: "GitLab a refusé le jeton.",
+    remediation:
+      "Vérifiez le jeton d'accès personnel, ses droits (api, read_user) et sa date d'expiration.",
+  },
+  'gitlab.git_credential_rejected': {
+    message: 'Le jeton trouvé via {source} a été refusé.',
+    remediation:
+      "Mettez à jour les identifiants Git, ou saisissez un jeton d'accès personnel.",
+  },
   'gitlab.no_git_credential': {
     message: "Aucun identifiant Git n'est configuré pour {host}.",
     remediation:
@@ -418,6 +428,16 @@ const errors = {
   },
 
   // GitHub client and commands.
+  'github.auth_failed': {
+    message: 'GitHub a refusé le jeton.',
+    remediation:
+      "Vérifiez le jeton d'accès personnel, ses droits (repo, read:user) et sa date d'expiration.",
+  },
+  'github.git_credential_rejected': {
+    message: 'Le jeton trouvé via {source} a été refusé.',
+    remediation:
+      "Mettez à jour les identifiants Git, ou saisissez un jeton d'accès personnel.",
+  },
   'github.not_configured': {
     message: "Aucune instance GitHub n'est configurée.",
     remediation:

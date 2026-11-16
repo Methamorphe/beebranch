@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { commitConfig, commitCreate, statusGet } from '../ipc/commands'
-import { errorDetail, errorMessage } from '../ipc/client'
+import { presentError, type PresentedError } from '../ipc/client'
+import { recoveryFor } from '../lib/errorRecovery'
+import { ErrorNotice } from './ui/ErrorNotice'
 import { useCommitDraft } from '../lib/commitDraft'
 import { useI18n } from '../i18n'
 import { SUBJECT_LIMIT, subjectRemaining } from '../lib/commitMessage'
@@ -33,8 +35,8 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = n
   const [outcome, setOutcome] = useState<CommitOutcome | null>(null)
   /** Journal entry of `outcome`, the only record the undo button may target. */
   const [undoId, setUndoId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [errorOutput, setErrorOutput] = useState<string | null>(null)
+  const [error, setError] = useState<PresentedError | null>(null)
+  const [retry, setRetry] = useState<(() => void) | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [undoing, setUndoing] = useState(false)
@@ -77,7 +79,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = n
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(errorMessage(cause))
+          setError(presentError(cause))
         }
       })
     return () => {
@@ -101,7 +103,7 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = n
     }
     setBusy(true)
     setError(null)
-    setErrorOutput(null)
+    setRetry(null)
     setOutcome(null)
     setUndoId(null)
     setCopied(false)
@@ -125,8 +127,9 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = n
       setSkipHooks(false)
       onMutated()
     } catch (cause) {
-      setError(errorMessage(cause))
-      setErrorOutput(errorDetail(cause))
+      const body = presentError(cause)
+      setRetry(body.retryable ? () => { void submit() } : null)
+      setError(body)
     } finally {
       hooking.current = false
       setBusy(false)
@@ -273,9 +276,8 @@ export function CommitPanel({ repoId, generation, onMutated, onUndo, undoTop = n
           ) : null}
           {status?.counts.conflicted ? <p className={shared.danger}>{t('commit.panel.conflictsHint')}</p> : null}
           {error ? (
-            <div className={shared.danger} role="alert" style={{ marginTop: 10 }}>
-              <p>{error}</p>
-              {errorOutput && hookLog.length === 0 ? <pre className={shared.output}>{errorOutput}</pre> : null}
+            <div style={{ marginTop: 10 }}>
+              <ErrorNotice error={error} action={recoveryFor(error, { onRetry: retry ?? undefined })} />
             </div>
           ) : null}
           {outcome ? (

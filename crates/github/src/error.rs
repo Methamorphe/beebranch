@@ -22,6 +22,7 @@ pub struct GithubError {
     status: Option<u16>,
     retryable: bool,
     detail: Option<String>,
+    params: Vec<(&'static str, String)>,
 }
 
 impl GithubError {
@@ -50,6 +51,18 @@ impl GithubError {
         self.detail.as_deref()
     }
 
+    pub fn params(&self) -> &[(&'static str, String)] {
+        &self.params
+    }
+
+    pub(crate) fn with_param(mut self, key: &'static str, value: impl Into<String>) -> Self {
+        let value = value.into();
+        if !value.is_empty() {
+            self.params.push((key, value));
+        }
+        self
+    }
+
     pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -57,6 +70,7 @@ impl GithubError {
             status: None,
             retryable: false,
             detail: None,
+            params: Vec::new(),
         }
     }
 
@@ -90,6 +104,7 @@ impl GithubError {
             status: None,
             retryable: false,
             detail: bounded_detail(detail.into()),
+            params: Vec::new(),
         }
     }
 
@@ -153,6 +168,7 @@ impl GithubError {
             status: Some(status),
             retryable,
             detail: bounded_detail(format!("HTTP {status} : {body}")),
+            params: Vec::new(),
         }
     }
 
@@ -163,6 +179,7 @@ impl GithubError {
             status: None,
             retryable: true,
             detail: bounded_detail(detail.into()),
+            params: vec![("host", host.to_owned())],
         }
     }
 
@@ -173,6 +190,7 @@ impl GithubError {
             status: None,
             retryable: true,
             detail: bounded_detail(detail.into()),
+            params: vec![("host", host.to_owned())],
         }
     }
 
@@ -185,6 +203,7 @@ impl GithubError {
             status: None,
             retryable: false,
             detail: bounded_detail(detail.into()),
+            params: vec![("host", host.to_owned())],
         }
     }
 }

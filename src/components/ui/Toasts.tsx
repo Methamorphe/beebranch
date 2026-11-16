@@ -9,14 +9,21 @@ import {
   type ReactNode,
 } from 'react'
 import { t } from '../../i18n'
+import type { PresentedError } from '../../ipc/client'
+import type { ErrorAction } from '../../lib/errorRecovery'
 import { ToolbarIcon } from '../ToolbarIcon'
+import { ErrorNotice } from './ErrorNotice'
 import styles from './Toasts.module.css'
 
 export type ToastTone = 'success' | 'info' | 'error'
 
+export type ToastNotice = PresentedError & { action?: ErrorAction }
+
 export type ToastInput = {
   tone?: ToastTone
   message: string
+  /** Structured failure: title, next step, collapsed detail. */
+  notice?: ToastNotice
   /** Optional button, e.g. "Undo"; running it closes the toast. */
   action?: { label: string; run: () => void }
   /**
@@ -98,8 +105,12 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
     >
-      <span className={styles.message}>{toast.message}</span>
-      {toast.action ? (
+      {toast.notice ? (
+        <ErrorNotice error={toast.notice} action={toast.notice.action} embedded />
+      ) : (
+        <span className={styles.message}>{toast.message}</span>
+      )}
+      {toast.action && !toast.notice ? (
         <button
           type="button"
           className={styles.action}
@@ -126,12 +137,22 @@ export function useToasts(): ToastApi {
  * Drop-in replacement for a `useState<string | null>` banner: a message shows
  * a toast on `channel`, `null` dismisses it.
  */
-export function useToastChannel(channel: string, tone: ToastTone): (message: string | null) => void {
+export function useToastChannel(
+  channel: string,
+  tone: ToastTone,
+): (message: string | ToastNotice | null) => void {
   const { show, dismiss } = useToasts()
   return useCallback(
-    (message: string | null) => {
-      if (message) show({ tone, message, channel })
-      else dismiss(channel)
+    (message: string | ToastNotice | null) => {
+      if (!message) {
+        dismiss(channel)
+        return
+      }
+      if (typeof message === 'string') {
+        show({ tone, message, channel })
+        return
+      }
+      show({ tone, message: message.message, notice: message, channel })
     },
     [channel, tone, show, dismiss],
   )

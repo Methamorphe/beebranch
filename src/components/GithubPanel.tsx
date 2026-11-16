@@ -15,7 +15,8 @@ import {
   githubStatus,
   openExternalUrl,
 } from '../ipc/commands'
-import { errorMessage } from '../ipc/client'
+import { presentError, type PresentedError } from '../ipc/client'
+import { ErrorNotice } from './ui/ErrorNotice'
 import { formatDate, useI18n } from '../i18n'
 import { githubForge, tokenCreateUrl, type ForgeNotice } from '../lib/forge'
 import { groupProjects } from '../lib/forgeProjects'
@@ -50,7 +51,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
   const [caPem, setCaPem] = useState('')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<PresentedError | null>(null)
   const [notice, setNotice] = useState<ForgeNotice>(null)
   const [editing, setEditing] = useState(false)
   const [linkedId, setLinkedId] = useState<number | null>(null)
@@ -89,7 +90,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
           result.fromCache ? { key: 'forge.connect.notice.cached' } : null,
         )
       } catch (cause) {
-        setError(errorMessage(cause))
+        setError(presentError(cause))
       }
     },
     [],
@@ -171,7 +172,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(errorMessage(cause))
+          setError(presentError(cause))
         }
       })
     return () => {
@@ -199,7 +200,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
       setNotice({ key: 'forge.connect.notice.validated' })
       await loadProjects()
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     } finally {
       setBusy(false)
     }
@@ -228,7 +229,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
       )
       await loadProjects()
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     } finally {
       setBusy(false)
     }
@@ -252,7 +253,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
     } catch (cause) {
       clearPoll()
       setDevice(null)
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     }
   }
 
@@ -279,7 +280,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
       void openExternalUrl(started.verificationUri)
       scheduleDevicePoll(started.interval)
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     } finally {
       setBusy(false)
     }
@@ -289,7 +290,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
     clearPoll()
     setDevice(null)
     await githubDeviceFlowCancel().catch((cause: unknown) =>
-      setError(errorMessage(cause)),
+      setError(presentError(cause)),
     )
   }
 
@@ -305,7 +306,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
       setNextPage(undefined)
       setNotice({ key: 'forge.connect.notice.disconnected' })
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     } finally {
       setBusy(false)
     }
@@ -493,11 +494,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
             </p>
           ) : null}
 
-          {error ? (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          ) : null}
+          {error ? <ErrorNotice error={error} /> : null}
           {notice ? (
             <p className={styles.notice}>{t(notice.key, notice.params)}</p>
           ) : null}
@@ -589,7 +586,7 @@ export function GithubPanel({ repoId = null, generation = 0, onLinked, hubTab: h
                             setLinkedId(project.id)
                             setHubTab('projects')
                           })
-                          .catch((cause: unknown) => setError(errorMessage(cause)))
+                          .catch((cause: unknown) => setError(presentError(cause)))
                       }}
                       title={t('forge.projects.linkTitle')}
                       disabled={linkedId === project.id}

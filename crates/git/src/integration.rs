@@ -122,6 +122,7 @@ pub fn preview(
             ErrorCategory::Input,
             format!("La branche source {source} n'existe pas."),
         )
+        .with_param("source", source)
         .with_remediation(
             "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
         )
@@ -132,6 +133,7 @@ pub fn preview(
             ErrorCategory::Input,
             format!("La branche cible {target} n'existe pas."),
         )
+        .with_param("target", target)
         .with_remediation(
             "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
         )

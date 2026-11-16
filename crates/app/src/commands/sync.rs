@@ -1,5 +1,7 @@
 //! Fetch, pull and push with progress streaming and cancellation.
 
+use std::collections::BTreeMap;
+
 use beebranch_core::{AppError, Confirmation, DestructiveAction, ErrorCategory};
 use beebranch_git::session::InvalidationArea;
 use beebranch_git::sync::{self, PullStrategy, PushRequest, SyncKind, SyncOutcome};
@@ -181,6 +183,7 @@ pub async fn sync_fetch_all(
                 error: Some(FetchFailure {
                     code: error.code.to_string(),
                     message: error.message.clone(),
+                    params: error.params.clone(),
                 }),
             }),
         }
@@ -213,6 +216,8 @@ pub async fn sync_fetch_all(
 pub struct FetchFailure {
     pub code: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

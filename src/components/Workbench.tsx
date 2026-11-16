@@ -46,7 +46,8 @@ import {
   type DiffRequest,
 } from '../ipc/commands'
 import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
-import { errorMessage } from '../ipc/client'
+import { errorMessage, presentError } from '../ipc/client'
+import { recoveryFor } from '../lib/errorRecovery'
 import { formatNumber, useI18n } from '../i18n'
 import { isCheckoutableRef, resolveGraphRef, shortRevision } from '../lib/graphRefs'
 import { isCurrentUpstream, upstreamChoices } from '../lib/upstreamChoices'
@@ -98,7 +99,7 @@ import { CommitDetailPanel } from './CommitDetailPanel'
 import { ComparisonPanel } from './ComparisonPanel'
 import { ConfirmBar } from './ConfirmBar'
 import { useCheckoutConfirm, useOperationConfirm, usePushConfirm, useStashPopConfirm } from './OperationConfirm'
-import { useToastChannel } from './ui/Toasts'
+import { useToastChannel, type ToastNotice } from './ui/Toasts'
 import { ConflictsPanel } from './ConflictsPanel'
 import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
@@ -185,6 +186,8 @@ type Props = {
   onTerminalDockClose: () => void
   /** Which settings tab the gear or the account mark asked for. */
   settingsRequest?: { tab: SettingsTab; serial: number } | null
+  /** Opens the profiles tab from an identity error. */
+  onOpenProfiles?: () => void
 }
 
 /** The two revisions of an A→B comparison, as git revspecs. */
@@ -301,6 +304,7 @@ export function Workbench({
   onCloneIntoWorkspace,
   onPickDirectory,
   onPushRejected,
+  onOpenProfiles,
   settingsRequest = null,
   historyToolbar = null,
   terminalDock,
@@ -487,7 +491,21 @@ export function Workbench({
       stop()
     }
   }, [repoId])
-  const setActionError = useToastChannel('workbench-error', 'error')
+  const pushActionError = useToastChannel('workbench-error', 'error')
+  const openConflictsRef = useRef<() => void>(() => {})
+  const setActionError = useCallback((message: string | ToastNotice | null) => {
+    if (message && typeof message !== 'string' && !message.action) {
+      const action = recoveryFor(message, {
+        onProfiles: onOpenProfiles,
+        onConflicts: () => openConflictsRef.current(),
+        onGitlab: () => onNavigate('gitlab'),
+        onGithub: () => onNavigate('github'),
+      })
+      pushActionError(action ? { ...message, action } : message)
+      return
+    }
+    pushActionError(message)
+  }, [onNavigate, onOpenProfiles, pushActionError])
   const setActionNotice = useToastChannel('workbench-notice', 'success')
   const [filePath, setFilePath] = useState('')
   const checkoutPending = useRef(false)
@@ -961,6 +979,9 @@ export function Workbench({
     [graph.commits],
   )
 
+  const runActionRef = useRef<
+    ((label: string, action: () => Promise<unknown>, pushTarget?: PushRejection) => Promise<void>) | null
+  >(null)
   const runAction = useCallback(
     async (label: string, action: () => Promise<unknown>, pushTarget?: PushRejection) => {
       setActionError(null)
@@ -972,11 +993,17 @@ export function Workbench({
       } catch (cause) {
         // A refused push carries a decision the user still has to make.
         if (pushTarget && isPushRejection(cause)) onPushRejected(pushTarget)
-        else setActionError(errorMessage(cause))
+        else {
+          const body = presentError(cause)
+          setActionError(body.retryable
+            ? { ...body, action: { label: t('common.retry'), run: () => { void runActionRef.current?.(label, action, pushTarget) } } }
+            : body)
+        }
       }
     },
-    [onMutated, onPushRejected],
+    [onMutated, onPushRejected, setActionError, setActionNotice, t],
   )
+  runActionRef.current = runAction
 
   const createQuickStash = async () => {
     if (!repoId || stashPending.current || !hasChanges || repo?.state.head?.kind === 'unborn' || repo?.state.operation || repo?.state.conflicts.files.length) return
@@ -1071,7 +1098,7 @@ export function Workbench({
           setPublishTarget({ branch: name, remote })
         }
       } catch (cause) {
-        setActionError(errorMessage(cause))
+        setActionError(presentError(cause))
       }
     })()
   }
@@ -1302,7 +1329,7 @@ export function Workbench({
       }
       return preview
     } catch (cause) {
-      setActionError(errorMessage(cause))
+      setActionError(presentError(cause))
       return null
     }
   }
@@ -1369,7 +1396,7 @@ export function Workbench({
       onMutated()
       return true
     } catch (cause) {
-      setActionError(errorMessage(cause))
+      setActionError(presentError(cause))
       return false
     } finally {
       setIntegrationBusy(false)
@@ -1841,7 +1868,7 @@ export function Workbench({
       }
       setActionNotice(t('workbench.notice.activeBranch', { branch: activeBranch }))
     } catch (cause) {
-      setActionError(errorMessage(cause))
+      setActionError(presentError(cause))
     } finally {
       checkoutPending.current = false
       setCheckoutBusy(false)
@@ -1869,6 +1896,7 @@ export function Workbench({
     setToolDirty(false)
     return true
   }
+  openConflictsRef.current = () => { openHistoryTool('conflicts') }
   const closeHistoryTool = () => {
     if (!discardDockDraft()) return
     setHistoryTool(null)
@@ -2102,7 +2130,7 @@ export function Workbench({
       await patchSave(path, patch.text)
       setActionNotice(t('workbench.notice.patchSaved', { path }))
     } catch (cause) {
-      setActionError(errorMessage(cause))
+      setActionError(presentError(cause))
     }
   }
 
@@ -2144,7 +2172,7 @@ export function Workbench({
         : t('workbench.notice.pinned', { branch: entry.name }),
     )
     void preferenceSet('ui.graph.pins', JSON.stringify(next)).catch((cause: unknown) =>
-      setActionError(errorMessage(cause)),
+      setActionError(presentError(cause)),
     )
     setRefMenu(null)
   }
@@ -2350,7 +2378,7 @@ export function Workbench({
           onStashMenu={(entry, x, y) => {
             const commit = graph.commits.find((item) => item.sha === entry.sha)
             if (commit) openContextMenu(commit, entry.selector, x, y)
-            else void commitGet(repoId, entry.sha).then((result) => openContextMenu(result.data.summary, entry.selector, x, y)).catch((cause) => setActionError(errorMessage(cause)))
+            else void commitGet(repoId, entry.sha).then((result) => openContextMenu(result.data.summary, entry.selector, x, y)).catch((cause) => setActionError(presentError(cause)))
           }}
           onCreateBranch={() => {
             if (!onNavigate('graph')) return

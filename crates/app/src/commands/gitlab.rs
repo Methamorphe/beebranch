@@ -991,8 +991,9 @@ pub async fn connect_from_git(
                     normalized.host
                 ),
             )
+            .with_param("host", normalized.host.clone())
             .with_remediation(
-                "Authentifiez-vous une fois avec Git pour cet hôte, ou saisissez un Personal Access Token.",
+                "Authentifiez-vous une fois avec Git pour cet hôte, ou saisissez un jeton d'accès personnel.",
             )
         })?;
 
@@ -1020,11 +1021,11 @@ pub async fn connect_from_git(
     .with_cache_ttl(DEFAULT_CACHE_TTL);
     let user = client.validate().await.map_err(|error| {
         let mapped = gitlab_error(error);
-        if mapped.code == "auth.failed" {
-            mapped.with_remediation(format!(
-                "Le jeton trouvé via {} a été refusé. Mettez à jour vos identifiants Git ou saisissez un Personal Access Token.",
-                credential.source_label()
-            ))
+        if mapped.code == "gitlab.auth_failed" {
+            let source = credential.source_label();
+            mapped
+                .with_code("gitlab.git_credential_rejected")
+                .with_param("source", source)
         } else {
             mapped
         }

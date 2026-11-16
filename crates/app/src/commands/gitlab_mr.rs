@@ -534,6 +534,8 @@ pub async fn gitlab_mr_create(
                 input.source_branch
             ),
         )
+        .with_param("branch", input.source_branch.clone())
+        .with_param("remote", remote)
         .with_remediation("Poussez la branche avant de créer la merge request."));
     }
 

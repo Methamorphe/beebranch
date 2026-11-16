@@ -11,8 +11,10 @@ import {
   syncPull,
   syncPush,
 } from '../ipc/commands'
-import { errorDetail, errorMessage } from '../ipc/client'
+import { errorDetail, presentError, type PresentedError } from '../ipc/client'
 import { errorCopy } from '../i18n/errors'
+import { recoveryFor } from '../lib/errorRecovery'
+import { ErrorNotice } from './ui/ErrorNotice'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
 import {
   AUTO_FETCH_OPTIONS,
@@ -68,8 +70,8 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
   const [operationId, setOperationId] = useState<string | null>(null)
   const [log, setLog] = useState<string[]>([])
   const [outcome, setOutcome] = useState<SyncOutcome | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [errorOutput, setErrorOutput] = useState<string | null>(null)
+  const [error, setError] = useState<string | PresentedError | null>(null)
+  const [retry, setRetry] = useState<(() => void) | null>(null)
   const [autoFetch, setAutoFetch] = useState('0')
   const [batch, setBatch] = useState<string | null>(null)
   const consoleRef = useRef<HTMLPreElement>(null)
@@ -94,7 +96,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(errorMessage(cause))
+          setError(presentError(cause))
         }
       })
     return () => {
@@ -154,7 +156,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
     }
     setBusy(true)
     setError(null)
-    setErrorOutput(null)
+    setRetry(null)
     setOutcome(null)
     setOperationId(null)
     setLog([])
@@ -163,7 +165,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
         const all = await syncFetchAll(repoId)
         const lines = all.data.map((entry) =>
           entry.error
-            ? `${entry.remote}: ${entry.error.code} — ${errorCopy({ code: entry.error.code, category: 'internal', message: entry.error.message, retryable: false }).message}`
+            ? `${entry.remote}: ${errorCopy({ code: entry.error.code, category: 'internal', message: entry.error.message, retryable: false, params: entry.error.params }).message}`
             : `${entry.remote}: ${t('ops.sync.fetchAllOk')}`,
         )
         setLog((current) => [...current, ...lines])
@@ -209,8 +211,9 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
         }
         onPushRejected({ repoId, remote, branch })
       } else {
-        setError(errorMessage(cause))
-        setErrorOutput(errorDetail(cause))
+        const body = presentError(cause)
+        setRetry(body.retryable ? () => { void run(kind) } : null)
+        setError(body)
       }
     } finally {
       setBusy(false)
@@ -247,7 +250,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
     try {
       await saveAutoFetchMinutes(value)
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     }
   }
 
@@ -256,7 +259,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
     try {
       await preferenceSet(PULL_STRATEGY_PREFERENCE, value)
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     }
   }
 
@@ -301,13 +304,13 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
 
       <p className={p2.hintBar}>{t('ops.sync.branchHint')}</p>
 
-      {error ? (
-        <>
-          <p className={p2.alert} role="alert">
-            {error}
-          </p>
-          {errorOutput ? <pre className={p2.code}>{errorOutput}</pre> : null}
-        </>
+      {typeof error === 'string' ? (
+        <p className={p2.alert} role="alert">{error}</p>
+      ) : error ? (
+        <ErrorNotice
+          error={error}
+          action={recoveryFor(error, { onRetry: retry ?? undefined })}
+        />
       ) : null}
       {outcome ? (
         <div className={p2.listHeader} role="status">
@@ -491,7 +494,7 @@ export function SyncPanel({ repoId, generation, onMutated, onPushRejected }: Pro
                       sent ? t('ops.sync.cancelRequested') : t('ops.sync.alreadyFinished'),
                     ]),
                   )
-                  .catch((cause: unknown) => setError(errorMessage(cause)))
+                  .catch((cause: unknown) => setError(presentError(cause)))
               }}
             >
               {t('ops.sync.cancelOperation')}

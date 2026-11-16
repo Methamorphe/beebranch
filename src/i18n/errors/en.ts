@@ -20,104 +20,106 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
 
   // Git failures classified from the command output.
   'repo.safe_directory': {
-    message: 'The repository belongs to another user.',
-    remediation: 'Add the repository to safe.directory explicitly if you trust it.',
+    message: 'Git refuses this folder because it belongs to another account.',
+    remediation:
+      'If you trust this folder, add it to safe.directory explicitly. The command is in the details.',
   },
   'repo.busy': {
-    message: 'Another Git process is using this repository.',
+    message: 'Another Git program is using this repository.',
     remediation:
-      'Check that no Git command is running, then try again. The lock file is never removed automatically.',
+      'Wait for it to finish, then try again. The lock file is never removed automatically.',
   },
   'repo.bare': {
-    message: 'This operation requires a worktree.',
-    remediation: 'Open a worktree linked to the repository.',
+    message: 'This operation needs a working copy.',
+    remediation: 'Open a working folder linked to this repository.',
   },
   'repo.not_git': {
     message: 'This folder is not a Git repository.',
-    remediation: 'Check the path or initialise a repository.',
+    remediation: 'Check the path, or create a repository.',
   },
   'auth.host_key': {
-    message: 'The SSH host key is not verified.',
-    remediation: 'Check known_hosts or connect once over SSH to accept the host key.',
+    message: 'This SSH server is not recognised yet.',
+    remediation: 'Check its fingerprint, then accept it once.',
   },
   'auth.ssh_key': {
-    message: 'SSH authentication failed.',
-    remediation:
-      'Unlock your key with its passphrase or add it to the agent with `ssh-add <key>`, then try again. Also check access with `ssh -T git@<host>`.',
+    message: 'The SSH key was rejected.',
+    remediation: 'Unlock the key or add it to the agent, then try again. The commands are in the details.',
   },
   'auth.failed': {
-    message: 'Authentication failed.',
-    remediation:
-      'Check the token or the matching credential helper, and make sure the personal access token is valid and has not expired.',
+    message: 'Git authentication failed.',
+    remediation: 'Check the token or the saved credential for this host.',
   },
   'git.untracked_collision': {
     message: 'Untracked files would be overwritten.',
-    remediation: 'Move or rename the untracked files concerned, then try again.',
+    remediation: 'Move or rename those files, then try again.',
   },
   'git.dirty_worktree': {
-    message: 'Local changes are blocking the operation.',
-    remediation: 'Commit or stash your changes, then try again.',
+    message: 'Modified files would be overwritten.',
+    remediation: 'Save them in a commit or a stash, then try again.',
   },
   'git.unrelated_histories': {
-    message: 'The histories share no common ancestor.',
-    remediation: 'Explicitly allow `--allow-unrelated-histories` if that is what you want.',
+    message: 'These histories share no commit.',
+    remediation: 'Merge them only if you decide to. The Git option is in the details.',
   },
   'git.pull_not_fast_forward': {
-    message: 'The pull could not fast-forward.',
-    remediation:
-      'The local history diverged from the remote branch: rebase or merge it, or relax `pull.ff`.',
+    message: 'The local branch and the remote branch have diverged.',
+    remediation: 'Bring in the remote commits, then try again.',
   },
   'git.pull_strategy_missing': {
-    message: 'Git requires a strategy to reconcile divergent branches.',
-    remediation: 'Configure `pull.rebase` or `pull.ff`, or pick a pull strategy in BeeBranch.',
+    message: 'Git does not know how to combine these diverged branches.',
+    remediation: 'Choose a pull strategy in BeeBranch.',
   },
   'git.non_fast_forward': {
-    message: 'The push is not a fast-forward.',
-    remediation: 'Fetch, then merge or rebase before pushing.',
+    message: 'The remote branch has commits you do not have.',
+    remediation: 'Bring them in, then send your branch again.',
   },
   'git.push_lease_stale': {
-    message: 'The remote changed during the push.',
-    remediation: 'Retry the push: the expected remote SHA is read right before every send.',
+    message: 'Someone changed the remote branch during the send.',
+    remediation: 'Send again: the remote reference is read just before.',
+  },
+  'git.push_rejected': {
+    message: 'The server refused the send.',
+    remediation: 'Read the reason in the details: a protected branch or a hook can block the send.',
   },
   'git.unresolved_conflicts': {
-    message: 'Some conflicts are not resolved.',
-    remediation: 'Resolve the conflicting files, stage them, then continue.',
+    message: 'Some conflicts are still unresolved.',
+    remediation: 'Fix the listed files, then continue the operation.',
   },
   'git.conflict': {
-    message: 'The operation produced a conflict.',
+    message: 'The operation stopped on a conflict.',
     remediation: 'Resolve the conflicts, then continue or abort the operation.',
   },
   'git.identity_missing': {
-    message: 'The Git identity is incomplete.',
-    remediation: 'Configure user.name and user.email.',
+    message: 'Git does not know your name or email.',
+    remediation: 'Enter them in Profiles, then try again.',
   },
   'git.signing_failed': {
-    message: 'The commit signature failed.',
-    remediation: 'Check the signing key and the GPG/SSH agent.',
+    message: 'Signing the commit failed.',
+    remediation: 'Check the signing key and the agent that holds it.',
   },
   'git.remote_missing': {
-    message: 'The requested remote does not exist.',
-    remediation: 'Check the remote configuration.',
+    message: 'This remote repository does not exist.',
+    remediation: 'Check the remote name in the configuration.',
   },
   'git.pathspec': {
-    message: 'The requested path matches no file.',
-    remediation: 'Check the path and its encoding.',
+    message: 'This path does not match any file.',
+    remediation: 'Check the path, including special characters.',
   },
   'git.detached': {
-    message: 'HEAD is detached.',
-    remediation: 'Create a branch before running this operation.',
+    message: 'You are not on a branch.',
+    remediation: 'Create a branch, then try again.',
   },
   'git.bad_ref': {
-    message: 'The Git reference is unknown.',
-    remediation: 'Check the branch, tag or SHA name.',
+    message: 'This reference is unknown.',
+    remediation: 'Check the branch name, the tag or the commit.',
   },
   'git.shallow_unsupported': {
-    message: 'The repository is shallow and does not allow this operation.',
-    remediation: 'Fetch the full history (`git fetch --unshallow`).',
+    message: 'This repository only has part of its history.',
+    remediation: 'Fetch the full history, then try again. The command is in the details.',
   },
   'git.exit_unknown': {
-    message: 'The Git command failed (exit code {code}).',
-    remediation: 'Check the detail for the full Git output.',
+    message: 'The Git operation failed.',
+    remediation: 'The Git message is in the details.',
   },
 
   // Git process layer.
@@ -143,11 +145,12 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
     message: 'An I/O error occurred while running Git.',
   },
   'git.timeout': {
-    message: 'The Git command timed out after {seconds} s.',
+    message: 'Git was stopped after {seconds} s.',
     remediation: 'Check the network or the repository, then try again.',
   },
   'git.exit_failure': {
-    message: 'The Git command failed (exit code {code}).',
+    message: 'The Git operation failed.',
+    remediation: 'The Git message is in the details.',
   },
   'git.version_unsupported': {
     message: 'Unsupported Git version (2.34 minimum required).',
@@ -247,24 +250,20 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
     message: 'No rollback endpoint is configured.',
   },
   'update.signature_invalid': {
-    message: 'The update failed.',
-    remediation:
-      'No unsigned binary is installed. Check the manifest and the release signature.',
+    message: 'The update signature is invalid.',
+    remediation: 'No file was installed. Download the version from the official page.',
   },
   'update.tls': {
-    message: 'The update failed.',
-    remediation:
-      'No unsigned binary is installed. Check the manifest and the release signature.',
+    message: 'The secure connection to the update server failed.',
+    remediation: 'Check the network and the certificate, then try again.',
   },
   'update.timeout': {
-    message: 'The update failed.',
-    remediation:
-      'No unsigned binary is installed. Check the manifest and the release signature.',
+    message: 'The update server did not answer in time.',
+    remediation: 'Check the network, then try again.',
   },
   'update.failed': {
-    message: 'The update failed.',
-    remediation:
-      'No unsigned binary is installed. Check the manifest and the release signature.',
+    message: 'The update could not be installed.',
+    remediation: 'No file was changed. Try again, or install the version from the official page.',
   },
   'update.none': {
     message: 'No update is available.',
@@ -275,20 +274,20 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
 
   // Local store and keychain.
   'store.database': {
-    message: 'SQLite error: {error}',
-    remediation: "Check the permissions of the application's data folder.",
+    message: "The application's data could not be read.",
+    remediation: 'Close the other BeeBranch windows, then try again.',
   },
   'store.io': {
-    message: 'I/O error: {error}',
-    remediation: "Check the permissions of the application's data folder.",
+    message: "An application file could not be read or written.",
+    remediation: 'Check that the data folder is accessible, then try again.',
   },
   'store.keychain': {
-    message: 'Keychain error: {error}',
-    remediation: "Check the permissions of the application's data folder.",
+    message: 'The system keychain refused access to the secret.',
+    remediation: 'Unlock the keychain, or allow BeeBranch to use it.',
   },
   'store.invalid': {
-    message: 'Invalid data: {error}',
-    remediation: "Check the permissions of the application's data folder.",
+    message: 'Saved data could not be read.',
+    remediation: 'The technical detail says what is wrong.',
   },
 
   // Profiles.
@@ -307,17 +306,16 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
 
   // Authentication, network and TLS, shared by Git, GitLab and GitHub.
   'tls.ca_required': {
-    message:
-      'The TLS connection to {host} failed. Import the instance CA certificate in the settings.',
-    remediation: "Import the PEM certificate of the instance's internal authority.",
+    message: 'The secure connection failed.',
+    remediation: "Import the authority's certificate in the settings, then try again.",
   },
   'tls.ca_invalid': {
     message: 'The imported CA certificate is invalid.',
     remediation: "Import the PEM certificate of the instance's internal authority.",
   },
   'network.unreachable': {
-    message: 'The {host} server is unreachable.',
-    remediation: 'Check the instance address, the proxy and the network connection.',
+    message: 'The server cannot be reached.',
+    remediation: 'Check the address, the proxy and the connection, then try again.',
   },
 
   // GitLab client and commands.
@@ -362,6 +360,15 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
   'gitlab.request_failed': {
     message: 'The GitLab request failed.',
   },
+  'gitlab.auth_failed': {
+    message: 'GitLab rejected the token.',
+    remediation:
+      'Check the personal access token, its permissions (api, read_user) and its expiry date.',
+  },
+  'gitlab.git_credential_rejected': {
+    message: 'The token found via {source} was rejected.',
+    remediation: 'Update the Git credentials, or enter a personal access token.',
+  },
   'gitlab.no_git_credential': {
     message: 'No Git credential is configured for {host}.',
     remediation:
@@ -405,6 +412,15 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
   },
 
   // GitHub client and commands.
+  'github.auth_failed': {
+    message: 'GitHub rejected the token.',
+    remediation:
+      'Check the personal access token, its permissions (repo, read:user) and its expiry date.',
+  },
+  'github.git_credential_rejected': {
+    message: 'The token found via {source} was rejected.',
+    remediation: 'Update the Git credentials, or enter a personal access token.',
+  },
   'github.not_configured': {
     message: 'No GitHub instance is configured.',
     remediation: 'Enter the instance URL and a personal access token.',

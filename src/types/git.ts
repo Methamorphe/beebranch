@@ -6,6 +6,8 @@ export type AppError = {
   remediation?: string
   retryable: boolean
   operationId?: string
+  /** Values interpolated into the catalogue sentence. */
+  params?: Record<string, string>
 }
 
 export type HeadState =
@@ -555,7 +557,7 @@ export type SyncOutcome = {
 export type RemoteFetchOutcome = {
   remote: string
   outcome?: SyncOutcome
-  error?: { code: string; message: string }
+  error?: { code: string; message: string; params?: Record<string, string> }
 }
 
 export type HistoryOutcome = {

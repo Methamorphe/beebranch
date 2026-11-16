@@ -125,24 +125,41 @@ fn schedule_restart(app: &AppHandle) {
 fn updater_error(error: tauri_plugin_updater::Error) -> AppError {
     let text = error.to_string();
     let lower = text.to_ascii_lowercase();
-    let code = if lower.contains("signature") || lower.contains("minisign") {
-        "update.signature_invalid"
+    let (code, message, remediation, retryable) = if lower.contains("signature")
+        || lower.contains("minisign")
+    {
+        (
+            "update.signature_invalid",
+            "La signature de la mise à jour est invalide.",
+            "Aucun fichier n'a été installé. Téléchargez la version depuis la page officielle.",
+            false,
+        )
     } else if lower.contains("tls") || lower.contains("certificate") {
-        "update.tls"
+        (
+            "update.tls",
+            "La connexion sécurisée vers le serveur de mise à jour a échoué.",
+            "Vérifiez le réseau et le certificat, puis réessayez.",
+            true,
+        )
     } else if lower.contains("timed out") || lower.contains("timeout") {
-        "update.timeout"
+        (
+            "update.timeout",
+            "Le serveur de mise à jour n'a pas répondu à temps.",
+            "Vérifiez le réseau, puis réessayez.",
+            true,
+        )
     } else {
-        "update.failed"
+        (
+            "update.failed",
+            "La mise à jour n'a pas pu être installée.",
+            "Aucun fichier n'a été modifié. Réessayez, ou installez la version depuis la page officielle.",
+            false,
+        )
     };
-    AppError::new(
-        code,
-        ErrorCategory::Network,
-        "La mise à jour a échoué.",
-    )
-    .with_detail(text)
-    .with_remediation(
-        "Aucun binaire non signé n'est installé. Vérifiez le manifeste et la signature de publication.",
-    )
+    AppError::new(code, ErrorCategory::Network, message)
+        .with_detail(text)
+        .with_remediation(remediation)
+        .retryable(retryable)
 }
 
 /// `download_and_install` reports the length of each received chunk, not the

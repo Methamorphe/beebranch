@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { branchCompare, syncFetch, syncPull, syncPush } from '../ipc/commands'
-import { errorDetail, errorMessage } from '../ipc/client'
+import { errorMessage, presentError, type PresentedError } from '../ipc/client'
+import { ErrorNotice } from './ui/ErrorNotice'
 import { useI18n } from '../i18n'
 import type { PushRejection } from '../lib/pushRejection'
 import type { PullStrategy } from '../types/git'
@@ -35,7 +36,7 @@ export function PushRejectedBar({ rejection, onClose, onDone }: Props) {
   const { t } = useI18n()
   const [comparison, setComparison] = useState<Comparison>(undefined)
   const [busy, setBusy] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [failure, setFailure] = useState<PresentedError | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [forcing, setForcing] = useState(false)
 
@@ -92,8 +93,7 @@ export function PushRejectedBar({ rejection, onClose, onDone }: Props) {
       onDone()
       onClose()
     } catch (cause) {
-      const detail = errorDetail(cause)
-      setFailure(detail ? `${errorMessage(cause)}\n${detail}` : errorMessage(cause))
+      setFailure(presentError(cause))
     } finally {
       setBusy(false)
     }
@@ -188,7 +188,7 @@ export function PushRejectedBar({ rejection, onClose, onDone }: Props) {
       >
         <p>{t('ops.sync.recovery.forceWarning', { remote, branch })}</p>
         <p>{t('shell.confirm.irreversible')}</p>
-        {failure ? <pre className={styles.output}>{failure}</pre> : null}
+        {failure ? <ErrorNotice error={failure} /> : null}
       </ActionBar>
     )
   }
@@ -237,7 +237,7 @@ export function PushRejectedBar({ rejection, onClose, onDone }: Props) {
       <p>{t('ops.sync.recovery.lead', { branch, remote })}</p>
       {describe()}
       {note ? <p>{note}</p> : null}
-      {failure ? <pre className={styles.output}>{failure}</pre> : null}
+      {failure ? <ErrorNotice error={failure} /> : null}
     </ActionBar>
   )
 }

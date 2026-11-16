@@ -450,10 +450,10 @@ pub fn read_commit_config(
         return Err(AppError::new(
             "git.identity_missing",
             beebranch_core::ErrorCategory::Input,
-            "L'identité Git est incomplète.",
+            "Git ne connaît pas votre nom ou votre e-mail.",
         )
         .with_detail(format!("user.name={name:?}, user.email={email:?}"))
-        .with_remediation("Configurez user.name et user.email avant de commit."));
+        .with_remediation("Renseignez-les dans les profils, puis recommencez."));
     }
     let signing = config_value(runner, worktree, "commit.gpgsign")?.is_some_and(|value| {
         matches!(
