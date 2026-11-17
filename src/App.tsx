@@ -27,6 +27,7 @@ import { Workbench } from './components/Workbench'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { APP_PAGES, navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
 import { errorMessage } from './ipc/client'
+import { usePipelineFailureNotifications } from './lib/usePipelineNotifications'
 import { I18nProvider, LANGUAGE_PREFERENCE_KEY, detectLocale, isLocale, plural, setLocale, t, type Locale, type MessageKey } from './i18n'
 import {
   backgroundRead,
@@ -128,6 +129,7 @@ function applyDensity(density: Density) {
 
 export default function App() {
   const [repos, setRepos] = useState<RepoView[]>([])
+  usePipelineFailureNotifications(repos)
   const reposRef = useRef(repos)
   useEffect(() => {
     reposRef.current = repos
