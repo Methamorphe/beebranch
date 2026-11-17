@@ -683,6 +683,12 @@ export type PipelineOverview = {
   pipelines: GitlabPipeline[]
 }
 
+export type PipelineJobStep = {
+  name: string
+  status: string
+  conclusion?: string
+}
+
 export type PipelineJob = {
   id: number
   name: string
@@ -692,6 +698,8 @@ export type PipelineJob = {
   duration?: number
   createdAt?: string
   finishedAt?: string
+  /** GitHub Actions steps. Absent or empty on GitLab. */
+  steps?: PipelineJobStep[]
 }
 
 export type RepoLink = {
