@@ -27,7 +27,9 @@ const messages = {
     'Clipboard unavailable: allow access and try again.',
   'workbench.error.integrationImpossible': 'These branches cannot be integrated.',
   'workbench.error.localBranchAlreadyTracks':
-    'Local branch “{name}” already exists with another upstream. Select it directly or configure its upstream in Branches.',
+    'Local branch “{name}” already tracks another upstream. Switch to it without moving it, move it onto this remote, or create another local branch.',
+  'workbench.error.localNameTaken':
+    'Local branch “{name}” already exists and tracks something else.',
   'workbench.error.mergeRequestUnavailable':
     'Link the repository to a GitLab project and push the branch.',
   'workbench.error.remoteBranchNameUndetermined':
@@ -194,8 +196,24 @@ const messages = {
 
   'workbench.publish.title': 'Publish branch {branch}',
   'workbench.publish.consequence':
-    'This local branch has no upstream yet. The push creates or updates {remote}/{branch} and makes the local branch track it.',
+    'The push creates or updates {remote}/{branch} and makes the local branch track it.',
+  'workbench.publish.consequenceKeep':
+    'The push creates or updates {remote}/{branch} and leaves the tracking upstream unchanged.',
   'workbench.publish.confirm': 'Push and create {remote}/{branch}',
+  'workbench.publish.remoteLabel': 'Remote',
+  'workbench.publish.trackLabel': 'Make this remote the tracking upstream',
+
+  'workbench.checkout.remoteTitle': '{remote} is already represented by {branch}',
+  'workbench.checkout.switchExisting': 'Switch to {branch}',
+  'workbench.checkout.moveExisting': 'Move {branch} onto {remote}',
+  'workbench.checkout.createOther': 'Create {name}',
+  'workbench.checkout.otherName': 'Other local branch',
+
+  'workbench.mergeRemote.title': 'Merge {source} into {remote}',
+  'workbench.mergeRemote.consequence':
+    'Creates or checks out {branch} from {remote}, merges {source} into it, then offers to push {branch}. The tracking upstream of {source} stays unchanged.',
+  'workbench.mergeRemote.localName': 'Local branch that receives the merge',
+  'workbench.mergeRemote.confirm': 'Merge',
 
   'workbench.preview.ariaLabel': 'Changes preview',
   'workbench.preview.closeAriaLabel': 'Close the preview',
@@ -223,8 +241,10 @@ const messages = {
   'workbench.refMenu.noRemoteBranches': 'No remote copy of this branch: fetch or publish it.',
   'workbench.refMenu.pin': 'Pin to the left of the graph',
   'workbench.refMenu.pullFastForwardOnly': 'Pull (fast-forward only)',
+  'workbench.refMenu.push': 'Push',
   'workbench.refMenu.pushTo': 'Push to {target}',
   'workbench.refMenu.publishTo': 'Publish to {target}',
+  'workbench.refMenu.trackingSuffix': ' · tracking',
   'workbench.refMenu.remoteBranch': 'remote branch',
   'workbench.refMenu.rename': 'Rename…',
   'workbench.refMenu.renameBranchAria': 'New branch name',

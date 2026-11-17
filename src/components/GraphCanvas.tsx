@@ -1108,7 +1108,7 @@ export function GraphCanvas({
     if (hit) {
       markExternalDrop(null)
       const entry = resolveGraphRef(hit.raw, refEntries)
-      if (!entry || entry.kind !== 'branch') return null
+      if (!entry || entry.symref || (entry.kind !== 'branch' && entry.kind !== 'remoteBranch')) return null
       if (entry.fullName === source.fullName) return null
       return {
         entry,
@@ -1128,8 +1128,10 @@ export function GraphCanvas({
       .find(
         (candidate) =>
           candidate &&
-          candidate.closest('[data-repository-section="local"]') &&
-          candidate.getAttribute('data-ref')?.startsWith('refs/heads/'),
+          (candidate.closest('[data-repository-section="local"]') ||
+            candidate.closest('[data-repository-section="remotes"]')) &&
+          (candidate.getAttribute('data-ref')?.startsWith('refs/heads/') ||
+            candidate.getAttribute('data-ref')?.startsWith('refs/remotes/')),
       )
     if (!row) {
       markExternalDrop(null)
@@ -1137,7 +1139,12 @@ export function GraphCanvas({
     }
     const fullName = row.getAttribute('data-ref')
     const entry = refEntries.find((candidate) => candidate.fullName === fullName)
-    if (!entry || entry.kind !== 'branch' || entry.fullName === source.fullName) {
+    if (
+      !entry ||
+      entry.symref ||
+      (entry.kind !== 'branch' && entry.kind !== 'remoteBranch') ||
+      entry.fullName === source.fullName
+    ) {
       markExternalDrop(null)
       return null
     }

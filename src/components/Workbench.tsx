@@ -50,7 +50,15 @@ import { save as saveNativeDialog } from '@tauri-apps/plugin-dialog'
 import { errorMessage } from '../ipc/client'
 import { formatNumber, useI18n } from '../i18n'
 import { isCheckoutableRef, resolveGraphRef, shortRevision } from '../lib/graphRefs'
-import { isCurrentUpstream, upstreamChoices } from '../lib/upstreamChoices'
+import {
+  isCurrentUpstream,
+  localTracking,
+  pushDestinations,
+  repositoryRemotes,
+  suggestLocalName,
+  upstreamChoices,
+  type PushDestination,
+} from '../lib/upstreamChoices'
 import type { MediaSettings } from '../lib/mediaSettings'
 import { projectWebUrl, refWebUrl } from '../lib/refLinks'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
@@ -105,7 +113,13 @@ import { FileHistoryPanel } from './FileHistoryPanel'
 import { PatchesPanel } from './PatchesPanel'
 import { PipelinesPanel } from './PipelinesPanel'
 import { ProfilesPanel, type SettingsTab } from './ProfilesPanel'
-import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
+import { PublishBranchBar, type PublishChoice, type PublishTarget } from './PublishBranchBar'
+import {
+  MergeRemoteBar,
+  RemoteCheckoutBar,
+  type MergeRemoteRequest,
+  type RemoteCheckoutRequest,
+} from './RemoteBranchBars'
 import { RebasePanel } from './RebasePanel'
 import { RefsAdminPanel } from './RefsAdminPanel'
 import { Resizer } from './Resizer'
@@ -260,6 +274,15 @@ function pushTarget(entry: RefEntry) {
   const [remote] = upstream?.split('/') ?? []
   const name = remote || 'origin'
   return { remote: name, target: `${name}/${entry.name}` }
+}
+
+/**
+ * Local branches keep the short name the rest of the app already sends.
+ * A remote-tracking ref is passed in full so `origin/main` cannot be read
+ * as a local branch of that name.
+ */
+function integrationRevision(entry: RefEntry): string {
+  return entry.kind === 'remoteBranch' ? entry.fullName : entry.name
 }
 
 export function Workbench({
@@ -610,6 +633,8 @@ export function Workbench({
   const [branchName, setBranchName] = useState('')
   /** Branch awaiting its first push, which also records the upstream. */
   const [publishTarget, setPublishTarget] = useState<PublishTarget | null>(null)
+  const [remoteCheckout, setRemoteCheckout] = useState<RemoteCheckoutRequest | null>(null)
+  const [mergeRemoteRequest, setMergeRemoteRequest] = useState<MergeRemoteRequest | null>(null)
   const [refMenu, setRefMenu] = useState<RefMenuState | null>(null)
   const [pendingTagDelete, setPendingTagDelete] = useState<RefEntry | null>(null)
   const [pendingDelete, setPendingDelete] = useState<RefEntry | null>(null)
@@ -1069,7 +1094,13 @@ export function Workbench({
         // Pushing a branch the remote has never seen needs `--set-upstream`:
         // offer it right here instead of sending the user to the sync panel.
         if (remote && !alreadyRemote) {
-          setPublishTarget({ branch: name, remote })
+          const available = repositoryRemotes(refs ?? { remotes: [remote] })
+          setPublishTarget({
+            branch: name,
+            remote,
+            remotes: available.length > 0 ? available : [remote],
+            setUpstream: true,
+          })
         }
       } catch (cause) {
         setActionError(errorMessage(cause))
@@ -1077,23 +1108,23 @@ export function Workbench({
     })()
   }
 
-  const confirmPublish = () => {
+  const confirmPublish = (choice: PublishChoice) => {
     const target = publishTarget
     setPublishTarget(null)
     if (!repoId || !target) return
     void runAction(
       t('workbench.notice.branchPushed', {
         branch: target.branch,
-        remote: target.remote,
+        remote: choice.remote,
       }),
       () =>
         syncPush({
           repoId,
-          remote: target.remote,
+          remote: choice.remote,
           branch: target.branch,
-          setUpstream: true,
+          setUpstream: choice.setUpstream,
         }),
-      { repoId, remote: target.remote, branch: target.branch },
+      { repoId, remote: choice.remote, branch: target.branch },
     )
   }
 
@@ -1230,21 +1261,27 @@ export function Workbench({
     setRefMenu({ entry, x, y, renaming: false, name: entry.name })
   }
 
-  const pushBranch = (entry: RefEntry) => {
+  const pushBranchTo = (entry: RefEntry, remote: string, exists: boolean) => {
     if (!repoId) return
-    const { remote } = pushTarget(entry)
     setRefMenu(null)
-    // A branch without upstream cannot be pushed as-is: ask for the publish
-    // that creates it remotely and records the upstream.
-    if (!entry.upstream && (refs?.remotes ?? []).length > 0) {
-      setPublishTarget({ branch: entry.name, remote })
+    // A remote that does not have the branch yet needs an explicit publish.
+    // Tracking changes only when the checkbox says so, so a second remote
+    // does not replace the upstream the branch already follows.
+    if (!exists) {
+      const available = repositoryRemotes(refs ?? { remotes: [remote] })
+      setPublishTarget({
+        branch: entry.name,
+        remote,
+        remotes: available.length > 0 ? available : [remote],
+        setUpstream: !entry.upstream,
+      })
       return
     }
     void confirmPush({ repoId, remote, branch: entry.name }).then((confirmed) => {
       if (!confirmed) return
       void runAction(
         t('workbench.notice.branchPushed', { branch: entry.name, remote }),
-        () => syncPush({ repoId, remote, branch: entry.name }),
+        () => syncPush({ repoId, remote, branch: entry.name, setUpstream: false }),
         { repoId, remote, branch: entry.name },
       )
     })
@@ -1267,8 +1304,8 @@ export function Workbench({
     setDropMenu({ source, target, x, y, fastForward: false })
     void branchIntegrationPreview({
       repoId,
-      source: source.name,
-      target: target.name,
+      source: integrationRevision(source),
+      target: integrationRevision(target),
       mode: 'merge',
     })
       .then((preview) => {
@@ -1293,8 +1330,8 @@ export function Workbench({
     try {
       const preview = await branchIntegrationPreview({
         repoId,
-        source: source.name,
-        target: target.name,
+        source: integrationRevision(source),
+        target: integrationRevision(target),
         mode,
       })
       if (!preview.applicable) {
@@ -1322,8 +1359,8 @@ export function Workbench({
     try {
       const result = await branchIntegrationStart({
         repoId,
-        source: source.name,
-        target: target.name,
+        source: integrationRevision(source),
+        target: integrationRevision(target),
         mode,
         fastForward,
         confirmation: { acknowledged: true },
@@ -1391,8 +1428,8 @@ export function Workbench({
     setActionError(null)
     setActionNotice(null)
     const preview = await previewIntegration(source, target, 'merge')
-    if (!preview) return
-    await applyIntegration(source, target, 'merge', fastForward, preview)
+    if (!preview) return false
+    return applyIntegration(source, target, 'merge', fastForward, preview)
   }
 
   /** A rebase rewrites the source branch, so it keeps one confirmation. */
@@ -1410,6 +1447,80 @@ export function Workbench({
     if (!pending) return
     if (await applyIntegration(pending.source, pending.target, 'rebase', 'auto', pending.preview)) {
       setPendingRebase(null)
+    }
+  }
+
+  const offerPush = (branch: string, remote: string) => {
+    setPublishTarget({ branch, remote, remotes: [remote], setUpstream: false })
+  }
+
+  /**
+   * Merge `source` into a remote-tracking branch. The branch that is checked
+   * out is the local one that already tracks it, or a new local branch the
+   * user names. A successful merge offers to push that local branch only.
+   */
+  const mergeIntoRemote = async (source: RefEntry, remote: RefEntry) => {
+    setDropMenu(null)
+    setActionError(null)
+    setActionNotice(null)
+    if (source.fullName === remote.fullName) return
+    const locals = refs?.entries.filter((entry) => entry.kind === 'branch') ?? []
+    const tracking = localTracking(locals, remote)
+    if (tracking) {
+      if (tracking.fullName === source.fullName) {
+        setActionError(t('workbench.error.integrationImpossible'))
+        return
+      }
+      const ok = await requestMerge(source, tracking, 'never')
+      if (ok && remote.remote) offerPush(tracking.name, remote.remote)
+      return
+    }
+    const remoteName = remote.remote ?? remote.name.split('/')[0] ?? ''
+    const short = remote.name.startsWith(`${remoteName}/`)
+      ? remote.name.slice(remoteName.length + 1)
+      : remote.name
+    const taken = new Set(locals.map((entry) => entry.name))
+    setMergeRemoteRequest({
+      source,
+      remote,
+      localName: suggestLocalName(short, taken),
+    })
+  }
+
+  const confirmMergeRemote = async (localName: string) => {
+    const pending = mergeRemoteRequest
+    if (!repoId || !pending) return
+    const locals = refs?.entries.filter((entry) => entry.kind === 'branch') ?? []
+    const existing = locals.find((entry) => entry.name === localName)
+    if (existing && !isCurrentUpstream(existing.upstream, pending.remote)) {
+      setActionError(t('workbench.error.localNameTaken', { name: localName }))
+      return
+    }
+    setIntegrationBusy(true)
+    setActionError(null)
+    try {
+      const target: RefEntry = existing ?? {
+        fullName: `refs/heads/${localName}`,
+        name: localName,
+        kind: 'branch',
+        targetOid: pending.remote.targetOid,
+        objectType: 'commit',
+        isHead: false,
+        upstream: pending.remote.fullName,
+      }
+      if (!existing) {
+        await branchCheckoutAt({ repoId, name: localName, start: pending.remote.fullName })
+        await branchUpstream({ repoId, branch: localName, upstream: pending.remote.name })
+      }
+      setMergeRemoteRequest(null)
+      const ok = await requestMerge(pending.source, target, 'never')
+      if (ok && pending.remote.remote) offerPush(localName, pending.remote.remote)
+    } catch (cause) {
+      setActionError(errorMessage(cause))
+      setMergeRemoteRequest(null)
+    } finally {
+      setIntegrationBusy(false)
+      onMutated()
     }
   }
 
@@ -1809,6 +1920,24 @@ export function Workbench({
       operation,
     })
     if (!confirmed) return
+    if (entry.kind !== 'branch' && !tracking) {
+      const remoteName = entry.remote ?? entry.name.split('/')[0]!
+      const name = entry.name.slice(remoteName.length + 1)
+      if (!name) {
+        setActionError(t('workbench.error.remoteBranchNameUndetermined'))
+        return
+      }
+      const existing = localBranches.find((ref) => ref.name === name)
+      if (existing) {
+        const taken = new Set(localBranches.map((ref) => ref.name))
+        setRemoteCheckout({
+          remote: entry,
+          existing,
+          altName: suggestLocalName(`${name}-${remoteName}`, taken),
+        })
+        return
+      }
+    }
     checkoutPending.current = true
     setCheckoutBusy(true)
     setActionError(null)
@@ -1818,28 +1947,20 @@ export function Workbench({
       let checkout: Awaited<ReturnType<typeof branchCheckout>> | null = null
       if (entry.kind === 'branch') {
         checkout = await branchCheckout({ repoId, name: entry.name })
-      } else {
-        if (tracking) {
-          if (tracking.isHead && tracking.targetOid === entry.targetOid) return
-          activeBranch = tracking.name
-          if (tracking.targetOid === entry.targetOid) {
-            checkout = await branchCheckout({ repoId, name: tracking.name })
-          } else {
-            checkout = await branchCheckoutAt({ repoId, name: tracking.name, start: entry.fullName })
-          }
+      } else if (tracking) {
+        if (tracking.isHead && tracking.targetOid === entry.targetOid) return
+        activeBranch = tracking.name
+        if (tracking.targetOid === entry.targetOid) {
+          checkout = await branchCheckout({ repoId, name: tracking.name })
         } else {
-          const remote = entry.remote ?? entry.name.split('/')[0]!
-          const name = entry.name.slice(remote.length + 1)
-          if (!name) {
-            throw new Error(t('workbench.error.remoteBranchNameUndetermined'))
-          }
-          if (localBranches.some((ref) => ref.name === name)) {
-            throw new Error(t('workbench.error.localBranchAlreadyTracks', { name }))
-          }
-          activeBranch = name
-          checkout = await branchCheckoutAt({ repoId, name, start: entry.fullName })
-          await branchUpstream({ repoId, branch: name, upstream: entry.name })
+          checkout = await branchCheckoutAt({ repoId, name: tracking.name, start: entry.fullName })
         }
+      } else {
+        const remoteName = entry.remote ?? entry.name.split('/')[0]!
+        const name = entry.name.slice(remoteName.length + 1)
+        activeBranch = name
+        checkout = await branchCheckoutAt({ repoId, name, start: entry.fullName })
+        await branchUpstream({ repoId, branch: name, upstream: entry.name })
       }
       const stashNote = checkout ? checkoutStashMessage(checkout.data) : null
       setActionNotice(
@@ -1851,6 +1972,43 @@ export function Workbench({
       setActionError(errorMessage(cause))
     } finally {
       checkoutPending.current = false
+      setCheckoutBusy(false)
+      onMutated()
+    }
+  }
+
+  const finishRemoteCheckout = async (mode: 'switch' | 'move' | 'create', altName = '') => {
+    const pending = remoteCheckout
+    if (!repoId || !pending) return
+    const branch = mode === 'create' ? altName.trim() : pending.existing.name
+    if (!branch) return
+    if (
+      mode === 'create' &&
+      (refs?.entries ?? []).some((entry) => entry.kind === 'branch' && entry.name === branch)
+    ) {
+      setActionError(t('workbench.error.localNameTaken', { name: branch }))
+      return
+    }
+    setCheckoutBusy(true)
+    setActionError(null)
+    try {
+      let checkout: Awaited<ReturnType<typeof branchCheckout>>
+      if (mode === 'switch') {
+        checkout = await branchCheckout({ repoId, name: branch })
+      } else {
+        checkout = await branchCheckoutAt({ repoId, name: branch, start: pending.remote.fullName })
+        await branchUpstream({ repoId, branch, upstream: pending.remote.name })
+      }
+      setRemoteCheckout(null)
+      const stashNote = checkoutStashMessage(checkout.data)
+      setActionNotice(
+        [t('workbench.notice.activeBranch', { branch }), stashNote ? t(stashNote) : null]
+          .filter((part) => part)
+          .join(' '),
+      )
+    } catch (cause) {
+      setActionError(errorMessage(cause))
+    } finally {
       setCheckoutBusy(false)
       onMutated()
     }
@@ -2863,7 +3021,7 @@ export function Workbench({
           onClose={() => setDropMenu(null)}
         >
           <div className={styles.contextActions}>
-            {dropMenu.fastForward ? (
+            {dropMenu.fastForward && dropMenu.target.kind === 'branch' ? (
               <button
                 type="button"
                 className={styles.contextAction}
@@ -2879,10 +3037,16 @@ export function Workbench({
               className={styles.contextAction}
               role="menuitem"
                 title={t('workbench.drop.mergeTitle', { source: dropMenu.source.name, target: dropMenu.target.name })}
-                onClick={() => void requestMerge(dropMenu.source, dropMenu.target, 'never')}
+                onClick={() => {
+                  const { source, target } = dropMenu
+                  setDropMenu(null)
+                  if (target.kind === 'remoteBranch') void mergeIntoRemote(source, target)
+                  else void requestMerge(source, target, 'never')
+                }}
             >
               <ViewIcon view="mrs" /><span>{t('workbench.drop.merge', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
+            {dropMenu.source.kind === 'branch' ? (
             <button
               type="button"
               className={styles.contextAction}
@@ -2892,6 +3056,7 @@ export function Workbench({
             >
               <ViewIcon view="rebase" /><span>{t('workbench.drop.rebase', { source: dropMenu.source.name, target: dropMenu.target.name })}</span>
             </button>
+            ) : null}
             {currentBranchEntry?.fullName === dropMenu.source.fullName ? action(
               'interactive-rebase', 'rebase', t('workbench.history.rebaseHere'),
               () => openHistoryTool('rebase', dropMenu.target.fullName),
@@ -3046,16 +3211,55 @@ export function Workbench({
                       })
                     })
                   : null}
-                {action(
-                  'push',
-                  'sync',
-                  refMenu.entry.upstream
-                    ? t('workbench.refMenu.pushTo', { target: pushTarget(refMenu.entry).target })
-                    : t('workbench.refMenu.publishTo', {
-                        target: pushTarget(refMenu.entry).target,
-                      }),
-                  () => pushBranch(refMenu.entry),
-                )}
+                {(() => {
+                  const entry = refMenu.entry
+                  const destinations = pushDestinations(
+                    refs?.entries ?? [],
+                    repositoryRemotes(refs ?? { remotes: [] }),
+                    entry.name,
+                    entry.upstream,
+                  )
+                  const fallback = pushTarget(entry)
+                  const items: PushDestination[] = destinations.length > 0
+                    ? destinations
+                    : [{
+                        remote: fallback.remote,
+                        branch: entry.name,
+                        target: fallback.target,
+                        tracking: false,
+                      }]
+                  const labelFor = (destination: PushDestination) => {
+                    const known = Boolean(destination.existing) || destination.tracking
+                    const verb = known
+                      ? t('workbench.refMenu.pushTo', { target: destination.target })
+                      : t('workbench.refMenu.publishTo', { target: destination.target })
+                    return destination.tracking
+                      ? `${verb}${t('workbench.refMenu.trackingSuffix')}`
+                      : verb
+                  }
+                  const run = (destination: PushDestination) =>
+                    pushBranchTo(
+                      entry,
+                      destination.remote,
+                      Boolean(destination.existing) || destination.tracking,
+                    )
+                  if (items.length === 1) {
+                    return action('push', 'sync', labelFor(items[0]!), () => run(items[0]!))
+                  }
+                  return submenu(
+                    'push',
+                    'sync',
+                    t('workbench.refMenu.push'),
+                    items.map((destination) =>
+                      action(
+                        `push-${destination.remote}`,
+                        'sync',
+                        labelFor(destination),
+                        () => run(destination),
+                      ),
+                    ),
+                  )
+                })()}
                 {submenu(
                   'upstream',
                   'remotes',
@@ -3132,6 +3336,55 @@ export function Workbench({
                     void requestRebase(currentBranchEntry, entry)
                   },
                 )}
+              </>
+            ) : null}
+            {refMenu.entry.kind === 'remoteBranch' && !refMenu.entry.symref && currentBranchEntry ? (
+              <>
+                {separator('integrate-remote')}
+                {action(
+                  'merge-from-remote',
+                  'mrs',
+                  t('workbench.drop.merge', {
+                    source: refMenu.entry.name,
+                    target: currentBranchEntry.name,
+                  }),
+                  () => {
+                    const remote = refMenu.entry
+                    const current = currentBranchEntry
+                    setRefMenu(null)
+                    void requestMerge(remote, current, 'never')
+                  },
+                )}
+                {action(
+                  'rebase-onto-remote',
+                  'rebase',
+                  t('workbench.drop.rebase', {
+                    source: currentBranchEntry.name,
+                    target: refMenu.entry.name,
+                  }),
+                  () => {
+                    const remote = refMenu.entry
+                    const current = currentBranchEntry
+                    setRefMenu(null)
+                    void requestRebase(current, remote)
+                  },
+                )}
+                {isCurrentUpstream(currentBranchEntry.upstream, refMenu.entry)
+                  ? null
+                  : action(
+                      'merge-into-remote',
+                      'mrs',
+                      t('workbench.drop.merge', {
+                        source: currentBranchEntry.name,
+                        target: refMenu.entry.name,
+                      }),
+                      () => {
+                        const remote = refMenu.entry
+                        const current = currentBranchEntry
+                        setRefMenu(null)
+                        void mergeIntoRemote(current, remote)
+                      },
+                    )}
               </>
             ) : null}
             {(refMenu.entry.kind === 'branch' || refMenu.entry.kind === 'remoteBranch') && !refMenu.entry.isHead ? action(
@@ -3411,6 +3664,20 @@ export function Workbench({
         target={publishTarget}
         onCancel={() => setPublishTarget(null)}
         onConfirm={confirmPublish}
+      />
+      <RemoteCheckoutBar
+        request={remoteCheckout}
+        busy={checkoutBusy}
+        onCancel={() => setRemoteCheckout(null)}
+        onSwitch={() => void finishRemoteCheckout('switch')}
+        onMove={() => void finishRemoteCheckout('move')}
+        onCreate={(name) => void finishRemoteCheckout('create', name)}
+      />
+      <MergeRemoteBar
+        request={mergeRemoteRequest}
+        busy={integrationBusy}
+        onCancel={() => setMergeRemoteRequest(null)}
+        onConfirm={(name) => void confirmMergeRemote(name)}
       />
       <ConfirmBar
         open={pendingStashDrop !== null}

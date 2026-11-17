@@ -5,7 +5,12 @@
 import assert from 'node:assert/strict'
 import {
   isCurrentUpstream,
+  localTracking,
+  pushDestinations,
   remoteTrackingBranchName,
+  repositoryRemotes,
+  suggestLocalName,
+  trackingRemoteName,
   upstreamChoices,
 } from '../src/lib/upstreamChoices.ts'
 import type { RefEntry } from '../src/types/git.ts'
@@ -63,5 +68,39 @@ assert.equal(isCurrentUpstream('refs/remotes/origin/main', entries[3]!), true)
 assert.equal(isCurrentUpstream('origin/main', entries[3]!), true)
 assert.equal(isCurrentUpstream('refs/remotes/github/main', entries[3]!), false)
 assert.equal(isCurrentUpstream(undefined, entries[3]!), false)
+
+assert.equal(trackingRemoteName('refs/remotes/origin/main'), 'origin')
+assert.equal(trackingRemoteName('refs/remotes/github/feature/foo'), 'github')
+assert.equal(trackingRemoteName(undefined), undefined)
+
+const taken = new Set(['feature', 'feature-upstream'])
+assert.equal(suggestLocalName('topic', taken), 'topic')
+assert.equal(suggestLocalName('feature-upstream', taken), 'feature-upstream-2')
+
+const destinations = pushDestinations(
+  entries,
+  ['upstream', 'origin', 'github'],
+  'main',
+  'refs/remotes/origin/main',
+)
+assert.deepEqual(
+  destinations.map((entry) => [entry.remote, entry.tracking, Boolean(entry.existing)]),
+  [
+    ['origin', true, true],
+    ['github', false, true],
+    ['upstream', false, false],
+  ],
+)
+assert.equal(destinations[2]?.target, 'upstream/main')
+
+assert.equal(localTracking(entries, entries[3]!)?.name, 'main')
+assert.equal(
+  localTracking(entries, entries.find((entry) => entry.name === 'github/main')!)?.name,
+  undefined,
+)
+assert.deepEqual(repositoryRemotes({ remotes: ['origin'], remoteUrls: [{ name: 'upstream' }, { name: 'origin' }] }), [
+  'origin',
+  'upstream',
+])
 
 console.log('upstream-choices-check: ok')
