@@ -57,7 +57,7 @@ const messages = {
   'status.bulk.discardTitle': 'Sélectionnez uniquement des fichiers modifiés non préparés.',
 
   'status.row.select': 'Sélectionner {path}',
-  'status.row.selectRange': 'Sélectionner {path} · Maj+clic pour une plage',
+  'status.row.selectRange': 'Sélectionner {path}. Maj+clic : plage. {mod}+clic : ajouter ou retirer. {mod}+A : tout sélectionner.',
   'status.row.resolve': 'Résoudre',
   'status.row.unstageTitle': 'Retirer de l’index',
   'status.row.stageTitle': 'Préparer ce fichier',
