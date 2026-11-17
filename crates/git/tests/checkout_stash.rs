@@ -20,7 +20,7 @@ fn checkout_saves_staged_unstaged_and_untracked_work() {
     repo.write("a.txt", "unstaged\n");
     repo.write("new.txt", "new work\n");
 
-    let entry = branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None)
+    let entry = branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false)
         .unwrap()
         .unwrap();
     assert!(entry.message.contains("main → feature"));
@@ -66,7 +66,7 @@ fn failed_switch_restores_local_work_and_index() {
     repo.write("a.txt", "unstaged\n");
     repo.write("new.txt", "new\n");
     let before = status::read_status(repo.runner(), repo.path(), None).unwrap();
-    assert!(branches::checkout_stashed(repo.runner(), repo.path(), Some("missing"), None).is_err());
+    assert!(branches::checkout_stashed(repo.runner(), repo.path(), Some("missing"), None, false).is_err());
     assert_eq!(
         status::read_status(repo.runner(), repo.path(), None).unwrap(),
         before
@@ -87,13 +87,13 @@ fn clean_or_same_branch_checkout_does_not_stash() {
     let repo = dirty_fixture();
     repo.branch("feature");
     assert!(
-        branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None)
+        branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false)
             .unwrap()
             .is_none()
     );
     repo.write("a.txt", "local\n");
     assert!(
-        branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None)
+        branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false)
             .unwrap()
             .is_none()
     );
@@ -110,13 +110,13 @@ fn remote_and_detached_checkout_also_stash() {
     let sha = repo.rev_parse(&["HEAD"]);
     repo.write("a.txt", "local\n");
     assert!(
-        branches::checkout_reset_stashed(repo.runner(), repo.path(), "remote-feature", &sha)
+        branches::checkout_reset_stashed(repo.runner(), repo.path(), "remote-feature", &sha, false)
             .unwrap()
             .is_some()
     );
     repo.write("new.txt", "new\n");
     assert!(
-        branches::checkout_stashed(repo.runner(), repo.path(), None, Some(&sha))
+        branches::checkout_stashed(repo.runner(), repo.path(), None, Some(&sha), false)
             .unwrap()
             .is_some()
     );
@@ -136,10 +136,52 @@ fn unfinished_merge_is_not_stashed_or_switched() {
     repo.switch("main");
     repo.run_failure(GitSubcommand::Merge, &["feature"]);
     let before = status::read_status(repo.runner(), repo.path(), None).unwrap();
-    assert!(branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None).is_err());
+    assert!(branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false).is_err());
     assert_eq!(
         status::read_status(repo.runner(), repo.path(), None).unwrap(),
         before
     );
     assert!(stash::list(repo.runner(), repo.path()).unwrap().is_empty());
+}
+
+#[test]
+fn reapply_restores_a_change_that_does_not_overlap() {
+    let repo = dirty_fixture();
+    repo.branch("feature");
+    repo.switch("feature");
+    repo.commit("b.txt", "feature\n", "feature");
+    repo.switch("main");
+    repo.write("a.txt", "local\n");
+
+    let entry = branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, true)
+        .unwrap()
+        .unwrap();
+    assert!(entry.popped);
+    assert!(entry.conflicts.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("a.txt")).unwrap(),
+        "local\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("b.txt")).unwrap(),
+        "feature\n"
+    );
+    assert!(stash::list(repo.runner(), repo.path()).unwrap().is_empty());
+}
+
+#[test]
+fn reapply_keeps_the_stash_when_the_pop_conflicts() {
+    let repo = dirty_fixture();
+    repo.branch("feature");
+    repo.switch("feature");
+    repo.commit("a.txt", "feature\n", "feature");
+    repo.switch("main");
+    repo.write("a.txt", "local\n");
+
+    let entry = branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, true)
+        .unwrap()
+        .unwrap();
+    assert!(!entry.popped);
+    assert!(!entry.conflicts.is_empty());
+    assert_eq!(stash::list(repo.runner(), repo.path()).unwrap().len(), 1);
 }

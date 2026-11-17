@@ -122,14 +122,30 @@ pub fn checkout(
     Ok(())
 }
 
-/// Switch while leaving local work in a named stash. Unlike an integration
-/// autostash, it is kept for the user to reapply later.
+/// Local changes saved so a checkout can proceed, and whether they came back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckoutAutoStash {
+    pub selector: String,
+    pub sha: String,
+    pub message: String,
+    /// True when the stash was reapplied on the destination and dropped.
+    pub popped: bool,
+    /// Paths left in conflict by a reapplication. The stash is kept.
+    pub conflicts: Vec<String>,
+}
+
+/// Switch while saving local work in a named stash.
+///
+/// `reapply` pops that stash onto the destination after a successful switch.
+/// A conflicting pop keeps the stash. Without `reapply` the stash stays in
+/// the list for the user to reapply later.
 pub fn checkout_stashed(
     runner: &GitRunner,
     worktree: &Path,
     name: Option<&str>,
     detached_at: Option<&str>,
-) -> Result<Option<StashEntry>, AppError> {
+    reapply: bool,
+) -> Result<Option<CheckoutAutoStash>, AppError> {
     let status = read_status(runner, worktree, Some(0))?;
     if name.is_some() && name == status.branch.head.as_deref() && detached_at.is_none() {
         checkout(runner, worktree, name, detached_at)?;
@@ -139,6 +155,7 @@ pub fn checkout_stashed(
         runner,
         worktree,
         name.or(detached_at).unwrap_or("HEAD"),
+        reapply,
         || checkout(runner, worktree, name, detached_at),
     )
 }
@@ -149,8 +166,9 @@ pub fn checkout_reset_stashed(
     worktree: &Path,
     name: &str,
     start: &str,
-) -> Result<Option<StashEntry>, AppError> {
-    with_checkout_stash(runner, worktree, name, || {
+    reapply: bool,
+) -> Result<Option<CheckoutAutoStash>, AppError> {
+    with_checkout_stash(runner, worktree, name, reapply, || {
         checkout_reset(runner, worktree, name, start)
     })
 }
@@ -159,8 +177,9 @@ fn with_checkout_stash(
     runner: &GitRunner,
     worktree: &Path,
     target: &str,
+    reapply: bool,
     switch: impl FnOnce() -> Result<(), AppError>,
-) -> Result<Option<StashEntry>, AppError> {
+) -> Result<Option<CheckoutAutoStash>, AppError> {
     let discovery = crate::discover::discover(runner, worktree)?;
     let detected = crate::state::detect(runner, &discovery, Some(0))?;
     if detected.state.operation.is_some() || detected.status.counts.conflicted > 0 {
@@ -204,7 +223,41 @@ fn with_checkout_stash(
         let detail = error.detail.clone().unwrap_or_default();
         return Err(error.with_detail(format!("{detail}\n{note}")));
     }
-    Ok(stashed)
+    let Some(entry) = stashed else {
+        return Ok(None);
+    };
+    if !reapply {
+        return Ok(Some(kept_stash(entry)));
+    }
+    // The switch already happened. A failed pop must not undo it: the stash
+    // stays recoverable and the caller reports the conflicts.
+    match stash::pop_indexed(runner, worktree, &entry.selector) {
+        Ok(outcome) if outcome.conflicts.is_empty() => Ok(Some(CheckoutAutoStash {
+            selector: entry.selector,
+            sha: entry.sha,
+            message: entry.message,
+            popped: true,
+            conflicts: Vec::new(),
+        })),
+        Ok(outcome) => Ok(Some(CheckoutAutoStash {
+            selector: entry.selector,
+            sha: entry.sha,
+            message: entry.message,
+            popped: false,
+            conflicts: outcome.conflicts,
+        })),
+        Err(_) => Ok(Some(kept_stash(entry))),
+    }
+}
+
+fn kept_stash(entry: StashEntry) -> CheckoutAutoStash {
+    CheckoutAutoStash {
+        selector: entry.selector,
+        sha: entry.sha,
+        message: entry.message,
+        popped: false,
+        conflicts: Vec::new(),
+    }
 }
 
 /// Check out `name`, resetting it to `start` when it already exists.

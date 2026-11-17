@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { RepoView, StashEntry, UndoEntry } from '../types/git'
 import { errorMessage } from '../ipc/client'
 import { branchCheckout, refsGet, stashCreate, stashList, stashPop, syncFetch, syncPull, syncPush } from '../ipc/commands'
+import { checkoutStashMessage } from '../lib/checkoutStash'
 import { pullNotice } from '../lib/syncNotice'
 import { undoButtonLabel } from '../lib/undoLabel'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
@@ -194,7 +195,10 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
           title: t('workbench.operationPreview.title.checkout', { target: name }),
           confirmLabel: t('workbench.operationPreview.action.checkout'),
           operation: { kind: 'checkout', name },
-        }).then((confirmed) => { if (confirmed) void run('Checkout', () => branchCheckout({ repoId, name })) })}>{name === branchLabel(repo, t) ? '✓ ' : ''}{name}</button>)}
+        }).then((confirmed) => { if (confirmed) void run('Checkout', () => branchCheckout({ repoId, name }), (result) => {
+          const note = checkoutStashMessage(result.data)
+          return note ? t(note) : t('shell.repoBar.actionDone', { action: 'Checkout' })
+        }) })}>{name === branchLabel(repo, t) ? '✓ ' : ''}{name}</button>)}
         <button type="button" onClick={onNewBranch}>{t('shell.action.createBranchInGraph')}</button>
       </ActionMenu>
     </div>

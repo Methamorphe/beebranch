@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { APP_PAGES, navigationItems, type ViewId } from '../data/navigation'
+import { checkoutStashMessage } from '../lib/checkoutStash'
 import {
   branchCheckout,
   branchCheckoutAt,
@@ -1814,16 +1815,17 @@ export function Workbench({
     setActionNotice(null)
     try {
       let activeBranch = entry.name
+      let checkout: Awaited<ReturnType<typeof branchCheckout>> | null = null
       if (entry.kind === 'branch') {
-        await branchCheckout({ repoId, name:entry.name })
+        checkout = await branchCheckout({ repoId, name: entry.name })
       } else {
         if (tracking) {
           if (tracking.isHead && tracking.targetOid === entry.targetOid) return
           activeBranch = tracking.name
           if (tracking.targetOid === entry.targetOid) {
-            await branchCheckout({ repoId, name:tracking.name })
+            checkout = await branchCheckout({ repoId, name: tracking.name })
           } else {
-            await branchCheckoutAt({ repoId, name:tracking.name, start:entry.fullName })
+            checkout = await branchCheckoutAt({ repoId, name: tracking.name, start: entry.fullName })
           }
         } else {
           const remote = entry.remote ?? entry.name.split('/')[0]!
@@ -1835,11 +1837,16 @@ export function Workbench({
             throw new Error(t('workbench.error.localBranchAlreadyTracks', { name }))
           }
           activeBranch = name
-          await branchCheckoutAt({ repoId, name, start:entry.fullName })
-          await branchUpstream({ repoId, branch:name, upstream:entry.name })
+          checkout = await branchCheckoutAt({ repoId, name, start: entry.fullName })
+          await branchUpstream({ repoId, branch: name, upstream: entry.name })
         }
       }
-      setActionNotice(t('workbench.notice.activeBranch', { branch: activeBranch }))
+      const stashNote = checkout ? checkoutStashMessage(checkout.data) : null
+      setActionNotice(
+        [t('workbench.notice.activeBranch', { branch: activeBranch }), stashNote ? t(stashNote) : null]
+          .filter((part) => part)
+          .join(' '),
+      )
     } catch (cause) {
       setActionError(errorMessage(cause))
     } finally {

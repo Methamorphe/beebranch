@@ -159,6 +159,9 @@ const messages = {
   'workbench.notice.branchRenamed': 'Branche {old} renommée en {new}.',
   'workbench.notice.branchReset': '{branch} réinitialisée ({mode}) sur {sha}.',
   'workbench.notice.checkout': 'Checkout {branch}.',
+  'workbench.notice.checkoutStashKept': 'Modifications conservées dans le stash.',
+  'workbench.notice.checkoutStashReapplied': 'Modifications réappliquées sur la branche.',
+  'workbench.notice.checkoutStashConflicts': 'Le stash a été réappliqué avec des conflits. Il est conservé.',
   'workbench.notice.cherryPickDone': 'Cherry-pick terminé.',
   'workbench.notice.conflictDuringIntegration':
     'Conflit pendant {operation} : résolvez les fichiers puis poursuivez.',

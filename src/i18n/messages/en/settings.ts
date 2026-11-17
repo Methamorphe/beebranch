@@ -126,6 +126,12 @@ const messages = {
   'settings.pipelineNotify.off': 'Off',
   'settings.pipelineNotify.on': 'On',
   'settings.pipelineNotify.denied': 'The system refused BeeBranch notifications.',
+  'settings.checkoutStash.title': 'Local changes on checkout',
+  'settings.checkoutStash.description':
+    'When a branch switch has to stash your changes, choose whether that stash is reapplied onto the destination branch or left in the list.',
+  'settings.checkoutStash.aria': 'Checkout stash behavior',
+  'settings.checkoutStash.keep': 'Keep the stash',
+  'settings.checkoutStash.reapply': 'Reapply onto the new branch',
   'settings.signing.title': 'Commit signing',
   'settings.signing.hint':
     'Applies to commits created in the application; “inherit” follows the repository Git configuration.',
