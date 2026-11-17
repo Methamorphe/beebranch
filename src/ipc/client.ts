@@ -124,9 +124,29 @@ function repositoryOf(args: Record<string, unknown> | undefined): string | undef
   return undefined
 }
 
-export function errorMessage(cause: unknown): string {
+export type PresentedError = {
+  message: string
+  remediation: string | null
+  detail: string | null
+  code: string
+  retryable: boolean
+}
+
+/** Title, next step and technical detail, ready for the notice component. */
+export function presentError(cause: unknown): PresentedError {
   const error = cause instanceof IpcError ? cause.app : normalizeError(cause)
-  const { message, remediation } = errorCopy(error)
+  const copy = errorCopy(error)
+  return {
+    message: copy.message,
+    remediation: copy.remediation,
+    detail: error.detail ?? null,
+    code: error.code,
+    retryable: error.retryable,
+  }
+}
+
+export function errorMessage(cause: unknown): string {
+  const { message, remediation } = presentError(cause)
   return remediation ? `${message} ${remediation}` : message
 }
 

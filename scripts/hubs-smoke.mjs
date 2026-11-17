@@ -109,7 +109,7 @@ export async function runHubsSmoke({ client, evaluate, screenshot, waitFor, dela
   await waitFor(client, `document.querySelector('[data-central-editor="workspaces"] [role="alert"]')?.textContent.includes('maximum 20')`, 'workspace repository limit')
   await check('workspace-picker-enforces-limit', `window.__workspaceHubCalls.filter(([name]) => name === 'workspace_add_repo').length === ${beforeLimit}`)
   await picker('/tmp/not-git')
-  await waitFor(client, `document.querySelector('[data-central-editor="workspaces"] [role="alert"]')?.textContent.includes("Le dossier n'est pas un dépôt Git.")`, 'invalid folder feedback')
+  await waitFor(client, `document.querySelector('[data-central-editor="workspaces"] [role="alert"]')?.textContent.includes("Ce dossier n'est pas un dépôt Git.")`, 'invalid folder feedback')
   await check('workspace-invalid-folder-keeps-repositories', `window.__hubWorkspaces[0].repos.length === 3`)
   for (const width of [1440, 1024, 390]) {
     await client.send('Emulation.setDeviceMetricsOverride', { width, height:900, deviceScaleFactor:1, mobile:false })

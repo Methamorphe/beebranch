@@ -706,7 +706,7 @@ fn run_one(
                 name: row.name.clone(),
                 repo_id: Some(repo_id),
                 ok: false,
-                message: error.message.clone(),
+                message: error.message.to_string(),
                 error_code: Some(error.code.to_owned()),
                 state,
             }),
@@ -717,7 +717,7 @@ fn run_one(
         name: row.name.clone(),
         repo_id: None,
         ok: false,
-        message: error.message,
+        message: error.message.into(),
         error_code: Some(error.code.to_owned()),
         state: None,
     })

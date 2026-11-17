@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { commitCreate, commitGet, refsGet } from '../ipc/commands'
-import { errorDetail, errorMessage } from '../ipc/client'
+import { presentError, type PresentedError } from '../ipc/client'
+import { ErrorNotice } from './ui/ErrorNotice'
 import { useI18n } from '../i18n'
 import { SUBJECT_LIMIT, subjectRemaining } from '../lib/commitMessage'
 import type { CommitDetail } from '../types/git'
@@ -40,8 +41,7 @@ export function AmendDialog({
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [errorOutput, setErrorOutput] = useState<string | null>(null)
+  const [error, setError] = useState<string | PresentedError | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -55,7 +55,7 @@ export function AmendDialog({
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(errorMessage(cause))
+          setError(presentError(cause))
         }
       })
       .finally(() => {
@@ -82,7 +82,6 @@ export function AmendDialog({
   const submit = async () => {
     setBusy(true)
     setError(null)
-    setErrorOutput(null)
     try {
       // Git amends whatever HEAD points at now, not the commit this dialog was
       // opened for. Refuse if HEAD moved meanwhile instead of rewriting another
@@ -103,8 +102,7 @@ export function AmendDialog({
       })
       onAmended(result.data.sha)
     } catch (cause) {
-      setError(errorMessage(cause))
-      setErrorOutput(errorDetail(cause))
+      setError(presentError(cause))
       setBusy(false)
     }
   }
@@ -158,11 +156,10 @@ export function AmendDialog({
         </p>
       ) : null}
 
-      {error ? (
-        <div className={shared.danger} role="alert">
-          <p>{error}</p>
-          {errorOutput ? <pre className={shared.output}>{errorOutput}</pre> : null}
-        </div>
+      {typeof error === 'string' ? (
+        <div className={shared.danger} role="alert"><p>{error}</p></div>
+      ) : error ? (
+        <ErrorNotice error={error} />
       ) : null}
 
       <div className={shared.dialogActions}>

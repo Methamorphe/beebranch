@@ -754,7 +754,9 @@ impl GithubClient {
                     "Pull request #{number} créée, mais {}.",
                     failures.join(" ; ")
                 ),
-            ));
+            )
+            .with_param("number", number.to_string())
+            .with_param("failures", failures.join(" ; ")));
         }
         Ok(created.into_public(Some(repo.id)))
     }
@@ -1127,7 +1129,8 @@ impl GithubClient {
                     .get("message")
                     .and_then(|value| value.as_str())
                     .unwrap_or("requête GraphQL refusée");
-                return Err(GithubError::new("github.graphql", message.to_owned()));
+                return Err(GithubError::new("github.graphql", message.to_owned())
+                    .with_param("message", message.to_owned()));
             }
         }
         Ok(response

@@ -31,10 +31,9 @@ import { WorkspaceMark } from './WorkspaceMark'
 import shared from './p1.module.css'
 import styles from './WorkspacesPanel.module.css'
 
-function syncFailure(code: string | undefined, message: string): string {
-  if (!code) return message
-  const copy = errorCopy({ code, category: 'internal', message, retryable: false })
-  return copy.remediation ? `${copy.message} ${copy.remediation}` : copy.message
+function syncFailure(code: string | undefined, message: string): { message: string; remediation: string | null } {
+  if (!code) return { message, remediation: null }
+  return errorCopy({ code, category: 'internal', message, retryable: false })
 }
 
 type Props = {
@@ -914,14 +913,15 @@ export function WorkspacesPanel({
                   <div className={styles.repos}>
                     {results.map((result) => {
                       const detail = result.ok
-                        ? result.message.trim()
+                        ? { message: result.message.trim(), remediation: null }
                         : syncFailure(result.errorCode, result.message)
                       return (
                         <div key={result.path} className={styles.resultRow} data-ok={result.ok ? 'true' : 'false'}>
                           <span className={styles.resultMark} aria-hidden="true">{result.ok ? '✓' : '✗'}</span>
                           <div className={styles.repoBody}>
                             <span className={styles.resultName}>{result.name ?? result.path}</span>
-                            {detail ? <span className={styles.resultMessage}>{detail}</span> : null}
+                            {detail.message ? <span className={styles.resultMessage}>{detail.message}</span> : null}
+                            {detail.remediation ? <span className={styles.resultMessage}>{detail.remediation}</span> : null}
                           </div>
                           <span className={result.ok ? styles.resultOk : styles.resultFail}>
                             {result.ok ? t('workspaces.panel.ok') : t('workspaces.panel.failed')}

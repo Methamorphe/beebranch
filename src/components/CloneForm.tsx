@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { errorDetail, errorMessage } from '../ipc/client'
+import { errorMessage, presentError, type PresentedError } from '../ipc/client'
+import { recoveryFor } from '../lib/errorRecovery'
+import { ErrorNotice } from './ui/ErrorNotice'
 import {
   githubProjectsPage,
   githubStatus,
@@ -86,7 +88,8 @@ export function CloneForm({
   const [depth, setDepth] = useState('')
   const [recurse, setRecurse] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | PresentedError | null>(null)
+  const [retry, setRetry] = useState<(() => void) | null>(null)
   const pending = busy || submitting
   const activeSession = provider === 'github' ? githubSession : session
   const anyConnected = Boolean(session?.connected || githubSession?.connected)
@@ -173,8 +176,9 @@ export function CloneForm({
       })
       onDone?.()
     } catch (cause) {
-      const detail = errorDetail(cause)
-      setError(detail ? `${errorMessage(cause)}\n${detail.slice(-700)}` : errorMessage(cause))
+      const body = presentError(cause)
+      setRetry(body.retryable ? () => { void submit(event) } : null)
+      setError(body)
     } finally {
       setSubmitting(false)
     }
@@ -314,7 +318,7 @@ export function CloneForm({
             <button type="button" className={shared.secondary} disabled={pending} onClick={() => {
               void onPickDirectory(parent || undefined).then((picked) => {
                 if (picked) setParent(picked)
-              }).catch((cause) => setError(errorMessage(cause)))
+              }).catch((cause) => setError(presentError(cause)))
             }}>{t('shell.action.browse')}</button>
           ) : null}
         </div>
@@ -338,7 +342,11 @@ export function CloneForm({
         <input type="checkbox" checked={recurse} disabled={pending} onChange={(event) => setRecurse(event.target.checked)} />
         {t('shell.home.recursiveSubmodules')}
       </label>
-      {error ? <p className={styles.error} role="alert">{error}</p> : null}
+      {typeof error === 'string' ? (
+        <p className={styles.error} role="alert">{error}</p>
+      ) : error ? (
+        <ErrorNotice error={error} action={recoveryFor(error, { onRetry: retry ?? undefined })} />
+      ) : null}
       <div className={shared.row}>
         {onCancel ? (
           <button type="button" className={shared.secondary} onClick={onCancel} disabled={pending}>{t('common.cancel')}</button>

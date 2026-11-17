@@ -22,6 +22,7 @@ pub struct GitlabError {
     status: Option<u16>,
     retryable: bool,
     detail: Option<String>,
+    params: Vec<(&'static str, String)>,
 }
 
 impl GitlabError {
@@ -50,6 +51,10 @@ impl GitlabError {
         self.detail.as_deref()
     }
 
+    pub fn params(&self) -> &[(&'static str, String)] {
+        &self.params
+    }
+
     pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -57,6 +62,7 @@ impl GitlabError {
             status: None,
             retryable: false,
             detail: None,
+            params: Vec::new(),
         }
     }
 
@@ -90,6 +96,7 @@ impl GitlabError {
             status: None,
             retryable: false,
             detail: bounded_detail(detail.into()),
+            params: Vec::new(),
         }
     }
 
@@ -144,6 +151,7 @@ impl GitlabError {
             status: Some(status),
             retryable,
             detail: bounded_detail(format!("HTTP {status} : {body}")),
+            params: Vec::new(),
         }
     }
 
@@ -154,6 +162,7 @@ impl GitlabError {
             status: None,
             retryable: true,
             detail: bounded_detail(detail.into()),
+            params: vec![("host", host.to_owned())],
         }
     }
 
@@ -164,6 +173,7 @@ impl GitlabError {
             status: None,
             retryable: true,
             detail: bounded_detail(detail.into()),
+            params: vec![("host", host.to_owned())],
         }
     }
 
@@ -176,6 +186,7 @@ impl GitlabError {
             status: None,
             retryable: false,
             detail: bounded_detail(detail.into()),
+            params: vec![("host", host.to_owned())],
         }
     }
 }

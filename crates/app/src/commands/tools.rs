@@ -290,6 +290,7 @@ pub fn tool_configure(
             beebranch_core::ErrorCategory::Input,
             format!("L'outil {} est introuvable.", input.program),
         )
+        .with_param("tool", input.program.clone())
         .with_remediation("Installez l'outil ou indiquez son chemin absolu."));
     }
     for argument in &input.args {
@@ -326,6 +327,7 @@ fn resolve_tool(state: &AppState, kind: ToolKind) -> Result<ToolDescriptor, AppE
             beebranch_core::ErrorCategory::Input,
             format!("Aucun outil {} n'est disponible.", tool_label(kind)),
         )
+        .with_param("tool", tool_label(kind))
         .with_remediation("Installez un outil ou configurez-le dans les préférences.")
     })
 }
@@ -349,6 +351,7 @@ fn spawn(program: &str, args: &[String], cwd: &Path) -> Result<(), AppError> {
             beebranch_core::ErrorCategory::Input,
             format!("L'outil {program} est introuvable."),
         )
+        .with_param("tool", program)
         .with_remediation("Installez l'outil ou corrigez la préférence.")
     })?;
     Command::new(resolved)
@@ -365,6 +368,7 @@ fn spawn(program: &str, args: &[String], cwd: &Path) -> Result<(), AppError> {
                 beebranch_core::ErrorCategory::Input,
                 format!("Impossible de lancer {program}."),
             )
+            .with_param("program", program)
             .with_detail(error.to_string())
         })
 }

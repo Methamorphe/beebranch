@@ -150,16 +150,17 @@ fn resolve_endpoint<'a>(
 }
 
 fn missing_endpoint(code: &'static str, name: &str) -> AppError {
-    let role = if code == "branch.source_missing" {
-        "source"
+    let (role, param) = if code == "branch.source_missing" {
+        ("source", "source")
     } else {
-        "cible"
+        ("cible", "target")
     };
     AppError::new(
         code,
         ErrorCategory::Input,
         format!("La branche {role} {name} n'existe pas."),
     )
+    .with_param(param, name)
     .with_remediation(
         "Rafraîchissez la liste des branches : elle a peut-être été renommée ou supprimée.",
     )

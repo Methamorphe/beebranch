@@ -392,8 +392,11 @@ and background HTTPS credential discovery do not install this fallback.
 | `Authentication failed`, `could not read Username` | `auth.failed` | check the token / helper |
 | `Permission denied (publickey)` | `auth.ssh_key` | check the agent and key |
 | `Host key verification failed` | `auth.host_key` | check `known_hosts` |
-| `non-fast-forward`, `fetch first` | `git.non_fast_forward` | fetch then merge/rebase |
+| `non-fast-forward`, `fetch first` | `git.non_fast_forward` | bring in the remote commits, then send again |
+| `remote rejected`, `hook declined`, protected branch | `git.push_rejected` | read the server reason; do not treat it as a fast-forward |
 | `stale info` (push) | `git.push_lease_stale` | retry; the expected remote SHA is re-read before each send |
+| `Could not resolve host`, `Failed to connect`, timeout | `network.unreachable` | check the address and the connection, then retry |
+| certificate / SSL verification | `tls.ca_required` | import the authority certificate |
 | `Not possible to fast-forward` (pull) | `git.pull_not_fast_forward` | rebase/merge or relax `pull.ff` |
 | `Need to specify how to reconcile divergent branches` | `git.pull_strategy_missing` | configure `pull.rebase`/`pull.ff` or choose a strategy |
 | `CONFLICT`, exit 1 on merge/rebase | `git.conflict` | resolve then continue |

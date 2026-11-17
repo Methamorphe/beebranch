@@ -927,7 +927,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   })()`)
   await evaluate(client, `Array.from(document.querySelectorAll('button')).find((button) => button.textContent.trim() === 'Fetch').click()`)
   await waitFor(client, `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('authentification'))`, 'error toast')
-  await check('error-toast-shows-remediation', `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('Vérifiez le token ou le credential helper associé.'))`)
+  await check('error-toast-shows-remediation', `Array.from(document.querySelectorAll('[data-toasts] [role="alert"]')).some((toast) => toast.textContent.includes('Vérifiez le jeton ou l\\'identifiant enregistré pour cet hôte.'))`)
   await screenshot('workspace-error-toast.png')
   await evaluate(client, `(() => { document.querySelectorAll('[data-toasts] button[aria-label="Fermer"]').forEach((button) => button.click()); window.__TAURI_INTERNALS__.invoke = window.__toastInvoke; return true })()`)
   await delay(60)
