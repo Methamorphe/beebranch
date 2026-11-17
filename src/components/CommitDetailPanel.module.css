@@ -195,6 +195,80 @@
   gap: 8px;
 }
 
+.filesTools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.viewToggle {
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.viewToggle button {
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.viewToggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.viewToggle button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.dir {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dir:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.caret {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 12px;
+}
+
+.dirName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dirCount {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .changeSummary {
   display: inline-flex;
   flex: none;

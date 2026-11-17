@@ -25,7 +25,7 @@ const messages = {
 
   'settings.graphDate.title': 'Dates de l’historique',
   'settings.graphDate.description':
-    'Dans l’arbre de commits. « Relatif » affiche « il y a… » pendant sept jours, puis la date et l’heure. Les autres choix affichent toujours la date.',
+    'Dans l’historique. « Relatif » affiche « il y a… » pendant sept jours, dans la langue de l’interface, puis la date du système. Les autres formats ne suivent pas la langue de l’application : le mois et l’ordre viennent du système, ISO reste chiffré.',
   'settings.graphDate.aria': 'Format des dates de l’arbre de commits',
   'settings.graphDate.relative': 'Relatif, puis date et heure',
 
