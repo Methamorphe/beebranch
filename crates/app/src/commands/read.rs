@@ -460,7 +460,8 @@ fn encode_windows1252(character: char) -> Result<u8, AppError> {
             "file.encoding_unsupported",
             beebranch_core::ErrorCategory::Input,
             format!("Le caractère `{character}` n'existe pas en Windows-1252."),
-        ))
+        )
+        .with_param("character", character.to_string()))
     }
 }
 

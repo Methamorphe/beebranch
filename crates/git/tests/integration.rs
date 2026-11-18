@@ -538,3 +538,127 @@ fn conflicting_merge_keeps_the_auto_stash_until_abort() {
         "local work\n"
     );
 }
+
+/// `upstream/main` is a remote-tracking ref, not a second local branch.
+fn publish_remote_main(fixture: &Fixture, sha: &str) {
+    fixture.run(
+        GitSubcommand::UpdateRef,
+        &["refs/remotes/upstream/main", sha],
+        &[],
+    );
+}
+
+#[test]
+fn merge_of_a_remote_tracking_ref_stays_on_the_local_branch() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    fixture.commit("b.txt", "feature\n", "feature");
+    fixture.switch(&main);
+    let main_sha = fixture.commit("c.txt", "main\n", "main");
+    publish_remote_main(&fixture, &main_sha);
+    fixture.switch("feature");
+
+    let preview = integration::preview(
+        fixture.runner(),
+        fixture.path(),
+        "refs/remotes/upstream/main",
+        "feature",
+        IntegrationMode::Merge,
+    )
+    .expect("preview");
+    assert!(preview.applicable, "{:?}", preview.blocked_reason);
+    assert_eq!(preview.source, "refs/remotes/upstream/main");
+    assert!(!preview.requires_checkout);
+
+    integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "refs/remotes/upstream/main",
+        "feature",
+        IntegrationMode::Merge,
+        MergeFastForward::Never,
+    )
+    .expect("merge");
+    assert_eq!(current_branch(&fixture), "feature");
+    assert!(fixture.path().join("c.txt").exists());
+    assert!(fixture.path().join("b.txt").exists());
+}
+
+#[test]
+fn rebase_onto_a_remote_tracking_ref_rewrites_the_local_branch() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    let main = current_branch(&fixture);
+    fixture.switch_new("feature");
+    fixture.commit("b.txt", "feature\n", "feature");
+    fixture.switch(&main);
+    let main_sha = fixture.commit("c.txt", "main\n", "main");
+    publish_remote_main(&fixture, &main_sha);
+    fixture.switch("feature");
+
+    let preview = integration::preview(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        "upstream/main",
+        IntegrationMode::Rebase,
+    )
+    .expect("preview");
+    assert!(preview.applicable, "{:?}", preview.blocked_reason);
+    assert_eq!(preview.target, "refs/remotes/upstream/main");
+
+    integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        "upstream/main",
+        IntegrationMode::Rebase,
+        MergeFastForward::Auto,
+    )
+    .expect("rebase");
+    assert_eq!(current_branch(&fixture), "feature");
+    assert!(fixture.path().join("c.txt").exists());
+    assert!(fixture.path().join("b.txt").exists());
+}
+
+#[test]
+fn merging_into_a_remote_tracking_ref_is_refused() {
+    let fixture = Fixture::new();
+    fixture.commit("a.txt", "base\n", "base");
+    let main_sha = fixture.rev_parse(&["--verify", "HEAD"]);
+    publish_remote_main(&fixture, &main_sha);
+    fixture.switch_new("feature");
+    fixture.commit("b.txt", "feature\n", "feature");
+
+    let preview = integration::preview(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        "refs/remotes/upstream/main",
+        IntegrationMode::Merge,
+    )
+    .expect("preview");
+    assert!(!preview.applicable);
+    assert!(
+        preview
+            .blocked_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("branche distante"),
+        "{:?}",
+        preview.blocked_reason
+    );
+    let error = integration::start(
+        fixture.runner(),
+        fixture.path(),
+        "feature",
+        "refs/remotes/upstream/main",
+        IntegrationMode::Merge,
+        MergeFastForward::Never,
+    )
+    .expect_err("remote target");
+    assert_eq!(error.code, "branch.integration_blocked");
+    assert_eq!(current_branch(&fixture), "feature");
+}

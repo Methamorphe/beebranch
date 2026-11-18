@@ -1,9 +1,12 @@
-import { useEffect, useRef } from 'react'
-import type { CommitDetail } from '../types/git'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CommitDetail, CommitFile } from '../types/git'
+import { buildFileTree, flattenFileTree } from '../lib/fileTree'
 import { letterFromStatus, splitPath, statusLabel } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
 import { ToolbarIcon } from './ToolbarIcon'
-import { dateFromSeconds, formatDateTime, formatRelative, useI18n, type MessageKey } from '../i18n'
+import { useI18n, type MessageKey } from '../i18n'
+import { formatGraphCommitDate } from '../lib/graphDate'
+import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import styles from './CommitDetailPanel.module.css'
 
 /** Verification code from `git show --format=%G?`, mapped to a label. */
@@ -28,6 +31,10 @@ type Props = {
   onClose: () => void
 }
 
+type FileView = 'path' | 'tree'
+
+const NO_FILES: CommitFile[] = []
+
 function refScope(ref: string): 'remote' | 'local' {
   return /refs\/remotes\/|(^|\/)origin\//.test(ref) ? 'remote' : 'local'
 }
@@ -43,8 +50,31 @@ function PathLabel({ path }: { path: string }) {
 }
 
 export function CommitDetailPanel({ detail, loading, error, activePath, onShowDiff, onClose }: Props) {
-  const { t, plural } = useI18n()
+  const { t, plural, locale } = useI18n()
+  const graphDate = useGraphDateFormat()
   const filesRef = useRef<HTMLDivElement>(null)
+  const [fileView, setFileView] = useState<FileView>('tree')
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const sha = detail?.summary.sha ?? ''
+  const [collapsedSha, setCollapsedSha] = useState(sha)
+  if (collapsedSha !== sha) {
+    setCollapsedSha(sha)
+    setCollapsed(new Set())
+  }
+  const files = detail?.files ?? NO_FILES
+  const tree = useMemo(
+    () => (fileView === 'tree' ? flattenFileTree(buildFileTree(files), collapsed) : []),
+    [files, fileView, collapsed],
+  )
+
+  const toggleDir = (path: string) => {
+    setCollapsed((current) => {
+      const next = new Set(current)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!activePath) return
@@ -87,13 +117,61 @@ export function CommitDetailPanel({ detail, loading, error, activePath, onShowDi
 
   const commit = detail.summary
   const subject = commit.subject.trim()
-  const relativeAge = formatRelative(dateFromSeconds(commit.author.timestamp))
+  const authoredAt = commit.author.timestamp
+  const authoredLabel = formatGraphCommitDate(authoredAt, graphDate, locale)
+  const authoredExact = formatGraphCommitDate(
+    authoredAt,
+    graphDate === 'relative' ? 'dateTime' : graphDate,
+    locale,
+  )
   const rawBody = detail.message.trim()
   const body = rawBody.startsWith(subject) ? rawBody.slice(subject.length).trim() : rawBody
   const additions = detail.files.reduce((total, file) => total + (file.additions ?? 0), 0)
   const deletions = detail.files.reduce((total, file) => total + (file.deletions ?? 0), 0)
   const hasStats = detail.files.some((file) => !file.binary)
   const fileCount = detail.files.length
+
+  const fileButton = (file: CommitFile, depth: number, nested: boolean) => {
+    const current = Boolean(activePath && activePath === file.path)
+    return (
+      <div key={`${file.status}-${file.oldPath ?? ''}-${file.path}`} className={styles.fileRow}>
+        <button
+          type="button"
+          className={current ? styles.fileActive : styles.file}
+          style={{ paddingLeft: 8 + depth * 14 }}
+          data-diff-file={file.path}
+          aria-current={current ? 'true' : undefined}
+          onClick={() => onShowDiff(file.revision ?? commit.sha, file.path)}
+          title={
+            file.oldPath
+              ? `${statusLabel(file.status)} · ${file.oldPath} → ${file.path}`
+              : `${statusLabel(file.status)} · ${file.path}`
+          }
+        >
+          <span
+            className={styles.status}
+            data-status={letterFromStatus(file.status)}
+            aria-hidden="true"
+          >
+            <FileStatusIcon letter={file.status} />
+          </span>
+          <span className={styles.path}>
+            {nested ? <span className={styles.name}>{splitPath(file.path).name}</span> : <PathLabel path={file.path} />}
+          </span>
+          <span className={styles.stats}>
+            {file.binary ? (
+              t('diff.binary')
+            ) : (
+              <>
+                <span className={styles.add}>+{file.additions ?? 0}</span>
+                <span className={styles.del}>−{file.deletions ?? 0}</span>
+              </>
+            )}
+          </span>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <aside className={styles.panel} aria-label={t('diff.commit.aria')}>
@@ -120,9 +198,9 @@ export function CommitDetailPanel({ detail, loading, error, activePath, onShowDi
           </span>
           <span className={styles.metaItem}>
             <span className={styles.metaLabel}>{t('diff.commit.date')}</span>
-            <span>
-              {formatDateTime(dateFromSeconds(commit.author.timestamp))}
-              {relativeAge ? ` · ${relativeAge}` : ''}
+            <span title={authoredExact}>
+              {authoredLabel}
+              {authoredLabel !== authoredExact ? ` · ${authoredExact}` : ''}
             </span>
           </span>
           <span className={styles.metaItem}>
@@ -159,56 +237,60 @@ export function CommitDetailPanel({ detail, loading, error, activePath, onShowDi
           <h3 className={styles.sectionTitle}>
             {plural('diff.files.modified.one', 'diff.files.modified.other', fileCount)}
           </h3>
-          {hasStats ? (
-            <span className={styles.changeSummary}>
-              <span className={styles.add}>+{additions}</span>
-              <span className={styles.del}>−{deletions}</span>
-            </span>
-          ) : null}
+          <div className={styles.filesTools}>
+            {hasStats ? (
+              <span className={styles.changeSummary}>
+                <span className={styles.add}>+{additions}</span>
+                <span className={styles.del}>−{deletions}</span>
+              </span>
+            ) : null}
+            <div className={styles.viewToggle} role="group" aria-label={t('diff.comparison.viewAria')}>
+              <button
+                type="button"
+                aria-pressed={fileView === 'path'}
+                onClick={() => setFileView('path')}
+                title={t('diff.comparison.viewPathTitle')}
+              >
+                {t('diff.comparison.viewPath')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={fileView === 'tree'}
+                onClick={() => setFileView('tree')}
+                title={t('diff.comparison.viewTreeTitle')}
+              >
+                {t('diff.comparison.viewTree')}
+              </button>
+            </div>
+          </div>
         </div>
         {detail.filesTruncated ? (
           <p className={styles.note}>{t('diff.commit.filesPartial')}</p>
         ) : null}
         <div ref={filesRef} className={styles.files}>
-          {detail.files.map((file) => {
-            const current = Boolean(activePath && activePath === file.path)
-            return (
-            <div key={`${file.status}-${file.oldPath ?? ''}-${file.path}`} className={styles.fileRow}>
-              <button
-                type="button"
-                className={current ? styles.fileActive : styles.file}
-                data-diff-file={file.path}
-                aria-current={current ? 'true' : undefined}
-                onClick={() => onShowDiff(file.revision ?? commit.sha, file.path)}
-                title={
-                  file.oldPath
-                    ? `${statusLabel(file.status)} · ${file.oldPath} → ${file.path}`
-                    : `${statusLabel(file.status)} · ${file.path}`
-                }
-              >
-                <span
-                  className={styles.status}
-                  data-status={letterFromStatus(file.status)}
-                  aria-hidden="true"
-                >
-                  <FileStatusIcon letter={file.status} />
-                </span>
-                <span className={styles.path}>
-                  <PathLabel path={file.path} />
-                </span>
-                <span className={styles.stats}>
-                  {file.binary ? (
-                    t('diff.binary')
-                  ) : (
-                    <>
-                      <span className={styles.add}>+{file.additions ?? 0}</span>
-                      <span className={styles.del}>−{file.deletions ?? 0}</span>
-                    </>
-                  )}
-                </span>
-              </button>
-            </div>
-          )})}
+          {fileView === 'tree'
+            ? tree.map((row) =>
+                row.kind === 'dir' ? (
+                  <button
+                    key={`dir:${row.key}`}
+                    type="button"
+                    className={styles.dir}
+                    style={{ paddingLeft: 8 + row.depth * 14 }}
+                    aria-expanded={row.open}
+                    onClick={() => toggleDir(row.key)}
+                    title={row.name}
+                  >
+                    <span className={styles.caret} aria-hidden="true">
+                      <ToolbarIcon name={row.open ? 'chevron' : 'chevronRight'} size={12} />
+                    </span>
+                    <span className={styles.dirName}>{row.name}</span>
+                    <span className={styles.dirCount}>{row.count}</span>
+                  </button>
+                ) : (
+                  fileButton(row.item, row.depth, true)
+                ),
+              )
+            : detail.files.map((file) => fileButton(file, 0, false))}
         </div>
       </section>
     </aside>

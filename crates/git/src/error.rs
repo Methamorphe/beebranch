@@ -69,6 +69,7 @@ pub struct GitError {
     message: String,
     detail: Option<String>,
     retryable: bool,
+    params: Vec<(&'static str, String)>,
 }
 
 impl GitError {
@@ -88,6 +89,10 @@ impl GitError {
         self.retryable
     }
 
+    pub fn params(&self) -> &[(&'static str, String)] {
+        &self.params
+    }
+
     pub(crate) fn with_detail(
         code: GitErrorCode,
         message: impl Into<String>,
@@ -98,6 +103,7 @@ impl GitError {
             message: message.into(),
             detail: detail.and_then(bounded_detail),
             retryable: false,
+            params: Vec::new(),
         }
     }
 
@@ -142,14 +148,14 @@ impl GitError {
     }
 
     pub(crate) fn timeout(after: Duration, detail: Option<String>) -> Self {
-        Self::with_detail(
+        let seconds = format!("{:.1}", after.as_secs_f64());
+        let mut error = Self::with_detail(
             GitErrorCode::Timeout,
-            format!(
-                "La commande Git a dépassé le délai de {:.1} s.",
-                after.as_secs_f64()
-            ),
+            format!("La commande Git a dépassé le délai de {seconds} s."),
             detail,
-        )
+        );
+        error.params.push(("seconds", seconds));
+        error
     }
 
     pub(crate) fn cancelled(detail: Option<String>) -> Self {
@@ -209,7 +215,7 @@ impl From<GitError> for beebranch_core::AppError {
         use beebranch_core::{classify_git_failure, AppError, ErrorCategory};
 
         let detail = error.detail.clone().unwrap_or_default();
-        match error.code {
+        let mut mapped = match error.code {
             GitErrorCode::ExitFailure => classify_git_failure(None, &detail),
             GitErrorCode::Cancelled => AppError::cancelled(detail),
             GitErrorCode::Timeout => {
@@ -260,7 +266,11 @@ impl From<GitError> for beebranch_core::AppError {
                 AppError::new("app.internal", ErrorCategory::Internal, error.message)
                     .with_detail(detail)
             }
+        };
+        for (key, value) in &error.params {
+            mapped = mapped.with_param(*key, value.clone());
         }
+        mapped
     }
 }
 
@@ -301,5 +311,14 @@ mod tests {
     fn empty_details_are_dropped() {
         let error = GitError::cancelled(Some("   \n".to_owned()));
         assert!(error.detail().is_none());
+    }
+
+    #[test]
+    fn timeout_exposes_the_delay_as_a_parameter() {
+        let error = GitError::timeout(Duration::from_millis(1500), None);
+        let app = beebranch_core::AppError::from(error);
+        assert_eq!(app.code, "git.timeout");
+        assert!(app.retryable);
+        assert_eq!(app.params.get("seconds").map(String::as_str), Some("1.5"));
     }
 }

@@ -25,7 +25,7 @@ const messages = {
 
   'settings.graphDate.title': 'Dates de l’historique',
   'settings.graphDate.description':
-    'Dans l’arbre de commits. « Relatif » affiche « il y a… » pendant sept jours, puis la date et l’heure. Les autres choix affichent toujours la date.',
+    'Dans l’historique. « Relatif » affiche « il y a… » pendant sept jours, dans la langue de l’interface, puis la date du système. Les autres formats ne suivent pas la langue de l’application : le mois et l’ordre viennent du système, ISO reste chiffré.',
   'settings.graphDate.aria': 'Format des dates de l’arbre de commits',
   'settings.graphDate.relative': 'Relatif, puis date et heure',
 
@@ -119,6 +119,19 @@ const messages = {
   'settings.autoFetch.title': 'Fetch automatique',
   'settings.autoFetch.hint':
     'Récupère en arrière-plan les nouveautés des remotes du dépôt ouvert, à intervalle régulier ; s’applique à toute l’application.',
+  'settings.pipelineNotify.title': 'Échec de pipeline',
+  'settings.pipelineNotify.description':
+    'Notification du système quand une pipeline d’un dépôt ouvert passe en échec. Seule la forge déjà connectée est interrogée. Sous Windows, l’application installée est nécessaire.',
+  'settings.pipelineNotify.aria': 'Notifications d’échec de pipeline',
+  'settings.pipelineNotify.off': 'Désactivées',
+  'settings.pipelineNotify.on': 'Activées',
+  'settings.pipelineNotify.denied': 'Le système a refusé les notifications de BeeBranch.',
+  'settings.checkoutStash.title': 'Modifications locales au checkout',
+  'settings.checkoutStash.description':
+    'Quand un changement de branche doit remiser vos modifications, choisir si ce stash est réappliqué sur la branche d’arrivée ou laissé dans la liste.',
+  'settings.checkoutStash.aria': 'Comportement du stash de checkout',
+  'settings.checkoutStash.keep': 'Conserver le stash',
+  'settings.checkoutStash.reapply': 'Réappliquer sur la nouvelle branche',
   'settings.signing.title': 'Signature des commits',
   'settings.signing.hint':
     'S’applique aux commits créés dans l’application ; « hériter » suit la configuration Git du dépôt.',

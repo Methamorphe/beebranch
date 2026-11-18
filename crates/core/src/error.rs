@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::Serialize;
@@ -34,11 +35,21 @@ pub enum ErrorCategory {
 pub struct AppError {
     pub code: &'static str,
     pub category: ErrorCategory,
-    pub message: String,
+    pub message: Box<str>,
     pub detail: Option<String>,
     pub remediation: Option<String>,
     pub retryable: bool,
     pub operation_id: Option<String>,
+    /// Values the interface interpolates into the catalogue (`host`, `branch`, `seconds`).
+    /// Empty for a static sentence. Never contains a secret. Boxed so `AppError`
+    /// stays under clippy's `result_large_err` limit.
+    #[serde(default, skip_serializing_if = "params_are_empty")]
+    pub params: Box<BTreeMap<String, String>>,
+}
+
+#[allow(clippy::borrowed_box)]
+fn params_are_empty(params: &Box<BTreeMap<String, String>>) -> bool {
+    params.is_empty()
 }
 
 impl AppError {
@@ -46,12 +57,26 @@ impl AppError {
         Self {
             code,
             category,
-            message: message.into(),
+            message: message.into().into_boxed_str(),
             detail: None,
             remediation: None,
             retryable: false,
             operation_id: None,
+            params: Box::new(BTreeMap::new()),
         }
+    }
+
+    pub fn with_code(mut self, code: &'static str) -> Self {
+        self.code = code;
+        self
+    }
+
+    pub fn with_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let value = value.into();
+        if !value.is_empty() {
+            self.params.insert(key.into(), value);
+        }
+        self
     }
 
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
@@ -124,8 +149,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "repo.safe_directory",
             ErrorCategory::Permission,
-            "Le dépôt appartient à un autre utilisateur.",
-            "Ajoutez explicitement le dépôt à safe.directory si vous lui faites confiance.",
+            "Git refuse ce dossier parce qu'il appartient à un autre compte.",
+            "Si vous faites confiance à ce dossier, ajoutez-le explicitement à safe.directory. La commande est dans les détails.",
             stderr,
         );
     }
@@ -137,17 +162,18 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "repo.busy",
             ErrorCategory::Busy,
-            "Un autre processus Git utilise ce dépôt.",
-            "Vérifiez qu'aucun Git n'est en cours, puis réessayez. Le verrou n'est jamais supprimé automatiquement.",
+            "Un autre programme Git utilise ce dépôt.",
+            "Attendez qu'il se termine, puis réessayez. Le fichier de verrou n'est jamais supprimé automatiquement.",
             stderr,
-        );
+        )
+        .retryable(true);
     }
     if haystack.contains("host key verification failed") {
         return git_error(
             "auth.host_key",
             ErrorCategory::Auth,
-            "La clé d'hôte SSH n'est pas vérifiée.",
-            "Vérifiez known_hosts ou connectez-vous une première fois en SSH.",
+            "Ce serveur SSH n'est pas encore reconnu.",
+            "Vérifiez son empreinte, puis acceptez-la une première fois.",
             stderr,
         );
     }
@@ -155,8 +181,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "auth.ssh_key",
             ErrorCategory::Auth,
-            "L'authentification SSH a échoué.",
-            "Déverrouillez votre clé avec sa passphrase ou ajoutez-la à l'agent avec `ssh-add <clé>`, puis réessayez. Vérifiez aussi l'accès avec `ssh -T git@<hôte>`.",
+            "La clé SSH a été refusée.",
+            "Déverrouillez la clé ou ajoutez-la à l'agent, puis réessayez. Les commandes sont dans les détails.",
             stderr,
         );
     }
@@ -170,16 +196,35 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
             "auth.failed",
             ErrorCategory::Auth,
             "L'authentification Git a échoué.",
-            "Vérifiez le token ou le credential helper associé.",
+            "Vérifiez le jeton ou l'identifiant enregistré pour cet hôte.",
             stderr,
         );
+    }
+    if looks_like_tls(&haystack) {
+        return git_error(
+            "tls.ca_required",
+            ErrorCategory::Tls,
+            "La connexion sécurisée a échoué.",
+            "Importez le certificat de l'autorité dans les réglages, puis réessayez.",
+            stderr,
+        );
+    }
+    if looks_like_network(&haystack) {
+        return git_error(
+            "network.unreachable",
+            ErrorCategory::Network,
+            "Le serveur est injoignable.",
+            "Vérifiez l'adresse, le proxy et la connexion, puis réessayez.",
+            stderr,
+        )
+        .retryable(true);
     }
     if haystack.contains("untracked working tree files would be overwritten") {
         return git_error(
             "git.untracked_collision",
             ErrorCategory::Conflict,
             "Des fichiers non suivis seraient écrasés.",
-            "Déplacez ou renommez les fichiers non suivis concernés, puis réessayez.",
+            "Déplacez ou renommez ces fichiers, puis réessayez.",
             stderr,
         );
     }
@@ -191,8 +236,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.dirty_worktree",
             ErrorCategory::GitState,
-            "Des modifications locales empêchent l'opération.",
-            "Committez ou stashez les modifications, puis réessayez.",
+            "Des fichiers modifiés seraient écrasés.",
+            "Enregistrez-les dans un commit ou un remisage, puis recommencez.",
             stderr,
         );
     }
@@ -200,8 +245,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.unrelated_histories",
             ErrorCategory::GitState,
-            "Les historiques ne partagent aucun ancêtre.",
-            "Décidez explicitement d'autoriser `--allow-unrelated-histories`.",
+            "Ces historiques n'ont aucun commit en commun.",
+            "Ne les fusionnez que si vous le décidez explicitement. L'option Git est dans les détails.",
             stderr,
         );
     }
@@ -211,8 +256,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.pull_not_fast_forward",
             ErrorCategory::GitState,
-            "Le pull n'a pas pu s'intégrer en avance rapide.",
-            "L'historique local a divergé de la branche distante : rebasez ou fusionnez, ou relâchez `pull.ff`.",
+            "La branche locale et la branche distante ont divergé.",
+            "Intégrez les commits distants, puis réessayez.",
             stderr,
         );
     }
@@ -220,31 +265,39 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.pull_strategy_missing",
             ErrorCategory::GitState,
-            "Git exige une stratégie pour réconcilier les branches divergentes.",
-            "Configurez `pull.rebase` ou `pull.ff`, ou choisissez une stratégie de pull dans BeeBranch.",
+            "Git ne sait pas comment réunir ces branches divergentes.",
+            "Choisissez une stratégie de pull dans BeeBranch.",
             stderr,
         );
     }
-    // `--force-with-lease` also prints "failed to push some refs"; the
-    // rejection reason, not the summary line, decides the recovery.
+    // "failed to push some refs" is only the summary line. The reason in
+    // parentheses decides the recovery, so a hook is not reported as a
+    // fast-forward failure.
     if haystack.contains("stale info") {
         return git_error(
             "git.push_lease_stale",
             ErrorCategory::GitState,
-            "Le remote a changé pendant l'envoi.",
-            "Relancez le push : le SHA distant attendu est relu juste avant chaque envoi.",
+            "Quelqu'un a modifié la branche distante pendant l'envoi.",
+            "Relancez l'envoi : la référence distante est relue juste avant.",
+            stderr,
+        )
+        .retryable(true);
+    }
+    if looks_like_remote_rejection(&haystack) {
+        return git_error(
+            "git.push_rejected",
+            ErrorCategory::GitState,
+            "Le serveur a refusé l'envoi.",
+            "Lisez le motif dans les détails : une branche protégée ou un hook peut bloquer l'envoi.",
             stderr,
         );
     }
-    if haystack.contains("non-fast-forward")
-        || haystack.contains("fetch first")
-        || haystack.contains("failed to push some refs")
-    {
+    if haystack.contains("non-fast-forward") || haystack.contains("fetch first") {
         return git_error(
             "git.non_fast_forward",
             ErrorCategory::GitState,
-            "Le push n'est pas un fast-forward.",
-            "Fetchez puis mergez ou rebasez avant de pousser.",
+            "La branche distante a des commits que vous n'avez pas.",
+            "Récupérez-les, puis renvoyez votre branche.",
             stderr,
         );
     }
@@ -252,8 +305,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.unresolved_conflicts",
             ErrorCategory::Conflict,
-            "Des conflits ne sont pas résolus.",
-            "Résolvez les fichiers en conflit, ajoutez-les, puis continuez.",
+            "Il reste des conflits à résoudre.",
+            "Corrigez les fichiers signalés, puis continuez l'opération.",
             stderr,
         );
     }
@@ -264,7 +317,7 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.conflict",
             ErrorCategory::Conflict,
-            "L'opération a produit un conflit.",
+            "L'opération s'est arrêtée sur un conflit.",
             "Résolvez les conflits, puis continuez ou abandonnez l'opération.",
             stderr,
         );
@@ -272,12 +325,13 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
     if haystack.contains("unable to auto-detect email")
         || haystack.contains("author identity unknown")
         || haystack.contains("empty ident name")
+        || haystack.contains("please tell me who you are")
     {
         return git_error(
             "git.identity_missing",
             ErrorCategory::Input,
-            "L'identité Git est incomplète.",
-            "Configurez user.name et user.email.",
+            "Git ne connaît pas votre nom ou votre e-mail.",
+            "Renseignez-les dans les profils, puis recommencez.",
             stderr,
         );
     }
@@ -288,7 +342,7 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
             "git.signing_failed",
             ErrorCategory::Auth,
             "La signature du commit a échoué.",
-            "Vérifiez la clé de signature et l'agent GPG/SSH.",
+            "Vérifiez la clé de signature et l'agent qui la détient.",
             stderr,
         );
     }
@@ -296,8 +350,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "repo.bare",
             ErrorCategory::Repo,
-            "Cette opération exige un worktree.",
-            "Ouvrez un worktree associé au dépôt.",
+            "Cette opération a besoin d'une copie de travail.",
+            "Ouvrez un dossier de travail lié à ce dépôt.",
             stderr,
         );
     }
@@ -307,8 +361,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.remote_missing",
             ErrorCategory::Input,
-            "Le remote demandé n'existe pas.",
-            "Vérifiez la configuration des remotes.",
+            "Ce dépôt distant n'existe pas.",
+            "Vérifiez le nom du remote dans la configuration.",
             stderr,
         );
     }
@@ -319,8 +373,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.pathspec",
             ErrorCategory::Input,
-            "Le chemin demandé ne correspond à aucun fichier.",
-            "Vérifiez le chemin et son encodage.",
+            "Ce chemin ne correspond à aucun fichier.",
+            "Vérifiez le chemin, y compris les caractères spéciaux.",
             stderr,
         );
     }
@@ -328,8 +382,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.detached",
             ErrorCategory::GitState,
-            "HEAD est détaché.",
-            "Créez une branche avant cette opération.",
+            "Vous n'êtes sur aucune branche.",
+            "Créez une branche, puis recommencez.",
             stderr,
         );
     }
@@ -350,8 +404,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "git.shallow_unsupported",
             ErrorCategory::Repo,
-            "Le dépôt est shallow et ne permet pas cette opération.",
-            "Récupérez l'historique complet (`git fetch --unshallow`).",
+            "Ce dépôt n'a qu'une partie de l'historique.",
+            "Récupérez l'historique complet, puis recommencez. La commande est dans les détails.",
             stderr,
         );
     }
@@ -359,8 +413,8 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
         return git_error(
             "repo.not_git",
             ErrorCategory::Repo,
-            "Le dossier n'est pas un dépôt Git.",
-            "Vérifiez le chemin ou initialisez un dépôt.",
+            "Ce dossier n'est pas un dépôt Git.",
+            "Vérifiez le chemin, ou créez un dépôt.",
             stderr,
         );
     }
@@ -371,10 +425,41 @@ pub fn classify_git_failure(exit_code: Option<i32>, stderr: &str) -> AppError {
     AppError::new(
         "git.exit_unknown",
         ErrorCategory::GitExit,
-        format!("La commande Git a échoué (code {code})."),
+        "L'opération Git a échoué.",
     )
-    .with_detail(stderr)
-    .with_remediation("Consultez le détail pour la sortie Git complète.")
+    .with_detail(format!("code de sortie : {code}\n{stderr}"))
+    .with_remediation("Le message de Git est dans les détails.")
+    .with_param("code", code)
+}
+
+fn looks_like_tls(haystack: &str) -> bool {
+    haystack.contains("ssl certificate problem")
+        || haystack.contains("server certificate verification failed")
+        || haystack.contains("unable to get local issuer certificate")
+        || haystack.contains("certificate verify failed")
+        || haystack.contains("self signed certificate")
+        || haystack.contains("unknown ca")
+}
+
+fn looks_like_network(haystack: &str) -> bool {
+    haystack.contains("could not resolve host")
+        || haystack.contains("could not resolve hostname")
+        || haystack.contains("name or service not known")
+        || haystack.contains("temporary failure in name resolution")
+        || haystack.contains("failed to connect")
+        || haystack.contains("connection timed out")
+        || haystack.contains("operation timed out")
+        || haystack.contains("connection refused")
+        || haystack.contains("network is unreachable")
+        || haystack.contains("the remote end hung up unexpectedly")
+}
+
+/// A remote refused the update for a reason other than fast-forward.
+fn looks_like_remote_rejection(haystack: &str) -> bool {
+    haystack.contains("[remote rejected]")
+        || haystack.contains("hook declined")
+        || haystack.contains("protected branch")
+        || haystack.contains("pre-receive hook")
 }
 
 fn git_error(
@@ -452,6 +537,22 @@ mod tests {
                 "repo.safe_directory",
             ),
             ("error: gpg failed to sign the data", "git.signing_failed"),
+            (
+                "! [remote rejected] main -> main (pre-receive hook declined)\nerror: failed to push some refs",
+                "git.push_rejected",
+            ),
+            (
+                "remote: protected branch hook declined\nerror: failed to push some refs to 'origin'",
+                "git.push_rejected",
+            ),
+            (
+                "fatal: unable to access 'https://example.test/': Could not resolve host: example.test",
+                "network.unreachable",
+            ),
+            (
+                "fatal: unable to access 'https://example.test/': SSL certificate problem: unable to get local issuer certificate",
+                "tls.ca_required",
+            ),
         ];
 
         for (stderr, expected) in cases {
@@ -464,8 +565,24 @@ mod tests {
     fn unknown_failures_stay_visible() {
         let error = classify_git_failure(Some(7), "something unexpected");
         assert_eq!(error.code, "git.exit_unknown");
-        assert_eq!(error.detail.as_deref(), Some("something unexpected"));
+        assert_eq!(
+            error.detail.as_deref(),
+            Some("code de sortie : 7\nsomething unexpected")
+        );
+        assert_eq!(error.params.get("code").map(String::as_str), Some("7"));
         assert!(!error.retryable);
+
+        let summary_only = classify_git_failure(
+            Some(1),
+            "error: failed to push some refs to 'https://example.test/repo.git'",
+        );
+        assert_eq!(summary_only.code, "git.exit_unknown");
+
+        let network = classify_git_failure(
+            Some(128),
+            "fatal: unable to access 'https://example.test/': Failed to connect to example.test",
+        );
+        assert!(network.retryable);
     }
 
     #[test]

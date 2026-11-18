@@ -207,9 +207,9 @@ function defaultColumns(
     width < 520
       ? 64
       : Math.min(COLUMN_CEILINGS.graph, Math.max(64, lanes * LANE_PITCH + 18))
-  // Date and time on one line: 128 px fits the widest month (`28 mars 2026
-  // 23:59`, 110 px at 12 px) with room for the padding.
-  const date = width >= 560 ? 128 : COLUMN_FLOORS.date
+  // Date and time on one line. 150 px fits a 12-hour system date
+  // (`12/31/2026, 12:00 PM`, about 122 px at 12 px) plus the cell padding.
+  const date = width >= 560 ? 150 : COLUMN_FLOORS.date
   let refs = width >= 480 ? Math.min(desiredRefs, Math.round(width * 0.34)) : 0
   if (refs > 0) {
     // Keep 520 px for the message and 90 px for the author before widening the
@@ -1108,7 +1108,7 @@ export function GraphCanvas({
     if (hit) {
       markExternalDrop(null)
       const entry = resolveGraphRef(hit.raw, refEntries)
-      if (!entry || entry.kind !== 'branch') return null
+      if (!entry || entry.symref || (entry.kind !== 'branch' && entry.kind !== 'remoteBranch')) return null
       if (entry.fullName === source.fullName) return null
       return {
         entry,
@@ -1128,8 +1128,10 @@ export function GraphCanvas({
       .find(
         (candidate) =>
           candidate &&
-          candidate.closest('[data-repository-section="local"]') &&
-          candidate.getAttribute('data-ref')?.startsWith('refs/heads/'),
+          (candidate.closest('[data-repository-section="local"]') ||
+            candidate.closest('[data-repository-section="remotes"]')) &&
+          (candidate.getAttribute('data-ref')?.startsWith('refs/heads/') ||
+            candidate.getAttribute('data-ref')?.startsWith('refs/remotes/')),
       )
     if (!row) {
       markExternalDrop(null)
@@ -1137,7 +1139,12 @@ export function GraphCanvas({
     }
     const fullName = row.getAttribute('data-ref')
     const entry = refEntries.find((candidate) => candidate.fullName === fullName)
-    if (!entry || entry.kind !== 'branch' || entry.fullName === source.fullName) {
+    if (
+      !entry ||
+      entry.symref ||
+      (entry.kind !== 'branch' && entry.kind !== 'remoteBranch') ||
+      entry.fullName === source.fullName
+    ) {
       markExternalDrop(null)
       return null
     }

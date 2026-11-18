@@ -22,11 +22,14 @@ import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { UpdateNotice } from './components/UpdateNotice'
 import { ActionBarProvider, ActionBarSlot } from './components/ui/ActionBar'
-import { useToastChannel, useToasts } from './components/ui/Toasts'
+import { useToastChannel, useToasts, type ToastNotice } from './components/ui/Toasts'
 import { Workbench } from './components/Workbench'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { APP_PAGES, navigationGroups, viewDescriptions, type ViewId } from './data/navigation'
-import { errorMessage } from './ipc/client'
+import { errorMessage, presentError, type PresentedError } from './ipc/client'
+import { checkoutStashMessage } from './lib/checkoutStash'
+import { recoveryFor } from './lib/errorRecovery'
+import { usePipelineFailureNotifications } from './lib/usePipelineNotifications'
 import { I18nProvider, LANGUAGE_PREFERENCE_KEY, detectLocale, isLocale, plural, setLocale, t, type Locale, type MessageKey } from './i18n'
 import {
   backgroundRead,
@@ -128,6 +131,7 @@ function applyDensity(density: Density) {
 
 export default function App() {
   const [repos, setRepos] = useState<RepoView[]>([])
+  usePipelineFailureNotifications(repos)
   const reposRef = useRef(repos)
   useEffect(() => {
     reposRef.current = repos
@@ -174,7 +178,16 @@ export default function App() {
   const [diffRequest, setDiffRequest] = useState<Parameters<typeof Workbench>[0]['diffRequest']>(null)
   const [recent, setRecent] = useState<RecentRepo[]>([])
   const [busy, setBusy] = useState(false)
-  const setError = useToastChannel('app-error', 'error')
+  const pushError = useToastChannel('app-error', 'error')
+  const recoveryRef = useRef<(error: PresentedError) => ReturnType<typeof recoveryFor>>(() => undefined)
+  const setError = useCallback((message: string | ToastNotice | null) => {
+    if (message && typeof message !== 'string' && !message.action) {
+      const action = recoveryRef.current(message)
+      pushError(action ? { ...message, action } : message)
+      return
+    }
+    pushError(message)
+  }, [pushError])
   const [pendingClose, setPendingClose] = useState<RepoView | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
@@ -563,7 +576,7 @@ export default function App() {
           setGeneration(active.generation)
         }
       } catch (cause) {
-        setError(errorMessage(cause))
+        setError(presentError(cause))
       } finally {
         setBusy(false)
         setHydrated(true)
@@ -619,7 +632,7 @@ export default function App() {
           : t('shell.notice.installed', { version: result.installedVersion }),
       )
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     } finally {
       installingUpdateRef.current = false
       setInstallingUpdate(false)
@@ -772,7 +785,7 @@ export default function App() {
           : [...current, updated],
       )
     } catch (cause) {
-      setNotice(errorMessage(cause))
+      setError(presentError(cause))
     }
   }, [replaceWorkspaces])
 
@@ -791,7 +804,7 @@ export default function App() {
         await attachOpenedRepo(attachId, opened.repo.worktree)
         return true
       } catch (cause) {
-        setError(errorMessage(cause))
+        setError(presentError(cause))
         return false
       } finally {
         setBusy(false)
@@ -997,7 +1010,7 @@ export default function App() {
           setError(t('shell.workspace.unavailable', { list: failures.join(', ') }))
         }
       } catch (cause) {
-        setError(errorMessage(cause))
+        setError(presentError(cause))
       } finally {
         setSwitching(false)
       }
@@ -1025,8 +1038,12 @@ export default function App() {
     try {
       const opened = await repoClone(input)
       const clonedPath = opened.repo.worktree
+      // Record the membership before any tab change. Activating the clone
+      // remounts the workbench (its key is the open repository), and the
+      // workspace screen would reload before this attach and miss the repo.
+      await attachOpenedRepo(attachId, clonedPath)
       if (showTab) {
-        upsert(opened)
+        upsert(opened, !keepView)
         if (!keepView) {
           setLauncherOpen(false)
           setDiffRequest(null)
@@ -1037,7 +1054,6 @@ export default function App() {
         catch { /* The clone is on disk; the session is only closed when no tab is shown. */ }
       }
       await reloadRecent()
-      await attachOpenedRepo(attachId, clonedPath)
       return clonedPath
     } finally {
       setBusy(false)
@@ -1096,7 +1112,7 @@ export default function App() {
       upsert(refreshed, false)
       setGeneration(refreshed.generation)
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     } finally {
       setBusy(false)
     }
@@ -1122,7 +1138,9 @@ export default function App() {
     setBusy(true)
     setError(null)
     try {
-      await branchCheckout({ repoId, name })
+      const result = await branchCheckout({ repoId, name })
+      const stashNote = checkoutStashMessage(result.data)
+      if (stashNote) setNotice(t(stashNote))
       const refreshed = await repoRefresh(repoId)
       upsert(refreshed, false)
       setGeneration(refreshed.generation)
@@ -1169,7 +1187,7 @@ export default function App() {
       return outcome
     } catch (cause) {
       toasts.dismiss('undo-offer')
-      setError(errorMessage(cause))
+      setError(presentError(cause))
       return null
     } finally {
       setUndoState(target, await undoStatus(target).catch(() => null))
@@ -1184,7 +1202,7 @@ export default function App() {
     try {
       await repoCloseChecked(target, confirmed ? { acknowledged: true } : undefined)
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
       return
     }
     const next = repos.filter((entry) => entry.repo.repoId !== target)
@@ -1314,6 +1332,17 @@ export default function App() {
     setHistoryRequest((current) => ({ kind, serial: (current?.serial ?? 0) + 1 }))
     setPaletteOpen(false)
   }, [])
+  useEffect(() => {
+    recoveryRef.current = (error) => recoveryFor(error, {
+      onProfiles: () => {
+        setSettingsRequest((current) => ({ tab: 'profiles', serial: (current?.serial ?? 0) + 1 }))
+        navigate('profiles')
+      },
+      onConflicts: () => openHistoryAction('conflicts'),
+      onGitlab: () => navigate('gitlab'),
+      onGithub: () => navigate('github'),
+    })
+  }, [navigate, openHistoryAction])
 
   // Branch creation happens in the commit graph itself; this request is
   // forwarded to the workbench so the inline ref editor opens on HEAD.
@@ -1387,7 +1416,7 @@ export default function App() {
       })
       if (typeof path === 'string') await openRepo(path)
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(presentError(cause))
     } finally {
       pickingRepository.current = false
       setBusy(false)
@@ -1502,7 +1531,7 @@ export default function App() {
           if (repoId) {
             void syncFetch(repoId, 'origin')
               .then(() => refresh())
-              .catch((cause) => setError(errorMessage(cause)))
+              .catch((cause) => setError(presentError(cause)))
           }
         },
       },
@@ -1517,7 +1546,7 @@ export default function App() {
           if (repoId) {
             void syncFetchAll(repoId)
               .then(() => refresh())
-              .catch((cause) => setError(errorMessage(cause)))
+              .catch((cause) => setError(presentError(cause)))
           }
         },
       },
@@ -1546,7 +1575,7 @@ export default function App() {
                 ? syncPull({ repoId, remote, branch }).then(() => refresh())
                 : undefined,
             )
-            .catch((cause) => setError(errorMessage(cause)))
+            .catch((cause) => setError(presentError(cause)))
         },
       },
       {
@@ -1582,7 +1611,7 @@ export default function App() {
               setPushRejected({ repoId, remote, branch })
               return
             }
-            setError(errorMessage(cause))
+            setError(presentError(cause))
           })
         },
       },
@@ -1930,6 +1959,10 @@ export default function App() {
                 onCloneIntoWorkspace={(input, attach) => cloneRepo(input, { ...attach, keepView: true })}
                 onPickDirectory={pickCloneDirectory}
                 onPushRejected={setPushRejected}
+                onOpenProfiles={() => {
+                  setSettingsRequest((current) => ({ tab: 'profiles', serial: (current?.serial ?? 0) + 1 }))
+                  navigate('profiles')
+                }}
                 settingsRequest={settingsRequest}
                 terminalDock={terminalDock}
                 onTerminalDockClose={() => setTerminalDock(false)}

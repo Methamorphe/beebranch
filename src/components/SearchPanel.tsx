@@ -9,7 +9,9 @@ import {
   type DiffRequest,
 } from '../ipc/commands'
 import { errorMessage } from '../ipc/client'
-import { dateFromSeconds, formatDateTime, useI18n, type MessageKey } from '../i18n'
+import { useI18n, type MessageKey } from '../i18n'
+import { formatGraphCommitDate } from '../lib/graphDate'
+import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import type {
   ContentSearch,
   PathSearch,
@@ -102,7 +104,8 @@ export function SearchPanel({
   onShowInGraph,
   onOpenFile,
 }: Props) {
-  const { t, plural } = useI18n()
+  const { t, plural, locale } = useI18n()
+  const graphDate = useGraphDateFormat()
   const [text, setText] = useState('')
   const [mode, setMode] = useState<Mode>('message')
   const [depth, setDepth] = useState(5000)
@@ -558,7 +561,7 @@ export function SearchPanel({
                     <span className={p2.entryMeta}>
                       <span>{commit.author.name}</span>
                       <span>·</span>
-                      <span>{formatDateTime(dateFromSeconds(commit.author.timestamp))}</span>
+                      <span>{formatGraphCommitDate(commit.author.timestamp, graphDate, locale)}</span>
                     </span>
                   </span>
                   <span className={p2.meta} aria-hidden="true"><ToolbarIcon name="arrowRight" size={12} /></span>

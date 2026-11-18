@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { RepoView, StashEntry, UndoEntry } from '../types/git'
 import { errorMessage } from '../ipc/client'
 import { branchCheckout, refsGet, stashCreate, stashList, stashPop, syncFetch, syncPull, syncPush } from '../ipc/commands'
+import { checkoutStashMessage } from '../lib/checkoutStash'
 import { pullNotice } from '../lib/syncNotice'
 import { undoButtonLabel } from '../lib/undoLabel'
 import { isPushRejection, type PushRejection } from '../lib/pushRejection'
@@ -10,7 +11,7 @@ import type { ViewId } from '../data/navigation'
 import { ActionMenu } from './ActionMenu'
 import { PipelineStatus } from './PipelineStatus'
 import { useCheckoutConfirm, useOperationConfirm, usePushConfirm, useStashPopConfirm } from './OperationConfirm'
-import { PublishBranchBar, type PublishTarget } from './PublishBranchBar'
+import { PublishBranchBar, type PublishChoice, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
 import { useToastChannel } from './ui/Toasts'
 import styles from './RepoBar.module.css'
@@ -135,15 +136,20 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
         onError(errorMessage(cause))
       })
   }
-  const publishBranch = () => {
+  const publishBranch = (choice: PublishChoice) => {
     const target = publish
     setPublish(null)
     if (!repoId || !target) return
     void run(
       'Publish',
-      () => syncPush({ repoId, remote: target.remote, branch: target.branch, setUpstream: true }),
-      () => t('workbench.notice.branchPushed', { branch: target.branch, remote: target.remote }),
-      { repoId, remote: target.remote, branch: target.branch },
+      () => syncPush({
+        repoId,
+        remote: choice.remote,
+        branch: target.branch,
+        setUpstream: choice.setUpstream,
+      }),
+      () => t('workbench.notice.branchPushed', { branch: target.branch, remote: choice.remote }),
+      { repoId, remote: choice.remote, branch: target.branch },
     )
   }
   const sync = (kind: 'pull' | 'push') => {
@@ -156,7 +162,12 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
       const target = remotes.includes('origin') ? 'origin' : remotes[0]
       if (kind === 'push' && current && target) {
         setNotice(null)
-        setPublish({ branch: current, remote: target })
+        setPublish({
+          branch: current,
+          remote: target,
+          remotes: remotes.length > 0 ? remotes : [target],
+          setUpstream: true,
+        })
         return
       }
       onNavigate('sync')
@@ -194,7 +205,10 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
           title: t('workbench.operationPreview.title.checkout', { target: name }),
           confirmLabel: t('workbench.operationPreview.action.checkout'),
           operation: { kind: 'checkout', name },
-        }).then((confirmed) => { if (confirmed) void run('Checkout', () => branchCheckout({ repoId, name })) })}>{name === branchLabel(repo, t) ? '✓ ' : ''}{name}</button>)}
+        }).then((confirmed) => { if (confirmed) void run('Checkout', () => branchCheckout({ repoId, name }), (result) => {
+          const note = checkoutStashMessage(result.data)
+          return note ? t(note) : t('shell.repoBar.actionDone', { action: 'Checkout' })
+        }) })}>{name === branchLabel(repo, t) ? '✓ ' : ''}{name}</button>)}
         <button type="button" onClick={onNewBranch}>{t('shell.action.createBranchInGraph')}</button>
       </ActionMenu>
     </div>

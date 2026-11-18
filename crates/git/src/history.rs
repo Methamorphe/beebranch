@@ -596,6 +596,7 @@ fn squash_error(reason: &str) -> AppError {
         ErrorCategory::Input,
         format!("Squash impossible : {reason}."),
     )
+    .with_param("reason", reason)
 }
 
 fn plan_error(what: &str, reason: &str) -> AppError {
@@ -604,6 +605,8 @@ fn plan_error(what: &str, reason: &str) -> AppError {
         ErrorCategory::Input,
         format!("Plan de rebase invalide ({what}) : {reason}."),
     )
+    .with_param("what", what)
+    .with_param("reason", reason)
 }
 
 fn commit_message(runner: &GitRunner, worktree: &Path, sha: &str) -> Result<String, AppError> {

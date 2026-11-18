@@ -72,6 +72,34 @@
   margin: 2px 0 0;
 }
 
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.choice select,
+.choice input[type='text'] {
+  height: 28px;
+  max-width: 240px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
 .detail pre {
   max-height: 120px;
   margin: 6px 0 0;

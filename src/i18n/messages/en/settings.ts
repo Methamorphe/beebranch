@@ -25,7 +25,7 @@ const messages = {
 
   'settings.graphDate.title': 'History dates',
   'settings.graphDate.description':
-    'In the commit tree. “Relative” shows “3 hours ago” for seven days, then the date and time. The other choices always show the date.',
+    'In history. “Relative” shows “3 hours ago” for seven days, in the interface language, then the system date. The other formats do not follow the application language: the month and the order come from the system, and ISO stays numeric.',
   'settings.graphDate.aria': 'Commit tree date format',
   'settings.graphDate.relative': 'Relative, then date and time',
 
@@ -119,6 +119,19 @@ const messages = {
   'settings.autoFetch.title': 'Automatic fetch',
   'settings.autoFetch.hint':
     'Fetches the remotes of the open repository in the background at a regular interval; applies to the whole application.',
+  'settings.pipelineNotify.title': 'Pipeline failure',
+  'settings.pipelineNotify.description':
+    'System notification when a pipeline of an open repository turns red. Only the forge you already connected is contacted. On Windows the installed application is required.',
+  'settings.pipelineNotify.aria': 'Pipeline failure notifications',
+  'settings.pipelineNotify.off': 'Off',
+  'settings.pipelineNotify.on': 'On',
+  'settings.pipelineNotify.denied': 'The system refused BeeBranch notifications.',
+  'settings.checkoutStash.title': 'Local changes on checkout',
+  'settings.checkoutStash.description':
+    'When a branch switch has to stash your changes, choose whether that stash is reapplied onto the destination branch or left in the list.',
+  'settings.checkoutStash.aria': 'Checkout stash behavior',
+  'settings.checkoutStash.keep': 'Keep the stash',
+  'settings.checkoutStash.reapply': 'Reapply onto the new branch',
   'settings.signing.title': 'Commit signing',
   'settings.signing.hint':
     'Applies to commits created in the application; “inherit” follows the repository Git configuration.',

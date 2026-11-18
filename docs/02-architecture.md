@@ -318,6 +318,7 @@ struct AppError {
     remediation: Option<String>, // proposed action
     retryable: bool,
     operation_id: Option<OperationId>,
+    params: Map<String, String>, // values the catalogue interpolates; empty when the sentence is static
 }
 ```
 

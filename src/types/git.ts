@@ -6,6 +6,8 @@ export type AppError = {
   remediation?: string
   retryable: boolean
   operationId?: string
+  /** Values interpolated into the catalogue sentence. */
+  params?: Record<string, string>
 }
 
 export type HeadState =
@@ -555,7 +557,7 @@ export type SyncOutcome = {
 export type RemoteFetchOutcome = {
   remote: string
   outcome?: SyncOutcome
-  error?: { code: string; message: string }
+  error?: { code: string; message: string; params?: Record<string, string> }
 }
 
 export type HistoryOutcome = {
@@ -683,6 +685,12 @@ export type PipelineOverview = {
   pipelines: GitlabPipeline[]
 }
 
+export type PipelineJobStep = {
+  name: string
+  status: string
+  conclusion?: string
+}
+
 export type PipelineJob = {
   id: number
   name: string
@@ -692,6 +700,8 @@ export type PipelineJob = {
   duration?: number
   createdAt?: string
   finishedAt?: string
+  /** GitHub Actions steps. Absent or empty on GitLab. */
+  steps?: PipelineJobStep[]
 }
 
 export type RepoLink = {

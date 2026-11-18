@@ -3,9 +3,27 @@ use beebranch_store::StoreError;
 
 /// Convert a persistence failure into the stable application error payload.
 pub fn store_error(error: StoreError) -> AppError {
-    AppError::new(error.code(), ErrorCategory::Internal, error.to_string())
+    let (message, remediation) = match error.code() {
+        "store.database" => (
+            "Les données de l'application n'ont pas pu être lues.",
+            "Fermez les autres fenêtres de BeeBranch, puis réessayez.",
+        ),
+        "store.io" => (
+            "Un fichier de l'application n'a pas pu être lu ou écrit.",
+            "Vérifiez que le dossier de données est accessible, puis réessayez.",
+        ),
+        "store.keychain" => (
+            "Le trousseau du système a refusé l'accès au secret.",
+            "Déverrouillez le trousseau, ou autorisez BeeBranch à l'utiliser.",
+        ),
+        _ => (
+            "Des données enregistrées sont illisibles.",
+            "Le détail technique précise ce qui est en cause.",
+        ),
+    };
+    AppError::new(error.code(), ErrorCategory::Internal, message)
         .with_detail(error.detail())
-        .with_remediation("Vérifiez les permissions du dossier de données de l'application.")
+        .with_remediation(remediation)
 }
 
 /// Convert a JSON serialization failure.
@@ -15,36 +33,44 @@ pub fn json_error(error: serde_json::Error) -> AppError {
 
 /// Map a GitLab client failure preserving its stable code and remediation.
 pub fn gitlab_error(error: beebranch_gitlab::GitlabError) -> AppError {
-    let category = match error.code() {
-        code if code.starts_with("auth.") => ErrorCategory::Auth,
+    let code = if error.code() == "auth.failed" {
+        "gitlab.auth_failed"
+    } else {
+        error.code()
+    };
+    let category = match code {
+        code if code.starts_with("auth.") || code == "gitlab.auth_failed" => ErrorCategory::Auth,
         code if code.starts_with("tls.") => ErrorCategory::Tls,
         "network.unreachable" | "gitlab.rate_limited" | "gitlab.server" => ErrorCategory::Network,
         "gitlab.conflict" => ErrorCategory::Conflict,
         _ => ErrorCategory::Input,
     };
-    let mut mapped =
-        AppError::new(error.code(), category, error.message()).retryable(error.retryable());
+    let mut mapped = AppError::new(code, category, error.message()).retryable(error.retryable());
     if let Some(detail) = error.detail() {
         mapped = mapped.with_detail(detail);
     }
-    match error.code() {
-        "auth.failed" => mapped.with_remediation(
-            "Vérifiez le Personal Access Token, ses scopes (api, read_user) et son expiration.",
+    for (key, value) in error.params() {
+        mapped = mapped.with_param(*key, value.clone());
+    }
+    match code {
+        "gitlab.auth_failed" => mapped.with_remediation(
+            "Vérifiez le jeton d'accès personnel, ses droits (api, read_user) et sa date d'expiration.",
         ),
         "tls.ca_required" | "tls.ca_invalid" => mapped.with_remediation(
-            "Importez le certificat PEM de l'autorité interne de l'instance GitLab.",
+            "Importez le certificat de l'autorité de l'instance GitLab dans les réglages.",
         ),
         "network.unreachable" => mapped
-            .with_remediation("Vérifiez l'adresse de l'instance, le proxy et la connexion réseau."),
-        "gitlab.rate_limited" => mapped.with_remediation("Patientez avant de relancer la requête."),
+            .with_remediation("Vérifiez l'adresse de l'instance, le proxy et la connexion, puis réessayez.")
+            .retryable(true),
+        "gitlab.rate_limited" => mapped.with_remediation("Patientez, puis relancez la requête."),
         "gitlab.device_flow_disabled" => mapped.with_remediation(
-            "Sur gitlab.com : Edit profile → Access → Applications → votre application → cochez « Device authorization grant », puis enregistrez.",
+            "Sur gitlab.com, ouvrez l'application OAuth et cochez « Device authorization grant », puis enregistrez.",
         ),
         "gitlab.oauth_scope" => mapped.with_remediation(
-            "Cochez les scopes api, read_user et read_repository sur l'application OAuth GitLab.",
+            "Cochez les droits api, read_user et read_repository sur l'application OAuth GitLab.",
         ),
         "gitlab.oauth_configuration" => {
-            mapped.with_remediation("Vérifiez l'Application ID de l'application OAuth GitLab.")
+            mapped.with_remediation("Vérifiez l'identifiant de l'application OAuth GitLab.")
         }
         _ => mapped,
     }
@@ -52,28 +78,39 @@ pub fn gitlab_error(error: beebranch_gitlab::GitlabError) -> AppError {
 
 /// Map a GitHub client failure preserving its stable code and remediation.
 pub fn github_error(error: beebranch_github::GithubError) -> AppError {
-    let category = match error.code() {
-        code if code.starts_with("auth.") => ErrorCategory::Auth,
+    let code = if error.code() == "auth.failed" {
+        "github.auth_failed"
+    } else {
+        error.code()
+    };
+    let category = match code {
+        code if code.starts_with("auth.") || code == "github.auth_failed" => ErrorCategory::Auth,
         code if code.starts_with("tls.") => ErrorCategory::Tls,
         "network.unreachable" | "github.rate_limited" | "github.server" => ErrorCategory::Network,
         "github.conflict" => ErrorCategory::Conflict,
         _ => ErrorCategory::Input,
     };
-    let mut mapped =
-        AppError::new(error.code(), category, error.message()).retryable(error.retryable());
+    let mut mapped = AppError::new(code, category, error.message()).retryable(error.retryable());
     if let Some(detail) = error.detail() {
         mapped = mapped.with_detail(detail);
     }
-    match error.code() {
-        "auth.failed" => mapped.with_remediation(
-            "Vérifiez le Personal Access Token GitHub, ses scopes (repo, read:user, checks:read) et son expiration.",
+    for (key, value) in error.params() {
+        mapped = mapped.with_param(*key, value.clone());
+    }
+    if code == "github.graphql" && !mapped.params.contains_key("message") {
+        mapped = mapped.with_param("message", error.message());
+    }
+    match code {
+        "github.auth_failed" => mapped.with_remediation(
+            "Vérifiez le jeton d'accès personnel GitHub, ses droits (repo, read:user) et sa date d'expiration.",
         ),
         "tls.ca_required" | "tls.ca_invalid" => mapped.with_remediation(
-            "Importez le certificat PEM de l'autorité interne de l'instance GitHub Enterprise.",
+            "Importez le certificat de l'autorité de l'instance GitHub Enterprise dans les réglages.",
         ),
         "network.unreachable" => mapped
-            .with_remediation("Vérifiez l'adresse de l'instance, le proxy et la connexion réseau."),
-        "github.rate_limited" => mapped.with_remediation("Patientez avant de relancer la requête."),
+            .with_remediation("Vérifiez l'adresse de l'instance, le proxy et la connexion, puis réessayez.")
+            .retryable(true),
+        "github.rate_limited" => mapped.with_remediation("Patientez, puis relancez la requête."),
         _ => mapped,
     }
 }
