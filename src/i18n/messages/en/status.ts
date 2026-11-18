@@ -35,6 +35,10 @@ const messages = {
   'status.notice.opened': 'File opened: {path}',
   'status.notice.revealed': 'File shown: {path}',
   'status.notice.stashed': 'File stashed: {path}',
+  'status.notice.stashedMany.one': '{count} file stashed.',
+  'status.notice.stashedMany.other': '{count} files stashed.',
+  'status.notice.ignoredMany.one': '{count} file added to .gitignore.',
+  'status.notice.ignoredMany.other': '{count} files added to .gitignore.',
   'status.notice.patchSaved': 'Patch saved: {path}',
 
   'status.error.discardUnsupported':
@@ -86,6 +90,23 @@ const messages = {
   'status.row.fileHistory': 'File history',
   'status.row.editFile': 'Edit file',
   'status.menu.aria': 'Actions on the file {path}',
+  'status.selection.stage': 'Stage files',
+  'status.selection.unstage': 'Unstage files',
+  'status.selection.discard.one': 'Discard {count} file',
+  'status.selection.discard.other': 'Discard {count} files',
+  'status.selection.ignore.one': 'Ignore {count} file',
+  'status.selection.ignore.other': 'Ignore {count} files',
+  'status.selection.stash.one': 'Stash {count} file',
+  'status.selection.stash.other': 'Stash {count} files',
+  'status.selection.patch.one': 'Create patch from changes in {count} file…',
+  'status.selection.patch.other': 'Create patch from changes in {count} files…',
+  'status.selection.title.one': '{count} file',
+  'status.selection.title.other': '{count} files',
+  'status.selection.aria.one': 'Actions on {count} selected file',
+  'status.selection.aria.other': 'Actions on {count} selected files',
+  'status.selection.ignoreTitle': 'A submodule or a folder cannot be ignored with the files.',
+  'status.selection.stashTitle': 'This selection cannot be stashed together.',
+  'status.selection.patchTitle': 'An untracked file has no diff to export.',
 
   'status.filter.placeholder': 'Filter files…',
   'status.filter.aria': 'Filter paths',
@@ -117,7 +138,9 @@ const messages = {
   'status.delete.confirm': 'Delete',
 
   'status.ignoreTracked.title': 'Ignore a tracked file',
+  'status.ignoreTracked.titleMany': 'Ignore tracked files',
   'status.ignoreTracked.consequence': '{pattern} will be added to .gitignore and {path} will stop being tracked. The file stays on disk; its removal from the repository is staged for the next commit.',
+  'status.ignoreTracked.consequenceMany': '{count} files ({list}): each path is added to .gitignore. Tracked files stop being tracked, stay on disk, and that removal is staged for the next commit.',
   'status.ignoreTracked.confirm': 'Ignore and untrack',
 }
 

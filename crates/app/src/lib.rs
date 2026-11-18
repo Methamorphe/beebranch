@@ -26,6 +26,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .setup(setup::setup)
         .invoke_handler(tauri::generate_handler![
             commands::app_info::app_info,
+            commands::notify::notification_permission,
+            commands::notify::notification_show,
             commands::startup::app_ready,
             commands::repo::repo_open,
             commands::repo::repo_init,

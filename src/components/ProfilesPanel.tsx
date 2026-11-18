@@ -3,7 +3,7 @@ import { open as openNativeDialog } from '@tauri-apps/plugin-dialog'
 import { GitBranch, Keyboard, Palette, Settings2, Users, type LucideIcon } from 'lucide-react'
 import { CHECKOUT_STASH_PREFERENCE, isCheckoutStashMode, type CheckoutStashMode } from '../lib/checkoutStash'
 import { PIPELINE_NOTIFY_PREFERENCE, setPipelineNotifyEnabled } from '../lib/pipelineNotify'
-import { ensureNotificationPermission } from '../lib/usePipelineNotifications'
+import { announceNotificationsEnabled, ensureNotificationPermission } from '../lib/usePipelineNotifications'
 import { LOCALES, LOCALE_NAMES, useI18n, type MessageKey } from '../i18n'
 import { AppIcon } from './IconSvg'
 import {
@@ -730,9 +730,22 @@ export function ProfilesPanel({
                   }
                   setPipelineNotify(next)
                   setPipelineNotifyEnabled(next === '1')
-                  await preferenceSet(PIPELINE_NOTIFY_PREFERENCE, next).catch((cause: unknown) =>
-                    setError(errorMessage(cause)),
-                  )
+                  try {
+                    await preferenceSet(PIPELINE_NOTIFY_PREFERENCE, next)
+                  } catch (cause) {
+                    setError(errorMessage(cause))
+                    return
+                  }
+                  if (next === '1') {
+                    try {
+                      await announceNotificationsEnabled(
+                        t('settings.pipelineNotify.enabledTitle'),
+                        t('settings.pipelineNotify.enabledBody'),
+                      )
+                    } catch (cause) {
+                      setError(errorMessage(cause))
+                    }
+                  }
                 })()
               }}
             >

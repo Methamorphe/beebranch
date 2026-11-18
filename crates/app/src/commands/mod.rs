@@ -12,6 +12,7 @@ pub mod gitlab_mr;
 pub mod history;
 pub mod index;
 pub mod inspect;
+pub mod notify;
 pub mod patch;
 pub mod pipelines;
 pub mod preferences;
