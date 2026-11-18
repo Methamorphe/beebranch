@@ -655,6 +655,10 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
   'profile.not_found': { message: 'Profile not found.' },
   'profile.gitlab_taken': { message: 'This GitLab instance is already linked to another profile.' },
   'profile.github_taken': { message: 'This GitHub account is already linked to another profile.' },
+  'notify.send_failed': {
+    message: 'The notification could not be shown.',
+    remediation: 'On Mac, allow BeeBranch in System Settings → Notifications. On Windows, launch the installed application: the Start menu shortcut registers the toast identity.',
+  },
 }
 
 export default errors

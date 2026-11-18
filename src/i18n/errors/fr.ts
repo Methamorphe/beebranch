@@ -676,6 +676,10 @@ const errors = {
   'profile.not_found': { message: 'Profil introuvable.' },
   'profile.gitlab_taken': { message: 'Cette instance GitLab est déjà associée à un autre profil.' },
   'profile.github_taken': { message: 'Ce compte GitHub est déjà associé à un autre profil.' },
+  'notify.send_failed': {
+    message: 'La notification n’a pas pu être affichée.',
+    remediation: 'Sur Mac, autorisez BeeBranch dans Réglages Système → Notifications. Sous Windows, lancez l’application installée : le raccourci du menu Démarrer enregistre l’identité des toasts.',
+  },
 } satisfies Record<string, ErrorCopy>
 
 export default errors

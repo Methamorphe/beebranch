@@ -39,6 +39,21 @@ export function appInfo(): Promise<AppInfo> {
   return call<AppInfo>('app_info')
 }
 
+export type NotificationPermission = {
+  granted: boolean
+  prompt: 'system' | 'implicit'
+  channel: 'un' | 'winrt' | 'plugin'
+}
+
+/** Asks the operating system when it has a real permission dialog. */
+export function notificationPermission(): Promise<NotificationPermission> {
+  return call<NotificationPermission>('notification_permission')
+}
+
+export function notificationShow(title: string, body: string): Promise<void> {
+  return call<void>('notification_show', { request: { title, body } })
+}
+
 export function repoOpen(path: string): Promise<RepoView> {
   return call<RepoView>('repo_open', { path })
 }

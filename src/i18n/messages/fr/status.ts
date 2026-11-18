@@ -35,6 +35,10 @@ const messages = {
   'status.notice.opened': 'Fichier ouvert : {path}',
   'status.notice.revealed': 'Fichier affiché : {path}',
   'status.notice.stashed': 'Fichier remisé : {path}',
+  'status.notice.stashedMany.one': '{count} fichier remisé.',
+  'status.notice.stashedMany.other': '{count} fichiers remisés.',
+  'status.notice.ignoredMany.one': '{count} fichier ajouté au .gitignore.',
+  'status.notice.ignoredMany.other': '{count} fichiers ajoutés au .gitignore.',
   'status.notice.patchSaved': 'Patch enregistré : {path}',
 
   'status.error.discardUnsupported':
@@ -86,6 +90,23 @@ const messages = {
   'status.row.fileHistory': 'Historique du fichier',
   'status.row.editFile': 'Éditer le fichier',
   'status.menu.aria': 'Actions sur le fichier {path}',
+  'status.selection.stage': 'Préparer les fichiers',
+  'status.selection.unstage': 'Retirer les fichiers de l’index',
+  'status.selection.discard.one': 'Abandonner {count} fichier',
+  'status.selection.discard.other': 'Abandonner {count} fichiers',
+  'status.selection.ignore.one': 'Ignorer {count} fichier',
+  'status.selection.ignore.other': 'Ignorer {count} fichiers',
+  'status.selection.stash.one': 'Remiser {count} fichier',
+  'status.selection.stash.other': 'Remiser {count} fichiers',
+  'status.selection.patch.one': 'Créer un patch des modifications de {count} fichier…',
+  'status.selection.patch.other': 'Créer un patch des modifications de {count} fichiers…',
+  'status.selection.title.one': '{count} fichier',
+  'status.selection.title.other': '{count} fichiers',
+  'status.selection.aria.one': 'Actions sur {count} fichier sélectionné',
+  'status.selection.aria.other': 'Actions sur {count} fichiers sélectionnés',
+  'status.selection.ignoreTitle': 'Un sous-module ou un dossier ne s’ignore pas avec les fichiers.',
+  'status.selection.stashTitle': 'Cette sélection ne peut pas être remisée ensemble.',
+  'status.selection.patchTitle': 'Un fichier non suivi n’a pas de diff à exporter.',
 
   'status.filter.placeholder': 'Filtrer les fichiers…',
   'status.filter.aria': 'Filtrer les chemins',
@@ -117,7 +138,9 @@ const messages = {
   'status.delete.confirm': 'Supprimer',
 
   'status.ignoreTracked.title': 'Ignorer un fichier suivi',
+  'status.ignoreTracked.titleMany': 'Ignorer des fichiers suivis',
   'status.ignoreTracked.consequence': '{pattern} sera ajouté au .gitignore et {path} sera retiré du suivi. Le fichier reste sur le disque ; sa suppression du dépôt est préparée pour le prochain commit.',
+  'status.ignoreTracked.consequenceMany': '{count} fichiers ({list}) : chaque chemin est ajouté au .gitignore. Les fichiers suivis sont retirés du suivi, restent sur le disque, et cette suppression est préparée pour le prochain commit.',
   'status.ignoreTracked.confirm': 'Ignorer et ne plus suivre',
 }
 

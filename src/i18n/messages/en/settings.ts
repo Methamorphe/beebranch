@@ -121,11 +121,13 @@ const messages = {
     'Fetches the remotes of the open repository in the background at a regular interval; applies to the whole application.',
   'settings.pipelineNotify.title': 'Pipeline failure',
   'settings.pipelineNotify.description':
-    'System notification when a pipeline of an open repository turns red. Only the forge you already connected is contacted. On Windows the installed application is required.',
+    'System notification when a pipeline of an open repository turns red. Only the forge you already connected is contacted. On Mac the installed application shows the system permission dialog; a development launch does not, and posts as Terminal. On Windows the system does not ask: the toast is posted directly, and only the installed application can show it as BeeBranch.',
   'settings.pipelineNotify.aria': 'Pipeline failure notifications',
   'settings.pipelineNotify.off': 'Off',
   'settings.pipelineNotify.on': 'On',
   'settings.pipelineNotify.denied': 'The system refused BeeBranch notifications.',
+  'settings.pipelineNotify.enabledTitle': 'BeeBranch',
+  'settings.pipelineNotify.enabledBody': 'Pipeline failure notifications are on.',
   'settings.checkoutStash.title': 'Local changes on checkout',
   'settings.checkoutStash.description':
     'When a branch switch has to stash your changes, choose whether that stash is reapplied onto the destination branch or left in the list.',
