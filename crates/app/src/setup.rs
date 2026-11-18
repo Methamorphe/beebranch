@@ -1,10 +1,6 @@
 use std::sync::Arc;
 
-#[cfg(not(debug_assertions))]
-use beebranch_store::KeychainStore;
-#[cfg(debug_assertions)]
-use beebranch_store::{FileSecretStore, KeychainStore};
-use beebranch_store::{SecretStore, Store};
+use beebranch_store::{DurableSecretStore, FileSecretStore, SecretStore, Store};
 use tauri::{App, Manager, Runtime};
 
 use crate::logging;
@@ -34,19 +30,7 @@ pub fn setup<R: Runtime>(app: &mut App<R>) -> Result<(), Box<dyn std::error::Err
         Err(error) => tracing::error!(%error, "undo crash recovery failed"),
     }
 
-    #[cfg(debug_assertions)]
-    let (secrets, github_secrets): (Arc<dyn SecretStore>, Arc<dyn SecretStore>) = {
-        let file = Arc::new(FileSecretStore::new(
-            paths.data_dir().join("secrets-dev.json"),
-        ));
-        migrate_keychain_token_once(&store, &file, paths.data_dir());
-        (file.clone(), file)
-    };
-    #[cfg(not(debug_assertions))]
-    let (secrets, github_secrets): (Arc<dyn SecretStore>, Arc<dyn SecretStore>) = (
-        Arc::new(KeychainStore::default_service()),
-        Arc::new(KeychainStore::new("beebranch.github")),
-    );
+    let (secrets, github_secrets) = forge_secrets(paths.data_dir());
     let mut state = build_state_with_secrets(paths.clone(), store, secrets, github_secrets);
     state.interrupted = std::sync::Mutex::new(interrupted);
     crate::commands::gitlab::restore(&mut state);
@@ -69,28 +53,43 @@ pub fn setup<R: Runtime>(app: &mut App<R>) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-/// One-shot migration of the last GitLab token from the macOS keychain to the
-/// development file store. This triggers at most one "Always Allow" prompt;
-/// a marker prevents retrying if the user denies it.
-#[cfg(debug_assertions)]
-fn migrate_keychain_token_once(store: &Store, file: &FileSecretStore, data_dir: &std::path::Path) {
-    let marker = data_dir.join("secrets-dev.migrated");
-    if marker.exists() {
+/// GitLab and GitHub tokens share one file. Each provider still has its own
+/// keychain service, read once when the file has no entry yet.
+///
+/// Debug builds do not write the keychain: an unsigned binary changes
+/// signature on every compilation and macOS would prompt every time.
+fn forge_secrets(data_dir: &std::path::Path) -> (Arc<dyn SecretStore>, Arc<dyn SecretStore>) {
+    adopt_legacy_dev_file(data_dir);
+    let file = Arc::new(FileSecretStore::new(data_dir.join("secrets.json")));
+    let write_keychain = !cfg!(debug_assertions);
+    (
+        Arc::new(DurableSecretStore::new(
+            file.clone(),
+            "beebranch.gitlab",
+            write_keychain,
+        )),
+        Arc::new(DurableSecretStore::new(
+            file,
+            "beebranch.github",
+            write_keychain,
+        )),
+    )
+}
+
+/// Development builds used to keep every token in `secrets-dev.json`. Copy it
+/// once so those tokens follow the shared file.
+fn adopt_legacy_dev_file(data_dir: &std::path::Path) {
+    let target = data_dir.join("secrets.json");
+    let legacy = data_dir.join("secrets-dev.json");
+    if target.exists() || !legacy.exists() {
         return;
     }
-    let instance = store
-        .list_instances_for("gitlab")
-        .ok()
-        .and_then(|instances| instances.into_iter().max_by_key(|entry| entry.created_at));
-    if let Some(instance) = instance {
-        if let Ok(url) = beebranch_gitlab::normalize_url(&instance.base_url) {
-            let account = format!("{}#{}", url.host, instance.id);
-            if file.get(&account).ok().flatten().is_none() {
-                if let Ok(Some(token)) = KeychainStore::default_service().get(&account) {
-                    let _ = file.set(&account, &token);
-                }
-            }
-        }
+    if std::fs::copy(&legacy, &target).is_err() {
+        return;
     }
-    let _ = std::fs::write(marker, b"1");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600));
+    }
 }
