@@ -607,7 +607,8 @@ pub async fn branch_checkout_at(
             let outcome = checkout_result(&stash);
             let builder = Box::new(move |before: &Fingerprint, after: &Fingerprint| {
                 let (undo, redo) = checkout_reset_inverse(&name, &reference, before, after);
-                let (undo, redo) = checkout_stash_inverse(before, after, undo, redo, stash.as_ref());
+                let (undo, redo) =
+                    checkout_stash_inverse(before, after, undo, redo, stash.as_ref());
                 UndoDraft {
                     kind: "branch.checkout-at".to_owned(),
                     label,
@@ -1047,7 +1048,13 @@ mod tests {
             ];
             let before = undo::capture(&runner, &discovery, &refs, &[]).unwrap();
             let stash = if reset {
-                branches::checkout_reset_stashed(&runner, dir.path(), "remote-feature", "feature", false)
+                branches::checkout_reset_stashed(
+                    &runner,
+                    dir.path(),
+                    "remote-feature",
+                    "feature",
+                    false,
+                )
             } else {
                 branches::checkout_stashed(&runner, dir.path(), Some("feature"), None, false)
             }
@@ -1063,7 +1070,8 @@ mod tests {
             } else {
                 (checkout_inverse(&before), checkout_inverse(&after))
             };
-            let (action, redo) = checkout_stash_inverse(&before, &after, inverse, redo, stash.as_ref());
+            let (action, redo) =
+                checkout_stash_inverse(&before, &after, inverse, redo, stash.as_ref());
             assert!(redo.is_none());
             undo::apply(&runner, &discovery, &action, &mut |_| Ok(())).unwrap();
             let restored = undo::capture(&runner, &discovery, &refs, &[]).unwrap();

@@ -20,9 +20,10 @@ fn checkout_saves_staged_unstaged_and_untracked_work() {
     repo.write("a.txt", "unstaged\n");
     repo.write("new.txt", "new work\n");
 
-    let entry = branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false)
-        .unwrap()
-        .unwrap();
+    let entry =
+        branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false)
+            .unwrap()
+            .unwrap();
     assert!(entry.message.contains("main → feature"));
     assert_eq!(
         std::fs::read_to_string(repo.path().join("a.txt")).unwrap(),
@@ -66,7 +67,10 @@ fn failed_switch_restores_local_work_and_index() {
     repo.write("a.txt", "unstaged\n");
     repo.write("new.txt", "new\n");
     let before = status::read_status(repo.runner(), repo.path(), None).unwrap();
-    assert!(branches::checkout_stashed(repo.runner(), repo.path(), Some("missing"), None, false).is_err());
+    assert!(
+        branches::checkout_stashed(repo.runner(), repo.path(), Some("missing"), None, false)
+            .is_err()
+    );
     assert_eq!(
         status::read_status(repo.runner(), repo.path(), None).unwrap(),
         before
@@ -109,11 +113,15 @@ fn remote_and_detached_checkout_also_stash() {
     let repo = dirty_fixture();
     let sha = repo.rev_parse(&["HEAD"]);
     repo.write("a.txt", "local\n");
-    assert!(
-        branches::checkout_reset_stashed(repo.runner(), repo.path(), "remote-feature", &sha, false)
-            .unwrap()
-            .is_some()
-    );
+    assert!(branches::checkout_reset_stashed(
+        repo.runner(),
+        repo.path(),
+        "remote-feature",
+        &sha,
+        false
+    )
+    .unwrap()
+    .is_some());
     repo.write("new.txt", "new\n");
     assert!(
         branches::checkout_stashed(repo.runner(), repo.path(), None, Some(&sha), false)
@@ -136,7 +144,10 @@ fn unfinished_merge_is_not_stashed_or_switched() {
     repo.switch("main");
     repo.run_failure(GitSubcommand::Merge, &["feature"]);
     let before = status::read_status(repo.runner(), repo.path(), None).unwrap();
-    assert!(branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false).is_err());
+    assert!(
+        branches::checkout_stashed(repo.runner(), repo.path(), Some("feature"), None, false)
+            .is_err()
+    );
     assert_eq!(
         status::read_status(repo.runner(), repo.path(), None).unwrap(),
         before
