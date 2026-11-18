@@ -157,6 +157,76 @@ impl SecretStore for FileSecretStore {
     }
 }
 
+/// File store first, OS keychain second.
+///
+/// macOS binds a keychain item to the creating binary's signature. A new
+/// version of BeeBranch can therefore fail to read or update the item, which
+/// used to look like a missing token and forced a reconnect. The file in the
+/// application data directory is stable across versions; the keychain is kept
+/// as a mirror when it accepts the write.
+pub struct DurableSecretStore {
+    file: std::sync::Arc<FileSecretStore>,
+    keychain: KeychainStore,
+    write_keychain: bool,
+}
+
+impl DurableSecretStore {
+    pub fn new(
+        file: std::sync::Arc<FileSecretStore>,
+        service: impl Into<String>,
+        write_keychain: bool,
+    ) -> Self {
+        Self {
+            file,
+            keychain: KeychainStore::new(service),
+            write_keychain,
+        }
+    }
+}
+
+impl SecretStore for DurableSecretStore {
+    fn set(&self, account: &str, secret: &str) -> Result<(), StoreError> {
+        self.file.set(account, secret)?;
+        if self.write_keychain {
+            if let Err(error) = self.keychain.set(account, secret) {
+                tracing::warn!(
+                    %error,
+                    %account,
+                    "trousseau non mis à jour ; le fichier reste la référence"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn get(&self, account: &str) -> Result<Option<String>, StoreError> {
+        if let Some(secret) = self.file.get(account)? {
+            return Ok(Some(secret));
+        }
+        match self.keychain.get(account) {
+            Ok(Some(secret)) => {
+                if let Err(error) = self.file.set(account, &secret) {
+                    tracing::warn!(%error, %account, "copie du secret hors du trousseau impossible");
+                }
+                Ok(Some(secret))
+            }
+            Ok(None) => Ok(None),
+            Err(error) => {
+                tracing::warn!(%error, %account, "lecture du trousseau refusée");
+                Err(error)
+            }
+        }
+    }
+
+    fn delete(&self, account: &str) -> Result<(), StoreError> {
+        self.file.delete(account)?;
+        if self.write_keychain {
+            let _ = self.keychain.delete(account);
+        }
+        Ok(())
+    }
+}
+
 /// In-memory secret store used by tests.
 #[derive(Default)]
 pub struct MemorySecretStore {
@@ -234,5 +304,32 @@ mod tests {
         }
         store.delete("account").expect("delete");
         assert_eq!(store.get("account").expect("get"), None);
+    }
+
+    #[test]
+    fn durable_store_keeps_the_file_when_the_keychain_is_not_written() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("secrets.json");
+        let file = std::sync::Arc::new(FileSecretStore::new(&path));
+        let store = DurableSecretStore::new(file, "beebranch.test", false);
+        store.set("gitlab.com#instance#oauth", "blob").expect("set");
+        assert_eq!(
+            DurableSecretStore::new(
+                std::sync::Arc::new(FileSecretStore::new(&path)),
+                "beebranch.test",
+                false,
+            )
+            .get("gitlab.com#instance#oauth")
+            .expect("get")
+            .as_deref(),
+            Some("blob")
+        );
+        store.delete("gitlab.com#instance#oauth").expect("delete");
+        assert_eq!(
+            FileSecretStore::new(&path)
+                .get("gitlab.com#instance#oauth")
+                .expect("get"),
+            None
+        );
     }
 }

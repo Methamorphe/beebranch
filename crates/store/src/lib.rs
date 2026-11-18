@@ -1,11 +1,11 @@
 //! Local persistence.
 //!
 //! SQLite stores preferences, recent repositories, the operation journal,
-//! GitLab instances/projects/cache and configuration. Secrets (GitLab tokens)
-//! live in the OS keychain through [`SecretStore`] in release builds. Debug
-//! builds use a 0600 file because macOS invalidates keychain ACLs whenever the
-//! unsigned binary changes (every recompilation). No file inside a repository
-//! is ever written.
+//! GitLab instances/projects/cache and configuration. Forge tokens live in a
+//! 0600 file under the application data directory so a new version can still
+//! read them when the OS keychain rejects the updated binary. Release builds
+//! also mirror the file into the keychain. No file inside a repository is
+//! ever written.
 
 mod db;
 mod error;
@@ -18,7 +18,9 @@ mod workspaces;
 pub use error::StoreError;
 pub use gitlab::{CacheEntry, IdentityRow, InstanceRow, ProjectRow, RecentRepo, RepoLink};
 pub use operations::{OperationRecord, OperationState};
-pub use secrets::{FileSecretStore, KeychainStore, MemorySecretStore, SecretStore};
+pub use secrets::{
+    DurableSecretStore, FileSecretStore, KeychainStore, MemorySecretStore, SecretStore,
+};
 pub use undo::{NewUndoRecord, UndoRecord, UndoState, UNDO_LIMIT};
 pub use workspaces::{WorkspaceRepoRow, WorkspaceRow, WORKSPACE_REPO_LIMIT};
 
