@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.1.0] — 2026-11-18
+
+### Added
+
+- **History dates follow the system language**: absolute dates in the graph, the commit detail, search, comparison, diff and file history use the system language instead of the interface language; the relative format keeps “ago” in the application language and then falls back to the system date, and the graph date column widens for 12-hour times.
+- **Commit files group by folder**: the commit inspector reuses the comparison tree, collapses folders, shows a chain of single-child folders on one line, and the *Path* button returns to the flat list.
+- **The checkout stash is reapplied on demand**: Settings → Git → *Local changes on checkout* keeps the stash (the previous behaviour) or reapplies it on the destination branch; a conflicting reapplication keeps the stash and says so, and cancelling the checkout restores the previous branch and the changes.
+- **Pipeline failures raise a notification**: Settings → Git → *Pipeline failure*, off by default, sends a system notification when an open repository's pipeline turns red, through the same macOS and Windows plugin; only the already connected forge is polled, the same failure warns once, and opening the application does not alert for pipelines that were already red. On Windows the installed application is required.
+- **A failing pipeline shows where it fails**: the pipeline menu follows the application style, with a title, a *Commit* / *Repository* selector and cards; a failing or cancelled pipeline loads its jobs straight away and names the stage and the job — the step on GitHub —, and the row links to the job on the forge.
+- **Files to stage are selected from the keyboard**: Shift+click and Shift+arrows select a range of files to stage or unstage, Ctrl+click or Cmd+click adds or removes one file without clearing the rest, Ctrl+A or Cmd+A selects the visible list — the text when the caret is in a field —, and the repositories of a workspace follow the same gestures.
+- **Push and merge target several remotes**: the *Push* menu lists every remote, and pushing to a remote that already holds the branch leaves the tracking untouched; publishing offers to make that remote the tracking only when there is none; merge and rebase accept a `refs/remotes/…` revision while the checked-out branch stays local, and drag-and-drop accepts a remote end.
+
+### Fixed
+
+- **Errors show a cause, a remediation and the Git detail**: the classifier reads the push reason before the summary line, so a hook or protected-branch refusal is no longer reported as an impossible fast-forward; an unreachable host, a timeout or a missing certificate become retryable network errors; `AppError` carries parameters interpolated by the French and English catalogues; GitLab and GitHub have their own authentication codes instead of `auth.failed`; the toast and the sync, clone, commit, amend and refused-push screens show a title, a remediation and a collapsible Git detail, and *Retry* replays the same command when it is retryable.
+- **A clone joins the workspace before its tab opens**: membership is written before the tab changes, the workspaces screen no longer reloads too early, and from the workspace screen the clone no longer changes the active repository.
+
 ## [2.0.0] — 2026-11-10
 
 ### Added
