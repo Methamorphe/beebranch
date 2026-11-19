@@ -126,6 +126,12 @@ pub struct AppState {
     pub github_device_flow: Mutex<Option<GithubDeviceFlowPending>>,
     /// Cancellation flag of the active GitHub OAuth refresh task.
     pub github_refresh_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    /// Azure DevOps session. The token lives in `azure_secrets`.
+    pub azure: Arc<Mutex<Option<beebranch_azure::AzureClient>>>,
+    pub azure_instance: Mutex<Option<beebranch_store::InstanceRow>>,
+    /// Azure credential read from the Git configuration, kept in memory only.
+    pub azure_credential: Mutex<Option<beebranch_git::credentials::DiscoveredCredential>>,
+    pub azure_secrets: Arc<dyn SecretStore>,
     /// Cancel flags for long-running operations, keyed by operation id.
     pub operations: OperationRegistry,
     /// PTY sessions of the built-in terminal.
@@ -145,6 +151,10 @@ impl std::fmt::Debug for AppState {
             .field(
                 "has_github",
                 &self.github.lock().map(|g| g.is_some()).unwrap_or(false),
+            )
+            .field(
+                "has_azure",
+                &self.azure.lock().map(|g| g.is_some()).unwrap_or(false),
             )
             .finish()
     }
@@ -219,8 +229,9 @@ pub fn build_state_with_secrets(
     store: Arc<Store>,
     secrets: Arc<dyn SecretStore>,
     github_secrets: Arc<dyn SecretStore>,
+    azure_secrets: Arc<dyn SecretStore>,
 ) -> AppState {
-    build_state_inner(paths, store, secrets, github_secrets)
+    build_state_inner(paths, store, secrets, github_secrets, azure_secrets)
 }
 
 /// Build production or test state.
@@ -228,7 +239,13 @@ pub fn build_state_with_secrets(
 /// Tests that only exercise Git and GitLab get an isolated in-memory GitHub
 /// secret store; production always calls [`build_state_with_secrets`].
 pub fn build_state(paths: AppPaths, store: Arc<Store>, secrets: Arc<dyn SecretStore>) -> AppState {
-    build_state_inner(paths, store, secrets, Arc::new(MemorySecretStore::new()))
+    build_state_inner(
+        paths,
+        store,
+        secrets,
+        Arc::new(MemorySecretStore::new()),
+        Arc::new(MemorySecretStore::new()),
+    )
 }
 
 fn build_state_inner(
@@ -236,6 +253,7 @@ fn build_state_inner(
     store: Arc<Store>,
     secrets: Arc<dyn SecretStore>,
     github_secrets: Arc<dyn SecretStore>,
+    azure_secrets: Arc<dyn SecretStore>,
 ) -> AppState {
     let (runner, runner_error) = match GitRunner::detect() {
         Ok(runner) => (Some(runner), None),
@@ -267,6 +285,10 @@ fn build_state_inner(
         github_credential: Mutex::new(None),
         github_secrets,
         github_device_flow: Mutex::new(None),
+        azure: Arc::new(Mutex::new(None)),
+        azure_instance: Mutex::new(None),
+        azure_credential: Mutex::new(None),
+        azure_secrets,
         operations: Arc::new(Mutex::new(HashMap::new())),
         terminals: Arc::new(Mutex::new(HashMap::new())),
     }

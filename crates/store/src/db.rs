@@ -139,6 +139,33 @@ CREATE INDEX IF NOT EXISTS gitlab_instances_provider
 ALTER TABLE workspaces ADD COLUMN icon_kind TEXT;
 ALTER TABLE workspaces ADD COLUMN icon_key TEXT;
 "#,
+    r#"
+-- One repository may be linked to one project per forge. The old primary key
+-- was repo_id alone, so connecting Azure replaced a GitLab link.
+CREATE TABLE repo_project_links_next (
+    repo_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    project_id INTEGER NOT NULL,
+    match_kind TEXT NOT NULL,
+    verified_at INTEGER NOT NULL,
+    PRIMARY KEY (repo_id, instance_id)
+);
+INSERT INTO repo_project_links_next
+    (repo_id, instance_id, project_id, match_kind, verified_at)
+SELECT repo_id, instance_id, project_id, match_kind, verified_at
+FROM repo_project_links;
+DROP TABLE repo_project_links;
+ALTER TABLE repo_project_links_next RENAME TO repo_project_links;
+
+-- Azure repository ids are GUIDs. The integer project_id stays a stable hash;
+-- this table keeps the original key the API requires.
+CREATE TABLE IF NOT EXISTS forge_external_ids (
+    instance_id TEXT NOT NULL,
+    project_id INTEGER NOT NULL,
+    external_id TEXT NOT NULL,
+    PRIMARY KEY (instance_id, project_id)
+);
+"#,
 ];
 
 pub(crate) fn configure(connection: &Connection) -> Result<(), StoreError> {

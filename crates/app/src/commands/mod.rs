@@ -1,4 +1,6 @@
 pub mod app_info;
+pub mod azure;
+pub mod azure_pr;
 pub mod background;
 pub mod branches;
 pub mod commit;

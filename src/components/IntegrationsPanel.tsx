@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react'
-import { githubStatus, gitlabStatus, preferenceGet, preferenceSet } from '../ipc/commands'
+import { azureStatus, githubStatus, gitlabStatus, preferenceGet, preferenceSet } from '../ipc/commands'
 import { useI18n } from '../i18n'
 import { ForgeLogo } from './ForgeLogo'
 import { type ForgeHubTab } from './ForgeHubHeader'
+import { AzurePanel } from './AzurePanel'
 import { GithubPanel } from './GithubPanel'
 import { GitlabPanel } from './GitlabPanel'
 import styles from './IntegrationsPanel.module.css'
 
-type Provider = 'gitlab' | 'github'
+type Provider = 'gitlab' | 'github' | 'azure'
+
+const PROVIDER_LABEL: Record<Provider, string> = {
+  gitlab: 'GitLab',
+  github: 'GitHub',
+  azure: 'Azure DevOps',
+}
 
 type Props = {
   provider: Provider
@@ -17,7 +24,7 @@ type Props = {
   onProvider: (provider: Provider) => void
 }
 
-const PROVIDERS: Provider[] = ['gitlab', 'github']
+const PROVIDERS: Provider[] = ['gitlab', 'github', 'azure']
 const GROUP_KEY = 'ui.integrations.groupProjects'
 
 /**
@@ -26,13 +33,14 @@ const GROUP_KEY = 'ui.integrations.groupProjects'
  */
 export function IntegrationsPanel({ provider, repoId = null, generation = 0, onLinked, onProvider }: Props) {
   const { t } = useI18n()
-  const [connected, setConnected] = useState<Record<Provider, boolean>>({ gitlab: false, github: false })
+  const [connected, setConnected] = useState<Record<Provider, boolean>>({ gitlab: false, github: false, azure: false })
   const [section, setSection] = useState<ForgeHubTab>('projects')
   const [grouped, setGrouped] = useState(false)
   const [groupReady, setGroupReady] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<Provider, ReadonlySet<string>>>({
     gitlab: new Set(),
     github: new Set(),
+    azure: new Set(),
   })
   const toggleGroup = (id: Provider, key: string) => {
     setCollapsed((current) => {
@@ -66,11 +74,12 @@ export function IntegrationsPanel({ provider, repoId = null, generation = 0, onL
 
   useEffect(() => {
     let cancelled = false
-    void Promise.allSettled([gitlabStatus(), githubStatus()]).then(([gitlab, github]) => {
+    void Promise.allSettled([gitlabStatus(), githubStatus(), azureStatus()]).then(([gitlab, github, azure]) => {
       if (cancelled) return
       setConnected({
         gitlab: gitlab.status === 'fulfilled' && gitlab.value.connected,
         github: github.status === 'fulfilled' && github.value.connected,
+        azure: azure.status === 'fulfilled' && azure.value.connected,
       })
     })
     return () => {
@@ -91,7 +100,7 @@ export function IntegrationsPanel({ provider, repoId = null, generation = 0, onL
             onClick={() => onProvider(id)}
           >
             <ForgeLogo provider={id} />
-            <span>{id === 'gitlab' ? 'GitLab' : 'GitHub'}</span>
+            <span>{PROVIDER_LABEL[id]}</span>
             <i data-connected={connected[id]} aria-hidden="true" />
           </button>
         ))}
@@ -99,6 +108,8 @@ export function IntegrationsPanel({ provider, repoId = null, generation = 0, onL
       <div className={styles.body}>
         {provider === 'github' ? (
           <GithubPanel repoId={repoId} generation={generation} onLinked={onLinked} hubTab={section} onHubTab={setSection} grouped={grouped} onGrouped={setGrouped} collapsedGroups={collapsed.github} onToggleGroup={(key) => toggleGroup('github', key)} />
+        ) : provider === 'azure' ? (
+          <AzurePanel repoId={repoId} generation={generation} onLinked={onLinked} hubTab={section} onHubTab={setSection} grouped={grouped} onGrouped={setGrouped} collapsedGroups={collapsed.azure} onToggleGroup={(key) => toggleGroup('azure', key)} />
         ) : (
           <GitlabPanel repoId={repoId} generation={generation} onLinked={onLinked} hubTab={section} onHubTab={setSection} grouped={grouped} onGrouped={setGrouped} collapsedGroups={collapsed.gitlab} onToggleGroup={(key) => toggleGroup('gitlab', key)} />
         )}

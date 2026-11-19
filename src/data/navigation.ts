@@ -18,6 +18,7 @@ export type ViewId =
   | 'pipelines'
   | 'gitlab'
   | 'github'
+  | 'azure'
   | 'integrations'
   | 'stash'
   | 'sync'
@@ -153,4 +154,4 @@ export const viewDescriptions: Partial<Record<ViewId, MessageKey>> = {
 }
 
 /** Pages about the application or the forges, not about the open repository. */
-export const APP_PAGES: readonly ViewId[] = ['profiles', 'workspaces', 'gitlab', 'github', 'integrations', 'recovery']
+export const APP_PAGES: readonly ViewId[] = ['profiles', 'workspaces', 'gitlab', 'github', 'azure', 'integrations', 'recovery']

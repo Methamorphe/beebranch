@@ -83,6 +83,7 @@ const messages = {
   'common.showConflicts': 'Show conflicts',
   'common.openGitlab': 'Open GitLab',
   'common.openGithub': 'Open GitHub',
+  'common.openAzure': 'Open Azure DevOps',
   'common.files': 'Files',
   'common.file': 'File',
   'common.folder': 'Folder',

@@ -3,6 +3,7 @@ const messages = {
   'forge.hub.disconnected': 'Not connected',
   'forge.hub.gitlab.subtitle': 'Projects, merge requests and pipelines.',
   'forge.hub.github.subtitle': 'Repositories, pull requests and checks.',
+  'forge.hub.azure.subtitle': 'Repositories, pull requests and builds.',
   'forge.hub.projects': 'Repositories',
   'forge.hub.connection': 'Connection',
   'forge.hub.connectionGuide': 'Connection methods and permissions',
@@ -16,6 +17,8 @@ const messages = {
   'forge.gitlab.title': 'Merge requests',
   'forge.github.noun': 'pull request',
   'forge.github.title': 'Pull requests',
+  'forge.azure.noun': 'pull request',
+  'forge.azure.title': 'Pull requests',
 
   // Review filters.
   'forge.scope.createdByMe': 'My {short}s',
@@ -40,6 +43,9 @@ const messages = {
   'forge.connect.instanceActive': 'active instance',
   'forge.connect.gitlab.connectedName': 'Connected GitLab instance',
   'forge.connect.github.connectedName': 'Connected GitHub instance',
+  'forge.connect.azure.connectedName': 'Connected Azure DevOps organisation',
+  'forge.connect.azure.description':
+    'Azure DevOps REST API, personal access token (Code read and write, Build read, Project and team read). The token is stored in the keychain and is never sent back to the frontend. BeeBranch is not registered with Microsoft. Credentials Git already holds for this host are reused and not copied. Services (dev.azure.com) and Server share this screen.',
   'forge.connect.changeInstance': 'Change instance',
   'forge.connect.disconnect': 'Disconnect',
   'forge.connect.submit': 'Connect',
@@ -51,6 +57,8 @@ const messages = {
   'forge.connect.displayNameLabel': 'Display name (optional)',
   'forge.connect.displayNamePlaceholderGitlab': 'Internal GitLab',
   'forge.connect.displayNamePlaceholderGithub': 'GitHub Enterprise',
+  'forge.connect.displayNamePlaceholderAzure': 'Azure DevOps',
+  'forge.connect.urlPlaceholderAzure': 'https://dev.azure.com/organisation',
   'forge.connect.caLabel': 'Internal CA PEM (optional)',
   'forge.connect.alreadyConnected':
     'An instance is already connected. Connecting to another instance replaces the active session for the application.',
@@ -75,13 +83,17 @@ const messages = {
   // Project / repository listing.
   'forge.projects.gitlab.title': 'Accessible projects',
   'forge.projects.github.title': 'Accessible repositories',
+  'forge.projects.azure.title': 'Accessible repositories',
   'forge.projects.searchPlaceholderGitlab': 'Search a project',
   'forge.projects.searchPlaceholderGithub': 'Search a repository',
+  'forge.projects.searchPlaceholderAzure': 'Search a repository',
   'forge.projects.searchAriaGitlab': 'Search a GitLab project',
   'forge.projects.searchAriaGithub': 'Search a GitHub repository',
+  'forge.projects.searchAriaAzure': 'Search an Azure DevOps repository',
   'forge.projects.searchSubmit': 'Search',
   'forge.projects.emptyGitlab': 'No project loaded.',
   'forge.projects.emptyGithub': 'No repository loaded.',
+  'forge.projects.emptyAzure': 'No repository loaded.',
   'forge.projects.defaultBranchUnknown': 'unknown default branch',
   'forge.projects.linked': 'This folder will use {path} for reviews and pipelines.',
   'forge.projects.link': 'Use for this folder',
@@ -90,8 +102,10 @@ const messages = {
   'forge.projects.nextPage': 'Load the next page ({page})',
   'forge.projects.groupByGitlab': 'Group under their group',
   'forge.projects.groupByGithub': 'Group by organisation',
+  'forge.projects.groupByAzure': 'Group by project',
   'forge.projects.ungroupedGitlab': 'No group',
   'forge.projects.ungroupedGithub': 'No organisation',
+  'forge.projects.ungroupedAzure': 'No project',
   'forge.projects.groupAria': '{name}, {count} repositories',
 
   // Review list.

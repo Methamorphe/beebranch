@@ -65,6 +65,27 @@ import {
   githubPrSetDraft,
   githubPrSetState,
   githubPrUpdate,
+  azureApprove,
+  azureApprovals,
+  azureDiscussionCreate,
+  azureDiscussionReply,
+  azureJobLog,
+  azureMergePr,
+  azurePrCreate,
+  azurePrDiff,
+  azurePrDiffRefs,
+  azurePrDiscussions,
+  azurePrGet,
+  azurePrJobs,
+  azurePrPage,
+  azurePrPipelines,
+  azureProjectsPage,
+  azureRepoLink,
+  azureRepoLinkGet,
+  azureRepoLinkManual,
+  azureRequestChanges,
+  azureStatus,
+  azureUnapprove,
 } from '../ipc/commands'
 import type { MessageKey, TranslationParams } from '../i18n'
 import type {
@@ -83,7 +104,7 @@ import type {
   RepoLink,
 } from '../types/git'
 
-export type ForgeId = 'gitlab' | 'github'
+export type ForgeId = 'gitlab' | 'github' | 'azure'
 
 /**
  * A notice kept as a catalogue key instead of a rendered string, so it
@@ -100,11 +121,28 @@ export type ForgeNotice = {
  * token list when the query is ignored (older selves of GitLab).
  */
 export function tokenCreateUrl(forge: ForgeId, baseUrl: string): string {
-  const fallback = forge === 'github' ? 'https://github.com' : 'https://gitlab.com'
+  const fallback =
+    forge === 'github'
+      ? 'https://github.com'
+      : forge === 'azure'
+        ? 'https://dev.azure.com'
+        : 'https://gitlab.com'
   const base = (baseUrl.trim() || fallback).replace(/\/+$/, '')
-  return forge === 'github'
-    ? `${base}/settings/tokens/new?scopes=repo,read:user,checks:read&description=beebranch`
-    : `${base}/-/user_settings/personal_access_tokens?name=beebranch&scopes=api,read_user,read_repository`
+  if (forge === 'github') {
+    return `${base}/settings/tokens/new?scopes=repo,read:user,checks:read&description=beebranch`
+  }
+  if (forge === 'azure') {
+    return `${base}/_usersSettings/tokens`
+  }
+  return `${base}/-/user_settings/personal_access_tokens?name=beebranch&scopes=api,read_user,read_repository`
+}
+
+/** Page that opens a new review on the linked project. */
+export function newReviewUrl(provider: ForgeId, webUrl: string, branch: string): string {
+  const encoded = encodeURIComponent(branch)
+  if (provider === 'github') return `${webUrl}/compare/${encoded}?expand=1`
+  if (provider === 'azure') return `${webUrl}/pullrequestcreate?sourceRef=${encoded}`
+  return `${webUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encoded}`
 }
 export type ForgeScope = 'createdByMe' | 'reviewsForMe' | 'assignedToMe' | 'project'
 export type ForgeMergeRequest = GitlabMergeRequest & { repositoryName?: string }
@@ -479,7 +517,89 @@ export const githubForge: ForgeApi = {
   diff: (projectId, iid) => githubPrDiff({ projectId, iid }),
 }
 
+function azureUnsupported(): Promise<never> {
+  return Promise.reject({
+    code: 'azure.unsupported',
+    category: 'input',
+    message: 'Azure DevOps ne prend pas en charge cette opération.',
+    retryable: false,
+  })
+}
+
+export const azureForge: ForgeApi = {
+  id: 'azure',
+  label: 'Azure DevOps',
+  nounKey: 'forge.azure.noun',
+  short: 'PR',
+  titleKey: 'forge.azure.title',
+  scopes: [
+    { value: 'createdByMe', labelKey: 'forge.scope.createdByMe' },
+    { value: 'reviewsForMe', labelKey: 'forge.scope.reviewsForMe' },
+    { value: 'assignedToMe', labelKey: 'forge.scope.assignedToMe' },
+    { value: 'project', labelKey: 'forge.scope.project' },
+  ],
+  capabilities: {
+    resolveThreads: false,
+    autoMerge: false,
+    removeSourceBranchOnMerge: true,
+    createMergeOptions: false,
+    inlineComments: false,
+    suggestions: false,
+    approvalQuota: false,
+    requestChanges: true,
+    closeReopen: false,
+    editMetadata: false,
+    draftToggle: false,
+    approvalNote: false,
+    jobControl: false,
+    pipelineSelection: true,
+    listChecks: false,
+    runControl: false,
+  },
+  status: azureStatus,
+  projectsPage: azureProjectsPage,
+  link: azureRepoLink,
+  linkGet: azureRepoLinkGet,
+  linkManual: azureRepoLinkManual,
+  mrPage: (input) =>
+    azurePrPage({
+      projectId: input.projectId,
+      scope: gitlabScope(input.scope),
+      page: input.page,
+      perPage: input.perPage,
+      repoId: input.repoId,
+    }),
+  mrGet: (projectId, iid) => azurePrGet(projectId, iid),
+  pipelines: azurePrPipelines,
+  mrCreate: azurePrCreate,
+  discussions: azurePrDiscussions,
+  discussionCreate: (input) =>
+    azureDiscussionCreate({ projectId: input.projectId, iid: input.iid, body: input.body }),
+  discussionReply: azureDiscussionReply,
+  discussionResolve: () => azureUnsupported(),
+  approvals: azureApprovals,
+  approve: azureApprove,
+  unapprove: azureUnapprove,
+  requestChanges: azureRequestChanges,
+  update: () => azureUnsupported(),
+  setOpen: () => azureUnsupported(),
+  setDraft: () => azureUnsupported(),
+  merge: azureMergePr,
+  jobs: (input) =>
+    azurePrJobs({
+      projectId: input.projectId,
+      iid: input.iid,
+      pipelineId: input.pipelineId,
+      page: input.page,
+      perPage: input.perPage,
+    }),
+  jobLog: azureJobLog,
+  diffRefs: azurePrDiffRefs,
+  diff: (projectId, iid) => azurePrDiff({ projectId, iid }),
+}
+
 export const forges: Record<ForgeId, ForgeApi> = {
   gitlab: gitlabForge,
   github: githubForge,
+  azure: azureForge,
 }

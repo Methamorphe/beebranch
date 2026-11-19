@@ -52,6 +52,7 @@ const icons: Record<IconKey, LucideIcon> = {
   pipelines: Workflow,
   gitlab: Hexagon,
   github: GitFork,
+  azure: Cloud,
   integrations: Puzzle,
   stash: Archive,
   sync: RefreshCw,

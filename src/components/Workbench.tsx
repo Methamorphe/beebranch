@@ -25,8 +25,6 @@ import {
   historyCherryPick,
   historyReset,
   historyRevert,
-  githubStatus,
-  gitlabStatus,
   openExternalUrl,
   patchCreate,
   patchSave,
@@ -132,7 +130,34 @@ import { CommitPanel } from './CommitPanel'
 import { TerminalPanel } from './TerminalPanel'
 import { DiffViewer, type DocumentReader, type ImageReader } from './DiffViewer'
 import { IntegrationsPanel } from './IntegrationsPanel'
-import { githubForge, gitlabForge } from '../lib/forge'
+import { azureForge, githubForge, gitlabForge, newReviewUrl } from '../lib/forge'
+
+function hostOf(url: string): string | null {
+  try {
+    if (url.includes('://')) return new URL(url).host.toLowerCase()
+  } catch {
+    return null
+  }
+  const match = url.match(/^[^@]+@([^:]+):/)
+  return match?.[1].toLowerCase() ?? null
+}
+
+function hostsRelated(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false
+  if (left === right) return true
+  const azure = (host: string) =>
+    host === 'dev.azure.com' || host === 'ssh.dev.azure.com' || host.endsWith('.visualstudio.com')
+  return azure(left) && azure(right)
+}
+
+function preferredRemoteHost(refs: RefsSnapshot | null): string | null {
+  const head = refs?.entries.find((entry) => entry.isHead)
+  const upstream = head?.upstream
+  if (!upstream) return null
+  const name = upstream.replace(/^refs\/remotes\//, '').split('/')[0]
+  const remote = refs?.remoteUrls?.find((item) => item.name === name && item.direction === 'fetch')
+  return remote ? hostOf(remote.url) : null
+}
 import { RepositoryNavigator } from './RepositoryNavigator'
 import { GraphCanvas } from './GraphCanvas'
 import { RecoveryPanel } from './RecoveryPanel'
@@ -392,7 +417,7 @@ export function Workbench({
     >
   >({})
   const [linkWebUrl, setLinkWebUrl] = useState<string | null>(null)
-  const [linkProvider, setLinkProvider] = useState<'gitlab' | 'github' | null>(null)
+  const [linkProvider, setLinkProvider] = useState<'gitlab' | 'github' | 'azure' | null>(null)
   const graph = useGraph(repoId, generation, { revision: revision || undefined, allRefs })
   const changes = repo?.state.worktree
   const hasChanges = Boolean(changes && (changes.staged > 0 || changes.unstaged > 0 || changes.untracked > 0 || changes.conflicted > 0))
@@ -764,28 +789,26 @@ export function Workbench({
         return
       }
       try {
-        const providers = [
-          { api: gitlabForge, status: gitlabStatus },
-          { api: githubForge, status: githubStatus },
-        ]
-        for (const { api, status } of providers) {
+        const providers = [gitlabForge, githubForge, azureForge]
+        const linked = []
+        for (const api of providers) {
           let session
           try {
-            session = await status()
+            session = await api.status()
           } catch {
             continue
           }
-          if (!session.connected) {
-            continue
-          }
+          if (!session.connected) continue
           const link = await api.linkGet(repoId)
-          if (!link) {
-            continue
-          }
-          if (!cancelled) {
-            setLinkWebUrl(link.webUrl)
-            setLinkProvider(api.id)
-          }
+          if (link) linked.push({ api, link })
+        }
+        const preferred = preferredRemoteHost(refs)
+        const chosen =
+          linked.find((item) => hostsRelated(hostOf(item.link.webUrl), preferred)) ?? linked[0]
+        if (chosen && !cancelled) {
+          const { api, link } = chosen
+          setLinkWebUrl(link.webUrl)
+          setLinkProvider(api.id)
           const page = await api.mrPage({
             projectId: link.projectId,
             scope: 'project',
@@ -812,7 +835,6 @@ export function Workbench({
             }
             setBadges(next)
           }
-          break
         }
       } catch {
         // Forges are optional; graph rendering must never depend on them.
@@ -826,7 +848,7 @@ export function Workbench({
         window.clearInterval(timer)
       }
     }
-  }, [repoId, generation])
+  }, [repoId, generation, refs])
 
   useEffect(() => {
     if (!repoId || !selected) {
@@ -1596,11 +1618,11 @@ export function Workbench({
       )
     }
 
-    if (toolView === 'gitlab' || toolView === 'github' || toolView === 'integrations') {
+    if (toolView === 'gitlab' || toolView === 'github' || toolView === 'azure' || toolView === 'integrations') {
       return (
         <div className={styles.content}>
           <IntegrationsPanel
-            provider={toolView === 'github' ? 'github' : 'gitlab'}
+            provider={toolView === 'github' ? 'github' : toolView === 'azure' ? 'azure' : 'gitlab'}
             repoId={repoId}
             generation={generation}
             onLinked={onMutated}
@@ -1899,7 +1921,7 @@ export function Workbench({
   // Application pages are not about this repository: its references and
   // actions stay out of the way while they are open.
   const appPage = APP_PAGES.includes(view)
-  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'integrations', 'recovery', 'terminal'].includes(view) ? tool : null
+  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'azure', 'integrations', 'recovery', 'terminal'].includes(view) ? tool : null
   const centerActive = Boolean(previewDiff || centerTool || historyTool)
   const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'pipelines', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
 
@@ -3028,11 +3050,7 @@ export function Workbench({
                 setActionError(t('workbench.error.mergeRequestUnavailable'))
                 return
               }
-              const url =
-                linkProvider === 'github'
-                  ? `${linkWebUrl}/compare/${encodeURIComponent(branch)}?expand=1`
-                  : `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`
-              void openExternalUrl(url)
+              void openExternalUrl(newReviewUrl(linkProvider ?? 'gitlab', linkWebUrl, branch))
             })}
               </>
             )}
@@ -3672,11 +3690,7 @@ export function Workbench({
                     setActionError(t('workbench.error.mergeRequestUnavailable'))
                     return
                   }
-                  const url =
-                    linkProvider === 'github'
-                      ? `${linkWebUrl}/compare/${encodeURIComponent(name)}?expand=1`
-                      : `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(name)}`
-                  void openExternalUrl(url)
+                  void openExternalUrl(newReviewUrl(linkProvider ?? 'gitlab', linkWebUrl, name))
                 })
               : null}
             {action('compare', 'diff', t('workbench.refMenu.compareHead'), () => {

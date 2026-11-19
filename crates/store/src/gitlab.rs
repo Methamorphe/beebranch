@@ -352,8 +352,7 @@ impl Store {
                 "INSERT INTO repo_project_links
                     (repo_id, instance_id, project_id, match_kind, verified_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(repo_id) DO UPDATE SET
-                    instance_id = excluded.instance_id,
+                 ON CONFLICT(repo_id, instance_id) DO UPDATE SET
                     project_id = excluded.project_id,
                     match_kind = excluded.match_kind,
                     verified_at = excluded.verified_at",
@@ -374,7 +373,8 @@ impl Store {
             connection
                 .query_row(
                     "SELECT repo_id, instance_id, project_id, match_kind, verified_at
-                     FROM repo_project_links WHERE repo_id = ?1",
+                     FROM repo_project_links WHERE repo_id = ?1
+                     ORDER BY verified_at DESC LIMIT 1",
                     params![repo_id],
                     |row| {
                         Ok(RepoLink {
@@ -393,8 +393,8 @@ impl Store {
 
     /// Repository link belonging to one forge provider.
     ///
-    /// A repository has at most one link; this lookup keeps a GitLab command
-    /// from reading a GitHub association (and vice versa).
+    /// A repository has at most one link per provider. This lookup keeps a
+    /// GitLab command from reading a GitHub or Azure association.
     pub fn repo_link_for(
         &self,
         repo_id: &str,
@@ -430,6 +430,63 @@ impl Store {
                 params![repo_id],
             )?;
             Ok(())
+        })
+    }
+
+    /// Original Azure key (`{projectGuid}/{repositoryGuid}`) for a hashed id.
+    /// Project id `0` stores the authenticated user GUID.
+    pub fn external_id(
+        &self,
+        instance_id: &str,
+        project_id: u64,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT external_id FROM forge_external_ids
+                     WHERE instance_id = ?1 AND project_id = ?2",
+                    params![instance_id, id_to_i64(project_id)],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(StoreError::from)
+        })
+    }
+
+    pub fn set_external_id(
+        &self,
+        instance_id: &str,
+        project_id: u64,
+        external_id: &str,
+    ) -> Result<(), StoreError> {
+        self.with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO forge_external_ids (instance_id, project_id, external_id)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(instance_id, project_id) DO UPDATE SET
+                    external_id = excluded.external_id",
+                params![instance_id, id_to_i64(project_id), external_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn repo_id_for_project(
+        &self,
+        instance_id: &str,
+        project_id: u64,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT repo_id FROM repo_project_links
+                     WHERE instance_id = ?1 AND project_id = ?2
+                     ORDER BY verified_at DESC LIMIT 1",
+                    params![instance_id, id_to_i64(project_id)],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(StoreError::from)
         })
     }
 
@@ -698,6 +755,37 @@ mod tests {
                 .unwrap()
                 .map(|link| link.project_id),
             Some(12)
+        );
+
+        store
+            .set_repo_link(&RepoLink {
+                repo_id: "repo_1".into(),
+                instance_id: "gl_1".into(),
+                project_id: 7,
+                match_kind: "url".into(),
+                verified_at: 2,
+            })
+            .expect("second link");
+        assert_eq!(
+            store
+                .repo_link_for("repo_1", "github")
+                .unwrap()
+                .map(|link| link.project_id),
+            Some(12)
+        );
+        assert_eq!(
+            store
+                .repo_link_for("repo_1", "gitlab")
+                .unwrap()
+                .map(|link| link.project_id),
+            Some(7)
+        );
+        store
+            .set_external_id("gl_1", 7, "proj/repo")
+            .expect("external");
+        assert_eq!(
+            store.external_id("gl_1", 7).unwrap().as_deref(),
+            Some("proj/repo")
         );
     }
 

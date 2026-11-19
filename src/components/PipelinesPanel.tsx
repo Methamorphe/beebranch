@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatDateTime, formatRelative, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
 import {
+  azureJobLog,
   githubJobLog,
   gitlabJobLog,
   openExternalUrl,
@@ -149,7 +150,9 @@ export function PipelinesPanel({ repoId, generation }: Props) {
         const value =
           context.provider === 'github'
             ? await githubJobLog(request)
-            : await gitlabJobLog(request)
+            : context.provider === 'azure'
+              ? await azureJobLog(request)
+              : await gitlabJobLog(request)
         setLog((current) =>
           offset !== undefined && current
             ? { job, value: { ...value, text: `${current.value.text}\n${value.text}` } }

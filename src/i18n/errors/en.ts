@@ -655,6 +655,32 @@ const errors: Record<keyof typeof fr, ErrorCopy> = {
   'profile.not_found': { message: 'Profile not found.' },
   'profile.gitlab_taken': { message: 'This GitLab instance is already linked to another profile.' },
   'profile.github_taken': { message: 'This GitHub account is already linked to another profile.' },
+  'azure.auth_failed': {
+    message: 'Azure DevOps rejected the token.',
+    remediation:
+      'Check the personal access token, its scopes (Code, Build, Project and team) and its expiry.',
+  },
+  'azure.git_credential_rejected': {
+    message: 'The token found via {source} was rejected.',
+    remediation: 'Update the Git credentials, or enter a personal access token.',
+  },
+  'azure.not_configured': {
+    message: 'No Azure DevOps organisation is configured.',
+    remediation: 'Enter the organisation URL and a personal access token.',
+  },
+  'azure.no_git_credential': {
+    message: 'No Git credential is configured for {host}.',
+    remediation: 'Authenticate once with Git for this host, or enter a personal access token.',
+  },
+  'azure.invalid_url': { message: 'The Azure DevOps organisation address is invalid.' },
+  'azure.insecure_url': { message: 'The http scheme is refused. Use https to reach Azure DevOps.' },
+  'azure.url_credentials': { message: 'The Azure DevOps address must not contain credentials.' },
+  'azure.forbidden': { message: 'Azure DevOps refused access: the token lacks the required scopes.' },
+  'azure.not_found': { message: 'The requested Azure DevOps resource was not found.' },
+  'azure.conflict': { message: 'The request conflicts with the current Azure DevOps resource.' },
+  'azure.validation': { message: 'Azure DevOps rejected the request: a field is invalid.' },
+  'azure.rate_limited': { message: 'Azure DevOps is temporarily limiting requests.' },
+  'azure.unsupported': { message: 'Azure DevOps does not support this operation.' },
 }
 
 export default errors

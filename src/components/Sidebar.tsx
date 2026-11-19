@@ -16,6 +16,7 @@ type Props = {
   stashes: number
   gitlabConnected: boolean
   githubConnected: boolean
+  azureConnected: boolean
   /** Connected forge user, when one is known. */
   userName: string | null
   /** Tab last requested from the gear or the account mark. */
@@ -46,6 +47,7 @@ export function Sidebar(props: Props) {
     stashes,
     gitlabConnected,
     githubConnected,
+    azureConnected,
     userName,
     settingsTab = null,
     onSelect,
@@ -59,7 +61,7 @@ export function Sidebar(props: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const current = homeActive ? null : active === 'commit' || active === 'diff' || active === 'status' ? 'graph' : active
   const openRepo = t('shell.sidebar.openRepoAction')
-  const connected = { gitlab: gitlabConnected, github: githubConnected }
+  const connected = { gitlab: gitlabConnected, github: githubConnected, azure: azureConnected }
   const accountName = userName ?? t('shell.topbar.localProfile')
   const accountMark = accountName.slice(0, 1).toUpperCase()
 
@@ -152,7 +154,7 @@ export function Sidebar(props: Props) {
           type="button"
           className={styles.connection}
           data-view="integrations"
-          aria-pressed={current === 'integrations' || current === 'gitlab' || current === 'github'}
+          aria-pressed={current === 'integrations' || current === 'gitlab' || current === 'github' || current === 'azure'}
           title={t('shell.sidebar.integrations')}
           onClick={() => onSelect('integrations')}
         >
@@ -160,8 +162,8 @@ export function Sidebar(props: Props) {
           <span className={styles.connectionText}>
             {t('nav.integrations')}
             <small>
-              {connected.gitlab || connected.github
-                ? plural('shell.sidebar.integrationsConnected.one', 'shell.sidebar.integrationsConnected.other', Number(connected.gitlab) + Number(connected.github), { count: Number(connected.gitlab) + Number(connected.github) })
+              {connected.gitlab || connected.github || connected.azure
+                ? plural('shell.sidebar.integrationsConnected.one', 'shell.sidebar.integrationsConnected.other', Number(connected.gitlab) + Number(connected.github) + Number(connected.azure), { count: Number(connected.gitlab) + Number(connected.github) + Number(connected.azure) })
                 : t('shell.sidebar.disconnectedHint')}
             </small>
           </span>

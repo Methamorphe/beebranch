@@ -19,6 +19,7 @@ export function recoveryFor(
     onConflicts?: () => void
     onGitlab?: () => void
     onGithub?: () => void
+    onAzure?: () => void
     onRetry?: () => void
   },
 ): ErrorAction | undefined {
@@ -46,6 +47,12 @@ export function recoveryFor(
     handlers.onGithub
   ) {
     return { label: t('common.openGithub'), run: handlers.onGithub }
+  }
+  if (
+    (error.code === 'azure.auth_failed' || error.code === 'azure.git_credential_rejected' || error.code === 'azure.not_configured') &&
+    handlers.onAzure
+  ) {
+    return { label: t('common.openAzure'), run: handlers.onAzure }
   }
   if (error.retryable && handlers.onRetry) {
     return { label: t('common.retry'), run: handlers.onRetry }

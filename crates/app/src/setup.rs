@@ -35,22 +35,33 @@ pub fn setup<R: Runtime>(app: &mut App<R>) -> Result<(), Box<dyn std::error::Err
     }
 
     #[cfg(debug_assertions)]
-    let (secrets, github_secrets): (Arc<dyn SecretStore>, Arc<dyn SecretStore>) = {
+    let (secrets, github_secrets, azure_secrets): (
+        Arc<dyn SecretStore>,
+        Arc<dyn SecretStore>,
+        Arc<dyn SecretStore>,
+    ) = {
         let file = Arc::new(FileSecretStore::new(
             paths.data_dir().join("secrets-dev.json"),
         ));
         migrate_keychain_token_once(&store, &file, paths.data_dir());
-        (file.clone(), file)
+        (file.clone(), file.clone(), file)
     };
     #[cfg(not(debug_assertions))]
-    let (secrets, github_secrets): (Arc<dyn SecretStore>, Arc<dyn SecretStore>) = (
+    let (secrets, github_secrets, azure_secrets): (
+        Arc<dyn SecretStore>,
+        Arc<dyn SecretStore>,
+        Arc<dyn SecretStore>,
+    ) = (
         Arc::new(KeychainStore::default_service()),
         Arc::new(KeychainStore::new("beebranch.github")),
+        Arc::new(KeychainStore::new("beebranch.azure")),
     );
-    let mut state = build_state_with_secrets(paths.clone(), store, secrets, github_secrets);
+    let mut state =
+        build_state_with_secrets(paths.clone(), store, secrets, github_secrets, azure_secrets);
     state.interrupted = std::sync::Mutex::new(interrupted);
     crate::commands::gitlab::restore(&mut state);
     crate::commands::github::restore(&mut state);
+    crate::commands::azure::restore(&mut state);
 
     tracing::info!(
         data_dir = %paths.data_dir.display(),
