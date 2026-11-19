@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Diff view mode is remembered**: *Side by side*, *Unified* and *Changes* stay selected when the file refreshes, after the viewer remounts, and across sessions (`ui.diff.mode`).
+
 ## [2.1.0] — 2026-11-18
 
 ### Added

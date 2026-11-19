@@ -431,6 +431,8 @@ export function Workbench({
   const [report, setReport] = useState<DiffReport | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [diffError, setDiffError] = useState<string | null>(null)
+  /** Previous fetch identity: a generation bump refreshes the same file in place. */
+  const lastDiffFetchKey = useRef<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** HEAD commit opened in the amend dialog, from the menu or the diff header. */
   const [amendTarget, setAmendTarget] = useState<{ sha: string; subject: string } | null>(null)
@@ -874,10 +876,14 @@ export function Workbench({
       setReport(null)
       setDiffLoading(false)
       setDiffError(null)
+      lastDiffFetchKey.current = null
       return
     }
     let cancelled = false
-    setReport(null)
+    if (lastDiffFetchKey.current !== diffFetchKey) {
+      setReport(null)
+    }
+    lastDiffFetchKey.current = diffFetchKey
     setDiffLoading(true)
     setDiffError(null)
     void diffGet(repoId, activeDiff)
@@ -1823,7 +1829,7 @@ export function Workbench({
               {diffError}
             </div>
           ) : null}
-          {diffLoading ? (
+          {diffLoading && !report ? (
             <div className={styles.placeholder}>{t('workbench.diff.calculating')}</div>
           ) : report ? (
             <DiffViewer
@@ -2750,7 +2756,7 @@ export function Workbench({
                 onMutated={onMutated} onDirtyChange={setToolDirty} /> : previewDiff ? <div className={styles.diffPreview}
                   aria-label={t('workbench.preview.ariaLabel')} aria-busy={diffLoading}>
                 {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
-                {diffLoading ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
+                {diffLoading && !report ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
                   <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument} readImage={readPreviewImage}
                     key={localDiff?.edit ? `edit:${localDiff.path}` : undefined}
                     initialEditPath={localDiff?.edit ? localDiff.path : undefined}

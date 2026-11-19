@@ -248,9 +248,17 @@ function mockScript(commits, rows, diffLines) {
       if (args?.key === 'ui.language') {
         return window.localStorage.getItem('__smokeLang') ?? 'fr'
       }
+      const stored = window.__preferenceStore ?? {}
+      return Object.prototype.hasOwnProperty.call(stored, args?.key) ? stored[args.key] : null
+    },
+    preference_set: (args) => {
+      (window.__preferenceSets ??= []).push(args)
+      const key = args?.input?.key
+      if (typeof key === 'string') {
+        (window.__preferenceStore ??= {})[key] = args.input.value
+      }
       return null
     },
-    preference_set: (args) => { (window.__preferenceSets ??= []).push(args); return null },
     tools_detect: () => ({ editors: [], terminals: [], diffTools: [], mergeTools: [], configured: [] }),
     stash_list: () => [],
     worktree_list: () => ({ mainWorktree: '/tmp/beebranch-demo', entries: [
@@ -1303,6 +1311,20 @@ try {
   })()`)
   await delay(200)
   await screenshot(client, 'p0-diff-split.png')
+  assertUI('diff-split-preference', await evaluate(client, `(window.__preferenceSets ?? []).some((entry) => entry.input?.key === 'ui.diff.mode' && entry.input.value === 'split')`))
+  assertUI('diff-split-selected', await evaluate(client, `[...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Côte à côte')?.getAttribute('aria-pressed') === 'true'`))
+  // Closing the preview remounts the viewer; the mode must come back as split.
+  await evaluate(client, `document.querySelector('[data-central-close]')?.click()`)
+  await waitFor(client, `[...document.querySelectorAll('button')].every((item) => item.textContent.trim() !== 'Côte à côte')`, 'diff preview closed')
+  const reopened = await evaluate(client, `(() => {
+    const button = document.querySelector('section[aria-label="Prêts à committer"] button[title="src/module-3.ts"]')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!reopened) throw new Error('diff button missing after close')
+  await waitFor(client, `[...document.querySelectorAll('button')].some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`, 'diff split restored')
+  assertUI('diff-split-persisted', await evaluate(client, `[...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Côte à côte')?.getAttribute('aria-pressed') === 'true'`))
 
   await evaluate(client, `(() => {
     const box = document.querySelector('input[aria-label="Sélectionner cette ligne"]')
