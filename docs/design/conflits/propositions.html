@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeeBranch · propositions pour la fenêtre Conflits</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #181b22;
+      --surface: #20242d;
+      --surface-raised: #2a303c;
+      --border: #343b48;
+      --border-strong: #4d5666;
+      --text: #e8edf4;
+      --muted: #b9c2d0;
+      --muted-strong: #d3dae5;
+      --path-directory: #8b94a3;
+      --accent: #f5bb45;
+      --accent-contrast: #171a1f;
+      --accent-soft: #f5bb4514;
+      --accent-text: #f7c86a;
+      --accent-strong: #f7c86a;
+      --success: #52c993;
+      --info: #81a9ef;
+      --info-soft: #81a9ef14;
+      --warning: #f0a45b;
+      --error: #e66b75;
+      --error-soft: #e66b7512;
+      --page: #101216;
+      --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+      --sans: Inter, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--page); color: var(--text); }
+    body { font: 14px/1.5 var(--sans); }
+    button, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; }
+    :focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+    code, pre, .mono { font-family: var(--mono); }
+    pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 22px 24px 36px; }
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 8px; }
+    .eyebrow { margin: 0 0 2px; color: var(--muted); font-size: 12px; }
+    h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0; }
+    .tabs { display: flex; gap: 6px; align-items: stretch; }
+    .tab {
+      text-align: left;
+      padding: 6px 10px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+    }
+    .tab small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+    .tab[aria-selected="true"] { border-color: var(--border); background: var(--surface); }
+    .tab:hover:not([aria-selected="true"]) { background: #ffffff0c; }
+    .thesis { margin: 0; flex: 1; max-width: 78ch; color: var(--muted-strong); font-size: 13.5px; }
+    .toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 0 0 14px; }
+    .linkish {
+      border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 2px 0;
+    }
+    .linkish:hover { color: var(--text); }
+
+    .frame {
+      height: 640px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .app { display: flex; height: 100%; min-width: 0; background: var(--bg); }
+    .app[hidden] { display: none; }
+
+    .rail {
+      width: 220px;
+      flex: none;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      padding: 8px;
+      gap: 2px;
+    }
+    .railHead {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 4px 8px 6px; color: var(--muted); font-size: 12px;
+    }
+    .file {
+      display: grid;
+      grid-template-columns: 8px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font-size: 12.5px;
+    }
+    .file:hover, .file.on { background: var(--surface-raised); }
+    .file .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dir { color: var(--path-directory); }
+    .mark { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); flex: none; }
+    .mark.done { background: var(--success); }
+    .count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .count.done { color: var(--success); }
+
+    .main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.fileHead, .chips, .foot, .resultBar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+}
+    .fileHead, .chips { border-bottom: 1px solid var(--border); }
+    .fileHead strong { font-size: 12.5px; font-weight: 500; }
+    .ctx, .op, .progress { color: var(--muted); font-size: 12px; }
+    .progress { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .progress.ok { color: var(--success); }
+    .spacer { flex: 1; min-width: 4px; }
+
+    .hunks { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
+    .hunk { display: flex; flex-direction: column; gap: 6px; }
+    .hunk + .hunk { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .hunkMeta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+    .pending { color: var(--warning); }
+    .decided { color: var(--success); }
+    .custom { color: var(--accent-text); }
+
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
+    .col {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .col:hover { border-color: var(--border-strong); }
+    .col.on { border-color: var(--accent); background: var(--accent-soft); }
+    .col.on:hover { border-color: var(--accent); }
+    .colHead {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      width: 100%; padding: 6px 10px; border: 0; background: transparent;
+      text-align: left; font: inherit; color: inherit;
+    }
+    .name { font-size: 12.5px; font-weight: 600; }
+    .name.ours { color: var(--success); }
+    .name.theirs { color: var(--info); }
+    .verb { color: var(--muted); font-size: 12px; font-weight: 400; }
+    .col.on .verb { color: var(--accent-text); font-weight: 600; }
+    .colBody { padding: 8px 10px 10px; }
+    .colBody[data-act] { cursor: pointer; }
+    .colBody pre { font-size: 12.5px; line-height: 1.55; }
+    .emptySide { color: var(--muted); font-size: 12px; font-family: var(--sans); }
+    .quiet { display: flex; flex-wrap: wrap; gap: 2px; }
+    .textbtn {
+      border: 0; background: transparent; color: var(--muted);
+      border-radius: 4px; padding: 4px 8px; font-size: 12px;
+    }
+    .textbtn:hover:not(:disabled) { color: var(--text); background: var(--surface-raised); }
+    .textbtn.on { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
+    .textbtn:disabled { opacity: 0.4; }
+
+    .pick { display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 1.55; }
+    .pick code { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .baseStrip {
+      padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+    }
+    .baseStrip span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+    .baseStrip pre { font-size: 12.5px; line-height: 1.55; }
+
+    .result { border-top: 1px solid var(--border); background: var(--surface); }
+    .resultBar { padding: 2px 6px; }
+    .result textarea, .editor, .review textarea {
+      display: block; width: 100%; height: 132px; border: 0; border-top: 1px solid var(--border);
+      background: var(--bg); padding: 8px 12px; resize: none;
+      font: 12.5px/1.55 var(--mono); spellcheck: false;
+    }
+    .editor { flex: 1; height: auto; min-height: 0; border-top: 0; }
+
+    .foot { border-top: 1px solid var(--border); min-height: 46px; }
+    .foot.confirm p { margin: 0; flex: 1; font-size: 12.5px; }
+    .hint { min-width: 0; font-size: 12px; }
+    .hint[data-tone="warn"] { color: var(--warning); }
+    .hint[data-tone="ok"] { color: var(--success); }
+    .hint[data-tone="muted"] { color: var(--muted); }
+
+    .btn {
+      min-height: 30px; padding: 0 10px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      font-size: 12.5px; white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: var(--surface-raised); border-color: var(--border-strong); }
+    .btn.primary {
+      border-color: var(--accent); background: var(--accent); color: var(--accent-contrast); font-weight: 600;
+    }
+    .btn.primary:hover:not(:disabled) { background: var(--accent-strong); }
+    .btn.primary:disabled {
+      border-color: var(--border); background: var(--surface); color: var(--muted); font-weight: 500;
+    }
+    .btn.danger { border-color: var(--error); color: var(--error); background: var(--error-soft); }
+    .btn.danger:hover:not(:disabled) { background: var(--error-soft); border-color: var(--error); }
+
+    .banner {
+      padding: 8px 12px; background: var(--info-soft); border-bottom: 1px solid var(--border); font-size: 12.5px;
+    }
+
+    /* Focus */
+    .focus { flex-direction: column; }
+    .chips { gap: 6px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px;
+      background: transparent; color: var(--text); font-size: 12px;
+    }
+    .chip.on { border-color: var(--accent); background: var(--accent-soft); }
+    .chip:hover:not(.on) { background: var(--surface-raised); }
+    .hero {
+      flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start;
+      gap: 14px; padding: 28px 28px 8px;
+    }
+    .kicker { margin: 0; color: var(--muted); font-size: 12px; }
+    .title { margin: 0; font-size: 16px; font-weight: 600; }
+    .title span { margin-left: 8px; color: var(--muted); font-size: 13px; font-weight: 400; }
+    .lede { margin: 0; color: var(--muted); font-size: 13px; }
+    .pair.big { gap: 12px; }
+    .pair.big .colHead { padding: 8px 12px; }
+    .pair.big .colBody { padding: 4px 12px 12px; }
+    .pair.big .colBody pre { font-size: 13px; line-height: 1.6; }
+.colFoot {
+  padding: 8px 12px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12.5px; font-family: var(--sans); cursor: pointer;
+}
+    .col.on .colFoot {
+      border-top-color: var(--accent); background: var(--accent); color: var(--accent-contrast); font-weight: 600;
+    }
+    kbd {
+      font: 10px/1 var(--mono); color: var(--muted);
+      border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px;
+    }
+    .alt { display: flex; justify-content: center; gap: 4px; }
+    .review { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 22px 28px 12px; gap: 10px; }
+    .review textarea { flex: 1; height: auto; border: 1px solid var(--border); border-radius: 6px; }
+
+    /* Fichier */
+    .source { flex: 1; min-height: 0; overflow: auto; padding: 6px 0 18px; background: var(--bg); }
+    .rowline {
+      display: grid; grid-template-columns: 52px minmax(0, 1fr) auto;
+      column-gap: 12px; align-items: start;
+      padding-right: 12px;
+      font: 12.5px/1.65 var(--mono);
+    }
+    .ln { color: var(--path-directory); text-align: right; user-select: none; }
+    .rowline code { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .keptMeta {
+      display: inline-flex; align-items: center; gap: 2px;
+      color: var(--success); font-family: var(--sans); font-size: 11px; line-height: 1.65;
+    }
+    .block {
+      margin: 8px 12px 8px 16px;
+      border: 1px solid var(--border);
+      border-left: 2px solid var(--warning);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .blockHead {
+      display: flex; justify-content: space-between; gap: 8px;
+      padding: 6px 10px; color: var(--muted); font-family: var(--sans); font-size: 12px;
+    }
+    .stack { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 4px; }
+    .block .quiet { padding: 0 6px 6px; }
+    .manualNote {
+      margin: 8px 12px; color: var(--muted); font-size: 12px;
+    }
+
+    .notes { margin-top: 16px; color: var(--muted); font-size: 13px; }
+    .notes summary { cursor: pointer; color: var(--muted-strong); }
+    .notes ul { margin: 8px 0 0; padding-left: 18px; max-width: 78ch; }
+    .notes li + li { margin-top: 4px; }
+
+    @media (max-width: 800px) {
+      .top { flex-direction: column; align-items: stretch; }
+      .rail { width: 100%; max-height: 132px; border-right: 0; border-bottom: 1px solid var(--border); }
+      .app:not(.focus) { flex-direction: column; }
+      .pair, .pair.big { grid-template-columns: 1fr; }
+      .frame { height: auto; min-height: 640px; }
+      .app { height: auto; min-height: 640px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <p class="eyebrow">BeeBranch · maquette HTML, rien n’est envoyé à git</p>
+        <h1>Fenêtre Conflits, allégée</h1>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Propositions">
+        <button type="button" class="tab" role="tab" id="tab-colonnes" aria-controls="colonnes" data-tab="colonnes">
+          Colonnes<small>cliquer pour garder</small>
+        </button>
+        <button type="button" class="tab" role="tab" id="tab-focus" aria-controls="focus" data-tab="focus">
+          Focus<small>un conflit à la fois</small>
+        </button>
+        <button type="button" class="tab" role="tab" id="tab-fichier" aria-controls="fichier" data-tab="fichier">
+          Fichier<small>lire, puis trancher</small>
+        </button>
+      </nav>
+    </header>
+    <div class="toolbar">
+      <p class="thesis" id="thesis"></p>
+      <button type="button" class="linkish" id="reset">Réinitialiser</button>
+    </div>
+    <div class="frame" id="frame">
+      <div class="app" id="colonnes" role="tabpanel" aria-labelledby="tab-colonnes"></div>
+      <div class="app focus" id="focus" role="tabpanel" aria-labelledby="tab-focus" hidden></div>
+      <div class="app" id="fichier" role="tabpanel" aria-labelledby="tab-fichier" hidden></div>
+    </div>
+    <details class="notes">
+      <summary>Ce que les trois enlèvent à l’écran actuel</summary>
+      <ul>
+        <li>Le double libellé, nom de branche puis « Actuel (ours) » ou « Entrant (theirs) ». Le nom de la branche suffit. La phrase de contexte dit une fois qui est qui.</li>
+        <li>Les boutons-phrases sous chaque région (« Garder main », « Les deux (main puis feature/login) »). Le côté se clique. « Les deux » et « Origine » restent des actions secondaires.</li>
+        <li>L’éditeur de résultat ouvert en permanence. Il s’ouvre pour vérifier ou retoucher.</li>
+        <li>Deux boutons jaunes en même temps. Marquer résolu, le fichier suivant et Continuer occupent le même emplacement, et le jaune n’apparaît que lorsque l’action est possible.</li>
+        <li>« Ligne par ligne » n’est plus une case cochée sur chaque conflit. Dans Colonnes, c’est un bouton secondaire. Sauter n’est pas affiché : ce scénario est un merge, pas un rebase.</li>
+      </ul>
+    </details>
+  </div>
+  <script>
+    const OURS = 'main'
+    const THEIRS = 'feature/login'
+
+    const SCENARIO = {
+      files: [
+        {
+          path: 'src/auth/session.ts',
+          parts: [
+            { kind: 'code', lines: [[16, 'import { client } from "./http"'], [17, '']] },
+            { kind: 'region', index: 0 },
+            { kind: 'code', lines: [
+              [26, ''],
+              [27, 'export function session() {'],
+              [28, '  return client.get("/session")'],
+              [29, '}'],
+              [40, ''],
+            ] },
+            { kind: 'region', index: 1 },
+            { kind: 'code', lines: [
+              [43, ''],
+              [44, 'export function logout() {'],
+              [45, '  return client.post("/logout")'],
+              [46, '}'],
+            ] },
+          ],
+          regions: [
+            {
+              start: 18, end: 24,
+              ours: 'export function renew(token: string) {\n  return client.post("/session/renew", { token })\n}',
+              theirs: 'export function refresh(token: string) {\n  return client.post("/v2/session/refresh", { token })\n}',
+              base: 'export function touch(token: string) {\n  return client.post("/session/touch", { token })\n}',
+            },
+            {
+              start: 41, end: 41,
+              ours: 'const TIMEOUT_MS = 30_000',
+              theirs: 'const TIMEOUT_MS = 15_000',
+              base: 'const TIMEOUT_MS = 60_000',
+              initial: 'ours',
+            },
+          ],
+        },
+        {
+          path: 'src/auth/routes.ts',
+          parts: [
+            { kind: 'code', lines: [[10, 'import { login, logout } from "./handlers"'], [11, '']] },
+            { kind: 'region', index: 0 },
+            { kind: 'code', lines: [[18, ''], [19, 'export { router }']] },
+          ],
+          regions: [
+            {
+              start: 12, end: 16,
+              ours: 'router.post("/login", login)\nrouter.post("/logout", logout)',
+              theirs: 'router.post("/v2/login", login)\nrouter.delete("/v2/session", logout)',
+              base: 'router.post("/login", login)',
+            },
+          ],
+        },
+        {
+          path: 'README.md',
+          parts: [
+            { kind: 'code', lines: [[1, '# BeeBranch'], [2, '']] },
+            { kind: 'region', index: 0 },
+            { kind: 'code', lines: [[8, ''], [9, 'Le graphe reste l’écran principal.']] },
+          ],
+          regions: [
+            {
+              start: 4, end: 6,
+              ours: 'Les conflits se tranchent dans l’application.',
+              theirs: 'Les conflits s’ouvrent dans un outil externe.',
+              base: 'Les conflits sont à résoudre avant de continuer.',
+            },
+          ],
+        },
+      ],
+    }
+
+    const THESES = {
+      colonnes: 'Toutes les régions du fichier restent visibles. On garde une version en cliquant dessus. Le texte qui sera écrit reste fermé, et un seul bouton d’action est à droite.',
+      focus: 'Un seul conflit à l’écran. On choisit, on passe au suivant, et le fichier entier n’arrive qu’à Vérifier, juste avant de le marquer résolu. Les touches 1, 2 et 3 choisissent.',
+      fichier: 'On lit le fichier de haut en bas. Seul le conflit encore ouvert prend de la place. Une fois tranché, il redevient des lignes, avec le nom de la version gardée.',
+    }
+
+    function fresh() {
+      return {
+        files: SCENARIO.files.map((file) => ({
+          path: file.path,
+          parts: file.parts,
+          done: false,
+          manual: null,
+          manualEdit: false,
+          regions: file.regions.map((region) => ({
+            start: region.start,
+            end: region.end,
+            ours: region.ours,
+            theirs: region.theirs,
+            base: region.base,
+            choice: region.initial ?? null,
+            lineMode: false,
+            oursOn: region.ours.split('\n').map(() => false),
+            theirsOn: region.theirs.split('\n').map(() => false),
+          })),
+        })),
+        selected: SCENARIO.files[0].path,
+        cursor: 0,
+        resultOpen: false,
+        editing: false,
+        confirmAbort: false,
+        notice: '',
+        banner: '',
+      }
+    }
+
+    const states = { colonnes: fresh(), focus: fresh(), fichier: fresh() }
+
+    function esc(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[char]))
+    }
+
+    function pathHtml(path) {
+      const cut = path.lastIndexOf('/')
+      if (cut < 0) return esc(path)
+      return `<span class="dir">${esc(path.slice(0, cut + 1))}</span>${esc(path.slice(cut + 1))}`
+    }
+
+    function fileOf(state) {
+      return state.files.find((file) => file.path === state.selected) ?? state.files[0]
+    }
+
+    function regionDecided(region) {
+      if (region.choice === 'custom') return region.oursOn.some(Boolean) || region.theirsOn.some(Boolean)
+      return Boolean(region.choice)
+    }
+
+    function decidedCount(file) {
+      return file.regions.filter(regionDecided).length
+    }
+
+    function regionText(region) {
+      if (region.choice === 'ours') return region.ours
+      if (region.choice === 'theirs') return region.theirs
+      if (region.choice === 'both') return [region.ours, region.theirs].filter(Boolean).join('\n')
+      if (region.choice === 'base') return region.base
+      if (region.choice === 'custom') {
+        const kept = [
+          ...region.ours.split('\n').filter((_, index) => region.oursOn[index]),
+          ...region.theirs.split('\n').filter((_, index) => region.theirsOn[index]),
+        ]
+        return kept.join('\n')
+      }
+      return `<<<<<<< ${OURS}\n${region.ours}\n=======\n${region.theirs}\n>>>>>>> ${THEIRS}`
+    }
+
+    function assemble(file) {
+      if (file.manualEdit && file.manual != null) return file.manual
+      if (!file.parts) return file.regions.map(regionText).join('\n\n')
+      return file.parts.map((part) => (
+        part.kind === 'code'
+          ? part.lines.map((line) => line[1]).join('\n')
+          : regionText(file.regions[part.index])
+      )).join('\n')
+    }
+
+    function canResolve(file) {
+      if (file.done) return false
+      if (file.manualEdit) return !String(file.manual).includes('<<<<<<<')
+      return file.regions.every(regionDecided)
+    }
+
+    function hintOf(file) {
+      if (file.done) return { text: 'Fichier marqué résolu.', tone: 'ok' }
+      if (file.manualEdit) return { text: 'Modifié à la main.', tone: 'muted' }
+      const left = file.regions.length - decidedCount(file)
+      if (left === 0) return { text: 'Tous les conflits de ce fichier sont tranchés.', tone: 'ok' }
+      if (left === 1) return { text: 'Encore 1 conflit dans ce fichier.', tone: 'warn' }
+      return { text: `Encore ${left} conflits dans ce fichier.`, tone: 'warn' }
+    }
+
+    function nextUndone(state, after) {
+      const start = state.files.findIndex((file) => file.path === after)
+      for (let step = 1; step <= state.files.length; step += 1) {
+        const file = state.files[(start + step) % state.files.length]
+        if (!file.done) return file.path
+      }
+      return after
+    }
+
+    function primaryAction(key, state) {
+      if (state.banner) return { label: 'Terminé', act: 'noop', disabled: true }
+      const allDone = state.files.every((file) => file.done)
+      const file = fileOf(state)
+      if (allDone) return { label: 'Continuer', act: 'continue', disabled: false }
+      if (file.done) return { label: 'Fichier suivant', act: 'next-file', disabled: false }
+      if (key === 'focus' && state.cursor < file.regions.length) {
+        const ready = regionDecided(file.regions[state.cursor])
+        const last = state.cursor === file.regions.length - 1
+        return { label: last ? 'Vérifier' : 'Suivant', act: 'next', disabled: !ready }
+      }
+      return { label: 'Marquer résolu', act: 'resolve', disabled: !canResolve(file) }
+    }
+
+    function choiceClass(region, side) {
+      if (region.lineMode || region.choice === 'base' || region.choice === 'custom') return ''
+      if (region.choice === side || region.choice === 'both') return 'on'
+      return ''
+    }
+
+    function verb(region, side) {
+      if (region.lineMode) return 'Tout garder'
+      if (region.choice === 'both') return 'Incluse'
+      if (region.choice === side) return 'Gardée'
+      return 'Garder'
+    }
+
+    function statusWord(region) {
+      if (!regionDecided(region)) return ['À trancher', 'pending']
+      if (region.choice === 'custom') return ['Personnalisé', 'custom']
+      return ['Tranché', 'decided']
+    }
+
+    function clearManual(file) {
+      file.manual = null
+      file.manualEdit = false
+    }
+
+    function takeSide(file, region, side) {
+      region.choice = side
+      region.lineMode = false
+      clearManual(file)
+    }
+
+    function sideBody(region, index, side) {
+      const text = region[side]
+      if (region.lineMode) {
+        const lines = text
+          ? text.split('\n').map((line, lineIndex) => `
+            <label class="pick">
+              <input type="checkbox" data-act="tick" data-region="${index}" data-side="${side}" data-i="${lineIndex}" ${region[`${side}On`][lineIndex] ? 'checked' : ''}>
+              <code>${esc(line) || ' '}</code>
+            </label>
+          `).join('')
+          : '<span class="emptySide">Rien de ce côté.</span>'
+        return `<div class="colBody">${lines}</div>`
+      }
+      const act = `data-act="side" data-region="${index}" data-side="${side}"`
+      if (!text) return `<div class="colBody" ${act}><span class="emptySide">Rien de ce côté.</span></div>`
+      return `<div class="colBody" ${act}><pre>${esc(text)}</pre></div>`
+    }
+
+    function column(region, index, side, big) {
+      const name = side === 'ours' ? OURS : THEIRS
+      const footLabel = region.choice === side ? 'Gardée' : region.choice === 'both' ? 'Incluse' : 'Garder cette version'
+      const foot = big
+        ? `<div class="colFoot" data-act="side" data-region="${index}" data-side="${side}">${footLabel}</div>`
+        : ''
+      const kbd = big ? `<kbd>${side === 'ours' ? '1' : '2'}</kbd>` : `<span class="verb">${verb(region, side)}</span>`
+      return `
+        <div class="col ${choiceClass(region, side)}">
+          <button type="button" class="colHead" data-act="side" data-region="${index}" data-side="${side}">
+            <span class="name ${side}">${esc(name)}</span>
+            ${kbd}
+          </button>
+          ${sideBody(region, index, side)}
+          ${foot}
+        </div>`
+    }
+
+    function secondary(region, index) {
+      const bothOn = region.choice === 'both' ? 'on' : ''
+      const baseOn = region.choice === 'base' ? 'on' : ''
+      const linesOn = region.lineMode ? 'on' : ''
+      return `
+        <div class="quiet">
+          <button type="button" class="textbtn ${bothOn}" data-act="both" data-region="${index}" title="${esc(OURS)}, puis ${esc(THEIRS)}">Les deux</button>
+          <button type="button" class="textbtn ${baseOn}" data-act="base" data-region="${index}" title="Revenir à l’ancêtre commun">Origine</button>
+          <button type="button" class="textbtn ${linesOn}" data-act="lines" data-region="${index}">Ligne par ligne</button>
+        </div>
+        ${region.choice === 'base' ? `<div class="baseStrip"><span>Version d’origine</span><pre>${esc(region.base)}</pre></div>` : ''}`
+    }
+
+    function buttons(key, state) {
+      const primary = primaryAction(key, state)
+      const abort = '<button type="button" class="textbtn" data-act="abort-ask">Abandonner</button>'
+      return `
+        ${abort}
+        <button type="button" class="btn primary" data-primary data-act="${primary.act}" ${primary.disabled ? 'disabled' : ''}>${esc(primary.label)}</button>`
+    }
+
+    function footer(key, state, hint) {
+      if (state.confirmAbort) {
+        return `
+          <div class="foot confirm">
+            <p>Abandonner le merge ? Les résolutions de cette opération seraient perdues.</p>
+            <button type="button" class="btn" data-act="abort-cancel">Annuler</button>
+            <button type="button" class="btn danger" data-act="abort-do">Abandonner</button>
+          </div>`
+      }
+      const shown = state.notice
+        ? { text: state.notice, tone: 'ok' }
+        : hint
+      return `
+        <div class="foot">
+          <span class="op">merge</span>
+          <span class="hint" data-hint data-tone="${shown.tone}">${esc(shown.text)}</span>
+          <span class="spacer"></span>
+          ${buttons(key, state)}
+        </div>`
+    }
+
+    function banner(state) {
+      return state.banner ? `<div class="banner" role="status">${esc(state.banner)}</div>` : ''
+    }
+
+    function fileButtons(state, className) {
+      return state.files.map((file) => {
+        const count = file.done ? 'résolu' : `${decidedCount(file)}/${file.regions.length}`
+        const on = file.path === state.selected ? 'on' : ''
+        return `
+          <button type="button" class="${className} ${on}" data-act="file" data-path="${esc(file.path)}">
+            <i class="mark ${file.done ? 'done' : ''}" aria-hidden="true"></i>
+            <span class="path">${pathHtml(file.path)}</span>
+            <span class="count ${file.done ? 'done' : ''}">${esc(count)}</span>
+          </button>`
+      }).join('')
+    }
+
+    function renderColonnes(state) {
+      const file = fileOf(state)
+      const done = decidedCount(file)
+      const total = file.regions.length
+      const progressClass = done === total ? 'ok' : ''
+      const hunks = file.regions.map((region, index) => {
+        const [word, tone] = statusWord(region)
+        return `
+          <article class="hunk">
+            <div class="hunkMeta">
+              <span>Lignes ${region.start}–${region.end}</span>
+              <span class="${tone}">${word}</span>
+            </div>
+            <div class="pair">
+              ${column(region, index, 'ours', false)}
+              ${column(region, index, 'theirs', false)}
+            </div>
+            ${secondary(region, index)}
+          </article>`
+      }).join('')
+      const draft = esc(assemble(file))
+      return `
+        ${banner(state)}
+        <aside class="rail">
+          <div class="railHead"><span>Fichiers</span><span>${state.files.length}</span></div>
+          ${fileButtons(state, 'file')}
+        </aside>
+        <section class="main">
+          <div class="fileHead">
+            <strong class="mono">${esc(file.path)}</strong>
+            <span class="ctx">Merge de ${esc(THEIRS)} dans ${esc(OURS)}.</span>
+            <span class="progress ${progressClass}">${done} sur ${total}</span>
+          </div>
+          <div class="hunks">${hunks}</div>
+          <div class="result ${state.resultOpen ? 'open' : ''}">
+            <div class="resultBar">
+              <button type="button" class="textbtn" data-act="toggle-result" aria-expanded="${state.resultOpen ? 'true' : 'false'}">
+                ${state.resultOpen ? '▾' : '▸'} Résultat
+              </button>
+              <span class="spacer"></span>
+              <button type="button" class="textbtn" data-act="reset" ${file.done ? 'disabled' : ''}>Repartir de zéro</button>
+            </div>
+            ${state.resultOpen ? `<textarea data-act="draft" spellcheck="false" aria-label="Résultat">${draft}</textarea>` : ''}
+          </div>
+          ${footer('colonnes', state, hintOf(file))}
+        </section>`
+    }
+
+    function renderFocus(state) {
+      const file = fileOf(state)
+      const atReview = state.cursor >= file.regions.length
+      let body
+      if (file.done || atReview) {
+        body = `
+          <div class="review">
+            <p class="kicker">Vérifier</p>
+            <h2 class="title mono">${esc(file.path)}</h2>
+            <p class="lede">Ce texte sera écrit dans le fichier, puis le conflit sera marqué résolu.</p>
+            <textarea data-act="draft" spellcheck="false" aria-label="Résultat">${esc(assemble(file))}</textarea>
+          </div>`
+      } else {
+        const region = file.regions[state.cursor]
+        const other = file.regions.filter(regionDecided).length
+        body = `
+          <div class="hero">
+            <div>
+              <p class="kicker">Conflit ${state.cursor + 1} sur ${file.regions.length}${other && !regionDecided(region) ? ' · un autre est déjà tranché' : ''}</p>
+              <h2 class="title mono">${esc(file.path)}<span>lignes ${region.start}–${region.end}</span></h2>
+            </div>
+            <div class="pair big">
+              ${column(region, state.cursor, 'ours', true)}
+              ${column(region, state.cursor, 'theirs', true)}
+            </div>
+            <div class="alt">
+              <button type="button" class="textbtn ${region.choice === 'both' ? 'on' : ''}" data-act="both" data-region="${state.cursor}">Les deux <kbd>3</kbd></button>
+              <button type="button" class="textbtn ${region.choice === 'base' ? 'on' : ''}" data-act="base" data-region="${state.cursor}">Origine</button>
+            </div>
+            ${region.choice === 'base' ? `<div class="baseStrip"><span>Version d’origine</span><pre>${esc(region.base)}</pre></div>` : ''}
+          </div>`
+      }
+      const hint = atReview || file.done
+        ? hintOf(file)
+        : (regionDecided(file.regions[state.cursor])
+          ? { text: 'Choix retenu. Passez au suivant, ou changez d’avis.', tone: 'ok' }
+          : { text: 'Choisissez une version.', tone: 'muted' })
+      const shown = state.notice ? { text: state.notice, tone: 'ok' } : hint
+      const foot = state.confirmAbort
+        ? `<div class="foot confirm">
+            <p>Abandonner le merge ? Les résolutions de cette opération seraient perdues.</p>
+            <button type="button" class="btn" data-act="abort-cancel">Annuler</button>
+            <button type="button" class="btn danger" data-act="abort-do">Abandonner</button>
+          </div>`
+        : `<div class="foot">
+            <button type="button" class="textbtn" data-act="prev" ${state.cursor === 0 ? 'disabled' : ''}>Précédent</button>
+            <span class="hint" data-hint data-tone="${shown.tone}">${esc(shown.text)}</span>
+            <span class="spacer"></span>
+            ${buttons('focus', state)}
+          </div>`
+      return `
+        ${banner(state)}
+        <div class="chips">
+          ${state.files.map((item) => {
+            const on = item.path === state.selected ? 'on' : ''
+            const mark = item.done ? 'done' : ''
+            const short = item.path.split('/').pop()
+            const count = item.done ? 'résolu' : `${decidedCount(item)}/${item.regions.length}`
+            return `<button type="button" class="chip ${on}" data-act="file" data-path="${esc(item.path)}"><i class="mark ${mark}" aria-hidden="true"></i>${esc(short)} <span class="count ${mark}">${esc(count)}</span></button>`
+          }).join('')}
+          <span class="spacer"></span>
+          <span class="op">${esc(THEIRS)} → ${esc(OURS)}</span>
+        </div>
+        ${body}
+        ${foot}`
+    }
+
+    function keptLabel(region) {
+      if (region.choice === 'ours') return OURS
+      if (region.choice === 'theirs') return THEIRS
+      if (region.choice === 'both') return 'les deux'
+      if (region.choice === 'base') return 'origine'
+      return 'choix'
+    }
+
+    function keptRows(region, index) {
+      const lines = regionText(region).split('\n')
+      return lines.map((line, lineIndex) => {
+        const meta = lineIndex === 0
+          ? `<span class="keptMeta">${esc(keptLabel(region))}<button type="button" class="textbtn" data-act="reopen" data-region="${index}">modifier</button></span>`
+          : '<span></span>'
+        return `<div class="rowline"><span class="ln">${region.start + lineIndex}</span><code>${esc(line) || ' '}</code>${meta}</div>`
+      }).join('')
+    }
+
+    function codeRows(lines) {
+      return lines.map(([number, text]) => (
+        `<div class="rowline"><span class="ln">${number}</span><code>${esc(text) || ' '}</code><span></span></div>`
+      )).join('')
+    }
+
+    function renderFichier(state) {
+      const file = fileOf(state)
+      let body
+      if (state.editing) {
+        body = `<textarea class="editor" data-act="draft" spellcheck="false" aria-label="Résultat">${esc(assemble(file))}</textarea>`
+      } else if (file.manualEdit) {
+        const rows = String(file.manual ?? '').split('\n').map((line, index) => (
+          `<div class="rowline"><span class="ln">${index + 1}</span><code>${esc(line) || ' '}</code><span></span></div>`
+        )).join('')
+        body = `
+          <p class="manualNote">Texte modifié à la main. <button type="button" class="textbtn" data-act="discard-manual">Revenir aux conflits</button></p>
+          <div class="source">${rows}</div>`
+      } else {
+        const parts = file.parts ?? file.regions.map((_, index) => ({ kind: 'region', index }))
+        body = `<div class="source">${parts.map((part) => {
+          if (part.kind === 'code') return codeRows(part.lines)
+          const region = file.regions[part.index]
+          if (regionDecided(region)) return keptRows(region, part.index)
+          const [word, tone] = statusWord(region)
+          return `
+            <section class="block">
+              <div class="blockHead">
+                <span>Lignes ${region.start}–${region.end}</span>
+                <span class="${tone}">${word}</span>
+              </div>
+              <div class="stack">
+                ${column(region, part.index, 'ours', false)}
+                ${column(region, part.index, 'theirs', false)}
+              </div>
+              <div class="quiet">
+                <button type="button" class="textbtn ${region.choice === 'both' ? 'on' : ''}" data-act="both" data-region="${part.index}">Les deux</button>
+                <button type="button" class="textbtn ${region.choice === 'base' ? 'on' : ''}" data-act="base" data-region="${part.index}">Origine</button>
+              </div>
+              ${region.choice === 'base' ? `<div class="baseStrip"><span>Version d’origine</span><pre>${esc(region.base)}</pre></div>` : ''}
+            </section>`
+        }).join('')}</div>`
+      }
+      return `
+        ${banner(state)}
+        <section class="main">
+          <div class="fileHead">
+            <strong class="mono">${esc(file.path)}</strong>
+            <span class="ctx">Merge de ${esc(THEIRS)} dans ${esc(OURS)}.</span>
+            <span class="spacer"></span>
+            ${state.files.map((item) => {
+              const on = item.path === state.selected ? 'on' : ''
+              const short = item.path.split('/').pop()
+              return `<button type="button" class="chip ${on}" data-act="file" data-path="${esc(item.path)}">${esc(short)}</button>`
+            }).join('')}
+            <button type="button" class="textbtn" data-act="edit">${state.editing ? 'Fermer' : 'Éditer'}</button>
+          </div>
+          ${body}
+          ${footer('fichier', state, hintOf(file))}
+        </section>`
+    }
+
+    const RENDER = { colonnes: renderColonnes, focus: renderFocus, fichier: renderFichier }
+
+    function render(key) {
+      const root = document.getElementById(key)
+      const scroll = root.querySelector('.hunks, .source')
+      const top = scroll ? scroll.scrollTop : 0
+      root.innerHTML = RENDER[key](states[key])
+      const next = root.querySelector('.hunks, .source')
+      if (next) next.scrollTop = top
+    }
+
+    function renderAll() {
+      for (const key of Object.keys(RENDER)) render(key)
+    }
+
+    function firstOpen(file) {
+      const index = file.regions.findIndex((region) => !regionDecided(region))
+      return index === -1 ? file.regions.length : index
+    }
+
+    function selectFile(state, path) {
+      state.selected = path
+      state.resultOpen = false
+      state.editing = false
+      state.notice = ''
+      state.cursor = firstOpen(fileOf(state))
+    }
+
+    function onAction(key, act, el) {
+      const state = states[key]
+      const file = fileOf(state)
+      const region = el.dataset.region != null ? file.regions[Number(el.dataset.region)] : null
+      if (act === 'noop') return
+      if (act === 'file') {
+        selectFile(state, el.dataset.path)
+        return
+      }
+      if (act === 'side' && region) takeSide(file, region, el.dataset.side)
+      if (act === 'both' && region) {
+        region.choice = 'both'
+        region.lineMode = false
+        clearManual(file)
+      }
+      if (act === 'base' && region) {
+        region.choice = 'base'
+        region.lineMode = false
+        clearManual(file)
+      }
+      if (act === 'lines' && region) {
+        region.lineMode = !region.lineMode
+        if (region.lineMode && region.choice === 'ours') region.oursOn = region.oursOn.map(() => true)
+        if (region.lineMode && region.choice === 'theirs') region.theirsOn = region.theirsOn.map(() => true)
+        if (region.lineMode && region.choice === 'both') {
+          region.oursOn = region.oursOn.map(() => true)
+          region.theirsOn = region.theirsOn.map(() => true)
+        }
+        if (region.lineMode && (region.oursOn.some(Boolean) || region.theirsOn.some(Boolean))) region.choice = 'custom'
+        clearManual(file)
+      }
+      if (act === 'reopen' && region) {
+        region.choice = null
+        region.lineMode = false
+        file.done = false
+        clearManual(file)
+      }
+      if (act === 'toggle-result') state.resultOpen = !state.resultOpen
+      if (act === 'edit') state.editing = !state.editing
+      if (act === 'discard-manual') clearManual(file)
+      if (act === 'reset') {
+        file.regions.forEach((item) => {
+          item.choice = null
+          item.lineMode = false
+          item.oursOn = item.oursOn.map(() => false)
+          item.theirsOn = item.theirsOn.map(() => false)
+        })
+        file.done = false
+        clearManual(file)
+        state.cursor = 0
+        state.notice = ''
+      }
+      if (act === 'next') {
+        if (state.cursor < file.regions.length && regionDecided(file.regions[state.cursor])) state.cursor += 1
+      }
+      if (act === 'prev' && state.cursor > 0) state.cursor -= 1
+      if (act === 'resolve' && canResolve(file)) {
+        const resolvedPath = file.path
+        file.done = true
+        state.resultOpen = false
+        state.editing = false
+        if (!state.files.every((item) => item.done)) selectFile(state, nextUndone(state, resolvedPath))
+        state.notice = `${resolvedPath} marqué comme résolu.`
+      }
+      if (act === 'next-file') selectFile(state, nextUndone(state, file.path))
+      if (act === 'continue' && state.files.every((item) => item.done)) {
+        state.banner = 'Opération poursuivie. Maquette : git n’a pas été appelé.'
+        state.notice = ''
+      }
+      if (act === 'abort-ask') state.confirmAbort = true
+      if (act === 'abort-cancel') state.confirmAbort = false
+      if (act === 'abort-do') {
+        state.confirmAbort = false
+        state.banner = 'Abandon demandé. Maquette : le dépôt n’a pas changé.'
+      }
+      state.confirmAbort = act === 'abort-ask'
+    }
+
+    document.getElementById('frame').addEventListener('click', (event) => {
+      const el = event.target.closest('[data-act]')
+      if (!el || el.dataset.act === 'draft' || el.dataset.act === 'tick') return
+      const root = el.closest('.app')
+      onAction(root.id, el.dataset.act, el)
+      render(root.id)
+    })
+
+    document.getElementById('frame').addEventListener('change', (event) => {
+      const el = event.target
+      if (el.dataset.act !== 'tick') return
+      const root = el.closest('.app')
+      const state = states[root.id]
+      const file = fileOf(state)
+      const region = file.regions[Number(el.dataset.region)]
+      region[`${el.dataset.side}On`][Number(el.dataset.i)] = el.checked
+      region.lineMode = true
+      region.choice = region.oursOn.some(Boolean) || region.theirsOn.some(Boolean) ? 'custom' : null
+      clearManual(file)
+      render(root.id)
+    })
+
+    document.getElementById('frame').addEventListener('input', (event) => {
+      const el = event.target
+      if (el.dataset.act !== 'draft') return
+      const root = el.closest('.app')
+      const file = fileOf(states[root.id])
+      file.manual = el.value
+      file.manualEdit = true
+      const hint = root.querySelector('[data-hint]')
+      if (hint && !states[root.id].notice) {
+        const next = hintOf(file)
+        hint.textContent = next.text
+        hint.dataset.tone = next.tone
+      }
+      const button = root.querySelector('[data-primary]')
+      if (!button) return
+      const primary = primaryAction(root.id, states[root.id])
+      button.textContent = primary.label
+      button.dataset.act = primary.act
+      button.disabled = primary.disabled
+    })
+
+    function show(key) {
+      for (const name of Object.keys(RENDER)) {
+        const panel = document.getElementById(name)
+        const tab = document.getElementById(`tab-${name}`)
+        const on = name === key
+        panel.hidden = !on
+        tab.setAttribute('aria-selected', on ? 'true' : 'false')
+      }
+      document.getElementById('thesis').textContent = THESES[key]
+      history.replaceState(null, '', `?p=${key}`)
+    }
+
+    document.querySelector('.tabs').addEventListener('click', (event) => {
+      const tab = event.target.closest('[data-tab]')
+      if (tab) show(tab.dataset.tab)
+    })
+
+    document.getElementById('reset').addEventListener('click', () => {
+      for (const key of Object.keys(states)) states[key] = fresh()
+      renderAll()
+    })
+
+    window.addEventListener('keydown', (event) => {
+      if (event.target.matches('textarea, input')) return
+      const key = ['colonnes', 'focus', 'fichier'].find((name) => !document.getElementById(name).hidden)
+      if (key !== 'focus') return
+      const state = states.focus
+      const file = fileOf(state)
+      if (state.cursor >= file.regions.length) return
+      const region = file.regions[state.cursor]
+      if (event.key === '1') takeSide(file, region, 'ours')
+      else if (event.key === '2') takeSide(file, region, 'theirs')
+      else if (event.key === '3') { region.choice = 'both'; region.lineMode = false; clearManual(file) }
+      else return
+      render('focus')
+    })
+
+    const asked = new URLSearchParams(location.search).get('p')
+    show(asked && RENDER[asked] ? asked : 'colonnes')
+    renderAll()
+  </script>
+</body>
+</html>
