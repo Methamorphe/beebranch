@@ -14,7 +14,9 @@ import { STATUS_LABELS, splitPath } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
 import { ToolbarIcon } from './ToolbarIcon'
 import { formatNumber, useI18n, type MessageKey } from '../i18n'
+import { type DiffMode } from '../lib/diffMode'
 import { formatGraphCommitDate } from '../lib/graphDate'
+import { useDiffMode } from '../lib/useDiffMode'
 import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import { ConfirmBar } from './ConfirmBar'
 import { Markdown } from './Markdown'
@@ -29,7 +31,7 @@ const FileEditorPane = lazy(() =>
   })),
 )
 
-type Mode = 'hunk' | 'inline' | 'split'
+type Mode = DiffMode
 
 type Row =
   | { kind: 'hunk'; hunk: number; header: string }
@@ -488,7 +490,7 @@ export function DiffViewer({
 }: Props) {
   const { t, plural, locale } = useI18n()
   const graphDate = useGraphDateFormat()
-  const [mode, setMode] = useState<Mode>('inline')
+  const [mode, setMode] = useDiffMode()
   const [wrap, setWrap] = useState(() => {
     try {
       return window.localStorage.getItem('ui.diffWrap') === 'true'

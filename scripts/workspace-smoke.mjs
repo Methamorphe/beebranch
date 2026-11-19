@@ -682,6 +682,23 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('status-arrow-from-main-stays-in-list', `document.activeElement === document.querySelector('section[aria-label="À préparer"] button[title="src/module-2.ts"]') && document.activeElement?.id !== 'main-content'`)
   await screenshot('workspace-status-arrow-nav.png')
   await screenshot('workspace-diff.png')
+  await evaluate(client, `Array.from(document.querySelectorAll('button')).find((item) => item.textContent.trim() === 'Côte à côte')?.click()`)
+  await delay(80)
+  await check('diff-split-preference', `(window.__preferenceSets ?? []).some((entry) => entry.input?.key === 'ui.diff.mode' && entry.input.value === 'split')`)
+  await check('diff-split-selected', `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`)
+  // A working-copy refresh used to remount the viewer and drop the mode.
+  await evaluate(client, `(() => {
+    window.__generationOverride = 5
+    window.__emitTauriEvent('repo://changed', { repoId:'repo_demo', generation:5, areas:['worktree'] })
+    return true
+  })()`)
+  await delay(120)
+  await check('diff-split-survives-refresh', `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`)
+  await click('button[aria-label="Fermer l’aperçu"]')
+  await waitFor(client, `Array.from(document.querySelectorAll('button')).every((item) => item.textContent.trim() !== 'Côte à côte')`, 'diff preview closed')
+  await click('button[title="src/module-1.ts"]')
+  await waitFor(client, `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`, 'diff split restored')
+  await check('diff-split-persisted', `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`)
   await click('button[aria-label="Fermer l’aperçu"]')
   await check('closing-diff-restores-same-graph', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('canvas').closest('[hidden]')`)
 
