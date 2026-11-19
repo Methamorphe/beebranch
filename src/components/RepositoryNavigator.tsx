@@ -26,7 +26,7 @@ type Props = {
   gitlabConnected: boolean
   githubConnected: boolean
   /** Forge this repository is linked to, when one was matched. */
-  linkProvider: 'gitlab' | 'github' | null
+  linkProvider: 'gitlab' | 'github' | 'azure' | null
   onNavigate: (view: ViewId) => boolean
   onSelect: (sha: string) => void
   onCheckout: (entry: RefEntry) => void

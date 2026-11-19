@@ -127,6 +127,11 @@ impl InstanceId {
         Self::from_api_url_with_prefix("gh_", api_url)
     }
 
+    /// Azure DevOps instance identifier (`az_` prefix) for the same API base.
+    pub fn from_azure_api_url(api_url: &str) -> Self {
+        Self::from_api_url_with_prefix("az_", api_url)
+    }
+
     fn from_api_url_with_prefix(prefix: &str, api_url: &str) -> Self {
         let digest = Sha256::digest(api_url.as_bytes());
         let mut identifier = String::with_capacity(prefix.len() + 12);

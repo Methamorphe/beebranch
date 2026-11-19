@@ -10,6 +10,7 @@ beebranch-core = { path = "../core" }
 beebranch-git = { path = "../git" }
 beebranch-gitlab = { path = "../gitlab" }
 beebranch-github = { path = "../github" }
+beebranch-azure = { path = "../azure" }
 beebranch-store = { path = "../store" }
 base64.workspace = true
 serde.workspace = true

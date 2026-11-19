@@ -1,0 +1,20 @@
+[package]
+name = "beebranch-azure"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+beebranch-core = { path = "../core" }
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true

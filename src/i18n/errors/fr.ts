@@ -676,6 +676,36 @@ const errors = {
   'profile.not_found': { message: 'Profil introuvable.' },
   'profile.gitlab_taken': { message: 'Cette instance GitLab est déjà associée à un autre profil.' },
   'profile.github_taken': { message: 'Ce compte GitHub est déjà associé à un autre profil.' },
+  'azure.auth_failed': {
+    message: 'Azure DevOps a refusé le jeton.',
+    remediation:
+      "Vérifiez le jeton d'accès personnel, ses droits (Code, Build, Project and team) et sa date d'expiration.",
+  },
+  'azure.git_credential_rejected': {
+    message: 'Le jeton trouvé via {source} a été refusé.',
+    remediation:
+      "Mettez à jour les identifiants Git, ou saisissez un jeton d'accès personnel.",
+  },
+  'azure.not_configured': {
+    message: "Aucune organisation Azure DevOps n'est configurée.",
+    remediation: "Renseignez l'URL de l'organisation et un jeton d'accès personnel.",
+  },
+  'azure.no_git_credential': {
+    message: "Aucun identifiant Git n'est configuré pour {host}.",
+    remediation:
+      'Authentifiez-vous une fois avec Git pour cet hôte, ou saisissez un jeton d\'accès personnel.',
+  },
+  'azure.invalid_url': { message: "L'adresse de l'organisation Azure DevOps est invalide." },
+  'azure.insecure_url': { message: 'Le schéma http est refusé. Utilisez https pour joindre Azure DevOps.' },
+  'azure.url_credentials': { message: "L'adresse Azure DevOps ne doit pas contenir d'identifiants." },
+  'azure.forbidden': {
+    message: "Accès refusé par Azure DevOps : le jeton n'a pas les droits nécessaires.",
+  },
+  'azure.not_found': { message: 'La ressource Azure DevOps demandée est introuvable.' },
+  'azure.conflict': { message: "Conflit avec l'état actuel de la ressource Azure DevOps." },
+  'azure.validation': { message: 'Azure DevOps a refusé la requête : un champ est invalide.' },
+  'azure.rate_limited': { message: 'Azure DevOps limite temporairement les requêtes.' },
+  'azure.unsupported': { message: 'Azure DevOps ne prend pas en charge cette opération.' },
 } satisfies Record<string, ErrorCopy>
 
 export default errors

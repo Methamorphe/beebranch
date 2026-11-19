@@ -369,6 +369,9 @@ function mockScript(commits, rows, diffLines) {
     }),
     gitlab_repo_link_get: () => null,
     gitlab_mr_page: () => ({ items: [], page: 1, perPage: 25, nextPage: undefined, notModified: false, fromCache: false }),
+    azure_status: () => ({ connected: false }),
+    azure_repo_link_get: () => null,
+    azure_pr_page: () => ({ items: [], page: 1, perPage: 25, nextPage: undefined, notModified: false, fromCache: false }),
     github_status: () => window.__githubDisconnected ? { connected: false } : ({
       connected: true,
       instance: { id: 'gh_demo', baseUrl: 'https://github.com', displayName: 'GitHub' },

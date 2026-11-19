@@ -34,6 +34,7 @@ import { I18nProvider, LANGUAGE_PREFERENCE_KEY, detectLocale, isLocale, plural, 
 import {
   backgroundRead,
   branchCheckout,
+  azureStatus,
   githubStatus,
   gitlabStatus,
   preferenceGet,
@@ -206,6 +207,7 @@ export default function App() {
   const pickingRepository = useRef(false)
   const [gitlabConnected, setGitlabConnected] = useState(false)
   const [githubConnected, setGithubConnected] = useState(false)
+  const [azureConnected, setAzureConnected] = useState(false)
   const [forgeUser, setForgeUser] = useState<string | null>(null)
   const [stashCount, setStashCount] = useState(0)
   const [undoState, setUndoStateRaw] = useState<UndoStatus | null>(null)
@@ -703,20 +705,25 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      const [gitlab, github] = await Promise.allSettled([gitlabStatus(), githubStatus()])
+      const [gitlab, github, azure] = await Promise.allSettled([gitlabStatus(), githubStatus(), azureStatus()])
       if (cancelled) {
         return
       }
       const gitlabSession = gitlab.status === 'fulfilled' ? gitlab.value : null
       const githubSession = github.status === 'fulfilled' ? github.value : null
+      const azureSession = azure.status === 'fulfilled' ? azure.value : null
       setGitlabConnected(Boolean(gitlabSession?.connected))
       setGithubConnected(Boolean(githubSession?.connected))
+      setAzureConnected(Boolean(azureSession?.connected))
       const labels: string[] = []
       if (gitlabSession?.user) {
         labels.push(`${gitlabSession.user.name ?? gitlabSession.user.username} (GitLab)`)
       }
       if (githubSession?.user) {
         labels.push(`${githubSession.user.name ?? githubSession.user.username} (GitHub)`)
+      }
+      if (azureSession?.user) {
+        labels.push(`${azureSession.user.name ?? azureSession.user.username} (Azure DevOps)`)
       }
       setForgeUser(labels.length > 0 ? labels.join(' · ') : null)
     }
@@ -1341,6 +1348,7 @@ export default function App() {
       onConflicts: () => openHistoryAction('conflicts'),
       onGitlab: () => navigate('gitlab'),
       onGithub: () => navigate('github'),
+      onAzure: () => navigate('azure'),
     })
   }, [navigate, openHistoryAction])
 
@@ -1742,7 +1750,7 @@ export default function App() {
   }, shortcuts)
 
   const showHome =
-    !repo && !['profiles', 'gitlab', 'github', 'integrations', 'recovery', 'workspaces'].includes(view)
+    !repo && !['profiles', 'gitlab', 'github', 'azure', 'integrations', 'recovery', 'workspaces'].includes(view)
   // The launcher is a tab of its own: it shows the same start screen as the
   // empty state without closing the repository tabs.
   const showStart = launcherOpen || showHome
@@ -1821,6 +1829,7 @@ export default function App() {
           stashes={stashCount}
           gitlabConnected={gitlabConnected}
           githubConnected={githubConnected}
+          azureConnected={azureConnected}
           userName={forgeUser}
           settingsTab={settingsRequest?.tab ?? null}
           onSelect={navigate}

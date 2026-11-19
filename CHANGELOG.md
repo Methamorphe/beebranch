@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Azure DevOps**: connect with a personal access token, or reuse the Git credential for that host. The token stays in the OS keychain. Pull requests, reviews, votes, completion and builds are available next to GitLab and GitHub, and a repository can stay linked to more than one forge.
+
 ## [2.1.0] — 2026-11-18
 
 ### Added

@@ -3,6 +3,7 @@ const messages = {
   'forge.hub.disconnected': 'Non connecté',
   'forge.hub.gitlab.subtitle': 'Projets, merge requests et pipelines.',
   'forge.hub.github.subtitle': 'Dépôts, pull requests et checks.',
+  'forge.hub.azure.subtitle': 'Dépôts, pull requests et builds.',
   'forge.hub.projects': 'Dépôts',
   'forge.hub.connection': 'Connexion',
   'forge.hub.connectionGuide': 'Méthodes de connexion et permissions',
@@ -16,6 +17,8 @@ const messages = {
   'forge.gitlab.title': 'Merge requests',
   'forge.github.noun': 'pull request',
   'forge.github.title': 'Pull requests',
+  'forge.azure.noun': 'pull request',
+  'forge.azure.title': 'Pull requests',
 
   // Review filters.
   'forge.scope.createdByMe': 'Mes {short}',
@@ -40,6 +43,9 @@ const messages = {
   'forge.connect.instanceActive': 'instance active',
   'forge.connect.gitlab.connectedName': 'Instance GitLab connectée',
   'forge.connect.github.connectedName': 'Instance GitHub connectée',
+  'forge.connect.azure.connectedName': 'Organisation Azure DevOps connectée',
+  'forge.connect.azure.description':
+    "API REST Azure DevOps, jeton d'accès personnel (droits Code en lecture et écriture, Build en lecture, Project and team en lecture). Le jeton est stocké dans le keychain et n'est jamais renvoyé au frontend. Aucune application n'est enregistrée auprès de Microsoft. Les identifiants déjà gérés par Git pour cet hôte sont réutilisés sans être copiés. Services (dev.azure.com) et Server partagent le même écran.",
   'forge.connect.changeInstance': "Changer d'instance",
   'forge.connect.disconnect': 'Déconnecter',
   'forge.connect.submit': 'Connecter',
@@ -51,6 +57,8 @@ const messages = {
   'forge.connect.displayNameLabel': "Nom d'affichage (optionnel)",
   'forge.connect.displayNamePlaceholderGitlab': 'GitLab interne',
   'forge.connect.displayNamePlaceholderGithub': 'GitHub Enterprise',
+  'forge.connect.displayNamePlaceholderAzure': 'Azure DevOps',
+  'forge.connect.urlPlaceholderAzure': 'https://dev.azure.com/organisation',
   'forge.connect.caLabel': 'CA interne PEM (optionnel)',
   'forge.connect.alreadyConnected':
     "Une instance est déjà connectée. Se connecter à une autre instance remplace la session active pour l'application.",
@@ -74,13 +82,17 @@ const messages = {
   // Project / repository listing.
   'forge.projects.gitlab.title': 'Projets accessibles',
   'forge.projects.github.title': 'Dépôts accessibles',
+  'forge.projects.azure.title': 'Dépôts accessibles',
   'forge.projects.searchPlaceholderGitlab': 'Rechercher un projet',
   'forge.projects.searchPlaceholderGithub': 'Rechercher un dépôt',
+  'forge.projects.searchPlaceholderAzure': 'Rechercher un dépôt',
   'forge.projects.searchAriaGitlab': 'Rechercher un projet GitLab',
   'forge.projects.searchAriaGithub': 'Rechercher un dépôt GitHub',
+  'forge.projects.searchAriaAzure': 'Rechercher un dépôt Azure DevOps',
   'forge.projects.searchSubmit': 'Chercher',
   'forge.projects.emptyGitlab': 'Aucun projet chargé.',
   'forge.projects.emptyGithub': 'Aucun dépôt chargé.',
+  'forge.projects.emptyAzure': 'Aucun dépôt chargé.',
   'forge.projects.defaultBranchUnknown': 'branche par défaut inconnue',
   'forge.projects.linked': 'Ce dossier utilisera {path} pour les revues et les pipelines.',
   'forge.projects.link': 'Utiliser pour ce dossier',
@@ -89,8 +101,10 @@ const messages = {
   'forge.projects.nextPage': 'Charger la page suivante ({page})',
   'forge.projects.groupByGitlab': 'Regrouper par groupe',
   'forge.projects.groupByGithub': 'Regrouper par organisation',
+  'forge.projects.groupByAzure': 'Regrouper par projet',
   'forge.projects.ungroupedGitlab': 'Sans groupe',
   'forge.projects.ungroupedGithub': 'Sans organisation',
+  'forge.projects.ungroupedAzure': 'Sans projet',
   'forge.projects.groupAria': '{name}, {count} dépôts',
 
   // Review list.
