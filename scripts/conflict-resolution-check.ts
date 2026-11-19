@@ -9,8 +9,10 @@ import {
   assembleRegions,
   choiceKind,
   countMarkers,
+  pairConflictLines,
   presetChoice,
   sideNames,
+  sortieWindow,
 } from '../src/components/conflictResolution.ts'
 import type { ConflictRegion, ConflictView } from '../src/types/git.ts'
 
@@ -79,5 +81,32 @@ assert.deepEqual(sideNames(view('HEAD', 'abc1234 (fix)'), master, { kind: 'rebas
 assert.deepEqual(sideNames(view('HEAD', 'abc1234 (fix)'), master, { kind: 'sequencer', sequencer: 'cherryPick' }),
   { source: 'cherryPick', ours: 'master', theirs: 'abc1234 (fix)' })
 assert.deepEqual(sideNames(null, { kind: 'detached', sha: 'abc' }, undefined), { source: 'unknown', ours: undefined, theirs: undefined })
+
+// Only the tokens that differ are marked; a shared closing line stays plain.
+const paired = pairConflictLines(
+  ['export function renew(token: string) {', '  return client.post("/renew", { token })', '}'],
+  ['export function refresh(token: string) {', '  return client.post("/refresh", { token })', '}'],
+)
+assert.equal(paired.length, 3)
+assert.equal(paired[2]?.ours.kind, 'same')
+assert.ok(paired[0]?.ours.tokens.some((token) => token.changed && token.text === 'renew'))
+assert.ok(paired[0]?.theirs.tokens.some((token) => token.changed && token.text === 'refresh'))
+assert.ok(paired[1]?.ours.tokens.some((token) => !token.changed && token.text === 'return'))
+const extra = pairConflictLines(['only ours'], [])
+assert.equal(extra[0]?.ours.kind, 'change')
+assert.equal(extra[0]?.theirs.kind, 'pad')
+
+// The output window frames the chosen lines and leaves an undecided block empty.
+const decided = sortieWindow(working, regions, { 0: presetChoice(regions[0], 'ours') }, 0)
+assert.deepEqual(decided.map((line) => [line.role, line.text]), [
+  ['context', 'name: app'],
+  ['focus', 'version: 1.13'],
+  ['context', 'sdk: 3'],
+  ['context', '<<<<<<< Updated upstream'],
+])
+const waiting = sortieWindow(working, regions, {}, 0)
+assert.equal(waiting.find((line) => line.role === 'pending')?.number, 2)
+assert.equal(waiting.find((line) => line.role === 'pending')?.end, 6)
+assert.equal(waiting.some((line) => line.role === 'focus'), false)
 
 console.log('conflict-resolution-check: ok')

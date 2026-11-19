@@ -1480,3 +1480,225 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.hunk {
+  scroll-margin-top: 8px;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+}
+
+.hunk + .hunk {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.hunkActive {
+  border-left-color: var(--accent);
+}
+
+.diff {
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr) minmax(min-content, 1fr);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.diffHead,
+.diffLine {
+  min-width: max-content;
+}
+
+.diffHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diffHead:disabled,
+.diffLine:disabled {
+  cursor: default;
+}
+
+.diffHeadOn {
+  background: var(--accent-soft);
+}
+
+.diffHeadOn .diffVerb {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.diffNameTheirs {
+  color: var(--info);
+}
+
+.diffVerb {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.diffLine {
+  display: grid;
+  grid-template-columns: 36px max-content;
+  gap: 8px;
+  align-items: start;
+  min-height: 1.6em;
+  padding: 1px 10px 1px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 12.5px/1.6 var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.diffNum {
+  color: var(--path-directory);
+  text-align: right;
+  user-select: none;
+}
+
+.diffLine code {
+  white-space: pre;
+}
+
+.diffSame code {
+  color: var(--muted);
+}
+
+.diffOurs {
+  background: #52c9931a;
+  box-shadow: inset 2px 0 0 var(--success);
+}
+
+.diffTheirs {
+  background: #81a9ef1a;
+  box-shadow: inset 2px 0 0 var(--info);
+}
+
+.diffPad {
+  background: #00000028;
+  cursor: default;
+}
+
+.diffLine mark {
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.diffOurs mark {
+  background: #52c99366;
+}
+
+.diffTheirs mark {
+  background: #81a9ef73;
+}
+
+.conflictChoices {
+  gap: 8px;
+}
+
+.conflictChoices > button.secondary {
+  border-color: var(--border-strong) !important;
+  background: var(--surface-raised) !important;
+  color: var(--text) !important;
+}
+
+.sortie {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 148px;
+  max-height: 42%;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.sortieHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12.5px;
+}
+
+.sortieBody {
+  overflow: auto;
+  padding: 8px 0 10px;
+}
+
+.sortieEditor {
+  flex: 1;
+  min-height: 120px;
+  border: 0;
+  background: var(--bg);
+  padding: 8px 12px;
+  color: var(--text);
+  font: 12.5px/1.55 var(--mono);
+  resize: none;
+}
+
+.outLine {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  column-gap: 12px;
+  padding-right: 12px;
+  border-left: 2px solid transparent;
+  font: 12.5px/1.65 var(--mono);
+}
+
+.outNum {
+  color: var(--path-directory);
+  text-align: right;
+  user-select: none;
+}
+
+.outLine code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.outContext {
+  color: var(--path-directory);
+}
+
+.outFocus {
+  border-left-color: var(--accent);
+  background: #f5bb4526;
+  color: var(--text);
+}
+
+.outPending {
+  border-left-color: var(--warning);
+  background: #f0a45b14;
+  color: var(--warning);
+  font-family: var(--sans);
+  font-size: 12.5px;
+}
+
+.conflictsScreen .regions {
+  flex: 1 1 auto;
+  max-height: none;
+}
+
+.conflictsScreen .sortie .footer {
+  border-top: 1px solid var(--border);
+}

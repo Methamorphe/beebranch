@@ -1377,7 +1377,7 @@ try {
     }
   }
   const p2Markers = {
-    'Resolve conflicts': ['src/main.rs', 'Actuel (ours)', 'theirs'],
+    'Resolve conflicts': ['src/main.rs', 'Sortie', 'theirs'],
     'Interactive rebase': ['Réorganiser les commits', 'Base du rebase'],
     Worktrees: ['Worktrees', 'hotfix', '/tmp/beebranch-demo'],
     Tags: ['Créer un tag', 'v0.1'],
