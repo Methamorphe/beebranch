@@ -66,7 +66,7 @@
     .linkish:hover { color: var(--text); }
 
     .frame {
-      height: 640px;
+      height: 760px;
       border: 1px solid var(--border);
       border-radius: 10px;
       overflow: hidden;
@@ -125,8 +125,66 @@
     .spacer { flex: 1; min-width: 4px; }
 
     .hunks { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
-    .hunk { display: flex; flex-direction: column; gap: 6px; }
+    .hunk { display: flex; flex-direction: column; gap: 6px; border-left: 2px solid transparent; padding-left: 8px; }
     .hunk + .hunk { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .hunk.active { border-left-color: var(--accent); }
+
+    .diff {
+      display: grid;
+      grid-template-columns: minmax(min-content, 1fr) minmax(min-content, 1fr);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: auto;
+      background: var(--bg);
+    }
+    .diffLine { min-width: max-content; }
+    .diffHead {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      width: 100%; padding: 6px 10px; border: 0; border-bottom: 1px solid var(--border);
+      background: var(--surface); text-align: left; font: inherit; color: inherit; cursor: pointer;
+    }
+    .diffHead.on { background: var(--accent-soft); }
+    .diffHead.on .verb { color: var(--accent-text); font-weight: 600; }
+    .diffLine {
+      display: grid; grid-template-columns: 32px max-content; gap: 8px; align-items: start;
+      min-height: 1.6em; padding: 1px 10px 1px 0;
+      font: 12.5px/1.6 var(--mono); cursor: pointer;
+    }
+    .diffLine .ln { color: var(--path-directory); text-align: right; user-select: none; }
+    .diffLine code { white-space: pre; }
+    .diffLine.same code { color: var(--muted); }
+    .diffLine.ours.change { background: #52c9931a; box-shadow: inset 2px 0 0 var(--success); }
+    .diffLine.theirs.change { background: #81a9ef1a; box-shadow: inset 2px 0 0 var(--info); }
+    .diffLine.pad { background: #00000028; cursor: default; }
+    .diffLine mark { color: inherit; border-radius: 2px; padding: 0 1px; }
+    .diffLine.ours mark { background: #52c99366; }
+    .diffLine.theirs mark { background: #81a9ef73; }
+
+    .sortie {
+      flex: none; display: flex; flex-direction: column;
+      min-height: 168px; max-height: 42%;
+      border-top: 1px solid var(--border); background: var(--bg);
+    }
+    .sortieHead {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+    }
+    .sortieHead strong { font-size: 12.5px; font-weight: 600; }
+    .sortieBody { overflow: auto; padding: 8px 0 10px; }
+    .outLine {
+      display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 12px;
+      padding-right: 12px; font: 12.5px/1.65 var(--mono); border-left: 2px solid transparent;
+    }
+    .outLine .ln { color: var(--path-directory); text-align: right; user-select: none; }
+    .outLine code { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .outLine.context { color: var(--path-directory); }
+    .outLine.focus {
+      background: #f5bb4526; border-left-color: var(--accent); color: var(--text);
+    }
+    .outLine.pending {
+      border-left-color: var(--warning); background: #f0a45b14;
+      color: var(--warning); font-family: var(--sans); font-size: 12.5px;
+    }
     .hunkMeta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
     .pending { color: var(--warning); }
     .decided { color: var(--success); }
@@ -158,7 +216,14 @@
     .colBody[data-act] { cursor: pointer; }
     .colBody pre { font-size: 12.5px; line-height: 1.55; }
     .emptySide { color: var(--muted); font-size: 12px; font-family: var(--sans); }
-    .quiet { display: flex; flex-wrap: wrap; gap: 2px; }
+    .quiet { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+    .quiet .textbtn {
+      min-height: 28px; padding: 0 12px;
+      border: 1px solid var(--border-strong); border-radius: 6px;
+      background: var(--surface-raised); color: var(--text); font-size: 12.5px;
+    }
+    .quiet .textbtn:hover:not(:disabled) { border-color: var(--text); background: var(--surface); }
+    .quiet .textbtn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
     .textbtn {
       border: 0; background: transparent; color: var(--muted);
       border-radius: 4px; padding: 4px 8px; font-size: 12px;
@@ -361,10 +426,10 @@
           ],
           regions: [
             {
-              start: 18, end: 24,
-              ours: 'export function renew(token: string) {\n  return client.post("/session/renew", { token })\n}',
-              theirs: 'export function refresh(token: string) {\n  return client.post("/v2/session/refresh", { token })\n}',
-              base: 'export function touch(token: string) {\n  return client.post("/session/touch", { token })\n}',
+              start: 18, end: 20,
+              ours: 'export function renew(token: string) {\n  return client.post("/renew", { token })\n}',
+              theirs: 'export function refresh(token: string) {\n  return client.post("/refresh", { token })\n}',
+              base: 'export function touch(token: string) {\n  return client.post("/touch", { token })\n}',
             },
             {
               start: 41, end: 41,
@@ -411,7 +476,7 @@
     }
 
     const THESES = {
-      colonnes: 'Toutes les régions du fichier restent visibles. On garde une version en cliquant dessus. Le texte qui sera écrit reste fermé, et un seul bouton d’action est à droite.',
+      colonnes: 'Les écarts sont marqués dans chaque version. La sortie, en bas, ne montre que les lignes du conflit en cours, avec deux lignes de contexte autour.',
       focus: 'Un seul conflit à l’écran. On choisit, on passe au suivant, et le fichier entier n’arrive qu’à Vérifier, juste avant de le marquer résolu. Les touches 1, 2 et 3 choisissent.',
       fichier: 'On lit le fichier de haut en bas. Seul le conflit encore ouvert prend de la place. Une fois tranché, il redevient des lignes, avec le nom de la version gardée.',
     }
@@ -438,6 +503,7 @@
         })),
         selected: SCENARIO.files[0].path,
         cursor: 0,
+        active: 0,
         resultOpen: false,
         editing: false,
         confirmAbort: false,
@@ -552,7 +618,7 @@
     function statusWord(region) {
       if (!regionDecided(region)) return ['À trancher', 'pending']
       if (region.choice === 'custom') return ['Personnalisé', 'custom']
-      return ['Tranché', 'decided']
+      return ['Résolu', 'decided']
     }
 
     function clearManual(file) {
@@ -611,8 +677,165 @@
           <button type="button" class="textbtn ${bothOn}" data-act="both" data-region="${index}" title="${esc(OURS)}, puis ${esc(THEIRS)}">Les deux</button>
           <button type="button" class="textbtn ${baseOn}" data-act="base" data-region="${index}" title="Revenir à l’ancêtre commun">Origine</button>
           <button type="button" class="textbtn ${linesOn}" data-act="lines" data-region="${index}">Ligne par ligne</button>
-        </div>
-        ${region.choice === 'base' ? `<div class="baseStrip"><span>Version d’origine</span><pre>${esc(region.base)}</pre></div>` : ''}`
+        </div>`
+    }
+
+    function tokensOf(line) {
+      return line.match(/[A-Za-z0-9_]+|\s+|[^\sA-Za-z0-9_]/g) || [line]
+    }
+
+    function diffTokens(a, b) {
+      const n = a.length
+      const m = b.length
+      const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1))
+      for (let i = n - 1; i >= 0; i -= 1) {
+        for (let j = m - 1; j >= 0; j -= 1) {
+          dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+        }
+      }
+      const left = []
+      const right = []
+      let i = 0
+      let j = 0
+      while (i < n && j < m) {
+        if (a[i] === b[j]) {
+          left.push({ t: a[i], changed: false })
+          right.push({ t: b[j], changed: false })
+          i += 1
+          j += 1
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+          left.push({ t: a[i], changed: true })
+          i += 1
+        } else {
+          right.push({ t: b[j], changed: true })
+          j += 1
+        }
+      }
+      while (i < n) left.push({ t: a[i++], changed: true })
+      while (j < m) right.push({ t: b[j++], changed: true })
+      return [left, right]
+    }
+
+    function paintTokens(tokens) {
+      return tokens.map((token) => token.changed ? `<mark>${esc(token.t)}</mark>` : esc(token.t)).join('')
+    }
+
+    function pairedLines(region) {
+      const ours = region.ours ? region.ours.split('\n') : []
+      const theirs = region.theirs ? region.theirs.split('\n') : []
+      const count = Math.max(ours.length, theirs.length)
+      const rows = []
+      for (let index = 0; index < count; index += 1) {
+        const left = ours[index] ?? null
+        const right = theirs[index] ?? null
+        if (left == null) {
+          rows.push({
+            ours: { kind: 'pad', html: '' },
+            theirs: { kind: 'change', html: `<mark>${esc(right) || ' '}</mark>` },
+          })
+        } else if (right == null) {
+          rows.push({
+            ours: { kind: 'change', html: `<mark>${esc(left) || ' '}</mark>` },
+            theirs: { kind: 'pad', html: '' },
+          })
+        } else if (left === right) {
+          const html = esc(left) || ' '
+          rows.push({ ours: { kind: 'same', html }, theirs: { kind: 'same', html } })
+        } else {
+          const [leftTokens, rightTokens] = diffTokens(tokensOf(left), tokensOf(right))
+          rows.push({
+            ours: { kind: 'change', html: paintTokens(leftTokens) },
+            theirs: { kind: 'change', html: paintTokens(rightTokens) },
+          })
+        }
+      }
+      return rows
+    }
+
+    function diffGrid(region, index) {
+      const oursTaken = region.choice === 'ours' || region.choice === 'both' ? 'on' : ''
+      const theirsTaken = region.choice === 'theirs' || region.choice === 'both' ? 'on' : ''
+      const rows = pairedLines(region).map((row, rowIndex) => {
+        const number = region.start + rowIndex
+        const cell = (side, entry) => `
+          <div class="diffLine ${side} ${entry.kind}" ${entry.kind === 'pad' ? '' : `data-act="side" data-region="${index}" data-side="${side}"`}>
+            <span class="ln">${entry.kind === 'pad' ? '' : number}</span>
+            <code>${entry.html}</code>
+          </div>`
+        return cell('ours', row.ours) + cell('theirs', row.theirs)
+      }).join('')
+      return `
+        <div class="diff">
+          <button type="button" class="diffHead ${oursTaken}" data-act="side" data-region="${index}" data-side="ours">
+            <span class="name ours">${esc(OURS)}</span>
+            <span class="verb">${verb(region, 'ours')}</span>
+          </button>
+          <button type="button" class="diffHead ${theirsTaken}" data-act="side" data-region="${index}" data-side="theirs">
+            <span class="name theirs">${esc(THEIRS)}</span>
+            <span class="verb">${verb(region, 'theirs')}</span>
+          </button>
+          ${rows || '<div class="diffLine pad"><span class="ln"></span><code> </code></div><div class="diffLine pad"><span class="ln"></span><code> </code></div>'}
+        </div>`
+    }
+
+    function choiceCaption(region) {
+      if (!regionDecided(region)) return { text: 'pas encore choisi', tone: 'pending' }
+      if (region.choice === 'ours') return { text: OURS, tone: 'ours' }
+      if (region.choice === 'theirs') return { text: THEIRS, tone: 'theirs' }
+      if (region.choice === 'both') return { text: 'les deux', tone: 'decided' }
+      if (region.choice === 'base') return { text: 'origine', tone: 'decided' }
+      return { text: 'choix', tone: 'custom' }
+    }
+
+    function sortieWindow(file, regionIndex) {
+      const lines = []
+      const parts = file.parts ?? file.regions.map((_, index) => ({ kind: 'region', index }))
+      for (const part of parts) {
+        if (part.kind === 'code') {
+          for (const [number, text] of part.lines) lines.push({ n: number, text, role: 'context', region: null })
+        } else {
+          const region = file.regions[part.index]
+          if (!regionDecided(region)) {
+            lines.push({ n: region.start, end: region.end, text: '', role: 'pending', region: part.index })
+          } else {
+            regionText(region).split('\n').forEach((text, offset) => {
+              lines.push({ n: region.start + offset, text, role: 'focus', region: part.index })
+            })
+          }
+        }
+      }
+      const hits = []
+      lines.forEach((line, index) => { if (line.region === regionIndex) hits.push(index) })
+      if (hits.length === 0) return []
+      const start = Math.max(0, hits[0] - 2)
+      const end = Math.min(lines.length, hits[hits.length - 1] + 3)
+      return lines.slice(start, end)
+    }
+
+    function sortieHtml(file, active) {
+      const region = file.regions[active] ?? file.regions[0]
+      const index = file.regions.indexOf(region)
+      const caption = choiceCaption(region)
+      const rows = sortieWindow(file, index).map((line) => {
+        if (line.role === 'pending') {
+          return `<div class="outLine pending"><span class="ln">${line.n}–${line.end}</span><span>En attente d’un choix</span></div>`
+        }
+        return `<div class="outLine ${line.role}"><span class="ln">${line.n}</span><code>${esc(line.text) || ' '}</code></div>`
+      }).join('')
+      const toneClass = caption.tone === 'ours' ? 'name ours' : caption.tone === 'theirs' ? 'name theirs' : caption.tone === 'pending' ? 'pending' : 'decided'
+      return `
+        <section class="sortie" aria-label="Sortie du conflit">
+          <div class="sortieHead">
+            <strong>Sortie</strong>
+            <span class="ctx">lignes ${region.start}–${region.end}</span>
+            <span class="${toneClass}">${esc(caption.text)}</span>
+            <span class="spacer"></span>
+            <button type="button" class="textbtn" data-act="focus-hunk" data-region="${Math.max(0, index - 1)}" ${index === 0 ? 'disabled' : ''}>Conflit précédent</button>
+            <span class="ctx">${index + 1} sur ${file.regions.length}</span>
+            <button type="button" class="textbtn" data-act="focus-hunk" data-region="${Math.min(file.regions.length - 1, index + 1)}" ${index === file.regions.length - 1 ? 'disabled' : ''}>Conflit suivant</button>
+          </div>
+          <div class="sortieBody">${rows}</div>
+        </section>`
     }
 
     function buttons(key, state) {
@@ -666,22 +889,22 @@
       const done = decidedCount(file)
       const total = file.regions.length
       const progressClass = done === total ? 'ok' : ''
+      const active = Math.min(state.active ?? 0, Math.max(0, total - 1))
       const hunks = file.regions.map((region, index) => {
         const [word, tone] = statusWord(region)
+        const body = region.lineMode
+          ? `<div class="pair">${column(region, index, 'ours', false)}${column(region, index, 'theirs', false)}</div>`
+          : diffGrid(region, index)
         return `
-          <article class="hunk">
+          <article class="hunk ${index === active ? 'active' : ''}" data-act="focus-hunk" data-region="${index}">
             <div class="hunkMeta">
               <span>Lignes ${region.start}–${region.end}</span>
               <span class="${tone}">${word}</span>
             </div>
-            <div class="pair">
-              ${column(region, index, 'ours', false)}
-              ${column(region, index, 'theirs', false)}
-            </div>
+            ${body}
             ${secondary(region, index)}
           </article>`
       }).join('')
-      const draft = esc(assemble(file))
       return `
         ${banner(state)}
         <aside class="rail">
@@ -695,16 +918,7 @@
             <span class="progress ${progressClass}">${done} sur ${total}</span>
           </div>
           <div class="hunks">${hunks}</div>
-          <div class="result ${state.resultOpen ? 'open' : ''}">
-            <div class="resultBar">
-              <button type="button" class="textbtn" data-act="toggle-result" aria-expanded="${state.resultOpen ? 'true' : 'false'}">
-                ${state.resultOpen ? '▾' : '▸'} Résultat
-              </button>
-              <span class="spacer"></span>
-              <button type="button" class="textbtn" data-act="reset" ${file.done ? 'disabled' : ''}>Repartir de zéro</button>
-            </div>
-            ${state.resultOpen ? `<textarea data-act="draft" spellcheck="false" aria-label="Résultat">${draft}</textarea>` : ''}
-          </div>
+          ${sortieHtml(file, active)}
           ${footer('colonnes', state, hintOf(file))}
         </section>`
     }
@@ -882,6 +1096,8 @@
       state.editing = false
       state.notice = ''
       state.cursor = firstOpen(fileOf(state))
+      const open = fileOf(state).regions.findIndex((region) => !regionDecided(region))
+      state.active = open === -1 ? 0 : open
     }
 
     function onAction(key, act, el) {
@@ -893,6 +1109,7 @@
         selectFile(state, el.dataset.path)
         return
       }
+      if (region && el.dataset.region != null) state.active = Number(el.dataset.region)
       if (act === 'side' && region) takeSide(file, region, el.dataset.side)
       if (act === 'both' && region) {
         region.choice = 'both'
@@ -934,6 +1151,7 @@
         file.done = false
         clearManual(file)
         state.cursor = 0
+        state.active = 0
         state.notice = ''
       }
       if (act === 'next') {
@@ -968,6 +1186,13 @@
       const root = el.closest('.app')
       onAction(root.id, el.dataset.act, el)
       render(root.id)
+      if (el.dataset.act === 'focus-hunk') {
+        const scroller = root.querySelector('.hunks')
+        const hunk = root.querySelector('.hunk.active')
+        if (scroller && hunk) {
+          scroller.scrollTop += hunk.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8
+        }
+      }
     })
 
     document.getElementById('frame').addEventListener('change', (event) => {
