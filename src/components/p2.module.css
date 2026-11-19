@@ -1497,10 +1497,6 @@
   border-left-color: var(--accent);
 }
 
-.hunk .regionHeader strong {
-  text-transform: capitalize;
-}
-
 .diff {
   display: grid;
   grid-template-columns: minmax(min-content, 1fr) minmax(min-content, 1fr);

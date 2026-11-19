@@ -587,7 +587,9 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                       >
                         <div className={p2.regionHeader}>
                           <strong>
-                            {t('ops.conflicts.output.lines', {
+                            {t('ops.conflicts.region.title', {
+                              index: formatNumber(region.index + 1),
+                              total: formatNumber(regions.length),
                               start: formatNumber(region.start),
                               end: formatNumber(region.end),
                             })}
@@ -618,6 +620,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                             <button
                               type="button"
                               className={`${p2.diffHead} ${kind === 'ours' || kind === 'both' ? p2.diffHeadOn : ''}`}
+                              aria-label={t('ops.conflicts.choice.keep', { name: oursName })}
                               disabled={!editable}
                               onClick={() => choose(region, presetChoice(region, 'ours'))}
                             >
@@ -627,6 +630,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                             <button
                               type="button"
                               className={`${p2.diffHead} ${kind === 'theirs' || kind === 'both' ? p2.diffHeadOn : ''}`}
+                              aria-label={t('ops.conflicts.choice.keep', { name: theirsName })}
                               disabled={!editable}
                               onClick={() => choose(region, presetChoice(region, 'theirs'))}
                             >
@@ -751,6 +755,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                       <div
                         key={`${line.role}-${line.number}-${index}`}
                         className={`${p2.outLine} ${line.role === 'focus' ? p2.outFocus : line.role === 'pending' ? p2.outPending : p2.outContext}`}
+                        data-kind={line.role}
                       >
                         <span className={p2.outNum}>
                           {line.role === 'pending' && line.end != null
