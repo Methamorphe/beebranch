@@ -496,7 +496,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
         <div className={p2.segmented} role="group" aria-label={t('forge.detail.tabsAria')}>
           <button
             type="button"
-            className={tab === 'overview' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'overview' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'overview'}
             onClick={() => setTab('overview')}
           >
@@ -504,7 +504,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
           </button>
           <button
             type="button"
-            className={tab === 'diff' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'diff' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'diff'}
             onClick={() => {
               setTab('diff')
@@ -517,7 +517,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
           </button>
           <button
             type="button"
-            className={tab === 'discussions' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'discussions' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'discussions'}
             onClick={() => setTab('discussions')}
           >
@@ -525,7 +525,7 @@ export function MrDetailExtras({ api, projectId, mr, pipelines, onRefresh }: Pro
           </button>
           <button
             type="button"
-            className={tab === 'jobs' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'jobs' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'jobs'}
             onClick={() => setTab('jobs')}
           >

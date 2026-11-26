@@ -39,6 +39,21 @@ export function appInfo(): Promise<AppInfo> {
   return call<AppInfo>('app_info')
 }
 
+export type NotificationPermission = {
+  granted: boolean
+  prompt: 'system' | 'implicit'
+  channel: 'un' | 'winrt' | 'plugin'
+}
+
+/** Asks the operating system when it has a real permission dialog. */
+export function notificationPermission(): Promise<NotificationPermission> {
+  return call<NotificationPermission>('notification_permission')
+}
+
+export function notificationShow(title: string, body: string): Promise<void> {
+  return call<void>('notification_show', { request: { title, body } })
+}
+
 export function repoOpen(path: string): Promise<RepoView> {
   return call<RepoView>('repo_open', { path })
 }
@@ -1778,4 +1793,167 @@ export function githubPrDiff(input: {
   iid: number
 }): Promise<DiffReport> {
   return call<DiffReport>('github_pr_diff', { input })
+}
+
+export function azureConfigure(input: {
+  baseUrl: string
+  token: string
+  displayName?: string
+  caPem?: string
+}): Promise<GitlabSession> {
+  return call<GitlabSession>('azure_configure', { input })
+}
+
+export function azureConnectFromGit(input: {
+  baseUrl: string
+  displayName?: string
+}): Promise<GitlabSession> {
+  return call<GitlabSession>('azure_connect_from_git', { input })
+}
+
+export function azureStatus(): Promise<GitlabSession> {
+  return call<GitlabSession>('azure_status')
+}
+
+export function azureProjectsPage(input: {
+  search?: string
+  page?: number
+  perPage?: number
+}): Promise<Paged<GitlabProject>> {
+  return call<Paged<GitlabProject>>('azure_projects_page', { input })
+}
+
+export function azureDisconnect(): Promise<boolean> {
+  return call<boolean>('azure_disconnect')
+}
+
+export function azureRepoLink(repoId: string): Promise<RepoLink> {
+  return call<RepoLink>('azure_repo_link', { repoId })
+}
+
+export function azureRepoLinkGet(repoId: string): Promise<RepoLink | null> {
+  return call<RepoLink | null>('azure_repo_link_get', { repoId })
+}
+
+export function azureRepoLinkManual(repoId: string, projectId: number): Promise<RepoLink> {
+  return call<RepoLink>('azure_repo_link_manual', { repoId, projectId })
+}
+
+export function azurePrPage(input: {
+  projectId?: number
+  scope: 'createdByMe' | 'assignedToMe' | 'reviewsForMe' | 'all'
+  page?: number
+  perPage?: number
+  repoId?: string
+}): Promise<Paged<GitlabMergeRequest>> {
+  return call<Paged<GitlabMergeRequest>>('azure_pr_page', { input })
+}
+
+export function azurePrGet(projectId: number, iid: number): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('azure_pr_get', { projectId, iid })
+}
+
+export function azurePrCreate(input: {
+  repoId: string
+  projectId?: number
+  sourceBranch: string
+  targetBranch: string
+  title: string
+  description?: string
+  draft?: boolean
+}): Promise<GitlabMergeRequest> {
+  return call<GitlabMergeRequest>('azure_pr_create', { input })
+}
+
+export function azurePrPipelines(projectId: number, iid: number): Promise<GitlabPipeline[]> {
+  return call<GitlabPipeline[]>('azure_pr_pipelines', { projectId, iid })
+}
+
+export function azurePrDiscussions(input: {
+  projectId: number
+  iid: number
+  page?: number
+  perPage?: number
+}): Promise<{ items: GitlabDiscussion[]; nextPage?: number }> {
+  return call('azure_pr_discussions', { input })
+}
+
+export function azureDiscussionCreate(input: {
+  projectId: number
+  iid: number
+  body: string
+}): Promise<GitlabDiscussion> {
+  return call<GitlabDiscussion>('azure_discussion_create', { input })
+}
+
+export function azureDiscussionReply(input: {
+  projectId: number
+  iid: number
+  body: string
+  discussionId: string
+}): Promise<GitlabNote> {
+  return call<GitlabNote>('azure_discussion_reply', { input })
+}
+
+export function azureApprovals(input: { projectId: number; iid: number }): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('azure_approvals', { input })
+}
+
+export function azureApprove(input: { projectId: number; iid: number; note?: string }): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('azure_approve', { input })
+}
+
+export function azureUnapprove(input: { projectId: number; iid: number }): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('azure_unapprove', { input })
+}
+
+export function azureRequestChanges(input: {
+  projectId: number
+  iid: number
+  body: string
+}): Promise<ApprovalsDto> {
+  return call<ApprovalsDto>('azure_request_changes', { input })
+}
+
+export function azureMergePr(input: {
+  projectId: number
+  iid: number
+  sha?: string
+  mergeMethod?: string
+  squash?: boolean
+  removeSourceBranch?: boolean
+  autoMerge?: boolean
+  confirmation: { acknowledged: boolean }
+}): Promise<unknown> {
+  return call('azure_merge_pr', { input })
+}
+
+export function azurePrJobs(input: {
+  projectId: number
+  iid: number
+  pipelineId?: number
+  page?: number
+  perPage?: number
+}): Promise<{ pipelineId?: number; items: GitlabJob[]; nextPage?: number }> {
+  return call('azure_pr_jobs', { input })
+}
+
+export function azureJobLog(input: {
+  projectId: number
+  jobId: number
+  maxBytes?: number
+  offset?: number
+}): Promise<JobLog> {
+  return call<JobLog>('azure_job_log', { input })
+}
+
+export function azurePrDiffRefs(input: {
+  projectId: number
+  iid: number
+}): Promise<{ baseSha: string; startSha: string; headSha: string }> {
+  return call('azure_pr_diff_refs', { input })
+}
+
+export function azurePrDiff(input: { projectId: number; iid: number }): Promise<DiffReport> {
+  return call<DiffReport>('azure_pr_diff', { input })
 }

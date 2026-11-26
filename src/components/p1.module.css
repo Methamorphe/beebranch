@@ -259,6 +259,11 @@ button:disabled {
   line-height: 1.45;
 }
 
+.dialog code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
 .dialogActions {
   display: flex;
   justify-content: flex-end;

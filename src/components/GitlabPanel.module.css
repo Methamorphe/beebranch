@@ -22,6 +22,7 @@
 .top[hidden], .connection[hidden], .projects[hidden], .reviews[hidden] { display:none; }
 .reviews { display:flex; flex:1; min-width:0; min-height:0; }
 .connection { display:flex; flex-direction:column; flex:none; width:100%; max-width:700px; min-width:0; padding:24px; }
+.forgeError { position:sticky; top:0; z-index:2; margin:0 0 12px; min-width:0; background:var(--bg); }
 .header h2 { margin:0 0 8px; font-size:14px; font-weight:600; }
 .header p { margin:10px 0 0; color:var(--muted); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
 .connectionGuide { margin-bottom:20px; }

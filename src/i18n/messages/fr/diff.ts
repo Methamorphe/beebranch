@@ -48,8 +48,6 @@ const messages = {
   'diff.binary': 'binaire',
 
   'diff.error.selectHunk': 'Sélectionnez un hunk ou des lignes.',
-  'diff.notice.staged': 'Sélection indexée.',
-  'diff.notice.unstaged': 'Sélection retirée de l’index.',
   'diff.notice.discarded': 'Discard appliqué.',
 
   'diff.amend.title': 'Amender ce commit — réécrit l’historique',

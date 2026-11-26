@@ -14,7 +14,9 @@ import { STATUS_LABELS, splitPath } from '../lib/paths'
 import { FileStatusIcon } from './FileStatusIcon'
 import { ToolbarIcon } from './ToolbarIcon'
 import { formatNumber, useI18n, type MessageKey } from '../i18n'
+import { type DiffMode } from '../lib/diffMode'
 import { formatGraphCommitDate } from '../lib/graphDate'
+import { useDiffMode } from '../lib/useDiffMode'
 import { useGraphDateFormat } from '../lib/useGraphDateFormat'
 import { ConfirmBar } from './ConfirmBar'
 import { Markdown } from './Markdown'
@@ -29,7 +31,7 @@ const FileEditorPane = lazy(() =>
   })),
 )
 
-type Mode = 'hunk' | 'inline' | 'split'
+type Mode = DiffMode
 
 type Row =
   | { kind: 'hunk'; hunk: number; header: string }
@@ -488,7 +490,7 @@ export function DiffViewer({
 }: Props) {
   const { t, plural, locale } = useI18n()
   const graphDate = useGraphDateFormat()
-  const [mode, setMode] = useState<Mode>('inline')
+  const [mode, setMode] = useDiffMode()
   const [wrap, setWrap] = useState(() => {
     try {
       return window.localStorage.getItem('ui.diffWrap') === 'true'
@@ -916,7 +918,6 @@ export function DiffViewer({
       }
       setLineSelection({})
       setHunkSelection([])
-      setActionNotice(kind === 'stage' ? t('diff.notice.staged') : t('diff.notice.unstaged'))
       staging.onMutated()
     } catch (cause) {
       setActionError(errorMessage(cause))
@@ -954,7 +955,7 @@ export function DiffViewer({
    * One rendered diff row.
    *
    * `fixed` keeps the virtualised line height; the word-wrap path lets the row
-   * grow and therefore renders without the absolute translate.
+   * grow and therefore renders without the spacer padding.
    */
   const renderRow = (row: Row, absolute: number, fixed: boolean) => {
     const rowStyle = fixed ? { height: LINE_HEIGHT } : undefined
@@ -1545,7 +1546,7 @@ export function DiffViewer({
             </div>
           ) : (
             <div style={{ height: rows.length * LINE_HEIGHT }} className={styles.rows}>
-              <div style={{ transform: `translateY(${first * LINE_HEIGHT}px)` }}>
+              <div style={{ paddingTop: first * LINE_HEIGHT }}>
                 {visible.map((row, index) => renderRow(row, first + index, true))}
               </div>
             </div>

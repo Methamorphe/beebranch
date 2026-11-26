@@ -1,10 +1,17 @@
 type Props = {
-  provider: 'gitlab' | 'github'
+  provider: 'gitlab' | 'github' | 'azure'
   size?: number
 }
 
 /** Brand marks, drawn in `currentColor` so they follow the theme. */
 export function ForgeLogo({ provider, size = 16 }: Props) {
+  if (provider === 'azure') {
+    return (
+      <svg className="forge-logo" data-provider="azure" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M4 16.5 9.2 4h2.1L7.2 16.5H4zm6.4 0 2.2-5.2 2.2 5.2h-4.4zm4.3 0h3.1L22 4h-2.1l-3.1 8.2L13.7 4h-2.1l3.1 12.5z" />
+      </svg>
+    )
+  }
   if (provider === 'github') {
     return (
       <svg className="forge-logo" data-provider="github" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">

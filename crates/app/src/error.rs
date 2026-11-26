@@ -115,6 +115,42 @@ pub fn github_error(error: beebranch_github::GithubError) -> AppError {
     }
 }
 
+/// Map an Azure DevOps client failure preserving its stable code.
+pub fn azure_error(error: beebranch_azure::AzureError) -> AppError {
+    let code = if error.code() == "auth.failed" {
+        "azure.auth_failed"
+    } else {
+        error.code()
+    };
+    let category = match code {
+        code if code.starts_with("auth.") || code == "azure.auth_failed" => ErrorCategory::Auth,
+        code if code.starts_with("tls.") => ErrorCategory::Tls,
+        "network.unreachable" | "azure.rate_limited" | "azure.server" => ErrorCategory::Network,
+        "azure.conflict" => ErrorCategory::Conflict,
+        _ => ErrorCategory::Input,
+    };
+    let mut mapped = AppError::new(code, category, error.message()).retryable(error.retryable());
+    if let Some(detail) = error.detail() {
+        mapped = mapped.with_detail(detail);
+    }
+    for (key, value) in error.params() {
+        mapped = mapped.with_param(*key, value.clone());
+    }
+    match code {
+        "azure.auth_failed" => mapped.with_remediation(
+            "Vérifiez le jeton d'accès personnel Azure DevOps, ses droits (Code, Build, Project and team) et sa date d'expiration.",
+        ),
+        "tls.ca_required" | "tls.ca_invalid" => mapped.with_remediation(
+            "Importez le certificat de l'autorité de l'organisation Azure DevOps dans les réglages.",
+        ),
+        "network.unreachable" => mapped
+            .with_remediation("Vérifiez l'adresse de l'organisation, le proxy et la connexion, puis réessayez.")
+            .retryable(true),
+        "azure.rate_limited" => mapped.with_remediation("Patientez, puis relancez la requête."),
+        _ => mapped,
+    }
+}
+
 /// Convert a blocking-task join failure.
 pub fn join_error(error: tauri::Error) -> AppError {
     AppError::internal(format!("tâche bloquante interrompue: {error}"))

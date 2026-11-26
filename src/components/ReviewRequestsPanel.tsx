@@ -663,7 +663,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
   return (
     <div className={p2.screen}>
       <div className={p2.toolbar}>
-        <span className={p2.chip}>
+        <span className={p2.meta}>
           {link ? link.pathWithNamespace : t('forge.review.noProject')}
         </span>
         <button
@@ -683,37 +683,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
             {t('forge.review.openProvider', { label: api.label })}
           </button>
         ) : null}
-
-        <div className={p2.segmented} role="group" aria-label={t('forge.review.filterAria')}>
-          {api.scopes.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={scope === option.value ? p2.segmentOn : p2.segment}
-              aria-pressed={scope === option.value}
-              onClick={() => setScope(option.value)}
-            >
-              {t(option.labelKey, { short: api.short })}
-            </button>
-          ))}
-        </div>
-
         <span className={p2.spacer} />
-        <label className={p2.field}>
-          <input
-            list="review-filter-suggestions"
-            value={filterText}
-            onChange={(event) => setFilterText(event.target.value)}
-            placeholder={t('forge.review.filterPlaceholder')}
-            aria-label={t('forge.review.filterInputAria')}
-            spellCheck={false}
-          />
-          <datalist id="review-filter-suggestions">
-            {completions.map((value) => (
-              <option key={value} value={value} />
-            ))}
-          </datalist>
-        </label>
         <button
           type="button"
           className={p2.ghost}
@@ -730,6 +700,36 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
         >
           {t('forge.review.new', { short: api.short })}
         </button>
+      </div>
+      <div className={p2.toolbarRow}>
+        <div className={p2.segmented} role="group" aria-label={t('forge.review.filterAria')}>
+          {api.scopes.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`${p2.segment} ${scope === option.value ? p2.segmentOn : ''}`}
+              aria-pressed={scope === option.value}
+              onClick={() => setScope(option.value)}
+            >
+              {t(option.labelKey, { short: api.short })}
+            </button>
+          ))}
+        </div>
+        <label className={`${p2.field} ${p2.grow}`}>
+          <input
+            list="review-filter-suggestions"
+            value={filterText}
+            onChange={(event) => setFilterText(event.target.value)}
+            placeholder={t('forge.review.filterPlaceholder')}
+            aria-label={t('forge.review.filterInputAria')}
+            spellCheck={false}
+          />
+          <datalist id="review-filter-suggestions">
+            {completions.map((value) => (
+              <option key={value} value={value} />
+            ))}
+          </datalist>
+        </label>
       </div>
 
       {error ? (
@@ -751,6 +751,31 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
       ) : null}
 
       <div className={p2.screenBody}>
+        {items.length === 0 ? (
+          <div className={p2.screenMain}>
+            <div className={p2.empty} role="status">
+              <h2>
+                {busy
+                  ? t('common.loading')
+                  : !connected
+                    ? t('forge.review.emptyConnected', { label: api.label })
+                    : !link
+                      ? t('forge.review.emptyLink')
+                      : t('forge.review.emptyNone', { noun })}
+              </h2>
+              {!busy ? (
+                <p>
+                  {!connected
+                    ? t('forge.review.emptyConnectedHint', { label: api.label })
+                    : !link
+                      ? t('forge.review.emptyLinkHint')
+                      : t('forge.review.emptyFilterHint', { title: forgeTitle.toLowerCase() })}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <>
         <div className={p2.inbox}>
           <div className={p2.listHeader}>
             <span className={p2.label}>{forgeTitle}</span>
@@ -783,69 +808,30 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
                     title={mrStatus ?? t('forge.review.noCi')}
                   />
                   <span className={p2.entryStack}>
-                    <span className={p2.entryTitle}>
-                      <strong className={p2.mono}>
+                    <span className={p2.entryTitle}>{mr.title}</span>
+                    <span className={p2.entryMeta}>
+                      <span className={p2.count}>
                         {api.short} {mr.iid}
-                      </strong>{' '}
-                      {mr.title}
-                    </span>
-                    <span className={p2.entryMeta}>
-                      <span className={p2.mono}>
-                        {mr.sourceBranch || '?'} → {mr.targetBranch || '?'}
                       </span>
-                      <span>·</span>
+                      <span>
+                        {mr.sourceBranch || '—'} → {mr.targetBranch || '—'}
+                      </span>
                       <span>@{mr.author.username}</span>
-                    </span>
-                    <span className={p2.entryMeta}>
-                      {mr.draft ? <span className={p2.chip}>{t('forge.review.draft')}</span> : null}
+                      {mr.draft ? <span>{t('forge.review.draft')}</span> : null}
                       {mr.hasConflicts ? (
-                        <span className={`${p2.chip} ${p2.chipWarn}`}>{t('forge.review.conflicts')}</span>
+                        <span>{t('forge.review.conflicts')}</span>
                       ) : null}
-                      <span className={`${p2.chip} ${pipelineChip(mrState)}`}>
-                        {mrStatus ?? t('forge.review.withoutCi')}
-                      </span>
-                      {mr.labels.slice(0, 2).map((label) => (
-                        <span key={label} className={p2.chip}>
-                          {label}
-                        </span>
-                      ))}
                     </span>
-                  </span>
-                  <span className={p2.meta} aria-hidden="true">
-                    {isCurrent ? '•' : '→'}
                   </span>
                 </button>
               )
             })}
           </div>
 
-          {items.length > 0 && visible.length === 0 ? (
+          {visible.length === 0 ? (
             <div className={p2.empty} role="status">
               <h2>{t('forge.review.emptyMatch')}</h2>
               <p>{t('forge.review.emptyMatchHint')}</p>
-            </div>
-          ) : null}
-
-          {items.length === 0 ? (
-            <div className={p2.empty} role="status">
-              <h2>
-                {busy
-                  ? t('common.loading')
-                  : !connected
-                    ? t('forge.review.emptyConnected', { label: api.label })
-                    : !link
-                      ? t('forge.review.emptyLink')
-                      : t('forge.review.emptyNone', { noun })}
-              </h2>
-              {!busy ? (
-                <p>
-                  {!connected
-                    ? t('forge.review.emptyConnectedHint', { label: api.label })
-                    : !link
-                      ? t('forge.review.emptyLinkHint')
-                      : t('forge.review.emptyFilterHint', { title: forgeTitle.toLowerCase() })}
-                </p>
-              ) : null}
             </div>
           ) : null}
 
@@ -870,7 +856,7 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
               <header className={p2.detailHeader}>
                 <div className={p2.detailHeaderTop}>
                   <div className={p2.entryStack}>
-                    <span className={`${p2.label} ${p2.mono}`}>
+                    <span className={p2.meta}>
                       {api.short} {selected.iid} · {selected.state}
                     </span>
                     <h2 className={p2.detailTitle}>{selected.title}</h2>
@@ -902,8 +888,8 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
                   </div>
                 </div>
                 <div className={p2.detailMeta}>
-                  <span className={p2.mono}>
-                    {selected.sourceBranch || '?'} → {selected.targetBranch || '?'}
+                  <span>
+                    {selected.sourceBranch || '—'} → {selected.targetBranch || '—'}
                   </span>
                   <span>·</span>
                   <span>@{selected.author.username}</span>
@@ -945,6 +931,8 @@ export function ReviewRequestsPanel({ api, repoId, generation, connected, onChec
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       <Dialog

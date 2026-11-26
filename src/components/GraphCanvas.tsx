@@ -15,12 +15,14 @@ import {
   COLUMN_CEILINGS,
   COLUMN_FLOORS,
   MIN_MESSAGE_WIDTH,
+  boundColumnWidths,
   clampColumnWidths,
+  graphContentWidth,
   type GraphColumnWidths,
 } from '../lib/layout'
 import { Resizer } from './Resizer'
-import { GraphRefPopover, type RefAnchor } from './GraphRefPopover'
-import { useI18n } from '../i18n'
+import { GraphDropPicker, GraphRefPopover, type DropAnchor, type RefAnchor } from './GraphRefPopover'
+import { useI18n, type I18n } from '../i18n'
 import { preferenceGet } from '../ipc/commands'
 import {
   GRAPH_DATE_PREFERENCE,
@@ -31,25 +33,36 @@ import {
   onGraphDateFormatChanged,
   type GraphDateFormat,
 } from '../lib/graphDate'
+import { refsInFolder } from '../lib/branchTree'
 import {
-  foldUpstreamRefs,
+  dropBranchesFromRefs,
+  dropTargetsForCommit,
+  foldCommitPills,
   graphCommitRefs,
+  graphRefGroupKey,
   graphRefKind,
   graphRefLabel,
+  graphRemoteGlyph,
+  graphRemoteUrl,
   isCheckoutableRef,
   resolveGraphRef,
   type GraphRefKind,
+  type GraphRemoteUrl,
 } from '../lib/graphRefs'
-import { graphBranchFocus } from '../lib/graphBranchFocus'
+import { graphBranchFocus, graphClosestBranches } from '../lib/graphBranchFocus'
 import { authorAvatarStyle } from '../lib/authorAvatar'
 import { parseHexColor, pillFill, readableTextColor } from '../lib/contrast'
 import {
   ARCHIVE,
+  AZURE_MARK,
   CIRCLE_DASHED,
   CLOUD,
-  GIT_BRANCH,
+  GITHUB_MARK,
+  LAPTOP,
+  GITLAB_MARK,
   TAG,
   strokeLucideIcon,
+  type LucideCanvasNode,
 } from '../lib/lucideCanvas'
 import { ToolbarIcon } from './ToolbarIcon'
 import styles from './GraphCanvas.module.css'
@@ -82,6 +95,7 @@ type Props = {
   findHits?: ReadonlySet<string>
   mrBadges?: Record<string, MrBadge>
   refEntries?: RefEntry[]
+  remoteUrls?: GraphRemoteUrl[]
   checkoutDisabled?: boolean
   onCheckoutRef?: (raw: string) => void
   onSelect: (sha: string, modifiers: SelectModifiers) => void
@@ -108,10 +122,16 @@ type Props = {
 
 const BRANCH_FOCUS_DELAY = 450
 const UNFOCUSED_ALPHA = 0.22
+/** Ghost chip drawn on a hovered commit that is not itself a branch tip. */
+const GHOST_CHIP_ALPHA = 0.42
 /** Chip-to-node stems of branches that are not HEAD, hovered, or focused. */
 const INACTIVE_STEM_ALPHA = 0.2
 const ROW_HEIGHT = 32
 const OVERSCAN = 8
+/** Edge band, in px, that scrolls the history while a branch chip is dragged. */
+const DRAG_SCROLL_EDGE = 44
+const DRAG_SCROLL_MIN = 6
+const DRAG_SCROLL_EXTRA = 18
 /** Comfortable-density graph node: initials disc plus lane ring, within 32 px rows. */
 const AVATAR_NODE_RADIUS = 11
 const AVATAR_LANE_RING = 2.25
@@ -191,36 +211,18 @@ function lanePalette(light: boolean) {
 
 /**
  * Column layout. The reference column follows the longest label (between 96
- * and 220 px) but always leaves at least 520 px to the message so a branch
- * name never pushes the commit subject out of the viewport. The date column is
- * always present; the user can resize every fixed column.
+ * and 220 px). Columns keep their comfortable widths; a narrow viewport
+ * scrolls horizontally instead of dropping the author or the labels.
  */
-function defaultColumns(
-  width: number,
-  lanes: number,
-  desiredRefs = 140,
-): GraphColumnWidths {
+function defaultColumns(lanes: number, desiredRefs = 140): GraphColumnWidths {
   // Lanes need 22 px each plus a 9 px gutter on both sides: a two-lane history
   // stays at the 64 px floor, nine lanes take 216 px. The column grows with the
   // history instead of squeezing the lanes together.
-  const graph =
-    width < 520
-      ? 64
-      : Math.min(COLUMN_CEILINGS.graph, Math.max(64, lanes * LANE_PITCH + 18))
+  const graph = Math.min(COLUMN_CEILINGS.graph, Math.max(64, lanes * LANE_PITCH + 18))
   // Date and time on one line. 150 px fits a 12-hour system date
   // (`12/31/2026, 12:00 PM`, about 122 px at 12 px) plus the cell padding.
-  const date = width >= 560 ? 150 : COLUMN_FLOORS.date
-  let refs = width >= 480 ? Math.min(desiredRefs, Math.round(width * 0.34)) : 0
-  if (refs > 0) {
-    // Keep 520 px for the message and 90 px for the author before widening the
-    // reference column; below that the labels fall back to a compact 96 px.
-    const budget = width - graph - date - 520 - 90
-    refs = Math.max(96, Math.min(refs, budget))
-  }
-  // Keep at least 520 px for the message; the author column takes the rest.
-  const room = width - refs - graph - date - 520
-  const author = room >= 130 ? 130 : room >= 110 ? 110 : room >= 90 ? 90 : 0
-  return clampColumnWidths(width, { refs, graph, author, date })
+  const refs = Math.max(96, Math.min(desiredRefs, COLUMN_CEILINGS.refs))
+  return boundColumnWidths({ refs, graph, author: 130, date: 150 })
 }
 
 /** Linear blend used for branch-tinted rows. */
@@ -298,20 +300,66 @@ type BadgeRef = {
   raw: string
   label: string
   kind: GraphRefKind
-  /** Local branch whose upstream points at the same commit: draw both glyphs. */
-  mirrored: boolean
+  /** Remotes folded into this pill, with the URL used to pick the forge mark. */
+  remotes: { name: string; url?: string }[]
 }
 
 const BADGE_ICON_WIDTH = 12
 /** Horizontal pitch between two glyphs inside one pill. */
-const BADGE_ICON_PITCH = 13
+const BADGE_ICON_PITCH = 15
 
-/** Drawn on every badge: Lucide branch / cloud / tag, same as the sidebar. */
-function drawRefIcon(context: CanvasRenderingContext2D, kind: GraphRefKind, x: number, y: number, color: string) {
-  if (kind === 'other') return
-  const glyph =
-    kind === 'remote' ? CLOUD : kind === 'tag' ? TAG : GIT_BRANCH
-  strokeLucideIcon(context, glyph, x + BADGE_ICON_WIDTH / 2, y, BADGE_ICON_WIDTH, color, 1.5)
+function remoteGlyph(remote: { name: string; url?: string }): LucideCanvasNode[] {
+  const mark = graphRemoteGlyph(remote.name, remote.url)
+  if (mark === 'gitlab') return GITLAB_MARK
+  if (mark === 'github') return GITHUB_MARK
+  if (mark === 'azure') return AZURE_MARK
+  return CLOUD
+}
+
+/** Branch + forge logos, or a tag. Same marks as the hover list. */
+function badgeGlyphs(ref: BadgeRef): LucideCanvasNode[][] {
+  if (ref.kind === 'tag') return [TAG]
+  if (ref.kind === 'other') return []
+  const glyphs: LucideCanvasNode[][] = []
+  if (ref.kind === 'head' || ref.kind === 'local') glyphs.push(LAPTOP)
+  for (const remote of ref.remotes) glyphs.push(remoteGlyph(remote))
+  if (glyphs.length === 0) glyphs.push(CLOUD)
+  return glyphs
+}
+
+function badgeIconsWidth(ref: BadgeRef) {
+  const count = badgeGlyphs(ref).length
+  return count === 0 ? 0 : BADGE_ICON_WIDTH + (count - 1) * BADGE_ICON_PITCH
+}
+
+function drawBadgeIcons(
+  context: CanvasRenderingContext2D,
+  ref: BadgeRef,
+  x: number,
+  y: number,
+  color: string,
+) {
+  badgeGlyphs(ref).forEach((glyph, index) => {
+    strokeLucideIcon(
+      context,
+      glyph,
+      x + BADGE_ICON_WIDTH / 2 + index * BADGE_ICON_PITCH,
+      y,
+      BADGE_ICON_WIDTH,
+      color,
+      1.5,
+    )
+  })
+}
+
+function badgeTitle(ref: BadgeRef, t: I18n['t']) {
+  if (ref.kind === 'tag') return `${ref.label} · ${t('graph.ref.kind.tag')}`
+  const marks: string[] = []
+  if (ref.kind === 'head') marks.push(t('graph.ref.kind.active'))
+  else if (ref.kind === 'local') marks.push(t('graph.ref.kind.local'))
+  marks.push(...ref.remotes.map((remote) => remote.name))
+  if (marks.length === 0) marks.push(t('graph.ref.kind.remote'))
+  return `${ref.label} · ${marks.join(', ')}`
 }
 
 /** A stash entry is not a commit dot: Lucide `Archive` on a knock-out pad with a
@@ -370,6 +418,7 @@ export function GraphCanvas({
   mrBadges,
   onSelect,
   refEntries = [],
+  remoteUrls = [],
   checkoutDisabled = false,
   onCheckoutRef,
   onContextMenu,
@@ -392,45 +441,64 @@ export function GraphCanvas({
   const { locale, t } = useI18n()
   const [dateFormat, setDateFormat] = useState<GraphDateFormat>(getGraphDateFormat)
   const maxLanes = useMemo(() => rows.reduce((max, row) => Math.max(max, row.laneCount), 1), [rows])
-  // Every visible ref of a commit, in draw order. A remote-tracking mirror of
-  // a local branch on the same commit is folded out: `main` and `origin/main`
-  // are one branch, shown by a single pill carrying both glyphs.
+  // Every visible ref of a commit, in draw order. Locals and remotes that
+  // share a short name on the same commit fold into one pill: `develop`,
+  // `origin/develop` and `gitlab/develop` are one branch, with a glyph per remote.
   const decorations = useMemo(() => {
     const map = new Map<string, BadgeRef[]>()
     for (const commit of commits) {
       if (commit.refs.length === 0) continue
       const decorated = graphCommitRefs(commit, refEntries)
-      const { visible, mirrored } = foldUpstreamRefs(decorated)
-      const mirroredKeys = new Set(mirrored)
-      const refs = visible.map((decoration) => ({
-        raw: decoration.raw,
-        label: graphRefLabel(decoration.raw),
-        kind: graphRefKind(decoration.raw, decoration.entry),
-        mirrored: mirroredKeys.has(decoration.key),
-      }))
+      const { visible, remotes } = foldCommitPills(decorated)
+      const refs = visible.map((decoration) => {
+        const entry = decoration.entry
+        const branch =
+          entry && (entry.kind === 'branch' || entry.kind === 'remoteBranch') ? entry : undefined
+        return {
+          raw: decoration.raw,
+          label: branch ? graphRefGroupKey(branch) : graphRefLabel(decoration.raw),
+          kind: graphRefKind(decoration.raw, entry),
+          remotes: (remotes.get(decoration.key) ?? []).map((name) => ({
+            name,
+            url: graphRemoteUrl(name, remoteUrls),
+          })),
+        }
+      })
       if (refs.length > 0) map.set(commit.sha, refs)
     }
     return map
-  }, [commits, refEntries])
+  }, [commits, refEntries, remoteUrls])
   const refsWidth = useMemo(() => {
     let longest = 0
-    let mirrored = false
+    let extraIcons = 0
     for (const refs of decorations.values()) {
       for (const ref of refs) {
         longest = Math.max(longest, ref.label.length)
-        mirrored ||= ref.mirrored
+        extraIcons = Math.max(extraIcons, Math.max(0, badgeGlyphs(ref).length - 1))
       }
     }
-    return Math.min(220, Math.max(140, Math.round(longest * 7.1 + 58 + (mirrored ? BADGE_ICON_PITCH : 0))))
+    return Math.min(220, Math.max(140, Math.round(longest * 7.1 + 58 + extraIcons * BADGE_ICON_PITCH)))
   }, [decorations])
-  const layout = useMemo(
-    () =>
-      clampColumnWidths(
-        viewportWidth,
-        columnWidths ?? defaultColumns(viewportWidth, maxLanes, refsWidth),
-      ),
-    [viewportWidth, columnWidths, maxLanes, refsWidth],
+  const wantedColumns = useMemo(
+    () => boundColumnWidths(columnWidths ?? defaultColumns(maxLanes, refsWidth)),
+    [columnWidths, maxLanes, refsWidth],
   )
+  const contentWidth = useMemo(
+    () => Math.max(viewportWidth, graphContentWidth(wantedColumns)),
+    [viewportWidth, wantedColumns],
+  )
+  const layout = useMemo(
+    () => clampColumnWidths(contentWidth, wantedColumns),
+    [contentWidth, wantedColumns],
+  )
+  const closestBranches = useMemo(() => {
+    const tips: [string, BadgeRef[]][] = []
+    for (const [sha, refs] of decorations) {
+      const branches = refs.filter((ref) => ref.kind === 'head' || ref.kind === 'local' || ref.kind === 'remote')
+      if (branches.length > 0) tips.push([sha, branches])
+    }
+    return graphClosestBranches(commits, tips, (ref) => ref.label)
+  }, [commits, decorations])
   const laneLayout = useMemo(() => graphLaneLayout(layout, maxLanes), [layout, maxLanes])
   const headLane = useMemo(() => {
     const found = commits.findIndex(isHeadCommit)
@@ -445,28 +513,38 @@ export function GraphCanvas({
       color: palette[logical % palette.length]!,
     }
   }, [commits, rows, pin, laneLayout, layout.refs, theme])
-  const columnBudget = viewportWidth - MIN_MESSAGE_WIDTH
-  const maxColumn = (key: keyof GraphColumnWidths) => {
-    const fixed =
-      layout.refs + layout.graph + layout.author + layout.date - layout[key]
-    return Math.max(
-      COLUMN_FLOORS[key],
-      Math.min(COLUMN_CEILINGS[key], columnBudget - fixed),
-    )
-  }
+  const maxColumn = (key: keyof GraphColumnWidths) => COLUMN_CEILINGS[key]
   const resizeColumn = (key: keyof GraphColumnWidths, value: number) => {
-    onColumnWidthsChange?.(
-      clampColumnWidths(viewportWidth, { ...layout, [key]: value }),
-    )
+    onColumnWidthsChange?.(boundColumnWidths({ ...layout, [key]: value }))
   }
   const [refHover, setRefHover] = useState<RefAnchor | null>(null)
   const dragStart = useRef<{ entry: RefEntry; x: number; y: number } | null>(null)
   const dragPointerId = useRef<number | null>(null)
   const dragTargetRect = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
   const dragTargetEntry = useRef<RefEntry | null>(null)
+  const dragPoint = useRef({ x: 0, y: 0 })
+  const dragScrollDir = useRef(0)
   const externalDropEl = useRef<HTMLElement | null>(null)
-  const [drag, setDrag] = useState<{ entry: RefEntry; x: number; y: number; target: RefEntry | null } | null>(null)
+  const [drag, setDrag] = useState<{
+    entry: RefEntry
+    x: number
+    y: number
+    target: RefEntry | null
+    pick: DropAnchor & { choices: RefEntry[] } | null
+  } | null>(null)
+  const [pendingPick, setPendingPick] = useState<{
+    source: RefEntry
+    choices: RefEntry[]
+    anchor: DropAnchor
+  } | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
+  const dropPickRef = useRef<HTMLDivElement>(null)
+  const dropHoldRef = useRef<{
+    entry: RefEntry | null
+    rect: { x: number; y: number; width: number; height: number } | null
+    pick: (DropAnchor & { choices: RefEntry[] }) | null
+    commitSha?: string
+  } | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refRects = useRef<{ commit: CommitSummary; raw: string; x:number; y:number; width:number; height:number; overflow?: boolean }[]>([])
   /** Commits whose subject does not fit the message column, filled by `draw`.
@@ -516,6 +594,7 @@ export function GraphCanvas({
   }, [generation, hoverBranch])
   const hoveredRef = useRef<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const headClipRef = useRef<HTMLDivElement>(null)
   const revealed = useRef<number | undefined>(undefined)
   useEffect(() => {
     if (!reveal || revealed.current === reveal.serial) return
@@ -561,15 +640,16 @@ export function GraphCanvas({
       return
     }
     const ratio = window.devicePixelRatio || 1
-    const width = container.clientWidth
+    const width = contentWidth
     const height = container.clientHeight
     if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
       canvas.width = Math.floor(width * ratio)
       canvas.height = Math.floor(height * ratio)
     }
     // The canvas stays pinned by CSS while the spacer supplies the full
-    // history height. Avoid deferred scroll compensation so a repaint of
-    // the neighbouring commit editor cannot expose a displaced frame.
+    // history height. Width follows the column layout so a narrow viewport
+    // scrolls sideways instead of clipping author, date or labels.
+    canvas.style.width = `${width}px`
     canvas.style.height = `${height}px`
 
     const context = canvas.getContext('2d')
@@ -872,16 +952,20 @@ export function GraphCanvas({
       context.globalAlpha = alphaFor(commit.sha)
       const nodeColor = laneColor(row.nodeLane)
 
-      // References: every visible ref is a colored pill, overflow becomes `+N`.
-      // After the last chip, a stem of the rail colour reaches the commit node,
-      // the same horizontal connector Git clients draw between a badge and its dot.
+      // One branch pill on the row; extra names live in `+N` and in the hover
+      // list, so the canvas keeps room for the graph instead of repeating them.
       const refs = decorations.get(commit.sha)
       let lastChipRight = 0
+      const drawnLabels = new Set<string>()
+      let cursorX = 12
       if (col.refs > 0 && refs) {
-        context.font = `600 12px ${fontFamily}`
-        let cursorX = 12
+        context.font = `600 11px ${fontFamily}`
+        const extraCount = Math.max(0, refs.length - 1)
+        const overflowWidth = extraCount > 0 ? context.measureText(`+${extraCount}`).width + 16 : 0
+        const cap = extraCount > 0 ? 1 : refs.length
         let drawn = 0
         for (const ref of refs) {
+          if (drawn >= cap) break
           // A pill carries the same hue as the rail it sits on, filled solid so
           // the label separates from the row; the ink flips to dark or light
           // whichever contrasts more on that fill. Mid-tone fills are darkened
@@ -898,12 +982,12 @@ export function GraphCanvas({
                     : raisedColor,
           )
           const tone = ref.kind === 'other' ? mutedColor : readableTextColor(fill)
-          const iconsWidth = BADGE_ICON_WIDTH + (ref.mirrored ? BADGE_ICON_PITCH : 0)
-          const available = col.refs - 10 - cursorX - iconsWidth - 14
+          const iconsWidth = badgeIconsWidth(ref)
+          const available = col.refs - 10 - cursorX - iconsWidth - 14 - overflowWidth
           if (available < 20) break
           const label = fitText(context, ref.label, available)
           const chipWidth = Math.min(
-            col.refs - 8 - cursorX,
+            col.refs - 8 - cursorX - overflowWidth,
             context.measureText(label).width + iconsWidth + 16,
           )
           if (chipWidth < iconsWidth + 12) break
@@ -911,11 +995,11 @@ export function GraphCanvas({
           context.beginPath()
           context.roundRect(cursorX, y - 10, chipWidth, 20, 4)
           context.fill()
-          drawRefIcon(context, ref.kind, cursorX + 5, y, tone)
-          if (ref.mirrored) drawRefIcon(context, 'remote', cursorX + 5 + BADGE_ICON_PITCH, y, tone)
+          drawBadgeIcons(context, ref, cursorX + 5, y, tone)
           context.fillStyle = tone
           context.fillText(label, cursorX + 5 + iconsWidth + 4, y)
           refRects.current.push({ commit, raw: ref.raw, x: cursorX, y: y - 10, width: chipWidth, height: 20 })
+          drawnLabels.add(ref.label)
           lastChipRight = cursorX + chipWidth
           cursorX += chipWidth + 4
           drawn += 1
@@ -933,7 +1017,47 @@ export function GraphCanvas({
             context.fillText(label, cursorX + 6, y)
             refRects.current.push({ commit, raw: refs[refs.length - 1]!.raw, x: cursorX, y: y - 10, width: chipWidth, height: 20, overflow: true })
             lastChipRight = cursorX + chipWidth
+            cursorX += chipWidth + 4
           }
+        }
+      }
+      if (col.refs > 0 && hoveredRef.current === index) {
+        const ghosts = (closestBranches.get(commit.sha)?.refs ?? []).filter(
+          (ref) => !drawnLabels.has(ref.label) && !refs?.some((item) => item.label === ref.label),
+        )
+        if (ghosts.length > 0) {
+          context.save()
+          context.font = `600 11px ${fontFamily}`
+          context.globalAlpha = alphaFor(commit.sha) * GHOST_CHIP_ALPHA
+          for (const ref of ghosts) {
+            const fill = pillFill(
+              ref.kind === 'head'
+                ? accentColor
+                : ref.kind === 'remote'
+                  ? infoColor
+                  : nodeColor,
+            )
+            const tone = readableTextColor(fill)
+            const iconsWidth = badgeIconsWidth(ref)
+            const available = col.refs - 10 - cursorX - iconsWidth - 14
+            if (available < 20) break
+            const label = fitText(context, ref.label, available)
+            const chipWidth = Math.min(
+              col.refs - 8 - cursorX,
+              context.measureText(label).width + iconsWidth + 16,
+            )
+            if (chipWidth < iconsWidth + 12) break
+            context.fillStyle = fill
+            context.beginPath()
+            context.roundRect(cursorX, y - 10, chipWidth, 20, 4)
+            context.fill()
+            drawBadgeIcons(context, ref, cursorX + 5, y, tone)
+            context.fillStyle = tone
+            context.fillText(label, cursorX + 5 + iconsWidth + 4, y)
+            lastChipRight = cursorX + chipWidth
+            cursorX += chipWidth + 4
+          }
+          context.restore()
         }
       }
       if (lastChipRight > 0) {
@@ -965,7 +1089,7 @@ export function GraphCanvas({
       context.rect(messageX, y - ROW_HEIGHT / 2, Math.max(0, messageRight - messageX - 12), ROW_HEIGHT)
       context.clip()
       let cursor = messageX
-      context.font = `14px ${fontFamily}`
+      context.font = `12px ${fontFamily}`
       if (mrBadges) {
         const badge = commit.refs.map((ref) => mrBadges[ref.replace('HEAD -> ', '').replace(/^origin\//, '')]).find(Boolean)
         if (badge) {
@@ -982,7 +1106,7 @@ export function GraphCanvas({
       context.fillStyle = textColor
       context.fillText(fitText(context, commit.subject, subjectWidth), cursor, y)
       context.restore()
-      context.font = `12px ${fontFamily}`
+      context.font = `11px ${fontFamily}`
       context.fillStyle = mutedColor
       if (col.author) {
         context.fillText(
@@ -1016,7 +1140,7 @@ export function GraphCanvas({
     for (const x of [col.refs, col.refs + col.graph, ...(col.author ? [width - col.author - col.date] : []), ...(col.date ? [width - col.date] : [])]) {
       if (x > 0) { context.beginPath(); context.moveTo(x + .5, 0); context.lineTo(x + .5, height); context.stroke() }
     }
-  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, pin, locale, dateFormat, branchFocus])
+  }, [commits, rows, selected, findHits, mrBadges, picked, maxLanes, layout, decorations, closestBranches, pin, locale, dateFormat, branchFocus, contentWidth])
 
   useLayoutEffect(() => {
     drawRef.current = draw
@@ -1088,6 +1212,23 @@ export function GraphCanvas({
     return () => { media.removeEventListener('change', scheduleDraw); observer.disconnect() }
   }, [scheduleDraw])
 
+  const pointIn = (el: HTMLElement | null, clientX: number, clientY: number, pad = 12) => {
+    if (!el) return false
+    const rect = el.getBoundingClientRect()
+    return clientX >= rect.left - pad && clientX <= rect.right + pad && clientY >= rect.top - pad && clientY <= rect.bottom + pad
+  }
+
+  const hitDropChoice = (popup: HTMLElement | null, clientX: number, clientY: number) => {
+    if (!popup) return null
+    for (const row of popup.querySelectorAll('[data-drop-ref]')) {
+      const rect = row.getBoundingClientRect()
+      if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+        return row.getAttribute('data-drop-ref')
+      }
+    }
+    return null
+  }
+
   const markExternalDrop = (el: HTMLElement | null) => {
     if (externalDropEl.current === el) return
     if (externalDropEl.current) externalDropEl.current.removeAttribute('data-drop')
@@ -1102,18 +1243,103 @@ export function GraphCanvas({
     return refRects.current.find((rect) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
   }
 
-  /** Canvas branch badge, or a local branch row in the left navigator. */
+  const chooseDrop = (
+    choices: RefEntry[],
+    clientX: number,
+    clientY: number,
+    pick: (DropAnchor & { choices: RefEntry[] }) | null,
+    rect: { x: number; y: number; width: number; height: number } | null,
+    fallback: RefEntry | null = null,
+  ) => {
+    if (choices.length === 0) return null
+    if (!pick) return { entry: choices[0]!, rect, pick: null }
+    const fullName = hitDropChoice(dropPickRef.current, clientX, clientY)
+    return {
+      entry: choices.find((item) => item.fullName === fullName) ?? fallback ?? null,
+      rect,
+      pick,
+    }
+  }
+
+  const keepDropPick = (clientX: number, clientY: number) => {
+    const hold = dropHoldRef.current
+    if (!hold?.pick) return null
+    if (pointIn(dropPickRef.current, clientX, clientY)) {
+      return chooseDrop(hold.pick.choices, clientX, clientY, hold.pick, hold.rect, hold.entry)
+    }
+    if (!hold.commitSha) return null
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    if (!bounds) return null
+    const index = Math.floor((scrollTopRef.current + clientY - bounds.top) / ROW_HEIGHT)
+    if (commits[index]?.sha !== hold.commitSha) return null
+    return chooseDrop(hold.pick.choices, clientX, clientY, hold.pick, hold.rect, hold.entry)
+  }
+
+  /** Canvas branch badge, a navigator row, or a folder of several branches. */
   const resolveDropTarget = (clientX: number, clientY: number, source: RefEntry) => {
+    const hold = dropHoldRef.current
+    const reuseHeldPick = () => {
+      if (!hold?.pick) return null
+      markExternalDrop(null)
+      const found = chooseDrop(hold.pick.choices, clientX, clientY, hold.pick, hold.rect, hold.entry)
+      dropHoldRef.current = found ? { ...found, commitSha: hold.commitSha } : hold
+      return found
+    }
+
+    // The picker is `pointer-events: none` during a drag (canvas capture),
+    // so chips of the rows underneath would otherwise steal the target.
+    if (hold?.pick && pointIn(dropPickRef.current, clientX, clientY, 8)) {
+      return reuseHeldPick()
+    }
+
     const hit = hitRef(clientX, clientY)
+    if (hold?.pick && hit && hit.commit.sha === hold.commitSha) {
+      return reuseHeldPick()
+    }
+
+    const held = keepDropPick(clientX, clientY)
+    if (held) {
+      markExternalDrop(null)
+      dropHoldRef.current = { ...held, commitSha: hold?.commitSha ?? dropHoldRef.current?.commitSha }
+      return held
+    }
+
     if (hit) {
       markExternalDrop(null)
-      const entry = resolveGraphRef(hit.raw, refEntries)
-      if (!entry || entry.symref || (entry.kind !== 'branch' && entry.kind !== 'remoteBranch')) return null
-      if (entry.fullName === source.fullName) return null
-      return {
-        entry,
-        rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
-      }
+      const choices = dropTargetsForCommit(hit.commit, refEntries, source)
+      const branches = dropBranchesFromRefs(choices)
+      const chipEntry = !hit.overflow
+        ? graphCommitRefs(hit.commit, refEntries).find((item) => item.raw === hit.raw)?.entry
+        : undefined
+      const fallback = chipEntry
+        ? branches.find((branch) => branch.name === graphRefGroupKey(chipEntry))?.target ?? null
+        : null
+      const bounds = canvasRef.current?.getBoundingClientRect()
+      const pick =
+        branches.length > 1 && bounds
+          ? {
+              choices,
+              left: bounds.left + hit.x,
+              top: bounds.top + hit.y,
+              bottom: bounds.top + hit.y + hit.height,
+            }
+          : null
+      const found = pick
+        ? chooseDrop(choices, clientX, clientY, pick, {
+            x: hit.x,
+            y: hit.y,
+            width: hit.width,
+            height: hit.height,
+          }, fallback)
+        : branches[0]
+          ? {
+              entry: fallback ?? branches[0].target,
+              rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height },
+              pick: null,
+            }
+          : null
+      dropHoldRef.current = found ? { ...found, commitSha: hit.commit.sha } : null
+      return found
     }
     // Skip the canvas itself: with pointer capture it sits under the cursor
     // even when the gesture visually left the graph for the left panel.
@@ -1121,35 +1347,101 @@ export function GraphCanvas({
       typeof document.elementsFromPoint === 'function'
         ? document.elementsFromPoint(clientX, clientY)
         : [document.elementFromPoint(clientX, clientY)].filter(Boolean)
+    const fromNavigator = (node: Element | null) =>
+      node?.closest<HTMLElement>('[data-repository-section="local"], [data-repository-section="remotes"]')
     const row = stack
       .map((node) =>
         node instanceof Element ? node.closest<HTMLElement>('[data-ref]') : null,
       )
       .find(
         (candidate) =>
-          candidate &&
-          (candidate.closest('[data-repository-section="local"]') ||
-            candidate.closest('[data-repository-section="remotes"]')) &&
-          (candidate.getAttribute('data-ref')?.startsWith('refs/heads/') ||
-            candidate.getAttribute('data-ref')?.startsWith('refs/remotes/')),
+          Boolean(candidate) &&
+          Boolean(fromNavigator(candidate)) &&
+          (candidate?.getAttribute('data-ref')?.startsWith('refs/heads/') ||
+            candidate?.getAttribute('data-ref')?.startsWith('refs/remotes/')),
       )
-    if (!row) {
+    if (row) {
+      const fullName = row.getAttribute('data-ref')
+      const entry = refEntries.find((candidate) => candidate.fullName === fullName)
+      if (
+        !entry ||
+        entry.symref ||
+        (entry.kind !== 'branch' && entry.kind !== 'remoteBranch') ||
+        entry.fullName === source.fullName
+      ) {
+        markExternalDrop(null)
+        dropHoldRef.current = null
+        return null
+      }
+      markExternalDrop(row)
+      dropHoldRef.current = null
+      return { entry, rect: null, pick: null }
+    }
+    const folder = stack
+      .map((node) => (node instanceof Element ? node.closest<HTMLElement>('[data-folder]') : null))
+      .find((candidate) => fromNavigator(candidate))
+    if (!folder) {
       markExternalDrop(null)
+      dropHoldRef.current = null
       return null
     }
-    const fullName = row.getAttribute('data-ref')
-    const entry = refEntries.find((candidate) => candidate.fullName === fullName)
-    if (
-      !entry ||
-      entry.symref ||
-      (entry.kind !== 'branch' && entry.kind !== 'remoteBranch') ||
-      entry.fullName === source.fullName
-    ) {
+    const key = folder.getAttribute('data-folder') ?? ''
+    const split = key.indexOf(':')
+    const scope = split >= 0 ? key.slice(0, split) : ''
+    const path = split >= 0 ? key.slice(split + 1) : key
+    const pool = refEntries.filter((entry) =>
+      scope === 'remotes' ? entry.kind === 'remoteBranch' : entry.kind === 'branch',
+    )
+    const choices = refsInFolder(pool, path).filter(
+      (entry) =>
+        !entry.symref &&
+        (entry.kind === 'branch' || entry.kind === 'remoteBranch') &&
+        entry.fullName !== source.fullName,
+    )
+    if (choices.length === 0) {
       markExternalDrop(null)
+      dropHoldRef.current = null
       return null
     }
-    markExternalDrop(row)
-    return { entry, rect: null }
+    markExternalDrop(folder)
+    const box = folder.getBoundingClientRect()
+    const branches = dropBranchesFromRefs(choices)
+    const pick =
+      branches.length > 1
+        ? { choices, left: box.left, top: box.top, bottom: box.bottom }
+        : null
+    const found = pick
+      ? chooseDrop(choices, clientX, clientY, pick, null)
+      : branches[0]
+        ? { entry: branches[0].target, rect: null, pick: null }
+        : null
+    dropHoldRef.current = found
+    return found
+  }
+  const resolveDropTargetRef = useRef(resolveDropTarget)
+  useEffect(() => {
+    resolveDropTargetRef.current = resolveDropTarget
+  })
+  const updateDragScroll = (clientX: number, clientY: number) => {
+    const container = containerRef.current
+    if (!container) {
+      dragScrollDir.current = 0
+      return
+    }
+    const rect = container.getBoundingClientRect()
+    if (clientX < rect.left || clientX > rect.right) {
+      dragScrollDir.current = 0
+      return
+    }
+    if (clientY < rect.top + DRAG_SCROLL_EDGE) {
+      dragScrollDir.current = -Math.min(1, (rect.top + DRAG_SCROLL_EDGE - clientY) / DRAG_SCROLL_EDGE)
+      return
+    }
+    if (clientY > rect.bottom - DRAG_SCROLL_EDGE) {
+      dragScrollDir.current = Math.min(1, (clientY - (rect.bottom - DRAG_SCROLL_EDGE)) / DRAG_SCROLL_EDGE)
+      return
+    }
+    dragScrollDir.current = 0
   }
   const releaseDragCapture = () => {
     const canvas = canvasRef.current
@@ -1161,6 +1453,15 @@ export function GraphCanvas({
   }
 
   const isDragging = drag !== null
+  useEffect(() => {
+    if (!pendingPick) return
+    const close = (event: PointerEvent) => {
+      if (dropPickRef.current?.contains(event.target as Node)) return
+      setPendingPick(null)
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [pendingPick])
   useEffect(() => {
     if (!isDragging) return
     const clearExternalDrop = () => {
@@ -1176,6 +1477,7 @@ export function GraphCanvas({
       clearExternalDrop()
       releaseDragCapture()
       setDrag(null)
+      setPendingPick(null)
       scheduleDraw()
     }
     const escape = (event: KeyboardEvent) => {
@@ -1185,8 +1487,52 @@ export function GraphCanvas({
     return () => {
       document.removeEventListener('keydown', escape)
       clearExternalDrop()
+      dragScrollDir.current = 0
     }
   }, [isDragging, scheduleDraw])
+
+  useEffect(() => {
+    if (!isDragging) {
+      dragScrollDir.current = 0
+      return
+    }
+    let frame = 0
+    const tick = () => {
+      const dir = dragScrollDir.current
+      const container = containerRef.current
+      if (dir !== 0 && container) {
+        const max = Math.max(0, container.scrollHeight - container.clientHeight)
+        const delta = dir * (DRAG_SCROLL_MIN + Math.abs(dir) * DRAG_SCROLL_EXTRA)
+        const next = Math.max(0, Math.min(max, container.scrollTop + delta))
+        if (next !== container.scrollTop) {
+          container.scrollTop = next
+          const source = dragStart.current?.entry
+          if (source) {
+            const found = resolveDropTargetRef.current(dragPoint.current.x, dragPoint.current.y, source)
+            dragTargetRect.current = found?.rect ?? null
+            dragTargetEntry.current = found?.entry ?? null
+            const nextTarget = found?.entry ?? null
+            setDrag((current) => {
+              if (!current) return current
+              const nextPick = found?.pick ?? null
+              if (
+                current.target?.fullName === nextTarget?.fullName &&
+                current.pick?.choices === nextPick?.choices &&
+                current.pick?.left === nextPick?.left &&
+                current.pick?.top === nextPick?.top
+              ) {
+                return current
+              }
+              return { ...current, target: nextTarget, pick: nextPick }
+            })
+          }
+        }
+      }
+      frame = window.requestAnimationFrame(tick)
+    }
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
+  }, [isDragging])
 
   useEffect(() => {
     if (!branchTarget) return
@@ -1225,11 +1571,14 @@ export function GraphCanvas({
     // Rows moved under a still cursor: drop the tooltip measured for the
     // previous offset instead of leaving a stale subject on screen.
     if (canvasRef.current) canvasRef.current.title = ''
+    hoveredRef.current = null
     const container = containerRef.current
     if (!container) {
       return
     }
     scrollTopRef.current = container.scrollTop
+    const head = headClipRef.current
+    if (head && head.scrollLeft !== container.scrollLeft) head.scrollLeft = container.scrollLeft
     if (
       !loading &&
       container.scrollTop + container.clientHeight >
@@ -1248,6 +1597,7 @@ export function GraphCanvas({
         const entry = resolveGraphRef(hit.raw, refEntries)
         if (entry && (entry.kind === 'branch' || entry.kind === 'remoteBranch')) {
           cancelRefClose()
+          setPendingPick(null)
           dragStart.current = { entry, x: event.clientX, y: event.clientY }
           dragPointerId.current = event.pointerId
           // Keep receiving moves/up outside the canvas so drops can land on
@@ -1269,28 +1619,41 @@ export function GraphCanvas({
       if (!drag) {
         setRefHover(null)
       }
+      dragPoint.current = { x: event.clientX, y: event.clientY }
+      updateDragScroll(event.clientX, event.clientY)
       const found = resolveDropTarget(event.clientX, event.clientY, start.entry)
       dragTargetRect.current = found?.rect ?? null
       dragTargetEntry.current = found?.entry ?? null
       scheduleDraw()
-      setDrag({ entry: start.entry, x: event.clientX, y: event.clientY, target: found?.entry ?? null })
+      setPendingPick(null)
+      setDrag({
+        entry: start.entry,
+        x: event.clientX,
+        y: event.clientY,
+        target: found?.entry ?? null,
+        pick: found?.pick ?? null,
+      })
       return
     }
     const bounds = event.currentTarget.getBoundingClientRect()
     const index = Math.floor((scrollTopRef.current + event.clientY - bounds.top) / ROW_HEIGHT)
     const hit = hitRef(event.clientX, event.clientY)
     const hoveredEntry = hit && !hit.overflow ? resolveGraphRef(hit.raw, refEntries) : undefined
-    hoverBranch(isCheckoutableRef(hoveredEntry) ? hit!.commit.sha : null)
+    if (isCheckoutableRef(hoveredEntry)) {
+      hoverBranch(hit!.commit.sha)
+    } else {
+      const commit = commits[index]
+      hoverBranch(commit ? (closestBranches.get(commit.sha)?.tip ?? null) : null)
+    }
     if (hit) {
       const refs = decorations.get(hit.commit.sha)
-      // One real ref (a branch and its own remote mirror count as one) leaves
-      // nothing to choose between: keep the tooltip, skip the menu.
-      if ((refs?.length ?? hit.commit.refs.length) < 2) {
+      // One branch (locals + remotes of the same name count as one) leaves
+      // nothing to choose between: keep the tooltip, skip the menu. The `+N`
+      // chip always opens the list so the overflowed names (e.g. `main`) show.
+      if (!hit.overflow && (refs?.length ?? hit.commit.refs.length) < 2) {
         if (refHover) closeRefSoon()
         const ref = refs?.[0]
-        event.currentTarget.title = ref
-          ? `${ref.label} · ${t(ref.mirrored ? 'graph.ref.kind.synced' : ref.kind === 'remote' ? 'graph.ref.kind.remote' : ref.kind === 'tag' ? 'graph.ref.kind.tag' : 'graph.ref.kind.local')}`
-          : ''
+        event.currentTarget.title = ref ? badgeTitle(ref, t) : ''
       } else {
         cancelRefClose()
         event.currentTarget.title = ''
@@ -1324,6 +1687,8 @@ export function GraphCanvas({
         ? resolveDropTarget(event.clientX, event.clientY, start.entry)
         : null
       const target = found?.entry ?? dragTargetEntry.current ?? drag.target
+      const pick = found?.pick ?? drag.pick
+      dropHoldRef.current = null
       dragTargetRect.current = null
       dragTargetEntry.current = null
       markExternalDrop(null)
@@ -1331,9 +1696,14 @@ export function GraphCanvas({
       scheduleDraw()
       if (start && target && onRefDrop) {
         onRefDrop(start.entry, target, event.clientX, event.clientY)
+        return
+      }
+      if (start && pick && dropBranchesFromRefs(pick.choices).length > 1) {
+        setPendingPick({ source: start.entry, choices: pick.choices, anchor: pick })
       }
       return
     }
+    dropHoldRef.current = null
     dragTargetRect.current = null
     dragTargetEntry.current = null
     markExternalDrop(null)
@@ -1427,8 +1797,14 @@ export function GraphCanvas({
   }
 
   return (
-    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--graph-head-x': `${headLane.x}px`, '--graph-head-color': headLane.color, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px` } as React.CSSProperties}>
-      <div className={styles.columns} style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(0,1fr) ${layout.author}px ${layout.date}px` }}>
+    <div className={styles.wrap} style={{ '--refs-width': `${layout.refs}px`, '--graph-width': `${layout.graph}px`, '--graph-head-x': `${headLane.x}px`, '--graph-head-color': headLane.color, '--author-width': `${layout.author}px`, '--date-width': `${layout.date}px`, '--graph-content-width': `${contentWidth}px` } as React.CSSProperties}>
+      <div className={styles.headClip} ref={headClipRef} data-role="graph-head" onScroll={(event) => {
+        const container = containerRef.current
+        const left = event.currentTarget.scrollLeft
+        if (container && container.scrollLeft !== left) container.scrollLeft = left
+      }}>
+        <div className={styles.headInner}>
+          <div className={styles.columns} data-role="graph-columns" style={{ gridTemplateColumns: `${layout.refs}px ${layout.graph}px minmax(${MIN_MESSAGE_WIDTH}px,1fr) ${layout.author}px ${layout.date}px` }}>
         <div className={styles.refsHeader}>
           <span>{layout.refs ? t('graph.column.refs') : ''}</span>
           {layout.refs && onBranchRequest ? (
@@ -1450,8 +1826,8 @@ export function GraphCanvas({
             : key === 'graph'
               ? layout.refs + layout.graph
               : key === 'author'
-                ? viewportWidth - layout.author - layout.date
-                : viewportWidth - layout.date
+                ? contentWidth - layout.author - layout.date
+                : contentWidth - layout.date
         return (
           <Resizer
             key={key}
@@ -1468,7 +1844,9 @@ export function GraphCanvas({
         )
       })}
       {worktreeRow}
-      <div className={styles.scroll} style={{ top: worktreeRow ? 64 : 32 }} ref={containerRef} onScroll={onScroll}>
+        </div>
+      </div>
+      <div className={styles.scroll} style={{ top: worktreeRow ? 64 : 32 }} ref={containerRef} onScroll={onScroll} data-role="graph-scroll">
         <div
           className={styles.spacer}
           style={{ height: Math.max(1, commits.length * ROW_HEIGHT) }}
@@ -1504,6 +1882,7 @@ export function GraphCanvas({
           data-dragging={drag ? 'true' : undefined}
           data-row-height={ROW_HEIGHT}
           data-head-x={headLane.x + layout.refs}
+          data-content-width={contentWidth}
           role="img"
           tabIndex={0}
           aria-label={t('graph.canvas.aria', { count: commits.length })}
@@ -1534,10 +1913,42 @@ export function GraphCanvas({
           role="status"
         >
           <strong>{drag.entry.name}</strong>
-          <span>{drag.target ? `→ ${drag.target.name}` : t('graph.drop.hint')}</span>
+          <span>
+            {drag.target
+              ? `→ ${graphRefGroupKey(drag.target)}`
+              : drag.pick
+                ? t('graph.drop.pick')
+                : t('graph.drop.hint')}
+          </span>
         </div>
       ) : null}
-      {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={() => { hoverBranch(null); closeRefSoon() }} onHoverRef={(raw) => { const entry = raw ? resolveGraphRef(raw, refEntries) : undefined; hoverBranch(isCheckoutableRef(entry) ? refHover.commit.sha : null) }} onCheckout={checkoutRef} onClose={() => { hoverBranch(null); setRefHover(null); canvasRef.current?.focus() }} /> : null}
+      {drag?.pick ? (
+        <GraphDropPicker
+          anchor={drag.pick}
+          choices={drag.pick.choices}
+          current={drag.target?.fullName ?? null}
+          interactive={false}
+          elementRef={dropPickRef}
+          remoteUrls={remoteUrls}
+        />
+      ) : null}
+      {!drag && pendingPick ? (
+        <GraphDropPicker
+          anchor={pendingPick.anchor}
+          choices={pendingPick.choices}
+          current={null}
+          interactive
+          elementRef={dropPickRef}
+          remoteUrls={remoteUrls}
+          onChoose={(entry) => {
+            const { source, anchor } = pendingPick
+            setPendingPick(null)
+            onRefDrop?.(source, entry, anchor.left, anchor.bottom)
+          }}
+          onClose={() => setPendingPick(null)}
+        />
+      ) : null}
+      {refHover ? <GraphRefPopover anchor={refHover} entries={refEntries} remoteUrls={remoteUrls} disabled={checkoutDisabled || !onCheckoutRef} elementRef={popupRef} onEnter={cancelRefClose} onLeave={() => { hoverBranch(null); closeRefSoon() }} onHoverRef={(raw) => { const entry = raw ? resolveGraphRef(raw, refEntries) : undefined; hoverBranch(isCheckoutableRef(entry) ? refHover.commit.sha : null) }} onCheckout={checkoutRef} onClose={() => { hoverBranch(null); setRefHover(null); canvasRef.current?.focus() }} /> : null}
       <span className={styles.srOnly} role="status" data-role="graph-selection">{selected ? commits.find((commit) => commit.sha === selected)?.subject : ''}</span>
     </div>
   )

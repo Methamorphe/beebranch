@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatDateTime, formatRelative, useI18n } from '../i18n'
 import { errorMessage } from '../ipc/client'
 import {
+  azureJobLog,
   githubJobLog,
   gitlabJobLog,
   openExternalUrl,
@@ -26,6 +27,8 @@ import styles from './PipelinesPanel.module.css'
 
 /** Slow enough to stay polite with the forge, fast enough to follow a run. */
 const REFRESH_MS = 30_000
+/** Must match HISTORY_PIPELINES in the pipeline_history command. */
+const HISTORY_PAGE = 30
 
 /** "3 hours ago" within the week, the absolute date beyond it. */
 function ageLabel(updatedAt: string | undefined): string | null {
@@ -60,15 +63,13 @@ type Context = {
 
 type Props = {
   repoId: string | null
-  /** Repository generation: any state change reloads the history. */
+  /** Repository generation: live refresh of page 1, never a pagination reset. */
   generation: number
 }
 
 /**
- * Pipelines of the linked project across every ref, with the stages and jobs
- * of the one the user opens, and the log of any job in place. Meant for the
- * repository navigator: the list stays compact and the detail replaces it, so
- * a narrow column remains readable.
+ * Pipelines of the linked project: the list stays on the left, jobs of the
+ * selected run fill the rest, and a job log opens in a dialog.
  */
 export function PipelinesPanel({ repoId, generation }: Props) {
   const { t } = useI18n()
@@ -85,19 +86,42 @@ export function PipelinesPanel({ repoId, generation }: Props) {
   const [logError, setLogError] = useState<string | null>(null)
   /** More than the first page is loaded: polling must not collapse it. */
   const [paged, setPaged] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const request = useRef(0)
+  const itemsRef = useRef<GitlabPipeline[]>([])
+  const pagedRef = useRef(false)
+  const generationSeen = useRef(generation)
+  const generationRef = useRef(generation)
 
   const loadPage = useCallback(
     async (page: number, append: boolean) => {
       if (!repoId) return
       const id = ++request.current
-      setLoading(true)
+      if (append) {
+        setLoadingMore(true)
+      } else {
+        setLoading(true)
+      }
       setError(null)
       try {
         const pageData: PipelineHistory = await pipelineHistory(repoId, page)
         if (id !== request.current) return
-        setItems((current) => (append ? [...current, ...pageData.items] : pageData.items))
-        setNextPage(pageData.nextPage)
+        const current = itemsRef.current
+        const extra = append
+          ? pageData.items.filter((item) => current.every((row) => row.id !== item.id))
+          : pageData.items
+        const next = append ? [...current, ...extra] : extra
+        itemsRef.current = next
+        setItems(next)
+        const more =
+          append && extra.length === 0
+            ? undefined
+            : pageData.nextPage != null && pageData.nextPage > page
+              ? pageData.nextPage
+              : pageData.items.length >= HISTORY_PAGE
+                ? page + 1
+                : undefined
+        setNextPage(more)
         if (!append) {
           setContext(
             pageData.projectId
@@ -113,7 +137,10 @@ export function PipelinesPanel({ repoId, generation }: Props) {
         if (id !== request.current) return
         setError(errorMessage(cause))
       } finally {
-        if (id === request.current) setLoading(false)
+        if (id === request.current) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
       }
     },
     [repoId],
@@ -149,7 +176,9 @@ export function PipelinesPanel({ repoId, generation }: Props) {
         const value =
           context.provider === 'github'
             ? await githubJobLog(request)
-            : await gitlabJobLog(request)
+            : context.provider === 'azure'
+              ? await azureJobLog(request)
+              : await gitlabJobLog(request)
         setLog((current) =>
           offset !== undefined && current
             ? { job, value: { ...value, text: `${current.value.text}\n${value.text}` } }
@@ -165,6 +194,12 @@ export function PipelinesPanel({ repoId, generation }: Props) {
   )
 
   useEffect(() => {
+    generationRef.current = generation
+    pagedRef.current = paged
+  })
+
+  useEffect(() => {
+    itemsRef.current = []
     setItems([])
     setNextPage(undefined)
     setContext(null)
@@ -173,8 +208,20 @@ export function PipelinesPanel({ repoId, generation }: Props) {
     setLog(null)
     setError(null)
     setPaged(false)
+    pagedRef.current = false
+    generationSeen.current = generationRef.current
     void loadPage(1, false)
-  }, [loadPage, generation])
+  }, [loadPage])
+
+  useEffect(() => {
+    if (generation === generationSeen.current) return
+    generationSeen.current = generation
+    if (pagedRef.current) {
+      if (selected !== null) void loadJobs(selected.id)
+      return
+    }
+    void loadPage(1, false)
+  }, [generation, loadPage, loadJobs, selected])
 
   useEffect(() => {
     if (selected === null) {
@@ -205,89 +252,100 @@ export function PipelinesPanel({ repoId, generation }: Props) {
       return
     }
     setPaged(false)
+    pagedRef.current = false
     void loadPage(1, false)
   }
 
   return (
-    <div className={styles.root}>
-      <div className={styles.bar}>
-        {selected ? (
-          <button type="button" className={styles.back} onClick={() => setSelected(null)}>
-            ‹ {t('shell.pipeline.history.back')}
-          </button>
-        ) : (
-          <span className={styles.caption}>{t('shell.pipeline.history.caption')}</span>
-        )}
-        <span className={styles.spacer} />
+    <div className={p2.screen}>
+      <div className={p2.toolbar}>
+        <span className={p2.meta}>{t('shell.pipeline.history.caption')}</span>
+        <span className={p2.spacer} />
         <button
           type="button"
-          className={styles.ghost}
-          disabled={loading || jobsBusy}
+          className={p2.ghost}
+          disabled={loading || loadingMore || jobsBusy}
           onClick={refresh}
         >
           {loading || jobsBusy ? t('shell.pipeline.refreshing') : t('shell.pipeline.refresh')}
         </button>
       </div>
 
-      {selected ? (
-        <PipelineDetail
-          pipeline={selected}
-          jobs={jobs}
-          jobsBusy={jobsBusy}
-          onOpen={() => {
-            if (selected.webUrl) void openExternalUrl(selected.webUrl)
-          }}
-          onJob={(job) => void loadLog(job)}
-        />
-      ) : (
-        <>
-          {items.length === 0 && !loading ? (
-            <p className={styles.hint}>{t('shell.pipeline.history.empty')}</p>
-          ) : (
-            <ul className={styles.list}>
-              {items.map((pipeline) => {
-                const state = pipelineState(pipeline.status)
-                return (
-                  <li key={pipeline.id}>
-                    <button
-                      type="button"
-                      className={styles.row}
-                      data-pipeline={pipeline.id}
-                      onClick={() => setSelected(pipeline)}
-                    >
-                      <span className={styles.dot} data-state={state} />
-                      <span className={styles.id}>#{pipeline.id}</span>
-                      <span className={styles.ref} title={pipeline.refName ?? undefined}>
-                        {pipelineRefLabel(pipeline.refName) ?? t('shell.pipeline.detached')}
-                      </span>
-                      <span className={styles.age}>{ageLabel(pipeline.updatedAt) ?? ''}</span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          {nextPage !== undefined ? (
-            <button
-              type="button"
-              className={styles.more}
-              disabled={loading}
-              onClick={() => {
-                setPaged(true)
-                void loadPage(nextPage, true)
-              }}
-            >
-              {t('shell.pipeline.history.loadMore')}
-            </button>
-          ) : null}
-        </>
-      )}
-
       {error ? (
-        <p className={styles.error} role="status">
+        <p className={p2.alert} role="status">
           {t('shell.pipeline.loadError')} {error}
         </p>
       ) : null}
+
+      <div className={p2.screenBody}>
+        <div className={p2.inbox}>
+          {items.length === 0 && !loading ? (
+            <div className={p2.empty} role="status">
+              <h2>{t('shell.pipeline.history.empty')}</h2>
+            </div>
+          ) : (
+            <div className={p2.scroller}>
+              <ul className={styles.list}>
+                {items.map((pipeline) => {
+                  const state = pipelineState(pipeline.status)
+                  return (
+                    <li key={pipeline.id}>
+                      <button
+                        type="button"
+                        className={styles.row}
+                        data-pipeline={pipeline.id}
+                        aria-current={selected?.id === pipeline.id ? 'true' : undefined}
+                        onClick={() => setSelected(pipeline)}
+                      >
+                        <span className={styles.dot} data-state={state} />
+                        <span className={styles.id}>#{pipeline.id}</span>
+                        <span className={styles.ref} title={pipeline.refName ?? undefined}>
+                          {pipelineRefLabel(pipeline.refName) ?? t('shell.pipeline.detached')}
+                        </span>
+                        <span className={styles.age}>{ageLabel(pipeline.updatedAt) ?? ''}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              {nextPage !== undefined ? (
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  disabled={loading || loadingMore}
+                  onClick={() => {
+                    setPaged(true)
+                    pagedRef.current = true
+                    void loadPage(nextPage, true)
+                  }}
+                >
+                  {loadingMore
+                    ? t('common.loading')
+                    : t('shell.pipeline.history.loadMore')}
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
+        <div className={p2.screenMain}>
+          {selected ? (
+            <PipelineDetail
+              pipeline={selected}
+              jobs={jobs}
+              jobsBusy={jobsBusy}
+              onOpen={() => {
+                if (selected.webUrl) void openExternalUrl(selected.webUrl)
+              }}
+              onJob={(job) => void loadLog(job)}
+            />
+          ) : (
+            <div className={p2.empty} role="status">
+              <h2>{t('shell.pipeline.history.pickTitle')}</h2>
+              <p>{t('shell.pipeline.history.pick')}</p>
+            </div>
+          )}
+        </div>
+      </div>
 
       <Dialog
         open={log !== null}

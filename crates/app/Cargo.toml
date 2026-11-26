@@ -10,6 +10,7 @@ beebranch-core = { path = "../core" }
 beebranch-git = { path = "../git" }
 beebranch-gitlab = { path = "../gitlab" }
 beebranch-github = { path = "../github" }
+beebranch-azure = { path = "../azure" }
 beebranch-store = { path = "../store" }
 base64.workspace = true
 serde.workspace = true
@@ -24,6 +25,9 @@ tokio.workspace = true
 url.workspace = true
 portable-pty = "0.9.0"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-usernotifications = "0.3.1"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 # `ShellExecuteW` opens an https URL with the registered browser handler; the
 # `explorer` binary instead parses its arguments as shell items.
@@ -32,6 +36,7 @@ windows-sys = { version = "0.61", features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
+tauri-winrt-notification = "0.8"
 
 [dev-dependencies]
 minisign-verify = "0.3.0"

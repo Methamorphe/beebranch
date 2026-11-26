@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { ViewId } from '../data/navigation'
 import { operationJournal, refsGet } from '../ipc/commands'
-import { errorMessage } from '../ipc/client'
+import { presentError } from '../ipc/client'
 import { formatNumber, useI18n, type I18n, type MessageKey } from '../i18n'
 import type { OperationRecord, RepoView } from '../types/git'
 import { ActionMenu } from './ActionMenu'
+import type { ToastNotice } from './ui/Toasts'
 import { ViewIcon } from './ViewIcon'
 import styles from './StatusBar.module.css'
 
@@ -16,7 +17,7 @@ type Props = {
   onCheckoutBranch: (name: string) => Promise<unknown>
   onNewBranch: () => void
   onUndo: () => void
-  onError: (message: string) => void
+  onError: (message: string | ToastNotice) => void
 }
 
 function branchName(repo: RepoView | null): string {
@@ -90,7 +91,7 @@ export function StatusBar({
           .map((entry) => entry.name),
       )
     } catch (cause) {
-      onError(errorMessage(cause))
+      onError(presentError(cause))
     } finally {
       setBranchesLoading(false)
     }
@@ -104,7 +105,7 @@ export function StatusBar({
         records.filter((record) => !record.repoId || record.repoId === repoId),
       )
     } catch (cause) {
-      onError(errorMessage(cause))
+      onError(presentError(cause))
     } finally {
       setJournalLoading(false)
     }
@@ -115,7 +116,7 @@ export function StatusBar({
     try {
       await onCheckoutBranch(name)
     } catch (cause) {
-      onError(errorMessage(cause))
+      onError(presentError(cause))
     } finally {
       setBranchPending(null)
     }

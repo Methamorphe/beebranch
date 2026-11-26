@@ -53,8 +53,8 @@ const messages = {
   'search.savedLabel': 'Saved searches',
   'search.savedAria': 'Saved searches',
   'search.savedRemove': 'Delete the search {label}',
-  'search.intro':
-    'Choose the search type, enter a term then run the search. You can cancel a search in progress.',
+  'search.options': 'Filters',
+  'search.intro': 'Pick a type, enter a term, then search.',
   'search.runningTitle': 'Search in progress…',
   'search.runningBody':
     'Results will appear as soon as the repository has answered.',

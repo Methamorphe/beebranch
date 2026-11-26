@@ -1,6 +1,42 @@
 .popup { position:fixed; z-index:45; width:max-content; min-width:96px; max-width:min(260px, calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:3px; border:1px solid var(--border-strong); border-radius:var(--radius); color:var(--text); background:var(--surface); box-shadow:var(--shadow-pop); }
+.popup[data-passive='true'] { pointer-events: none; }
+.group { display:flex; flex-direction:column; gap:1px; }
+.group + .group { margin-top:3px; padding-top:3px; border-top:1px solid var(--border); }
+.groupLabel { padding:1px 6px 2px; color:var(--muted); font-size:11px; }
 .reference { display:flex; align-items:center; gap:7px; width:100%; min-height:24px; padding:3px 6px; text-align:left; font-size:12px; line-height:1.35; }
 .reference > svg { flex:none; width:14px; height:14px; color:var(--accent-text); }
 .reference > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .reference:disabled { opacity:1; color:var(--muted); cursor:default; }
 .reference:disabled > svg { color:var(--muted); }
+.reference[data-current='true'] {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.kind {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.reference[data-current='true'] .kind { color: var(--accent-text); }
+.marks {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--muted);
+}
+.marks > svg,
+.marks > span {
+  display: flex;
+  flex: none;
+}
+.marks svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+}
+.marks svg[data-provider='gitlab'] { color: #e24329; }
+.marks svg[data-provider='github'] { color: var(--text); }
+.marks svg[data-provider='azure'] { color: #0078d4; }
+.reference[data-current='true'] .marks svg { color: var(--accent-text); }
+.reference[data-current='true'] .marks svg[data-provider] { color: var(--accent-text); }

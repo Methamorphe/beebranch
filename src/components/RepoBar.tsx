@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RepoView, StashEntry, UndoEntry } from '../types/git'
-import { errorMessage } from '../ipc/client'
+import { errorMessage, presentError } from '../ipc/client'
 import { branchCheckout, refsGet, stashCreate, stashList, stashPop, syncFetch, syncPull, syncPush } from '../ipc/commands'
 import { checkoutStashMessage } from '../lib/checkoutStash'
 import { pullNotice } from '../lib/syncNotice'
@@ -13,7 +13,7 @@ import { PipelineStatus } from './PipelineStatus'
 import { useCheckoutConfirm, useOperationConfirm, usePushConfirm, useStashPopConfirm } from './OperationConfirm'
 import { PublishBranchBar, type PublishChoice, type PublishTarget } from './PublishBranchBar'
 import { ToolbarIcon } from './ToolbarIcon'
-import { useToastChannel } from './ui/Toasts'
+import { useToastChannel, type ToastNotice } from './ui/Toasts'
 import styles from './RepoBar.module.css'
 
 type Props = {
@@ -25,7 +25,7 @@ type Props = {
   onRefresh: () => void
   onNavigate: (view: ViewId) => void
   onNewBranch: () => void
-  onError: (message: string) => void
+  onError: (message: string | ToastNotice) => void
   /** A push Git refused: the dialog decides between pull and force. */
   onPushRejected: (rejection: PushRejection) => void
   undo: UndoEntry | null
@@ -106,7 +106,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
       // A refused push is a decision, not an error: the recovery bar owns
       // the fetch, the pull and the confirmed force push.
       if (pushTarget && isPushRejection(cause)) onPushRejected(pushTarget)
-      else onError(errorMessage(cause))
+      else onError(presentError(cause))
     }
     finally { setPending(null) }
   }
@@ -133,7 +133,7 @@ export function RepoBar({ repo, repos, busy, onActivate, onOpenDialog, onRefresh
       })
       .catch((cause) => {
         setPending(null)
-        onError(errorMessage(cause))
+        onError(presentError(cause))
       })
   }
   const publishBranch = (choice: PublishChoice) => {

@@ -18,6 +18,8 @@ const messages = {
 
   'graph.canvas.aria': 'History graph, {count} commits loaded',
   'graph.drop.hint': 'Drop onto a branch',
+  'graph.drop.pick': 'Choose the destination branch',
+  'graph.drop.pickAria': 'Destination branches',
 
   'graph.find.placeholder': 'Find in commit messages…',
   'graph.find.aria': 'Find in loaded commit messages',

@@ -84,3 +84,10 @@ export function buildBranchRows(
   walk(buildNodes(entries), 0)
   return rows
 }
+
+/** Branches whose name is `folderPath` or lives under it (`release/dev`). */
+export function refsInFolder(entries: RefEntry[], folderPath: string): RefEntry[] {
+  if (!folderPath) return entries
+  const prefix = `${folderPath}/`
+  return entries.filter((entry) => entry.name === folderPath || entry.name.startsWith(prefix))
+}

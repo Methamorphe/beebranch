@@ -1,6 +1,6 @@
 // Run: node --experimental-strip-types scripts/graph-branch-focus-check.ts
 import assert from 'node:assert/strict'
-import { graphBranchFocus } from '../src/lib/graphBranchFocus.ts'
+import { graphBranchFocus, graphClosestBranches } from '../src/lib/graphBranchFocus.ts'
 import type { CommitSummary, GraphRow } from '../src/types/git.ts'
 
 const commit = (sha: string, parents: string[]): CommitSummary => ({ sha, parents, refs: [], subject: sha, author: { name: '', email: '', timestamp: 0 }, committer: { name: '', email: '', timestamp: 0 } })
@@ -34,4 +34,28 @@ const shared = graphBranchFocus([commit('other', ['base']), commit('merge', ['le
 ], 'merge')
 assert.equal(shared.lanes[1]!.top.has(0), false)
 assert.equal(shared.lanes[1]!.bottom.has(0), true)
-console.log('Branch focus: ancestry, merges, shared rails, lane reuse and pagination passed.')
+
+const closest = graphClosestBranches(
+  commits,
+  [
+    ['main', [{ label: 'main' }]],
+    ['topic', [{ label: 'topic' }]],
+  ],
+  (ref) => ref.label,
+)
+assert.equal(closest.get('topic')?.refs[0]?.label, 'topic')
+assert.equal(closest.get('merge')?.refs[0]?.label, 'topic')
+assert.equal(closest.get('left')?.refs[0]?.label, 'topic')
+assert.equal(closest.get('right')?.refs[0]?.label, 'topic', 'second parent of the merge stays on topic')
+assert.equal(closest.get('main')?.refs[0]?.label, 'main')
+assert.equal(closest.get('base')?.refs[0]?.label, 'main', 'shared ancestor prefers the closer tip')
+assert.equal(closest.has('other'), false, 'unrelated history has no covering branch')
+assert.deepEqual(
+  graphClosestBranches(
+    commits,
+    [['main', [{ label: 'main' }, { label: 'origin/main' }]]],
+    (ref) => ref.label,
+  ).get('main')?.refs.map((ref) => ref.label),
+  ['main', 'origin/main'],
+)
+console.log('Branch focus: ancestry, merges, shared rails, lane reuse, pagination and closest branch passed.')

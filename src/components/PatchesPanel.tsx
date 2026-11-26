@@ -102,7 +102,7 @@ export function PatchesPanel({ repoId, onMutated }: Props) {
             <button
               key={item.value}
               type="button"
-              className={kind === item.value ? p2.segmentOn : p2.segment}
+              className={`${p2.segment} ${kind === item.value ? p2.segmentOn : ''}`}
               aria-pressed={kind === item.value}
               onClick={() => setKind(item.value)}
             >

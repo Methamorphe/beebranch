@@ -16,7 +16,7 @@ export const SIDEBAR_MIN = 180
 export const SIDEBAR_MAX = 420
 export const INSPECTOR_MIN = 300
 export const INSPECTOR_MAX = 760
-/** The message column keeps this much room before fixed columns are shrunk. */
+/** Absolute floor when fitting into a viewport: the user may still hide a column. */
 export const MIN_MESSAGE_WIDTH = 160
 export const COLUMN_FLOORS: GraphColumnWidths = {
   refs: 0,
@@ -44,20 +44,34 @@ export function defaultLayout(): LayoutPreferences {
   return { sidebar: 210, inspector: defaultInspectorWidth(), graph: null }
 }
 
-/**
- * The message column is flexible; fixed columns are shrunk when the viewport
- * cannot honour every stored width (small window, narrow split).
- */
-export function clampColumnWidths(
-  width: number,
-  wanted: GraphColumnWidths,
-): GraphColumnWidths {
-  const next: GraphColumnWidths = {
+/** Clamp each column to its floor and ceiling without fitting a viewport. */
+export function boundColumnWidths(wanted: GraphColumnWidths): GraphColumnWidths {
+  return {
     refs: clamp(wanted.refs, COLUMN_FLOORS.refs, COLUMN_CEILINGS.refs),
     graph: clamp(wanted.graph, COLUMN_FLOORS.graph, COLUMN_CEILINGS.graph),
     author: clamp(wanted.author, COLUMN_FLOORS.author, COLUMN_CEILINGS.author),
     date: clamp(wanted.date, COLUMN_FLOORS.date, COLUMN_CEILINGS.date),
   }
+}
+
+/** Minimum inner width that keeps every requested column and the message. */
+export function graphContentWidth(
+  columns: GraphColumnWidths,
+  message = MIN_MESSAGE_WIDTH,
+) {
+  return columns.refs + columns.graph + columns.author + columns.date + message
+}
+
+/**
+ * The message column is flexible; extra width above the floors is given back
+ * when `width` is tight. Remaining overflow is left in place so the graph can
+ * scroll horizontally instead of dropping a column.
+ */
+export function clampColumnWidths(
+  width: number,
+  wanted: GraphColumnWidths,
+): GraphColumnWidths {
+  const next = boundColumnWidths(wanted)
   let excess =
     next.refs + next.graph + next.author + next.date -
     (width - MIN_MESSAGE_WIDTH)

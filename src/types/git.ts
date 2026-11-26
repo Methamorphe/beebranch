@@ -673,7 +673,7 @@ export type PipelineHistory = {
 }
 
 export type PipelineOverview = {
-  provider: 'gitlab' | 'github'
+  provider: 'gitlab' | 'github' | 'azure'
   projectId: number
   projectPath: string
   projectName: string

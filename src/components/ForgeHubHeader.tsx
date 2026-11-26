@@ -6,22 +6,24 @@ import styles from './GitlabPanel.module.css'
 export type ForgeHubTab = 'reviews' | 'projects' | 'connection'
 
 type Props = {
-  provider: 'gitlab' | 'github'
+  provider: 'gitlab' | 'github' | 'azure'
   session: GitlabSession | null
   active: ForgeHubTab
   count: number
   onSelect: (tab: ForgeHubTab) => void
 }
 
+const LABELS = { gitlab: 'GitLab', github: 'GitHub', azure: 'Azure DevOps' } as const
+
 export function ForgeHubHeader({ provider, session, active, count, onSelect }: Props) {
   const { t } = useI18n()
-  const label = provider === 'gitlab' ? 'GitLab' : 'GitHub'
+  const label = LABELS[provider]
   return <>
     <header className={styles.hubHeader}>
       <ForgeLogo provider={provider} size={22} />
       <div className={styles.hubHeading}>
         <h2>{label}</h2>
-        <p>{t(provider === 'gitlab' ? 'forge.hub.gitlab.subtitle' : 'forge.hub.github.subtitle')}</p>
+        <p>{t(provider === 'gitlab' ? 'forge.hub.gitlab.subtitle' : provider === 'github' ? 'forge.hub.github.subtitle' : 'forge.hub.azure.subtitle')}</p>
       </div>
       <div className={styles.account}>
         {session?.connected ? <>
@@ -46,7 +48,7 @@ export function ForgeHubHeader({ provider, session, active, count, onSelect }: P
           const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
           tabs[next]?.click(); tabs[next]?.focus()
         }}>
-        {tab === 'reviews' ? t(provider === 'gitlab' ? 'forge.gitlab.title' : 'forge.github.title') : t(tab === 'projects' ? 'forge.hub.projects' : 'forge.hub.connection')}
+        {tab === 'reviews' ? t(provider === 'gitlab' ? 'forge.gitlab.title' : provider === 'github' ? 'forge.github.title' : 'forge.azure.title') : t(tab === 'projects' ? 'forge.hub.projects' : 'forge.hub.connection')}
         {tab === 'projects' && session?.connected ? <span>{count}</span> : null}
       </button>)}
     </div>

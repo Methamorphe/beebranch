@@ -19,13 +19,15 @@ import {
   assembleRegions,
   choiceKind,
   countMarkers,
+  pairConflictLines,
   presetChoice,
   sideNames,
+  sortieWindow,
   type Choices,
-  type PresetKind,
+  type ChoiceKind,
+  type DiffToken,
   type RegionChoice,
 } from './conflictResolution'
-import { ToolbarIcon } from './ToolbarIcon'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -37,6 +39,16 @@ type Props = {
 }
 
 type Translate = (key: MessageKey, params?: TranslationParams) => string
+
+function DiffText({ tokens }: { tokens: DiffToken[] }) {
+  return (
+    <code>
+      {tokens.map((token, index) => token.changed
+        ? <mark key={index}>{token.text}</mark>
+        : <span key={index}>{token.text}</span>)}
+    </code>
+  )
+}
 
 function operationLabel(
   operation: InProgressOperation | undefined,
@@ -79,6 +91,8 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
   /** The result was typed by hand: a per-conflict choice would rewrite it. */
   const [manualEdit, setManualEdit] = useState(false)
   const [lineMode, setLineMode] = useState<Record<number, boolean>>({})
+  const [active, setActive] = useState(0)
+  const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const request = useRef(0)
@@ -107,6 +121,8 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
     setRegionChoices({})
     setLineMode({})
     setManualEdit(false)
+    setActive(0)
+    setEditing(false)
   }, [signature])
 
   useEffect(() => {
@@ -237,6 +253,8 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
     setRegionChoices(choices)
     setContent(assembleRegions(working, regions, choices))
     setManualEdit(false)
+    setEditing(false)
+    setActive(region.index)
     markDirty()
   }
 
@@ -354,15 +372,36 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
     }
   }
 
-  const contextLine = view && !view.binary && !view.tooLarge
-    ? t(`ops.conflicts.context.${names.source}`, { ours: oursName, theirs: theirsName })
-    : null
-
-  const presets: { kind: PresetKind; label: string }[] = [
-    { kind: 'ours', label: t('ops.conflicts.choice.keep', { name: oursName }) },
-    { kind: 'theirs', label: t('ops.conflicts.choice.keep', { name: theirsName }) },
-    { kind: 'both', label: t('ops.conflicts.choice.both', { first: oursName, second: theirsName }) },
-  ]
+  const activeRegion = regions.find((region) => region.index === active) ?? regions[0]
+  const sortieLines = activeRegion
+    ? sortieWindow(working, regions, regionChoices, activeRegion.index)
+    : []
+  const showRegion = (index: number) => {
+    setActive(index)
+    regionsRef.current
+      ?.querySelector(`[data-region="${index}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }
+  const keepLabel = (kind: ChoiceKind | null, side: 'ours' | 'theirs') => {
+    if (kind === 'both') return t('ops.conflicts.choice.included')
+    if (kind === side) return t('ops.conflicts.choice.keptSide')
+    return t('ops.conflicts.choice.keepSide')
+  }
+  const activeChoice = activeRegion ? regionChoices[activeRegion.index] : undefined
+  const activeKind = activeChoice ? choiceKind(activeChoice) : null
+  const outputLabel = manualEdit
+    ? t('ops.conflicts.manualEdited')
+    : activeKind === 'ours'
+      ? oursName
+      : activeKind === 'theirs'
+        ? theirsName
+        : activeKind === 'both'
+          ? t('ops.conflicts.choice.bothShort')
+          : activeKind === 'base'
+            ? t('ops.conflicts.choice.origin')
+            : activeKind === 'custom'
+              ? t('ops.conflicts.region.custom')
+              : t('ops.conflicts.output.undecided')
 
   const blockedReason = !editable
     ? null
@@ -448,7 +487,6 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                   setSelected(path)
                 }}
               >
-                <span className={p2.warn} aria-hidden="true"><ToolbarIcon name="warning" size={12} /></span>
                 <span className={p2.listSub} style={{ color: 'var(--text)' }}>{path}</span>
               </button>
             ))}
@@ -456,43 +494,31 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
         ) : null}
 
         <div className={p2.conflictMain}>
-          <div className={`${p2.footer} ${p2.small}`} style={{ borderTop: 0 }}>
-            <strong className={p2.mono} style={{ color: 'var(--text)' }}>{selected}</strong>
-            {regions.length ? (
-              <span className={`${p2.chip} ${decided === regions.length ? p2.chipGood : p2.chipWarn}`}>
-                {t('ops.conflicts.progress', {
-                  done: formatNumber(decided),
-                  total: formatNumber(regions.length),
-                })}
-              </span>
-            ) : null}
-            <span className={p2.spacer} />
-            {pendingRegions > 0 && regions.length > 1 ? (
-              <button type="button" className={p2.ghost} onClick={scrollToNextPending}>
-                {t('ops.conflicts.nextPending')}
-              </button>
-            ) : null}
-            {files.length > 1 ? (
-              <>
-                <button type="button" className={p2.ghost} onClick={() => move(-1)}>
-                  {t('ops.conflicts.previousFile')}
-                </button>
-                <span className={p2.muted}>
-                  {formatNumber(index + 1)} / {formatNumber(files.length)}
+          {files.length > 1 ? (
+            <div className={p2.toolbarRow}>
+              {regions.length ? (
+                <span className={`${p2.chip} ${decided === regions.length ? p2.chipGood : p2.chipWarn}`}>
+                  {t('ops.conflicts.progress', {
+                    done: formatNumber(decided),
+                    total: formatNumber(regions.length),
+                  })}
                 </span>
-                <button type="button" className={p2.ghost} onClick={() => move(1)}>
-                  {t('ops.conflicts.nextFile')}
-                </button>
-              </>
-            ) : null}
-          </div>
-
-          {contextLine ? (
-            <div className={p2.conflictContext}>
-              <span>{contextLine}</span>
-              {names.source === 'stash' ? (
-                <span className={p2.muted}>{t('ops.conflicts.context.stashHint')}</span>
               ) : null}
+              {pendingRegions > 0 && regions.length > 1 ? (
+                <button type="button" className={p2.ghost} onClick={scrollToNextPending}>
+                  {t('ops.conflicts.nextPending')}
+                </button>
+              ) : null}
+              <span className={p2.spacer} />
+              <button type="button" className={p2.ghost} onClick={() => move(-1)}>
+                {t('ops.conflicts.previousFile')}
+              </button>
+              <span className={p2.muted}>
+                {formatNumber(index + 1)} / {formatNumber(files.length)}
+              </span>
+              <button type="button" className={p2.ghost} onClick={() => move(1)}>
+                {t('ops.conflicts.nextFile')}
+              </button>
             </div>
           ) : null}
 
@@ -500,7 +526,6 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
             <div className={p2.empty}>
               <h2>{t('ops.conflicts.binaryTitle')}</h2>
               <p>{t('ops.conflicts.binaryBody')}</p>
-              <p className={p2.muted}>{t('ops.conflicts.binaryHint')}</p>
             </div>
           ) : view?.tooLarge ? (
             <div className={p2.empty}>
@@ -514,80 +539,127 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                   {regions.map((region) => {
                     const choice = regionChoices[region.index]
                     const kind = choice ? choiceKind(choice) : null
+                    const linesOn = Boolean(lineMode[region.index])
+                    const rows = pairConflictLines(region.ours, region.theirs)
+                    const sideCell = (side: 'ours' | 'theirs', rowIndex: number) => {
+                      const cell = rows[rowIndex]?.[side]
+                      if (!cell || cell.kind === 'pad') {
+                        return <div key={`${side}-${rowIndex}`} className={`${p2.diffLine} ${p2.diffPad}`} />
+                      }
+                      return (
+                        <button
+                          key={`${side}-${rowIndex}`}
+                          type="button"
+                          className={`${p2.diffLine} ${cell.kind === 'same' ? p2.diffSame : side === 'ours' ? p2.diffOurs : p2.diffTheirs}`}
+                          disabled={!editable}
+                          onClick={() => choose(region, presetChoice(region, side))}
+                        >
+                          <span className={p2.diffNum}>{formatNumber(region.start + 1 + rowIndex)}</span>
+                          <DiffText tokens={cell.tokens} />
+                        </button>
+                      )
+                    }
                     return (
-                      <section key={region.index} data-region={region.index} className={p2.region}>
+                      <section
+                        key={region.index}
+                        data-region={region.index}
+                        className={p2.hunk}
+                        onClick={() => setActive(region.index)}
+                      >
                         <div className={p2.regionHeader}>
-                          <strong>
-                            {t('ops.conflicts.region.title', {
+                          {selected ? (
+                            <strong className={p2.mono} title={selected}>
+                              {selected.split(/[/\\]/).pop()}
+                            </strong>
+                          ) : null}
+                          <span className={p2.muted}>
+                            {t(regions.length > 1 ? 'ops.conflicts.region.title' : 'ops.conflicts.output.lines', {
                               index: formatNumber(region.index + 1),
                               total: formatNumber(regions.length),
                               start: formatNumber(region.start),
                               end: formatNumber(region.end),
                             })}
-                          </strong>
+                          </span>
                           <span className={`${p2.chip} ${kind ? p2.chipGood : p2.chipWarn}`}>
                             {t(kind === 'custom'
                               ? 'ops.conflicts.region.custom'
                               : kind ? 'ops.conflicts.region.decided' : 'ops.conflicts.region.pending')}
                           </span>
                           <span className={p2.spacer} />
-                          <label className={`${p2.checkbox} ${p2.small}`}>
-                            <input
-                              type="checkbox"
+                          <div className={`${p2.regionActions} ${p2.conflictChoices}`}>
+                            <button
+                              type="button"
+                              className={kind === 'both' ? p2.choiceOn : p2.secondary}
+                              aria-pressed={kind === 'both'}
                               disabled={!editable}
-                              checked={Boolean(lineMode[region.index])}
-                              onChange={(event) => setLineMode({ ...lineMode, [region.index]: event.target.checked })}
-                            />
-                            {t('ops.conflicts.choice.lines')}
-                          </label>
+                              title={t('ops.conflicts.choice.both', { first: oursName, second: theirsName })}
+                              onClick={() => choose(region, presetChoice(region, 'both'))}
+                            >
+                              {t('ops.conflicts.choice.bothShort')}
+                            </button>
+                            {region.base.length ? (
+                              <button
+                                type="button"
+                                className={kind === 'base' ? p2.choiceOn : p2.secondary}
+                                aria-pressed={kind === 'base'}
+                                disabled={!editable}
+                                title={t('ops.conflicts.choice.base')}
+                                onClick={() => choose(region, presetChoice(region, 'base'))}
+                              >
+                                {t('ops.conflicts.choice.origin')}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              className={linesOn ? p2.choiceOn : p2.secondary}
+                              aria-pressed={linesOn}
+                              disabled={!editable}
+                              onClick={() => setLineMode({ ...lineMode, [region.index]: !linesOn })}
+                            >
+                              {t('ops.conflicts.choice.lines')}
+                            </button>
+                          </div>
                         </div>
-                        <div className={p2.regionSides}>
-                          <div className={`${p2.regionSide} ${kind === 'ours' || kind === 'both' ? p2.regionSideOn : ''}`}>
-                            <span className={p2.regionSideTitle}>
+                        {linesOn ? (
+                          <div className={p2.regionSides}>
+                            <div className={p2.regionSide}>
+                              <span className={p2.regionSideTitle}>
+                                <span className={p2.good}>{oursName}</span>
+                              </span>
+                              {renderLines(region, 'ours', choice)}
+                            </div>
+                            <div className={p2.regionSide}>
+                              <span className={p2.regionSideTitle}>
+                                <span className={p2.diffNameTheirs}>{theirsName}</span>
+                              </span>
+                              {renderLines(region, 'theirs', choice)}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className={p2.diff}>
+                            <button
+                              type="button"
+                              className={`${p2.diffHead} ${kind === 'ours' || kind === 'both' ? p2.diffHeadOn : ''}`}
+                              aria-label={t('ops.conflicts.choice.keep', { name: oursName })}
+                              disabled={!editable}
+                              onClick={() => choose(region, presetChoice(region, 'ours'))}
+                            >
                               <span className={p2.good}>{oursName}</span>
-                              <span className={p2.muted}>{t('ops.conflicts.side.ours')}</span>
-                            </span>
-                            {renderLines(region, 'ours', choice)}
-                          </div>
-                          <div className={`${p2.regionSide} ${kind === 'theirs' || kind === 'both' ? p2.regionSideOn : ''}`}>
-                            <span className={p2.regionSideTitle}>
-                              <span style={{ color: 'var(--info)' }}>{theirsName}</span>
-                              <span className={p2.muted}>{t('ops.conflicts.side.theirs')}</span>
-                            </span>
-                            {renderLines(region, 'theirs', choice)}
-                          </div>
-                        </div>
-                        {region.base.length ? (
-                          <details className={p2.regionBaseBox}>
-                            <summary className={p2.muted}>{t('ops.conflicts.side.base')}</summary>
-                            <pre className={p2.conflictCode}>{region.base.join('\n')}</pre>
-                          </details>
-                        ) : null}
-                        <div className={p2.regionActions}>
-                          {presets.map((preset) => (
-                            <button
-                              key={preset.kind}
-                              type="button"
-                              className={kind === preset.kind ? p2.choiceOn : p2.secondary}
-                              aria-pressed={kind === preset.kind}
-                              disabled={!editable}
-                              onClick={() => choose(region, presetChoice(region, preset.kind))}
-                            >
-                              {preset.label}
+                              <span className={p2.diffVerb}>{keepLabel(kind, 'ours')}</span>
                             </button>
-                          ))}
-                          {region.base.length ? (
                             <button
                               type="button"
-                              className={kind === 'base' ? p2.choiceOn : p2.secondary}
-                              aria-pressed={kind === 'base'}
+                              className={`${p2.diffHead} ${kind === 'theirs' || kind === 'both' ? p2.diffHeadOn : ''}`}
+                              aria-label={t('ops.conflicts.choice.keep', { name: theirsName })}
                               disabled={!editable}
-                              onClick={() => choose(region, presetChoice(region, 'base'))}
+                              onClick={() => choose(region, presetChoice(region, 'theirs'))}
                             >
-                              {t('ops.conflicts.choice.base')}
+                              <span className={p2.diffNameTheirs}>{theirsName}</span>
+                              <span className={p2.diffVerb}>{keepLabel(kind, 'theirs')}</span>
                             </button>
-                          ) : null}
-                        </div>
+                            {rows.flatMap((_, rowIndex) => [sideCell('ours', rowIndex), sideCell('theirs', rowIndex)])}
+                          </div>
+                        )}
                       </section>
                     )
                   })}
@@ -606,18 +678,84 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                   </button>
                 </div>
               ) : null}
-              <div className={p2.resolve}>
-                <div className={p2.resolveHeader}>
-                  <strong style={{ color: 'var(--text)' }}>{t('ops.conflicts.result')}</strong>
-                  <span className={p2.muted}>
-                    {manualEdit ? t('ops.conflicts.manualEdited') : t('ops.conflicts.resultHint')}
-                  </span>
+              <div className={regions.length ? p2.sortie : p2.resolve}>
+                <div className={regions.length ? p2.sortieHead : p2.resolveHeader}>
+                  <strong style={{ color: 'var(--text)' }}>
+                    {regions.length ? t('ops.conflicts.output') : t('ops.conflicts.result')}
+                  </strong>
+                  {activeRegion ? (
+                    <span className={p2.muted}>
+                      {t('ops.conflicts.output.lines', {
+                        start: formatNumber(activeRegion.start),
+                        end: formatNumber(activeRegion.end),
+                      })}
+                    </span>
+                  ) : null}
+                  {activeRegion ? (
+                    <span className={manualEdit ? p2.muted : activeKind === 'ours' ? p2.good : activeKind === 'theirs' ? p2.diffNameTheirs : activeKind ? p2.good : p2.warn}>
+                      {outputLabel}
+                    </span>
+                  ) : manualEdit ? (
+                    <span className={p2.muted}>{t('ops.conflicts.manualEdited')}</span>
+                  ) : null}
                   <span className={p2.spacer} />
+                  {regions.length > 1 && activeRegion ? (
+                    <>
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        disabled={activeRegion.index <= 0}
+                        onClick={() => showRegion(activeRegion.index - 1)}
+                      >
+                        {t('ops.conflicts.output.previous')}
+                      </button>
+                      <span className={p2.muted}>
+                        {t('ops.conflicts.output.position', {
+                          index: formatNumber(activeRegion.index + 1),
+                          total: formatNumber(regions.length),
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        className={p2.ghost}
+                        disabled={activeRegion.index >= regions.length - 1}
+                        onClick={() => showRegion(activeRegion.index + 1)}
+                      >
+                        {t('ops.conflicts.output.next')}
+                      </button>
+                    </>
+                  ) : null}
+                  {regions.length ? (
+                    <button type="button" className={p2.secondary} disabled={!editable} onClick={() => setEditing((open) => !open)}>
+                      {editing ? t('ops.conflicts.output.closeEdit') : t('ops.conflicts.output.edit')}
+                    </button>
+                  ) : null}
                   <button type="button" className={p2.ghost} disabled={!editable || !dirty} onClick={startOver}>
                     {t('ops.conflicts.startOver')}
                   </button>
                 </div>
+                {regions.length && !editing && !manualEdit ? (
+                  <div className={p2.sortieBody}>
+                    {sortieLines.map((line, index) => (
+                      <div
+                        key={`${line.role}-${line.number}-${index}`}
+                        className={`${p2.outLine} ${line.role === 'focus' ? p2.outFocus : line.role === 'pending' ? p2.outPending : p2.outContext}`}
+                        data-kind={line.role}
+                      >
+                        <span className={p2.outNum}>
+                          {line.role === 'pending' && line.end != null
+                            ? `${formatNumber(line.number)}–${formatNumber(line.end)}`
+                            : formatNumber(line.number)}
+                        </span>
+                        {line.role === 'pending'
+                          ? <span>{t('ops.conflicts.output.waiting')}</span>
+                          : <code>{line.text || ' '}</code>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
                 <textarea
+                  className={regions.length ? p2.sortieEditor : undefined}
                   value={content}
                   disabled={!editable}
                   onChange={(event) => {
@@ -628,6 +766,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
                   spellCheck={false}
                   aria-label={t('ops.conflicts.resolveAria')}
                 />
+                )}
                 <div className={p2.footer}>
                   {blockedReason ? <span className={p2.warn}>{blockedReason}</span> : null}
                   {markersLeft > 0 && editable && pendingRegions === 0 ? (
@@ -658,9 +797,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
       )}
       {controllable ? (
         <div className={p2.footerBar}>
-          <span className={p2.muted}>
-            {t('ops.conflicts.operation', { operation: operationLabel(state.operation, t) })}
-          </span>
+          <span className={p2.muted}>{operationLabel(state.operation, t)}</span>
           <span className={p2.spacer} />
           {skippable ? (
             <button
@@ -674,7 +811,7 @@ function ConflictWorkspace({ repoId, generation, state, onMutated, onDirtyChange
           ) : null}
           <button
             type="button"
-            className={p2.primary}
+            className={files.length > 0 ? p2.secondary : p2.primary}
             disabled={busy || files.length > 0}
             onClick={() => void operation('continue')}
           >

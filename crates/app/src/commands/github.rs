@@ -196,6 +196,25 @@ fn cancel_oauth_refresh(state: &AppState) {
     }
 }
 
+/// Another process (the previous version, still open during an update) may
+/// have saved a newer pair. Deleting the secret then would throw that pair away.
+fn newer_oauth_secret(
+    secrets: &Arc<dyn SecretStore>,
+    account: &str,
+    attempted_refresh: &str,
+) -> bool {
+    secrets
+        .get(account)
+        .ok()
+        .flatten()
+        .and_then(|blob| serde_json::from_str::<GithubOAuthTokens>(&blob).ok())
+        .is_some_and(|stored| stored.refresh_token != attempted_refresh)
+}
+
+fn access_token_still_usable(expires_at: i64) -> bool {
+    beebranch_core::now_unix() < expires_at - 10
+}
+
 fn emit_auth_expired(app: &AppHandle, instance_id: &str) {
     let _ = app.emit(
         "github://auth-expired",
@@ -300,9 +319,17 @@ pub(crate) async fn ensure_oauth_refresh(app: &AppHandle, state: &AppState) {
             Ok(next) => tokens = next,
             Err(error) => {
                 tracing::warn!(code = error.code(), "GitHub OAuth refresh failed");
-                if error.code() == "github.oauth_refresh_failed"
-                    || beebranch_core::now_unix() >= tokens.expires_at - 10
-                {
+                if newer_oauth_secret(&state.github_secrets, &account, &tokens.refresh_token) {
+                    return;
+                }
+                let rejected = error.code() == "github.oauth_refresh_failed";
+                if rejected && access_token_still_usable(tokens.expires_at) {
+                    // The refresh token was rotated elsewhere or rejected.
+                    // Keep the access token that still works instead of
+                    // deleting the session, which forced a reconnect.
+                    return;
+                }
+                if !access_token_still_usable(tokens.expires_at) {
                     expire_oauth_session(
                         app,
                         &state.github,
@@ -358,13 +385,31 @@ fn spawn_oauth_refresh(
                 Ok(next) => tokens = next,
                 Err(error) => {
                     tracing::warn!(code = error.code(), "GitHub OAuth refresh failed");
-                    if error.code() == "github.oauth_refresh_failed"
-                        || beebranch_core::now_unix() >= tokens.expires_at - 10
-                    {
-                        expire_oauth_session(&app, &client_slot, &secrets, &account, &instance_id);
+                    if newer_oauth_secret(&secrets, &account, &tokens.refresh_token) {
                         return;
                     }
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    if access_token_still_usable(tokens.expires_at) {
+                        if error.code() == "github.oauth_refresh_failed" {
+                            let wait =
+                                (tokens.expires_at - 10 - beebranch_core::now_unix()).max(1) as u64;
+                            tokio::time::sleep(Duration::from_secs(wait)).await;
+                            if newer_oauth_secret(&secrets, &account, &tokens.refresh_token) {
+                                return;
+                            }
+                            expire_oauth_session(
+                                &app,
+                                &client_slot,
+                                &secrets,
+                                &account,
+                                &instance_id,
+                            );
+                            return;
+                        }
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        continue;
+                    }
+                    expire_oauth_session(&app, &client_slot, &secrets, &account, &instance_id);
+                    return;
                 }
             }
         }

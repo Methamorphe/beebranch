@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
-import { APP_PAGES, navigationItems, type ViewId } from '../data/navigation'
+import { APP_PAGES, EXPLORER_CENTER_VIEWS, navigationItems, type ViewId } from '../data/navigation'
 import { checkoutStashMessage } from '../lib/checkoutStash'
 import {
   branchCheckout,
@@ -25,14 +25,14 @@ import {
   historyCherryPick,
   historyReset,
   historyRevert,
-  githubStatus,
-  gitlabStatus,
   openExternalUrl,
   patchCreate,
   patchSave,
   preferenceGet,
   preferenceSet,
   refsGet,
+  remotePrune,
+  remoteRemove,
   tagDelete,
   tagPush,
   stashList,
@@ -122,7 +122,8 @@ import {
   type RemoteCheckoutRequest,
 } from './RemoteBranchBars'
 import { RebasePanel } from './RebasePanel'
-import { RefsAdminPanel } from './RefsAdminPanel'
+import { RemoteDialog } from './RemoteDialog'
+import { SubmoduleDialog } from './SubmoduleDialog'
 import { Resizer } from './Resizer'
 import { SubmodulesPanel } from './SubmodulesPanel'
 import { WorktreesPanel } from './WorktreesPanel'
@@ -132,7 +133,34 @@ import { CommitPanel } from './CommitPanel'
 import { TerminalPanel } from './TerminalPanel'
 import { DiffViewer, type DocumentReader, type ImageReader } from './DiffViewer'
 import { IntegrationsPanel } from './IntegrationsPanel'
-import { githubForge, gitlabForge } from '../lib/forge'
+import { azureForge, githubForge, gitlabForge, newReviewUrl } from '../lib/forge'
+
+function hostOf(url: string): string | null {
+  try {
+    if (url.includes('://')) return new URL(url).host.toLowerCase()
+  } catch {
+    return null
+  }
+  const match = url.match(/^[^@]+@([^:]+):/)
+  return match?.[1].toLowerCase() ?? null
+}
+
+function hostsRelated(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false
+  if (left === right) return true
+  const azure = (host: string) =>
+    host === 'dev.azure.com' || host === 'ssh.dev.azure.com' || host.endsWith('.visualstudio.com')
+  return azure(left) && azure(right)
+}
+
+function preferredRemoteHost(refs: RefsSnapshot | null): string | null {
+  const head = refs?.entries.find((entry) => entry.isHead)
+  const upstream = head?.upstream
+  if (!upstream) return null
+  const name = upstream.replace(/^refs\/remotes\//, '').split('/')[0]
+  const remote = refs?.remoteUrls?.find((item) => item.name === name && item.direction === 'fetch')
+  return remote ? hostOf(remote.url) : null
+}
 import { RepositoryNavigator } from './RepositoryNavigator'
 import { GraphCanvas } from './GraphCanvas'
 import { RecoveryPanel } from './RecoveryPanel'
@@ -392,7 +420,7 @@ export function Workbench({
     >
   >({})
   const [linkWebUrl, setLinkWebUrl] = useState<string | null>(null)
-  const [linkProvider, setLinkProvider] = useState<'gitlab' | 'github' | null>(null)
+  const [linkProvider, setLinkProvider] = useState<'gitlab' | 'github' | 'azure' | null>(null)
   const graph = useGraph(repoId, generation, { revision: revision || undefined, allRefs })
   const changes = repo?.state.worktree
   const hasChanges = Boolean(changes && (changes.staged > 0 || changes.unstaged > 0 || changes.untracked > 0 || changes.conflicted > 0))
@@ -431,6 +459,8 @@ export function Workbench({
   const [report, setReport] = useState<DiffReport | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [diffError, setDiffError] = useState<string | null>(null)
+  /** Previous fetch identity: a generation bump refreshes the same file in place. */
+  const lastDiffFetchKey = useRef<string | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** HEAD commit opened in the amend dialog, from the menu or the diff header. */
   const [amendTarget, setAmendTarget] = useState<{ sha: string; subject: string } | null>(null)
@@ -667,6 +697,12 @@ export function Workbench({
   const [tagTarget, setTagTarget] = useState<{ sha: string; annotated: boolean } | null>(null)
   /** Ref a worktree dialog starts from. */
   const [worktreeTarget, setWorktreeTarget] = useState<string | null>(null)
+  const [remoteDialog, setRemoteDialog] = useState<
+    { mode: 'add' } | { mode: 'edit'; name: string; url: string } | null
+  >(null)
+  const [remoteMenu, setRemoteMenu] = useState<{ name: string; x: number; y: number } | null>(null)
+  const [pendingRemoteForget, setPendingRemoteForget] = useState<{ repoId: string; name: string } | null>(null)
+  const [submoduleOpen, setSubmoduleOpen] = useState(false)
   /** Branches pinned to the left, per repository, persisted with the UI prefs. */
   const [pins, setPins] = useState<Record<string, string>>({})
   const previousHistoryRequest = useRef<number | undefined>(undefined)
@@ -764,28 +800,26 @@ export function Workbench({
         return
       }
       try {
-        const providers = [
-          { api: gitlabForge, status: gitlabStatus },
-          { api: githubForge, status: githubStatus },
-        ]
-        for (const { api, status } of providers) {
+        const providers = [gitlabForge, githubForge, azureForge]
+        const linked = []
+        for (const api of providers) {
           let session
           try {
-            session = await status()
+            session = await api.status()
           } catch {
             continue
           }
-          if (!session.connected) {
-            continue
-          }
+          if (!session.connected) continue
           const link = await api.linkGet(repoId)
-          if (!link) {
-            continue
-          }
-          if (!cancelled) {
-            setLinkWebUrl(link.webUrl)
-            setLinkProvider(api.id)
-          }
+          if (link) linked.push({ api, link })
+        }
+        const preferred = preferredRemoteHost(refs)
+        const chosen =
+          linked.find((item) => hostsRelated(hostOf(item.link.webUrl), preferred)) ?? linked[0]
+        if (chosen && !cancelled) {
+          const { api, link } = chosen
+          setLinkWebUrl(link.webUrl)
+          setLinkProvider(api.id)
           const page = await api.mrPage({
             projectId: link.projectId,
             scope: 'project',
@@ -812,7 +846,6 @@ export function Workbench({
             }
             setBadges(next)
           }
-          break
         }
       } catch {
         // Forges are optional; graph rendering must never depend on them.
@@ -826,7 +859,7 @@ export function Workbench({
         window.clearInterval(timer)
       }
     }
-  }, [repoId, generation])
+  }, [repoId, generation, refs])
 
   useEffect(() => {
     if (!repoId || !selected) {
@@ -874,10 +907,14 @@ export function Workbench({
       setReport(null)
       setDiffLoading(false)
       setDiffError(null)
+      lastDiffFetchKey.current = null
       return
     }
     let cancelled = false
-    setReport(null)
+    if (lastDiffFetchKey.current !== diffFetchKey) {
+      setReport(null)
+    }
+    lastDiffFetchKey.current = diffFetchKey
     setDiffLoading(true)
     setDiffError(null)
     void diffGet(repoId, activeDiff)
@@ -1285,6 +1322,7 @@ export function Workbench({
   }, [closeInspector, comparison, findOpen, selected, showWorktree])
 
   const openRefMenu = (entry: RefEntry, x: number, y: number) => {
+    setRemoteMenu(null)
     setRefMenu({ entry, x, y, renaming: false, name: entry.name })
   }
 
@@ -1596,11 +1634,11 @@ export function Workbench({
       )
     }
 
-    if (toolView === 'gitlab' || toolView === 'github' || toolView === 'integrations') {
+    if (toolView === 'gitlab' || toolView === 'github' || toolView === 'azure' || toolView === 'integrations') {
       return (
         <div className={styles.content}>
           <IntegrationsPanel
-            provider={toolView === 'github' ? 'github' : 'gitlab'}
+            provider={toolView === 'github' ? 'github' : toolView === 'azure' ? 'azure' : 'gitlab'}
             repoId={repoId}
             generation={generation}
             onLinked={onMutated}
@@ -1707,21 +1745,12 @@ export function Workbench({
           generation={generation}
           onMutated={onMutated}
           onOpenRepo={onOpenRepo}
+          onCreate={() => setWorktreeTarget(headSha ?? 'HEAD')}
         />
       )
     }
 
-    if (toolView === 'tags' || toolView === 'remotes') {
-      return (
-        <RefsAdminPanel
-          repoId={repoId}
-          generation={generation}
-          key={toolView}
-          initialTab={toolView === 'tags' ? 'tags' : 'remotes'}
-          onMutated={onMutated}
-        />
-      )
-    }
+    if (toolView === 'tags' || toolView === 'remotes') return null
 
     if (toolView === 'submodules') {
       return (
@@ -1730,6 +1759,7 @@ export function Workbench({
           generation={generation}
           onMutated={onMutated}
           onOpen={(path) => onOpenRepo(`${repo.repo.worktree}/${path}`)}
+          onCreate={() => setSubmoduleOpen(true)}
         />
       )
     }
@@ -1823,7 +1853,7 @@ export function Workbench({
               {diffError}
             </div>
           ) : null}
-          {diffLoading ? (
+          {diffLoading && !report ? (
             <div className={styles.placeholder}>{t('workbench.diff.calculating')}</div>
           ) : report ? (
             <DiffViewer
@@ -1899,9 +1929,9 @@ export function Workbench({
   // Application pages are not about this repository: its references and
   // actions stay out of the way while they are open.
   const appPage = APP_PAGES.includes(view)
-  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'integrations', 'recovery', 'terminal'].includes(view) ? tool : null
+  const centerTool = ['diff', 'conflicts', 'rebase', 'fileHistory', 'profiles', 'workspaces', 'gitlab', 'github', 'azure', 'integrations', 'recovery', 'terminal', ...EXPLORER_CENTER_VIEWS].includes(view) ? tool : null
   const centerActive = Boolean(previewDiff || centerTool || historyTool)
-  const navigatorTools = Object.fromEntries((['worktrees', 'submodules', 'mrs', 'prs', 'pipelines', 'patches', 'search', 'remotes', 'tags', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
+  const navigatorTools = Object.fromEntries((['patches', 'sync', 'activity', 'tools'] as ViewId[]).map((id) => [id, renderTool(id)]))
 
   /** References the graph may draw: hidden ones removed, solo respected. */
   const visibleRefs = applyVisibility(
@@ -2551,6 +2581,14 @@ export function Workbench({
             startBranchCreate()
           }}
           onCreateTag={() => setTagTarget({ sha: selected ?? headSha ?? 'HEAD', annotated: false })}
+          onCreateRemote={() => setRemoteDialog({ mode: 'add' })}
+          onCreateWorktree={() => setWorktreeTarget(headSha ?? 'HEAD')}
+          onCreateSubmodule={() => setSubmoduleOpen(true)}
+          onRemoteMenu={(name, x, y) => {
+            setRefMenu(null)
+            setRemoteMenu({ name, x, y })
+          }}
+          remoteNames={refs?.remotes ?? []}
           onCreateStash={() => void createQuickStash()} canStash={!operationBlocked && hasChanges && !stashBusy}
         />
         <Resizer className={styles.navigatorResizer} label={t('shell.resizer.navigation')} side="right"
@@ -2657,6 +2695,7 @@ export function Workbench({
             findHits={findOpen && findQuery.trim() ? findHitSet : undefined}
             mrBadges={badges}
             refEntries={visibleRefs}
+            remoteUrls={refs?.remoteUrls}
             pin={graphPin}
             checkoutDisabled={checkoutBusy}
             onCheckoutRef={(raw) => void checkoutGraphRef(raw)}
@@ -2732,7 +2771,7 @@ export function Workbench({
           </div>
           {centerActive ? <div className={styles.centralEditor} data-central-editor={view}>
             <div className={styles.previewHeading}>
-              <span>{centerTool && toolLabel ? t(toolLabel) : historyTool ? toolTitle : t('workbench.preview.ariaLabel')}</span>
+              <span>{centerTool && toolLabel ? <><ViewIcon view={view} size={14} /> {t(toolLabel)}</> : historyTool ? toolTitle : t('workbench.preview.ariaLabel')}</span>
               <code>{previewDiff?.path}</code>
               <button type="button" aria-label={t(previewDiff ? 'workbench.preview.closeAriaLabel' : 'workbench.workspace.closeTool')}
                 data-central-close data-frame="icon" data-kind="close" onClick={() => {
@@ -2750,7 +2789,7 @@ export function Workbench({
                 onMutated={onMutated} onDirtyChange={setToolDirty} /> : previewDiff ? <div className={styles.diffPreview}
                   aria-label={t('workbench.preview.ariaLabel')} aria-busy={diffLoading}>
                 {diffError ? <div className={styles.error} role="alert">{diffError}</div> : null}
-                {diffLoading ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
+                {diffLoading && !report ? <div className={styles.placeholder}>{t('workbench.preview.loading')}</div> : report ?
                   <DiffViewer embedded report={report} source="" readDocument={readPreviewDocument} readImage={readPreviewImage}
                     key={localDiff?.edit ? `edit:${localDiff.path}` : undefined}
                     initialEditPath={localDiff?.edit ? localDiff.path : undefined}
@@ -3028,11 +3067,7 @@ export function Workbench({
                 setActionError(t('workbench.error.mergeRequestUnavailable'))
                 return
               }
-              const url =
-                linkProvider === 'github'
-                  ? `${linkWebUrl}/compare/${encodeURIComponent(branch)}?expand=1`
-                  : `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`
-              void openExternalUrl(url)
+              void openExternalUrl(newReviewUrl(linkProvider ?? 'gitlab', linkWebUrl, branch))
             })}
               </>
             )}
@@ -3162,6 +3197,62 @@ export function Workbench({
             onMutated()
           }}
         />
+      ) : null}
+      {submoduleOpen ? (
+        <SubmoduleDialog
+          repoId={repoId}
+          onClose={() => setSubmoduleOpen(false)}
+          onDone={(notice) => {
+            setSubmoduleOpen(false)
+            setActionNotice(notice)
+            onMutated()
+          }}
+        />
+      ) : null}
+      {remoteDialog ? (
+        <RemoteDialog
+          repoId={repoId}
+          {...(remoteDialog.mode === 'add'
+            ? { mode: 'add' as const, existingNames: refs?.remotes ?? [] }
+            : remoteDialog)}
+          onClose={() => setRemoteDialog(null)}
+          onDone={(notice) => {
+            setRemoteDialog(null)
+            setActionNotice(notice)
+            onMutated()
+          }}
+        />
+      ) : null}
+      {remoteMenu ? (
+        <ContextMenu
+          x={remoteMenu.x}
+          y={remoteMenu.y}
+          title={remoteMenu.name}
+          subtitle={t('workbench.remoteMenu.remote')}
+          onClose={() => setRemoteMenu(null)}
+        >
+          <div className={styles.contextActions}>
+            {action('remote-edit', 'remotes', t('ops.refs.editUrl'), () => {
+              const name = remoteMenu.name
+              const url =
+                refs?.remoteUrls?.find((item) => item.name === name && item.direction === 'fetch')?.url
+                ?? refs?.remoteUrls?.find((item) => item.name === name)?.url
+                ?? ''
+              setRemoteMenu(null)
+              setRemoteDialog({ mode: 'edit', name, url })
+            })}
+            {action('remote-prune', 'sync', t('ops.refs.prune'), () => {
+              const name = remoteMenu.name
+              setRemoteMenu(null)
+              void runAction(t('ops.refs.notice.pruneDone'), () => remotePrune({ repoId, name }))
+            })}
+            {separator('remote-delete')}
+            {action('remote-delete', 'diff', t('workbench.repository.deleteRemote'), () => {
+              setPendingRemoteForget({ repoId, name: remoteMenu.name })
+              setRemoteMenu(null)
+            })}
+          </div>
+        </ContextMenu>
       ) : null}
 
       {refMenu ? (
@@ -3672,11 +3763,7 @@ export function Workbench({
                     setActionError(t('workbench.error.mergeRequestUnavailable'))
                     return
                   }
-                  const url =
-                    linkProvider === 'github'
-                      ? `${linkWebUrl}/compare/${encodeURIComponent(name)}?expand=1`
-                      : `${linkWebUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(name)}`
-                  void openExternalUrl(url)
+                  void openExternalUrl(newReviewUrl(linkProvider ?? 'gitlab', linkWebUrl, name))
                 })
               : null}
             {action('compare', 'diff', t('workbench.refMenu.compareHead'), () => {
@@ -3738,6 +3825,23 @@ export function Workbench({
           const entry = pendingTagDelete; setPendingTagDelete(null)
           if (entry) void runAction(t('workbench.repository.deleteTag'), () => tagDelete({ repoId, name: entry.name, confirmation: { acknowledged: true } }))
         }} />
+      <ConfirmBar
+        open={pendingRemoteForget !== null}
+        title={t('ops.refs.deleteRemoteTitle')}
+        consequence={t('ops.refs.deleteRemoteConsequence', { name: pendingRemoteForget?.name ?? '' })}
+        irreversible
+        confirmLabel={t('common.delete')}
+        onCancel={() => setPendingRemoteForget(null)}
+        onConfirm={() => {
+          const target = pendingRemoteForget
+          setPendingRemoteForget(null)
+          if (target) {
+            void runAction(t('ops.refs.notice.remoteDeleted'), () =>
+              remoteRemove({ repoId: target.repoId, name: target.name, confirmation: { acknowledged: true } }),
+            )
+          }
+        }}
+      />
       <ConfirmBar
         open={pendingDelete !== null}
         title={t('workbench.deleteLocal.title', { name: pendingDelete?.name ?? '' })}

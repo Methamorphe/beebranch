@@ -19,6 +19,7 @@ import type { RemoteInfo, TagInfo } from '../types/git'
 import { ConfirmBar } from './ConfirmBar'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
+import { useToastChannel } from './ui/Toasts'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -36,7 +37,8 @@ type Pending =
 
 export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Props) {
   const { t } = useI18n()
-  const [tab, setTab] = useState<'tags' | 'remotes'>(initialTab)
+  const pushNotice = useToastChannel('refs-admin', 'success')
+  const tab = initialTab
   const [tags, setTags] = useState<TagInfo[]>([])
   const [remotes, setRemotes] = useState<RemoteInfo[]>([])
   const [tagName, setTagName] = useState('')
@@ -50,12 +52,11 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
   const [pushTag, setPushTag] = useState('')
   const [remoteName, setRemoteName] = useState('')
   const [remoteUrl, setRemoteUrl] = useState('')
-  const [setUrlName, setSetUrlName] = useState('')
+  const [editingName, setEditingName] = useState<string | null>(null)
   const [setUrlValue, setSetUrlValue] = useState('')
   const [setUrlPush, setSetUrlPush] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [pending, setPending] = useState<Pending>(null)
   const [pushConfirm, setPushConfirm] = useState(false)
 
@@ -68,7 +69,6 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
       setTags(nextTags)
       setRemotes(nextRemotes)
       setPushRemote((current) => current || nextRemotes[0]?.name || '')
-      setSetUrlName((current) => current || nextRemotes[0]?.name || '')
     } catch (cause) {
       setError(errorMessage(cause))
     }
@@ -78,17 +78,12 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
     void load()
   }, [load, generation])
 
-  useEffect(() => {
-    setTab(initialTab)
-  }, [initialTab])
-
   const run = async (label: string, action: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       await action()
-      setNotice(label)
+      pushNotice(label)
       await load()
       onMutated()
     } catch (cause) {
@@ -112,66 +107,41 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
 
   return (
     <div className={p2.screen}>
-      <div className={p2.toolbar}>
-        <div className={p2.segmented} role="group" aria-label={t('ops.refs.groupAria')}>
-          <button
-            type="button"
-            className={tab === 'tags' ? p2.segmentOn : p2.segment}
-            aria-pressed={tab === 'tags'}
-            onClick={() => setTab('tags')}
-          >
-            {t('ops.refs.tagsTab', { count: tags.length })}
-          </button>
-          <button
-            type="button"
-            className={tab === 'remotes' ? p2.segmentOn : p2.segment}
-            aria-pressed={tab === 'remotes'}
-            onClick={() => setTab('remotes')}
-          >
-            {t('ops.refs.remotesTab', { count: remotes.length })}
-          </button>
+      {tab === 'tags' ? (
+        <div className={p2.toolbar}>
+          <label className={p2.fieldInline}>
+            <span className={p2.toolbarLabel}>{t('ops.refs.filterLabel')}</span>
+            <input
+              value={tagFilter}
+              onChange={(event) => setTagFilter(event.target.value)}
+              placeholder={t('ops.refs.filterPlaceholder')}
+              aria-label={t('ops.refs.filterAria')}
+              spellCheck={false}
+            />
+          </label>
+          <span className={p2.spacer} />
+          <label className={p2.fieldInline}>
+            <span className={p2.toolbarLabel}>{t('ops.refs.pushRemoteLabel')}</span>
+            <select
+              value={pushRemote}
+              onChange={(event) => setPushRemote(event.target.value)}
+              aria-label={t('ops.refs.pushRemoteAria')}
+            >
+              {remotes.length === 0 ? <option value="">{t('ops.refs.noRemote')}</option> : null}
+              {remotes.map((remote) => (
+                <option key={remote.name} value={remote.name}>
+                  {remote.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-        <span className={p2.spacer} />
-        {tab === 'tags' ? (
-          <>
-            <label className={p2.fieldInline}>
-              <span className={p2.toolbarLabel}>{t('ops.refs.filterLabel')}</span>
-              <input
-                value={tagFilter}
-                onChange={(event) => setTagFilter(event.target.value)}
-                placeholder={t('ops.refs.filterPlaceholder')}
-                aria-label={t('ops.refs.filterAria')}
-                spellCheck={false}
-              />
-            </label>
-            <label className={p2.fieldInline}>
-              <span className={p2.toolbarLabel}>{t('ops.refs.pushRemoteLabel')}</span>
-              <select
-                value={pushRemote}
-                onChange={(event) => setPushRemote(event.target.value)}
-                aria-label={t('ops.refs.pushRemoteAria')}
-              >
-                {remotes.length === 0 ? <option value="">{t('ops.refs.noRemote')}</option> : null}
-                {remotes.map((remote) => (
-                  <option key={remote.name} value={remote.name}>
-                    {remote.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
-        ) : null}
-      </div>
+      ) : null}
 
       {error ? (
         <p className={p2.alert} role="alert">
           {error}
         </p>
-      ) : null}
-      {notice ? (
-        <div className={p2.listHeader} role="status">
-          <span className={p2.meta}>{notice}</span>
-        </div>
       ) : null}
 
       <div className={p2.screenBody}>
@@ -279,53 +249,130 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
             </>
           ) : (
             <>
-              <div className={p2.listHeader}>
-                <span className={p2.label}>{t('ops.refs.remotesLabel')}</span>
-                <span className={`${p2.count} ${p2.tabnum}`}>{remotes.length}</span>
-                <span className={p2.spacer} />
-                <span className={p2.count}>{t('ops.refs.urlNoPassword')}</span>
-              </div>
               <div className={p2.rows}>
-                {remotes.map((remote) => (
-                  <div key={remote.name} className={p2.entry}>
-                    <span className={p2.dot} data-tone="info" />
-                    <div className={p2.entryStack}>
-                      <span className={p2.entryTitle}>
-                        <strong className={p2.mono}>{remote.name}</strong>
-                      </span>
-                      <span className={`${p2.entryMeta} ${p2.mono}`}>
-                        <span>{remote.fetchUrl ?? '—'}</span>
-                      </span>
-                      {remote.pushUrl && remote.pushUrl !== remote.fetchUrl ? (
-                        <span className={`${p2.entryMeta} ${p2.mono}`}>
-                          <span>{t('ops.refs.pushUrl', { url: remote.pushUrl })}</span>
+                {remotes.map((remote) => {
+                  const editing = editingName === remote.name
+                  return (
+                    <div key={remote.name} className={p2.entry} data-editing={editing ? 'true' : undefined}>
+                      <span className={p2.dot} data-tone="info" />
+                      <div className={p2.entryStack}>
+                        <span className={p2.entryTitle}>
+                          <strong className={p2.mono}>{remote.name}</strong>
                         </span>
+                        <span className={`${p2.entryMeta} ${p2.mono}`}>
+                          <span>{remote.fetchUrl ?? '—'}</span>
+                        </span>
+                        {remote.pushUrl && remote.pushUrl !== remote.fetchUrl ? (
+                          <span className={`${p2.entryMeta} ${p2.mono}`}>
+                            <span>{t('ops.refs.pushUrl', { url: remote.pushUrl })}</span>
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className={p2.entryActions}>
+                        <button
+                          type="button"
+                          className={p2.secondary}
+                          disabled={busy}
+                          onClick={() =>
+                            void run(t('ops.refs.notice.pruneDone'), () =>
+                              remotePrune({ repoId, name: remote.name }),
+                            )
+                          }
+                        >
+                          {t('ops.refs.prune')}
+                        </button>
+                        <button
+                          type="button"
+                          className={p2.secondary}
+                          disabled={busy}
+                          aria-expanded={editing}
+                          aria-label={t('ops.refs.editUrl')}
+                          onClick={() => {
+                            if (editing) {
+                              setEditingName(null)
+                              setSetUrlValue('')
+                              setSetUrlPush(false)
+                              return
+                            }
+                            setEditingName(remote.name)
+                            setSetUrlValue(remote.fetchUrl ?? '')
+                            setSetUrlPush(false)
+                          }}
+                        >
+                          {t('common.edit')}
+                        </button>
+                        <button
+                          type="button"
+                          className={p2.ghostDanger}
+                          disabled={busy}
+                          onClick={() => setPending({ kind: 'remote', name: remote.name })}
+                        >
+                          {t('common.delete')}
+                        </button>
+                      </span>
+                      {editing ? (
+                        <form
+                          className={p2.entryForm}
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            if (!setUrlValue.trim()) return
+                            void run(t('ops.refs.notice.urlChanged'), async () => {
+                              await remoteSetUrl({
+                                repoId,
+                                name: remote.name,
+                                url: setUrlValue.trim(),
+                                push: setUrlPush,
+                              })
+                              setEditingName(null)
+                              setSetUrlValue('')
+                              setSetUrlPush(false)
+                            })
+                          }}
+                        >
+                          <label className={p2.field}>
+                            {t('ops.refs.newUrlLabel')}
+                            <input
+                              value={setUrlValue}
+                              onChange={(event) => setSetUrlValue(event.target.value)}
+                              spellCheck={false}
+                              autoFocus
+                            />
+                          </label>
+                          <label className={p2.checkbox}>
+                            <input
+                              type="checkbox"
+                              checked={setUrlPush}
+                              onChange={(event) => setSetUrlPush(event.target.checked)}
+                            />
+                            {t('ops.refs.pushUrlOnly')}
+                          </label>
+                          <div className={p2.formActions}>
+                            <button
+                              type="submit"
+                              className={p2.primary}
+                              disabled={busy || !setUrlValue.trim()}
+                            >
+                              {t('common.save')}
+                            </button>
+                            <button
+                              type="button"
+                              className={p2.ghost}
+                              disabled={busy}
+                              onClick={() => {
+                                setEditingName(null)
+                                setSetUrlValue('')
+                                setSetUrlPush(false)
+                              }}
+                            >
+                              {t('common.cancel')}
+                            </button>
+                          </div>
+                          <p className={p2.asideHint}>{t('ops.refs.setUrlHint')}</p>
+                        </form>
                       ) : null}
                     </div>
-                    <span className={p2.entryActions}>
-                      <button
-                        type="button"
-                        className={p2.secondary}
-                        disabled={busy}
-                        onClick={() =>
-                          void run(t('ops.refs.notice.pruneDone'), () =>
-                            remotePrune({ repoId, name: remote.name }),
-                          )
-                        }
-                      >
-                        {t('ops.refs.prune')}
-                      </button>
-                      <button
-                        type="button"
-                        className={p2.ghostDanger}
-                        disabled={busy}
-                        onClick={() => setPending({ kind: 'remote', name: remote.name })}
-                      >
-                        {t('common.delete')}
-                      </button>
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               {remotes.length === 0 ? (
                 <div className={p2.empty} role="status">
@@ -333,12 +380,60 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                   <p>{t('ops.refs.emptyRemotesBody')}</p>
                 </div>
               ) : null}
+              <form
+                className={p2.formStack}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (!remoteName.trim() || !remoteUrl.trim()) return
+                  void run(t('ops.refs.notice.remoteAdded'), async () => {
+                    await remoteAdd({
+                      repoId,
+                      name: remoteName.trim(),
+                      url: remoteUrl.trim(),
+                    })
+                    setRemoteName('')
+                    setRemoteUrl('')
+                  })
+                }}
+              >
+                <h2 className={p2.asideTitle}>{t('ops.refs.addRemoteTitle')}</h2>
+                <label className={p2.field}>
+                  {t('common.name')}
+                  <input
+                    value={remoteName}
+                    onChange={(event) => setRemoteName(event.target.value)}
+                    placeholder={
+                      remotes.some((remote) => remote.name === 'origin')
+                        ? t('ops.refs.upstreamPlaceholder')
+                        : t('ops.refs.namePlaceholder')
+                    }
+                    spellCheck={false}
+                  />
+                </label>
+                <label className={p2.field}>
+                  {t('common.url')}
+                  <input
+                    value={remoteUrl}
+                    onChange={(event) => setRemoteUrl(event.target.value)}
+                    placeholder="git@gitlab.example.com:team/repo.git"
+                    spellCheck={false}
+                  />
+                </label>
+                <p className={p2.asideHint}>{t('ops.refs.setUrlHint')}</p>
+                <button
+                  type="submit"
+                  className={p2.primary}
+                  disabled={busy || !remoteName.trim() || !remoteUrl.trim()}
+                >
+                  {t('common.add')}
+                </button>
+              </form>
             </>
           )}
         </div>
 
+        {tab === 'tags' ? (
         <aside className={p2.screenAside}>
-          {tab === 'tags' ? (
             <section className={p2.asideSection}>
               <h2 className={p2.asideTitle}>{t('ops.refs.createTagTitle')}</h2>
               <label className={p2.field}>
@@ -400,105 +495,8 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                 {t('ops.refs.createTagHint')}
               </p>
             </section>
-          ) : (
-            <>
-              <section className={p2.asideSection}>
-                <h2 className={p2.asideTitle}>{t('ops.refs.addRemoteTitle')}</h2>
-                <label className={p2.field}>
-                  {t('common.name')}
-                  <input
-                    value={remoteName}
-                    onChange={(event) => setRemoteName(event.target.value)}
-                    placeholder="origin"
-                    spellCheck={false}
-                  />
-                </label>
-                <label className={p2.field}>
-                  {t('common.url')}
-                  <input
-                    value={remoteUrl}
-                    onChange={(event) => setRemoteUrl(event.target.value)}
-                    placeholder="git@gitlab.example.com:team/repo.git"
-                    spellCheck={false}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className={p2.primary}
-                  disabled={busy || !remoteName.trim() || !remoteUrl.trim()}
-                  onClick={() =>
-                    void run(t('ops.refs.notice.remoteAdded'), async () => {
-                      await remoteAdd({
-                        repoId,
-                        name: remoteName.trim(),
-                        url: remoteUrl.trim(),
-                      })
-                      setRemoteName('')
-                      setRemoteUrl('')
-                    })
-                  }
-                >
-                  {t('common.add')}
-                </button>
-              </section>
-
-              <section className={p2.asideSection}>
-                <h2 className={p2.asideTitle}>{t('ops.refs.setUrlTitle')}</h2>
-                <label className={p2.field}>
-                  {t('ops.refs.remoteLabel')}
-                  <select
-                    value={setUrlName}
-                    onChange={(event) => setSetUrlName(event.target.value)}
-                  >
-                    {remotes.length === 0 ? <option value="">{t('ops.refs.noRemote')}</option> : null}
-                    {remotes.map((remote) => (
-                      <option key={remote.name} value={remote.name}>
-                        {remote.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className={p2.field}>
-                  {t('ops.refs.newUrlLabel')}
-                  <input
-                    value={setUrlValue}
-                    onChange={(event) => setSetUrlValue(event.target.value)}
-                    spellCheck={false}
-                  />
-                </label>
-                <label className={p2.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={setUrlPush}
-                    onChange={(event) => setSetUrlPush(event.target.checked)}
-                  />
-                  {t('ops.refs.pushUrlLabel')}
-                </label>
-                <button
-                  type="button"
-                  className={p2.secondary}
-                  disabled={busy || !setUrlName || !setUrlValue.trim()}
-                  onClick={() =>
-                    void run(t('ops.refs.notice.urlChanged'), async () => {
-                      await remoteSetUrl({
-                        repoId,
-                        name: setUrlName,
-                        url: setUrlValue.trim(),
-                        push: setUrlPush,
-                      })
-                      setSetUrlValue('')
-                    })
-                  }
-                >
-                  {t('common.apply')}
-                </button>
-                <p className={p2.asideHint}>
-                  {t('ops.refs.setUrlHint')}
-                </p>
-              </section>
-            </>
-          )}
         </aside>
+        ) : null}
       </div>
 
       <ConfirmBar
@@ -553,6 +551,11 @@ export function RefsAdminPanel({ repoId, generation, initialTab, onMutated }: Pr
                 }),
             )
           } else {
+            if (editingName === target.name) {
+              setEditingName(null)
+              setSetUrlValue('')
+              setSetUrlPush(false)
+            }
             void run(t('ops.refs.notice.remoteDeleted'), () =>
               remoteRemove({
                 repoId,

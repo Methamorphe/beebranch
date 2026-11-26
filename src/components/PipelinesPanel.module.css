@@ -79,6 +79,10 @@
   background: var(--surface-raised);
 }
 
+.row[aria-current='true'] {
+  background: var(--accent-soft);
+}
+
 .id {
   flex: none;
   color: var(--muted);
@@ -139,9 +143,12 @@
 
 .detail {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
+  padding: 14px 16px;
+  overflow: auto;
 }
 
 .detailHead {

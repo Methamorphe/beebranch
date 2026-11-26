@@ -156,6 +156,24 @@ fn gitlab_cloud_only() -> AppError {
     )
 }
 
+fn newer_oauth_secret(
+    secrets: &Arc<dyn SecretStore>,
+    account: &str,
+    attempted_refresh: Option<&str>,
+) -> bool {
+    let Some(blob) = secrets.get(account).ok().flatten() else {
+        return false;
+    };
+    let Ok(stored) = serde_json::from_str::<GitlabOAuthTokens>(&blob) else {
+        return false;
+    };
+    stored.refresh_token.as_deref() != attempted_refresh
+}
+
+fn access_token_still_usable(expires_at: i64) -> bool {
+    beebranch_core::now_unix() < expires_at - 10
+}
+
 fn emit_auth_expired(app: &AppHandle, instance_id: &str) {
     let _ = app.emit(
         "gitlab://auth-expired",
@@ -562,7 +580,10 @@ async fn ensure_oauth_refresh(app: &AppHandle, state: &AppState) {
             Ok(next) => tokens = next,
             Err(error) => {
                 tracing::warn!(code = error.code(), "GitLab OAuth refresh failed");
-                if beebranch_core::now_unix() >= tokens.expires_at - 10 {
+                if newer_oauth_secret(&state.secrets, &account, tokens.refresh_token.as_deref()) {
+                    return;
+                }
+                if !access_token_still_usable(tokens.expires_at) {
                     expire_oauth_session(
                         app,
                         &state.gitlab,
@@ -631,11 +652,15 @@ fn spawn_oauth_refresh(
                 Ok(next) => tokens = next,
                 Err(error) => {
                     tracing::warn!(code = error.code(), "GitLab OAuth refresh failed");
-                    if beebranch_core::now_unix() >= tokens.expires_at - 10 {
-                        expire_oauth_session(&app, &client_slot, &secrets, &account, &instance_id);
+                    if newer_oauth_secret(&secrets, &account, tokens.refresh_token.as_deref()) {
                         return;
                     }
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    if access_token_still_usable(tokens.expires_at) {
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        continue;
+                    }
+                    expire_oauth_session(&app, &client_slot, &secrets, &account, &instance_id);
+                    return;
                 }
             }
         }
