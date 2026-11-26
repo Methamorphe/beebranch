@@ -263,7 +263,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "beebranch"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "beebranch-app",
  "serde_json",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-app"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "base64 0.23.1",
  "beebranch-azure",
@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-azure"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "base64 0.23.1",
  "beebranch-core",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-bench"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "beebranch-core",
  "beebranch-git",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-core"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-git"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "beebranch-core",
  "libc",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-github"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "beebranch-core",
  "reqwest 0.12.28",
@@ -372,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-gitlab"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "beebranch-core",
  "reqwest 0.12.28",
@@ -387,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "beebranch-store"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "beebranch-core",
  "keyring",

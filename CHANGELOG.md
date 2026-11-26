@@ -1,9 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [2.2.0] — 2026-11-26
 
 ### Added
 
+- **Right-click acts on the staged selection**: with several files to stage selected, the context menu stages, unstages, discards or ignores the whole selection, and an *Ignore* that covers a tracked file stays disabled with the reason in its title.
 - **Azure DevOps**: connect with a personal access token, or reuse the Git credential for that host. The token lives in the same durable secret file as GitLab and GitHub, with a keychain mirror. Pull requests, reviews, votes, completion and builds are available next to GitLab and GitHub, and a repository can stay linked to more than one forge.
 - **Hovering a commit ghosts its branch**: the closest branch label appears at low opacity in the refs column, including on commits that are not themselves a tip.
 
@@ -21,6 +22,7 @@
 - **Segmented controls stay in the track**: the selected item (Search type, review scope, history/blame, …) keeps the same size as its neighbours, with gold text on a tinted surface instead of a gold stamp at the default button padding.
 - **Conflict resolution drops the leftover chrome**: no left stripes on the two sides or the output, Both / Line by line sit in the conflict header, and the stash banner is gone — the column names already say which side is which.
 - **Conflict comparison and output keep a 55/45 split**: the comparison pane shrinks to the hunk and never exceeds 55 %, each pane scrolls in place, and the output no longer grows or shrinks with the selected hunk. The file path sits in the hunk header instead of a second title bar.
+- **The conflict output follows the selected hunk**: it shows that conflict and a little surrounding context instead of the whole file, a conflict that has been chosen is marked *Resolved*, and *Continue* only becomes the primary action once no file is left.
 - **Graph branch pills fold remotes into one label**: `develop`, `origin/develop` and `gitlab/develop` on the same commit share one chip. Extra branch names stay behind `+N` and the hover list, so the row does not repeat them. A local branch shows the laptop mark, then each remote uses its forge mark (GitLab, GitHub, Azure) from the remote URL, then its name.
 
 ### Fixed
@@ -28,6 +30,9 @@
 - **Dropping on a commit with several branches picks the destination**: the list is one row per branch. If a local sits on the same commit as its remotes, the drop lands on the local; remote logos show where that branch also lives. Moving through the picker no longer retargets onto a chip underneath, and another pill on the same commit keeps the same list. The picker only opens when two branch names share the commit.
 - **Pipeline history Load more keeps the list**: a repository `generation` tick no longer clears loaded pages and fetches page 1 again; extra pages append, duplicate ids are ignored, and a missing next-page header on a full page still offers the following page.
 - **Diff view mode is remembered**: *Side by side*, *Unified* and *Changes* stay selected when the file refreshes, after the viewer remounts, and across sessions (`ui.diff.mode`).
+- **Forge tokens survive an update**: GitLab and GitHub tokens live in a stable secret file instead of the keychain entry a new version of the macOS binary often loses, and a session that is still valid is no longer deleted when an OAuth refresh fails.
+- **The Azure connection shows its error**: the connection request carries the `7.1-preview` flag Azure DevOps requires, the panel scrolls to the message instead of pushing it below the fold, and the personal access token also authenticates fetch and push over HTTPS to the host instead of leaving the SSH prompt open.
+- **An installed macOS build asks for the notification permission**: pipeline failure notifications go through the system dialog once instead of the deprecated call that printed nothing.
 
 ## [2.1.0] — 2026-11-18
 
