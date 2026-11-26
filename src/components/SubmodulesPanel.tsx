@@ -8,7 +8,6 @@ import {
 import {
   preferenceGet,
   preferenceSet,
-  submoduleAdd,
   submoduleList,
   submoduleRemove,
   submoduleSync,
@@ -17,6 +16,7 @@ import {
 import { errorMessage } from '../ipc/client'
 import type { SubmoduleEntry, SubmoduleReport, SubmoduleState } from '../types/git'
 import { ConfirmBar } from './ConfirmBar'
+import { useToastChannel } from './ui/Toasts'
 import p2 from './p2.module.css'
 
 type Props = {
@@ -25,12 +25,18 @@ type Props = {
   onMutated: () => void
   /** Opens the submodule directory as its own repository. */
   onOpen?: (path: string) => void
+  onCreate: () => void
 }
 
 type Translate = (key: MessageKey, params?: TranslationParams) => string
 
 /** Persisted preference: refresh submodules after a successful fetch or pull. */
 const SUBMODULE_AUTO_UPDATE = 'git.submodulesAutoUpdate'
+
+function pathLeaf(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? path
+}
 
 function stateLabel(state: SubmoduleState, t: Translate): {
   text: string
@@ -65,19 +71,15 @@ function stateLabel(state: SubmoduleState, t: Translate): {
   }
 }
 
-export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props) {
+export function SubmodulesPanel({ repoId, generation, onMutated, onOpen, onCreate }: Props) {
   const { t } = useI18n()
+  const pushNotice = useToastChannel('submodules', 'success')
   const [report, setReport] = useState<SubmoduleReport | null>(null)
-  const [url, setUrl] = useState('')
-  const [path, setPath] = useState('')
-  const [branch, setBranch] = useState('')
   const [recursive, setRecursive] = useState(true)
   const [remote, setRemote] = useState(false)
-  const [force, setForce] = useState(false)
   const [autoUpdate, setAutoUpdate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = useState<SubmoduleEntry | null>(null)
 
   const load = useCallback(async () => {
@@ -119,10 +121,9 @@ export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props
   const run = async (label: string, action: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       await action()
-      setNotice(label)
+      pushNotice(label)
       await load()
       onMutated()
     } catch (cause) {
@@ -189,19 +190,15 @@ export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props
         >
           {t('ops.submodule.sync')}
         </button>
+        <button type="button" className={p2.primary} onClick={onCreate}>
+          {t('ops.submodule.addLabel')}
+        </button>
       </div>
-
-      <p className={p2.hintBar}>{t('ops.submodule.hint')}</p>
 
       {error ? (
         <p className={p2.alert} role="alert">
           {error}
         </p>
-      ) : null}
-      {notice ? (
-        <div className={p2.listHeader} role="status">
-          <span className={p2.meta}>{notice}</span>
-        </div>
       ) : null}
 
       <div className={p2.screenBody}>
@@ -227,8 +224,13 @@ export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props
                 >
                   <span className={p2.dot} data-tone={label.tone || undefined} />
                   <div className={p2.entryStack}>
-                    <span className={`${p2.entryTitle} ${p2.mono}`}>{entry.path}</span>
+                    <span className={p2.entryTitle}>{pathLeaf(entry.path)}</span>
                     <span className={p2.entryMeta}>
+                      {pathLeaf(entry.path) !== entry.path ? (
+                        <span className={p2.path} title={entry.path}>
+                          {entry.path}
+                        </span>
+                      ) : null}
                       <span className={`${p2.chip} ${label.className}`}>{label.text}</span>
                       <span className={p2.mono}>{entry.sha.slice(0, 10)}</span>
                       <span>·</span>
@@ -309,75 +311,12 @@ export function SubmodulesPanel({ repoId, generation, onMutated, onOpen }: Props
             <div className={p2.empty} role="status">
               <h2>{t('ops.submodule.emptyTitle')}</h2>
               <p>{t('ops.submodule.emptyBody')}</p>
+              <button type="button" className={p2.primary} onClick={onCreate}>
+                {t('ops.submodule.addLabel')}
+              </button>
             </div>
           ) : null}
         </div>
-
-        <aside className={p2.screenAside}>
-          <section className={p2.asideSection}>
-            <h2 className={p2.asideTitle}>{t('ops.submodule.addTitle')}</h2>
-            <label className={p2.field}>
-              URL
-              <input
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://gitlab.example.com/team/sdk.git"
-                spellCheck={false}
-              />
-            </label>
-            <label className={p2.field}>
-              {t('common.path')}
-              <input
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-                placeholder="vendor/sdk"
-                spellCheck={false}
-              />
-            </label>
-            <label className={p2.field}>
-              Branche suivie (optionnel)
-              <input
-                value={branch}
-                onChange={(event) => setBranch(event.target.value)}
-                placeholder="main"
-                spellCheck={false}
-              />
-            </label>
-            <label className={p2.checkbox} title={t('ops.submodule.forceHint')}>
-              <input
-                type="checkbox"
-                checked={force}
-                onChange={(event) => setForce(event.target.checked)}
-              />
-              {t('ops.submodule.force')}
-            </label>
-            <button
-              type="button"
-              className={p2.primary}
-              disabled={busy || !url.trim() || !path.trim()}
-              onClick={() =>
-                void run(t('ops.submodule.notice.added'), async () => {
-                  await submoduleAdd({
-                    repoId,
-                    url: url.trim(),
-                    path: path.trim(),
-                    branch: branch.trim() || undefined,
-                    force,
-                  })
-                  setUrl('')
-                  setPath('')
-                  setBranch('')
-                  setForce(false)
-                })
-              }
-            >
-              {t('ops.submodule.addLabel')}
-            </button>
-            <p className={p2.asideHint}>
-              {t('ops.submodule.addHint')}
-            </p>
-          </section>
-        </aside>
       </div>
 
       <ConfirmBar

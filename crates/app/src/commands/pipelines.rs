@@ -1,10 +1,10 @@
 //! Repository CI overview: the pipelines of the commit checked out in the
 //! active repository, for the toolbar indicator and its detail panel.
 //!
-//! Provider selection is explicit: a repository only reports CI once it is
-//! linked to a GitLab project or a GitHub repository, and only for the forge
-//! an instance is connected to. When both links exist, the forge host matching
-//! a Git remote wins; GitLab is the deterministic tie-breaker.
+//! Provider selection is explicit: a repository reports CI for a connected
+//! forge it is linked to. When several links exist, the remote that the
+//! current branch tracks wins; otherwise the forge host matching a Git remote
+//! wins. GitLab remains the deterministic tie-breaker.
 
 use beebranch_core::{AppError, HeadState};
 use beebranch_github::{GithubClient, GithubJob, GithubPipeline, RepoRef};
@@ -13,6 +13,10 @@ use beebranch_store::RepoLink;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use crate::commands::azure_pr::{
+    builds_for_commit, builds_page as azure_builds_page, ensure_repo_link as ensure_azure_link,
+    jobs_for_build,
+};
 use crate::commands::github_pr::{
     auth_event as github_auth_event, client as github_client,
     ensure_repo_link as ensure_github_link, instance_id as github_instance_id, resolve_repo_ref,
@@ -30,6 +34,15 @@ const PIPELINES_PER_COMMIT: u32 = 20;
 const RECENT_PIPELINES: u32 = 20;
 /// Pipelines per page of the repository history.
 const HISTORY_PIPELINES: u32 = 30;
+
+/// Prefer the forge's next page, but never repeat the page we just fetched.
+/// A full page with no header still implies another page (cached 304s drop
+/// `X-Next-Page` / `Link`).
+fn next_history_page(page: u32, item_count: usize, reported: Option<u32>) -> Option<u32> {
+    reported
+        .filter(|next| *next > page)
+        .or_else(|| (item_count >= HISTORY_PIPELINES as usize).then_some(page.saturating_add(1)))
+}
 /// Jobs fetched for one pipeline; the detail panel is a summary, not a log.
 const JOBS_PER_PIPELINE: u32 = 100;
 
@@ -37,6 +50,7 @@ const JOBS_PER_PIPELINE: u32 = 100;
 enum Provider {
     Gitlab,
     Github,
+    Azure,
 }
 
 impl Provider {
@@ -44,6 +58,7 @@ impl Provider {
         match self {
             Self::Gitlab => "gitlab",
             Self::Github => "github",
+            Self::Azure => "azure",
         }
     }
 }
@@ -191,8 +206,10 @@ impl From<GithubJob> for PipelineJobDto {
 struct RepoContext {
     branch: Option<String>,
     sha: Option<String>,
-    /// Fetch remotes, used to pick between two forges and to associate one.
+    /// Fetch remotes, used to pick between forges and to associate one.
     remote_urls: Vec<String>,
+    /// Host of the remote the current branch tracks, when there is one.
+    preferred_host: Option<String>,
 }
 
 /// Project metadata of a linked forge repository.
@@ -202,6 +219,8 @@ struct LinkedProject {
     name: String,
     web_url: String,
     host: String,
+    /// Azure organization, when the project URL is an Azure repository.
+    organization: Option<String>,
 }
 
 fn project_row(
@@ -223,9 +242,13 @@ fn linked_project(state: &AppState, link: &RepoLink) -> LinkedProject {
         .as_ref()
         .map(|row| row.web_url.clone())
         .unwrap_or_default();
-    let host = beebranch_github::normalize_remote(&web_url)
-        .map(|remote| remote.host)
+    let azure = beebranch_azure::normalize_remote(&web_url);
+    let host = azure
+        .as_ref()
+        .map(|remote| remote.host.clone())
+        .or_else(|| beebranch_github::normalize_remote(&web_url).map(|remote| remote.host))
         .unwrap_or_default();
+    let organization = azure.map(|remote| remote.organization);
     LinkedProject {
         project_id: link.project_id,
         path: row
@@ -235,38 +258,76 @@ fn linked_project(state: &AppState, link: &RepoLink) -> LinkedProject {
         name: row.map(|row| row.name).unwrap_or_default(),
         web_url,
         host,
+        organization,
     }
 }
 
 /// Pick the forge that owns this repository's CI.
 ///
-/// Both links may exist; the remote host decides. Equal or ambiguous matches
-/// resolve to GitLab so the choice never depends on map ordering.
+/// A single link wins. Several links prefer the remote the current branch
+/// tracks, then a host that appears on a fetch remote. Equal matches resolve
+/// to GitLab, then GitHub, then Azure.
 fn choose_provider(
     gitlab: Option<&LinkedProject>,
     github: Option<&LinkedProject>,
+    azure: Option<&LinkedProject>,
     remote_hosts: &[String],
+    preferred_host: Option<&str>,
 ) -> Option<Provider> {
-    match (gitlab, github) {
-        (Some(_), None) => Some(Provider::Gitlab),
-        (None, Some(_)) => Some(Provider::Github),
-        (Some(gitlab), Some(github)) => {
-            let gitlab_matches = !gitlab.host.is_empty()
-                && remote_hosts
-                    .iter()
-                    .any(|host| host.eq_ignore_ascii_case(&gitlab.host));
-            let github_matches = !github.host.is_empty()
-                && remote_hosts
-                    .iter()
-                    .any(|host| host.eq_ignore_ascii_case(&github.host));
-            if github_matches && !gitlab_matches {
-                Some(Provider::Github)
-            } else {
-                Some(Provider::Gitlab)
-            }
-        }
-        (None, None) => None,
+    let all = [
+        gitlab.map(|project| (Provider::Gitlab, project)),
+        github.map(|project| (Provider::Github, project)),
+        azure.map(|project| (Provider::Azure, project)),
+    ];
+    let present: Vec<_> = all.into_iter().flatten().collect();
+    if present.is_empty() {
+        return None;
     }
+    if present.len() == 1 {
+        return Some(present[0].0);
+    }
+    if let Some(host) = preferred_host {
+        let hits: Vec<_> = present
+            .iter()
+            .filter(|(_, project)| hosts_match(project, host))
+            .map(|(provider, _)| *provider)
+            .collect();
+        if hits.len() == 1 {
+            return Some(hits[0]);
+        }
+    }
+    let matched: Vec<_> = present
+        .iter()
+        .filter(|(_, project)| remote_hosts.iter().any(|host| hosts_match(project, host)))
+        .map(|(provider, _)| *provider)
+        .collect();
+    let pool = if matched.is_empty() {
+        present.iter().map(|(provider, _)| *provider).collect()
+    } else {
+        matched
+    };
+    [Provider::Gitlab, Provider::Github, Provider::Azure]
+        .into_iter()
+        .find(|provider| pool.contains(provider))
+}
+
+fn hosts_match(project: &LinkedProject, remote_host: &str) -> bool {
+    if project.host.is_empty() {
+        return false;
+    }
+    if project.host.eq_ignore_ascii_case(remote_host) {
+        return true;
+    }
+    let host = project.host.to_ascii_lowercase();
+    let remote = remote_host.to_ascii_lowercase();
+    if (host == "dev.azure.com" && remote == "ssh.dev.azure.com")
+        || (host == "ssh.dev.azure.com" && remote == "dev.azure.com")
+    {
+        return true;
+    }
+    project.organization.as_ref().is_some_and(|organization| {
+        remote == format!("{}.visualstudio.com", organization.to_ascii_lowercase())
+    })
 }
 
 /// HEAD branch, its commit and the fetch remote hosts.
@@ -289,18 +350,42 @@ async fn repo_context(state: &AppState, repo_id: &str) -> Result<RepoContext, Ap
         sha = refs.head.as_ref().and_then(|head| head.oid.clone());
     }
 
-    let remote_urls = refs
+    let fetch_urls: Vec<_> = refs
         .remote_urls
         .iter()
         .filter(|remote| remote.direction == "fetch")
-        .map(|remote| remote.url.clone())
+        .cloned()
         .collect();
+    let preferred_host = refs
+        .entries
+        .iter()
+        .find(|entry| entry.is_head)
+        .and_then(|entry| entry.upstream.as_deref())
+        .and_then(|upstream| {
+            let short = upstream.trim_start_matches("refs/remotes/");
+            short.split('/').next()
+        })
+        .and_then(|name| {
+            fetch_urls
+                .iter()
+                .find(|remote| remote.name == name)
+                .map(|remote| remote.url.clone())
+        })
+        .and_then(|url| remote_host(&url));
+    let remote_urls = fetch_urls.into_iter().map(|remote| remote.url).collect();
 
     Ok(RepoContext {
         branch,
         sha,
         remote_urls,
+        preferred_host,
     })
+}
+
+fn remote_host(url: &str) -> Option<String> {
+    beebranch_azure::normalize_remote(url)
+        .map(|remote| remote.host)
+        .or_else(|| beebranch_gitlab::normalize_remote(url).map(|remote| remote.host))
 }
 
 /// Hosts of the repository remotes, for [`choose_provider`].
@@ -327,6 +412,14 @@ fn gitlab_ready(state: &AppState) -> bool {
 fn github_ready(state: &AppState) -> bool {
     state
         .github
+        .lock()
+        .map(|client| client.is_some())
+        .unwrap_or(false)
+}
+
+fn azure_ready(state: &AppState) -> bool {
+    state
+        .azure
         .lock()
         .map(|client| client.is_some())
         .unwrap_or(false)
@@ -366,14 +459,34 @@ async fn resolve_provider(
     } else {
         None
     };
+    let azure_link = if azure_ready(state) {
+        match state
+            .store
+            .repo_link_for(repo_id, "azure")
+            .map_err(store_error)?
+        {
+            Some(link) => Some(link),
+            None => ensure_azure_link(state, repo_id, &context.remote_urls).await?,
+        }
+    } else {
+        None
+    };
     let gitlab = gitlab_link.as_ref().map(|link| linked_project(state, link));
     let github = github_link.as_ref().map(|link| linked_project(state, link));
+    let azure = azure_link.as_ref().map(|link| linked_project(state, link));
 
     let hosts = remote_hosts(&context.remote_urls);
-    let chosen = choose_provider(gitlab.as_ref(), github.as_ref(), &hosts);
+    let chosen = choose_provider(
+        gitlab.as_ref(),
+        github.as_ref(),
+        azure.as_ref(),
+        &hosts,
+        context.preferred_host.as_deref(),
+    );
     let project = match chosen {
         Some(Provider::Gitlab) => gitlab,
         Some(Provider::Github) => github,
+        Some(Provider::Azure) => azure,
         None => None,
     };
     Ok(chosen.zip(project))
@@ -423,6 +536,22 @@ pub async fn pipeline_overview(
                 })?
                 .into_iter()
                 .map(PipelineSummaryDto::from)
+                .collect()
+        }
+        (Some(sha), Provider::Azure) => {
+            builds_for_commit(&state, project.project_id, sha, PIPELINES_PER_COMMIT)
+                .await?
+                .into_iter()
+                .map(|pipeline| PipelineSummaryDto {
+                    id: pipeline.id,
+                    status: pipeline.status,
+                    detailed_status: pipeline.detailed_status,
+                    ref_name: pipeline.ref_name,
+                    sha: pipeline.sha,
+                    web_url: pipeline.web_url,
+                    source: None,
+                    updated_at: pipeline.updated_at,
+                })
                 .collect()
         }
     };
@@ -480,6 +609,31 @@ pub async fn pipeline_jobs(
                 })?;
             Ok(page.items.into_iter().map(PipelineJobDto::from).collect())
         }
+        Provider::Azure => {
+            let items = jobs_for_build(&state, project.project_id, pipeline_id).await?;
+            Ok(items
+                .into_iter()
+                .map(|job| PipelineJobDto {
+                    id: job.id,
+                    name: job.name,
+                    stage: job.stage,
+                    status: job.status,
+                    web_url: job.web_url,
+                    duration: job.duration,
+                    created_at: job.created_at,
+                    finished_at: job.finished_at,
+                    steps: job
+                        .steps
+                        .into_iter()
+                        .map(|step| PipelineJobStepDto {
+                            name: step.name,
+                            status: step.status,
+                            conclusion: step.conclusion,
+                        })
+                        .collect(),
+                })
+                .collect())
+        }
     }
 }
 
@@ -526,6 +680,23 @@ pub async fn pipeline_recent(
                 })
                 .map(|items| items.into_iter().map(PipelineSummaryDto::from).collect())
         }
+        Provider::Azure => {
+            let page = azure_builds_page(&state, project.project_id, 1, RECENT_PIPELINES).await?;
+            Ok(page
+                .items
+                .into_iter()
+                .map(|pipeline| PipelineSummaryDto {
+                    id: pipeline.id,
+                    status: pipeline.status,
+                    detailed_status: pipeline.detailed_status,
+                    ref_name: pipeline.ref_name,
+                    sha: pipeline.sha,
+                    web_url: pipeline.web_url,
+                    source: None,
+                    updated_at: pipeline.updated_at,
+                })
+                .collect())
+        }
     }
 }
 
@@ -563,6 +734,8 @@ pub async fn pipeline_history(
                     gitlab_auth_event(&app, &error, &instance);
                     gitlab_error(error)
                 })?;
+            let count = paged.items.len();
+            let next_page = next_history_page(page, count, paged.next_page);
             Ok(PipelineHistoryDto {
                 provider: provider.id().to_owned(),
                 project_id: project.project_id,
@@ -572,7 +745,7 @@ pub async fn pipeline_history(
                     .into_iter()
                     .map(PipelineSummaryDto::from)
                     .collect(),
-                next_page: paged.next_page,
+                next_page,
             })
         }
         Provider::Github => {
@@ -587,6 +760,8 @@ pub async fn pipeline_history(
                     github_auth_event(&app, &error, &instance);
                     github_error(error)
                 })?;
+            let count = paged.items.len();
+            let next_page = next_history_page(page, count, paged.next_page);
             Ok(PipelineHistoryDto {
                 provider: provider.id().to_owned(),
                 project_id: project.project_id,
@@ -596,7 +771,33 @@ pub async fn pipeline_history(
                     .into_iter()
                     .map(PipelineSummaryDto::from)
                     .collect(),
-                next_page: paged.next_page,
+                next_page,
+            })
+        }
+        Provider::Azure => {
+            let paged =
+                azure_builds_page(&state, project.project_id, page, HISTORY_PIPELINES).await?;
+            let count = paged.items.len();
+            let next_page = next_history_page(page, count, paged.next_page);
+            Ok(PipelineHistoryDto {
+                provider: provider.id().to_owned(),
+                project_id: project.project_id,
+                project_path: project.path,
+                items: paged
+                    .items
+                    .into_iter()
+                    .map(|pipeline| PipelineSummaryDto {
+                        id: pipeline.id,
+                        status: pipeline.status,
+                        detailed_status: pipeline.detailed_status,
+                        ref_name: pipeline.ref_name,
+                        sha: pipeline.sha,
+                        web_url: pipeline.web_url,
+                        source: None,
+                        updated_at: pipeline.updated_at,
+                    })
+                    .collect(),
+                next_page,
             })
         }
     }
@@ -605,6 +806,14 @@ pub async fn pipeline_history(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn next_history_page_never_repeats_the_current_page() {
+        assert_eq!(next_history_page(1, 30, Some(1)), Some(2));
+        assert_eq!(next_history_page(1, 30, Some(2)), Some(2));
+        assert_eq!(next_history_page(1, 8, None), None);
+        assert_eq!(next_history_page(2, 30, None), Some(3));
+    }
     use beebranch_gitlab::GitlabConfig;
     use beebranch_store::{InstanceRow, ProjectRow, Store};
     use std::time::Duration;
@@ -665,6 +874,7 @@ mod tests {
             branch: Some("release/test".to_owned()),
             sha: Some("ff0c46a".to_owned()),
             remote_urls: vec!["git@gitlab.example.test:team/repo.git".to_owned()],
+            preferred_host: None,
         };
 
         let (provider, linked) = resolve_provider(&state, "repo_1", &context)
@@ -683,6 +893,7 @@ mod tests {
             name: "repo".to_owned(),
             web_url: format!("https://{host}/team/repo"),
             host: host.to_owned(),
+            organization: None,
         }
     }
 
@@ -690,15 +901,20 @@ mod tests {
     fn single_link_wins_without_remote_matching() {
         let gitlab = project("gitlab.example.test");
         assert_eq!(
-            choose_provider(Some(&gitlab), None, &[]),
+            choose_provider(Some(&gitlab), None, None, &[], None),
             Some(Provider::Gitlab)
         );
         let github = project("github.com");
         assert_eq!(
-            choose_provider(None, Some(&github), &[]),
+            choose_provider(None, Some(&github), None, &[], None),
             Some(Provider::Github)
         );
-        assert_eq!(choose_provider(None, None, &[]), None);
+        let azure = project("dev.azure.com");
+        assert_eq!(
+            choose_provider(None, None, Some(&azure), &[], None),
+            Some(Provider::Azure)
+        );
+        assert_eq!(choose_provider(None, None, None, &[], None), None);
     }
 
     #[test]
@@ -706,29 +922,56 @@ mod tests {
         let gitlab = project("gitlab.example.test");
         let github = project("github.com");
         assert_eq!(
-            choose_provider(Some(&gitlab), Some(&github), &["github.com".to_owned()]),
+            choose_provider(
+                Some(&gitlab),
+                Some(&github),
+                None,
+                &["github.com".to_owned()],
+                None
+            ),
             Some(Provider::Github)
         );
         assert_eq!(
             choose_provider(
                 Some(&gitlab),
                 Some(&github),
-                &["gitlab.example.test".to_owned()]
+                None,
+                &["gitlab.example.test".to_owned()],
+                None
             ),
             Some(Provider::Gitlab)
         );
         // No match, or both matching, stays deterministic.
         assert_eq!(
-            choose_provider(Some(&gitlab), Some(&github), &["example.org".to_owned()]),
+            choose_provider(
+                Some(&gitlab),
+                Some(&github),
+                None,
+                &["example.org".to_owned()],
+                None
+            ),
             Some(Provider::Gitlab)
         );
         assert_eq!(
             choose_provider(
                 Some(&gitlab),
                 Some(&github),
-                &["github.com".to_owned(), "gitlab.example.test".to_owned()]
+                None,
+                &["github.com".to_owned(), "gitlab.example.test".to_owned()],
+                None
             ),
             Some(Provider::Gitlab)
+        );
+        let azure = project("dev.azure.com");
+        assert_eq!(
+            choose_provider(
+                Some(&gitlab),
+                None,
+                Some(&azure),
+                &["gitlab.example.test".to_owned(), "dev.azure.com".to_owned()],
+                Some("dev.azure.com")
+            ),
+            Some(Provider::Azure)
         );
     }
 }

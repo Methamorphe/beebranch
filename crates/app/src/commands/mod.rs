@@ -1,4 +1,6 @@
 pub mod app_info;
+pub mod azure;
+pub mod azure_pr;
 pub mod background;
 pub mod branches;
 pub mod commit;
@@ -12,6 +14,7 @@ pub mod gitlab_mr;
 pub mod history;
 pub mod index;
 pub mod inspect;
+pub mod notify;
 pub mod patch;
 pub mod pipelines;
 pub mod preferences;

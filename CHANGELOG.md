@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Azure DevOps**: connect with a personal access token, or reuse the Git credential for that host. The token lives in the same durable secret file as GitLab and GitHub, with a keychain mirror. Pull requests, reviews, votes, completion and builds are available next to GitLab and GitHub, and a repository can stay linked to more than one forge.
+- **Hovering a commit ghosts its branch**: the closest branch label appears at low opacity in the refs column, including on commits that are not themselves a tip.
+
+### Changed
+
+- **The graph keeps its columns on a small screen**: a narrow history pane scrolls sideways instead of dropping the branch labels, the author or the date.
+- **Staging a file no longer prints a status line**: the file moving between *To stage* and *Ready to commit* is the confirmation; discard, ignore and similar actions still say what happened.
+- **The history graph uses a smaller type**: commit subjects, authors, dates and branch chips sit at 12/11 px so more of the row stays readable.
+- **The repository explorer collapses to an icon rail**: a chevron next to the repository name folds Local / Remote / Tags / Stash to icons with their counts; clicking a list icon opens a flyout with the same tree. Search, pipelines, merge requests, pull requests, worktrees and submodules keep that rail, like the history: the chevron still opens the full tree if needed.
+- **Toasts share one card**: each notice is 340 px with a tinted background, a Lucide icon and at most two ellipsized lines; a timer bar runs along the bottom for the fade, pauses on hover, and Git detail stays behind *Details*.
+- **Adding or editing a remote opens a dialog**: the explorer keeps the remote list; *+* and the remote folder menu use the same 460 px chrome as a tag or a worktree, with a short hint and Cancel / Add.
+- **Explorer tools use the center pane**: Search, pipelines, merge requests, pull requests, worktrees and submodules replace the graph instead of squeezing into the column; they appear as icon rows in the explorer, not as fake folders, and they do not force the explorer open. Creating a worktree or a submodule uses the same dialog as a remote. Synchronisation, the log and Tools stay beside the graph.
+- **Dragging a branch near the edge of the history scrolls it**: the graph moves up or down while the pointer stays in the top or bottom band, so a drop can reach commits that were off-screen.
+- **Explorer tools drop the code look**: section labels stay sentence case, worktree and submodule paths use the interface font, merge requests use a quiet list plus a full-pane empty state, and Search puts the field on its own row.
+- **Segmented controls stay in the track**: the selected item (Search type, review scope, history/blame, …) keeps the same size as its neighbours, with gold text on a tinted surface instead of a gold stamp at the default button padding.
+- **Conflict resolution drops the leftover chrome**: no left stripes on the two sides or the output, Both / Line by line sit in the conflict header, and the stash banner is gone — the column names already say which side is which.
+- **Conflict comparison and output keep a 55/45 split**: the comparison pane shrinks to the hunk and never exceeds 55 %, each pane scrolls in place, and the output no longer grows or shrinks with the selected hunk. The file path sits in the hunk header instead of a second title bar.
+- **Graph branch pills fold remotes into one label**: `develop`, `origin/develop` and `gitlab/develop` on the same commit share one chip. Extra branch names stay behind `+N` and the hover list, so the row does not repeat them. A local branch shows the laptop mark, then each remote uses its forge mark (GitLab, GitHub, Azure) from the remote URL, then its name.
+
+### Fixed
+
+- **Dropping on a commit with several branches picks the destination**: the list is one row per branch. If a local sits on the same commit as its remotes, the drop lands on the local; remote logos show where that branch also lives. Moving through the picker no longer retargets onto a chip underneath, and another pill on the same commit keeps the same list. The picker only opens when two branch names share the commit.
+- **Pipeline history Load more keeps the list**: a repository `generation` tick no longer clears loaded pages and fetches page 1 again; extra pages append, duplicate ids are ignored, and a missing next-page header on a full page still offers the following page.
+- **Diff view mode is remembered**: *Side by side*, *Unified* and *Changes* stay selected when the file refreshes, after the viewer remounts, and across sessions (`ui.diff.mode`).
+
 ## [2.1.0] — 2026-11-18
 
 ### Added

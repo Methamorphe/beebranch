@@ -177,15 +177,37 @@ pub struct CloneRequest {
     pub recurse_submodules: bool,
 }
 
+/// HTTPS host used to match a forge token. Usernames in Azure clone URLs
+/// (`https://org@dev.azure.com/…`) are ignored: they are not a password.
+fn https_host(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url.trim()).ok()?;
+    if parsed.scheme() != "https" {
+        return None;
+    }
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    Some(match parsed.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
+}
+
 /// Use the active forge token only when the clone URL targets the same HTTPS
 /// host. Other hosts never receive the token. A credential discovered in the
 /// Git configuration is used when the keychain holds nothing for that host.
 pub(super) fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
-    let clone_url = normalize_url(url).ok()?;
+    let host = https_host(url)?;
 
-    if let Some(instance) = state.gitlab_instance.lock().ok()?.clone() {
+    if let Some(instance) = state
+        .gitlab_instance
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+    {
         if let Ok(instance_url) = normalize_url(&instance.base_url) {
-            if clone_url.host.eq_ignore_ascii_case(&instance_url.host) {
+            if host.eq_ignore_ascii_case(&instance_url.host) {
                 let account = format!("{}#{}", instance_url.host, instance.id);
                 let oauth = state
                     .secrets
@@ -208,9 +230,14 @@ pub(super) fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
             }
         }
     }
-    if let Some(instance) = state.github_instance.lock().ok()?.clone() {
+    if let Some(instance) = state
+        .github_instance
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+    {
         if let Ok(instance_url) = beebranch_github::normalize_url(&instance.base_url) {
-            if clone_url.host.eq_ignore_ascii_case(&instance_url.host) {
+            if host.eq_ignore_ascii_case(&instance_url.host) {
                 if let Some(token) = super::github::stored_access_token(
                     state.github_secrets.as_ref(),
                     &instance_url.host,
@@ -224,6 +251,29 @@ pub(super) fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
             }
         }
     }
+    if let Some(instance) = state
+        .azure_instance
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+    {
+        if let Ok(instance_url) = beebranch_azure::normalize_url(&instance.base_url) {
+            if host.eq_ignore_ascii_case(&instance_url.host) {
+                if let Some(token) = super::azure::stored_access_token(
+                    state.azure_secrets.as_ref(),
+                    &instance_url.host,
+                    &instance.id,
+                ) {
+                    let username = if instance_url.organization.is_empty() {
+                        "pat".to_owned()
+                    } else {
+                        instance_url.organization
+                    };
+                    return Some(HttpsAuth { username, token });
+                }
+            }
+        }
+    }
 
     let gitlab = state
         .gitlab_credential
@@ -231,7 +281,7 @@ pub(super) fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
         .ok()
         .and_then(|value| value.clone());
     if let Some(credential) = gitlab {
-        if clone_url.host.eq_ignore_ascii_case(&credential.host) {
+        if host.eq_ignore_ascii_case(&credential.host) {
             return Some(HttpsAuth {
                 username: credential.username,
                 token: credential.password,
@@ -243,13 +293,25 @@ pub(super) fn https_auth_for(state: &AppState, url: &str) -> Option<HttpsAuth> {
         .lock()
         .ok()
         .and_then(|value| value.clone());
-    let credential = github?;
-    if !clone_url.host.eq_ignore_ascii_case(&credential.host) {
+    if let Some(credential) = github {
+        if host.eq_ignore_ascii_case(&credential.host) {
+            return Some(HttpsAuth {
+                username: credential.username,
+                token: credential.password,
+            });
+        }
+    }
+    let azure = state
+        .azure_credential
+        .lock()
+        .ok()
+        .and_then(|value| value.clone())?;
+    if !host.eq_ignore_ascii_case(&azure.host) {
         return None;
     }
     Some(HttpsAuth {
-        username: credential.username,
-        token: credential.password,
+        username: azure.username,
+        token: azure.password,
     })
 }
 

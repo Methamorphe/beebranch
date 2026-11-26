@@ -52,7 +52,7 @@ export function ActivityPanel({ repoId }: Props) {
         <div className={p2.segmented} role="group" aria-label={t('ops.activity.scopeAria')}>
           <button
             type="button"
-            className={tab === 'repository' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'repository' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'repository'}
             onClick={() => setTab('repository')}
           >
@@ -60,7 +60,7 @@ export function ActivityPanel({ repoId }: Props) {
           </button>
           <button
             type="button"
-            className={tab === 'application' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'application' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'application'}
             onClick={() => setTab('application')}
           >

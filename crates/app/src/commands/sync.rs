@@ -24,6 +24,7 @@ pub(crate) fn authenticated_runner(
     for instance in [
         state.gitlab_instance.lock().ok().and_then(|v| v.clone()),
         state.github_instance.lock().ok().and_then(|v| v.clone()),
+        state.azure_instance.lock().ok().and_then(|v| v.clone()),
     ]
     .into_iter()
     .flatten()
@@ -41,6 +42,7 @@ pub(crate) fn authenticated_runner(
     for credential in [
         state.gitlab_credential.lock().ok().and_then(|v| v.clone()),
         state.github_credential.lock().ok().and_then(|v| v.clone()),
+        state.azure_credential.lock().ok().and_then(|v| v.clone()),
     ]
     .into_iter()
     .flatten()
@@ -606,6 +608,52 @@ mod auth_tests {
         assert_eq!(oauth.password, "oauth-sync-test");
         assert!(
             credentials::fill(&authenticated, directory.path(), "other.example.test")
+                .expect("fill")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn sync_runner_uses_the_azure_pat_on_dev_azure_com() {
+        let directory = tempfile::tempdir().expect("directory");
+        let state = crate::state::test_state(
+            directory.path().to_path_buf(),
+            Store::open_in_memory().expect("store"),
+        );
+        let runner = state.runner().expect("runner");
+        for (command, args) in [
+            (GitSubcommand::Init, vec!["--quiet"]),
+            (
+                GitSubcommand::Config,
+                vec!["--local", "credential.helper", ""],
+            ),
+        ] {
+            assert!(runner
+                .run(&CommandSpec::new(command, directory.path()).args(args))
+                .expect("git")
+                .success());
+        }
+        *state.azure_instance.lock().expect("instance") = Some(InstanceRow {
+            id: "az_sync".into(),
+            provider: "azure".into(),
+            base_url: "https://dev.azure.com/DecospanGroup".into(),
+            api_url: "https://dev.azure.com/DecospanGroup".into(),
+            display_name: None,
+            ca_bundle_id: None,
+            created_at: 1,
+        });
+        state
+            .azure_secrets
+            .set("dev.azure.com#az_sync", "azure-pat-for-git")
+            .expect("PAT");
+        let authenticated = authenticated_runner(&state, runner).expect("authenticated runner");
+        let filled = credentials::fill(&authenticated, directory.path(), "dev.azure.com")
+            .expect("fill")
+            .expect("Azure credential");
+        assert_eq!(filled.username, "DecospanGroup");
+        assert_eq!(filled.password, "azure-pat-for-git");
+        assert!(
+            credentials::fill(&authenticated, directory.path(), "gitlab.example.test")
                 .expect("fill")
                 .is_none()
         );

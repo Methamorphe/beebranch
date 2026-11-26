@@ -233,6 +233,8 @@ const messages = {
   'shell.pipeline.history.back': 'All pipelines',
   'shell.pipeline.history.caption': 'Recent pipelines',
   'shell.pipeline.history.empty': 'No pipeline reported.',
+  'shell.pipeline.history.pickTitle': 'Jobs',
+  'shell.pipeline.history.pick': 'Select a pipeline to see its jobs.',
   'shell.pipeline.history.loadMore': 'Load more',
   'shell.pipeline.log.open': 'Open the job log',
   'shell.pipeline.log.summary': 'Job log · {size}',

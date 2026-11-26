@@ -258,9 +258,10 @@
 
 .conflictGrid {
   display: grid;
-  grid-template-rows: minmax(120px, 1fr) minmax(150px, 42%);
+  grid-template-rows: auto minmax(180px, 1fr);
   min-height: 0;
   overflow: hidden;
+  container-type: size;
 }
 
 .sides {
@@ -533,10 +534,16 @@
 }
 
 .conflictsScreen .conflictGrid {
-  display: flex;
+  display: grid;
   flex: 1;
-  flex-direction: column;
+  grid-template-rows: auto minmax(180px, 1fr);
   min-height: 0;
+  overflow: hidden;
+  container-type: size;
+}
+
+.conflictsScreen .conflictGrid:has(> .resolve) {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .conflictsScreen .footer,
@@ -591,11 +598,23 @@
 
 .toolbarLabel {
   color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
+}
+
+.toolbarRow {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .toolbar > .field {
@@ -606,7 +625,11 @@
 .toolbar input,
 .toolbar select,
 .toolbar .field input,
-.toolbar .field select {
+.toolbar .field select,
+.toolbarRow input,
+.toolbarRow select,
+.toolbarRow .field input,
+.toolbarRow .field select {
   min-height: 28px;
   padding: 3px 7px;
   border-radius: var(--radius-sm);
@@ -676,13 +699,59 @@
   line-height: 1.5;
 }
 
+.formStack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.formActions > button,
+.formStack > button {
+  width: auto;
+  max-width: none;
+  align-self: flex-start;
+}
+
+.entryForm {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0 2px;
+}
+
+.entry[data-editing='true'] {
+  align-items: start;
+  background: var(--surface-raised);
+}
+
 /* Micro typography shared with the history table. */
 .label {
   color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.path {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .meta {
@@ -732,7 +801,7 @@
 .entry[aria-current='true']:hover:not(:disabled) {
   color: var(--accent-text);
   background: var(--accent-soft);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .entryStack {
@@ -931,34 +1000,49 @@
 .segmented {
   display: inline-flex;
   flex: none;
-  gap: 2px;
+  gap: 1px;
   padding: 2px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
 }
 
-.segment {
+/* Compact even when the selected class is used alone: a global `button`
+   padding of 6px was painting a giant gold stamp over the track. */
+.segmented > button,
+.segment,
+.segmentOn {
   min-height: 24px;
-  padding: 2px 9px;
+  padding: 2px 8px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: calc(var(--radius-sm) - 1px);
   color: var(--muted);
   background: none;
   font-size: 11.5px;
+  font-weight: 400;
   white-space: nowrap;
 }
 
+.segmented > button:hover:not(:disabled),
 .segment:hover:not(:disabled) {
   color: var(--text);
   background: var(--surface-raised);
 }
 
+.segmented > button[aria-pressed='true'],
+.segmented > button[aria-pressed='true']:hover:not(:disabled),
 .segmentOn,
 .segmentOn:hover:not(:disabled) {
   color: var(--accent-text);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent-text);
+  box-shadow: none;
+}
+
+.segmented > button:focus-visible,
+.segment:focus-visible,
+.segmentOn:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .formRow {
@@ -1076,7 +1160,7 @@
   background: none;
   color: var(--text);
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 500;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1329,6 +1413,7 @@
   .segmented { display:flex; flex-wrap:wrap; max-width:100%; }
   .chip { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
   .toolbar button, .entryActions button, .asideSection > button { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+  .formActions > button, .formStack > button { max-width:none; white-space:nowrap; }
   .actionRowControls { min-width:0; flex-wrap:wrap; justify-content:flex-start; }
 }
 
@@ -1354,29 +1439,18 @@
   gap: 6px;
 }
 
-.conflictContext {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 2px;
-  padding: 7px 12px;
-  border-top: 1px solid var(--border);
-  border-left: 3px solid var(--info);
-  color: var(--text);
-  background: var(--info-soft);
-  font-size: 12px;
-}
-
 .regions {
   display: flex;
-  flex: 0 1 auto;
   flex-direction: column;
+  align-self: start;
   gap: 8px;
-  max-height: 60%;
-  min-height: 120px;
-  padding: 10px 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: 55%;
+  max-height: 55cqh;
+  padding: 8px 12px;
   overflow: auto;
-  border-top: 1px solid var(--border);
 }
 
 .region {
@@ -1395,6 +1469,11 @@
   padding: 7px 10px;
   color: var(--muted-strong);
   font-size: 12px;
+}
+
+.regionHeader .regionActions {
+  padding: 0;
+  border: 0;
 }
 
 .regionActions {
@@ -1479,4 +1558,218 @@
   font-family: var(--mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.hunk {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  scroll-margin-top: 8px;
+}
+
+.hunk + .hunk {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.diff {
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr) minmax(min-content, 1fr);
+  width: 100%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.diffHead,
+.diffLine {
+  min-width: max-content;
+}
+
+.diffHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diffHead:disabled,
+.diffLine:disabled {
+  cursor: default;
+}
+
+.diffHeadOn {
+  background: var(--accent-soft);
+}
+
+.diffHeadOn .diffVerb {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.diffNameTheirs {
+  color: var(--info);
+}
+
+.diffVerb {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.diffLine {
+  display: grid;
+  grid-template-columns: 36px max-content;
+  gap: 8px;
+  align-items: start;
+  min-height: 1.6em;
+  padding: 1px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 12.5px/1.6 var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.diffNum {
+  color: var(--path-directory);
+  text-align: right;
+  user-select: none;
+}
+
+.diffLine code {
+  white-space: pre;
+}
+
+.diffSame code {
+  color: var(--muted);
+}
+
+.diffOurs {
+  background: #52c9931a;
+}
+
+.diffTheirs {
+  background: #81a9ef1a;
+}
+
+.diffPad {
+  background: #00000028;
+  cursor: default;
+}
+
+.diffLine mark {
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.diffOurs mark {
+  background: #52c99366;
+}
+
+.diffTheirs mark {
+  background: #81a9ef73;
+}
+
+.conflictChoices {
+  gap: 8px;
+}
+
+.conflictChoices > button.secondary {
+  border-color: var(--border-strong) !important;
+  background: var(--surface-raised) !important;
+  color: var(--text) !important;
+}
+
+.sortie {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.sortieHead {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12.5px;
+}
+
+.sortieBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 10px;
+}
+
+.sortieEditor {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  background: var(--bg);
+  padding: 8px 12px;
+  color: var(--text);
+  font: 12.5px/1.55 var(--mono);
+  resize: none;
+}
+
+.outLine {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 0 12px;
+  font: 12.5px/1.65 var(--mono);
+}
+
+.outNum {
+  color: var(--path-directory);
+  text-align: right;
+  user-select: none;
+}
+
+.outLine code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.outContext {
+  color: var(--path-directory);
+}
+
+.outFocus {
+  background: #f5bb4526;
+  color: var(--text);
+}
+
+.outPending {
+  background: #f0a45b14;
+  color: var(--warning);
+  font-family: var(--sans);
+  font-size: 12.5px;
+}
+
+.conflictsScreen .sortie .footer {
+  flex: none;
+  border-top: 1px solid var(--border);
 }

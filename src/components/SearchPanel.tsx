@@ -20,6 +20,7 @@ import type {
 } from '../types/git'
 import { ToolbarIcon } from './ToolbarIcon'
 import p2 from './p2.module.css'
+import styles from './SearchPanel.module.css'
 
 type Props = {
   repoId: string
@@ -124,6 +125,7 @@ export function SearchPanel({
   const running = useRef(false)
   const requestRef = useRef(0)
   const [saved, setSaved] = useState<SavedSearch[]>([])
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const runRef = useRef<(after?: string, offset?: number) => Promise<void>>(async () => {})
 
   const run = async (after?: string, offset = 0) => {
@@ -318,93 +320,103 @@ export function SearchPanel({
 
   return (
     <div className={p2.screen}>
-      <div className={p2.toolbar}>
-        <div className={p2.segmented} role="group" aria-label={t('search.typeAria')}>
-          {MODES.map((item) => (
-            <button
-              key={item.value}
-              type="button"
-              className={mode === item.value ? p2.segmentOn : p2.segment}
-              aria-pressed={mode === item.value}
-              onClick={() => setMode(item.value)}
-            >
-              {t(item.labelKey)}
-            </button>
-          ))}
-        </div>
-
-        <label className={`${p2.fieldInline} ${p2.grow}`}>
-          <span className={p2.toolbarLabel}>{t('search.label')}</span>
-          <input
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                void run()
-              }
-            }}
-            placeholder={t(PLACEHOLDERS[mode])}
-            aria-label={t('search.termAria')}
-            spellCheck={false}
-          />
-        </label>
-
-        <button
-          type="button"
-          className={p2.primary}
-          disabled={busy || !text.trim()}
-          onClick={() => void run()}
-        >
-          {t('common.search')}
-        </button>
-        {busy ? (
-          <button type="button" className={p2.ghost} onClick={() => void cancel()}>
-            {t('common.cancel')}
+      <div className={styles.chrome}>
+        <div className={styles.modes}>
+          <div className={p2.segmented} role="group" aria-label={t('search.typeAria')}>
+            {MODES.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                className={`${p2.segment} ${mode === item.value ? p2.segmentOn : ''}`}
+                aria-pressed={mode === item.value}
+                onClick={() => setMode(item.value)}
+              >
+                {t(item.labelKey)}
+              </button>
+            ))}
+          </div>
+          <span className={p2.spacer} />
+          <button
+            type="button"
+            className={p2.ghost}
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            {t('search.options')}
           </button>
-        ) : null}
-        <button
-          type="button"
-          className={p2.ghost}
-          disabled={!text.trim()}
-          title={t('search.saveHint')}
-          onClick={saveCurrent}
-        >
-          {t('search.save')}
-        </button>
-        <span className={p2.spacer} />
-        <span className={p2.chip} title={t('search.scopeTitle')}>
-          {scope}
-        </span>
-      </div>
-
-      {saved.length > 0 ? (
-        <div className={p2.toolbar} aria-label={t('search.savedAria')}>
-          <span className={p2.toolbarLabel}>{t('search.savedLabel')}</span>
-          {saved.map((entry) => (
-            <span key={entry.id} className={p2.chip}>
-              <button
-                type="button"
-                className={p2.linkButton}
-                onClick={() => applySaved(entry)}
-              >
-                {entry.label}
-              </button>
-              <button
-                type="button"
-                className={p2.ghost}
-                aria-label={t('search.savedRemove', { label: entry.label })}
-                onClick={() =>
-                  void persistSaved(saved.filter((item) => item.id !== entry.id))
-                }
-              >
-                <ToolbarIcon name="x" size={12} />
-              </button>
-            </span>
-          ))}
         </div>
-      ) : null}
 
-      <div className={p2.toolbar}>
+        <div className={styles.query}>
+          <label>
+            <input
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  void run()
+                }
+              }}
+              placeholder={t(PLACEHOLDERS[mode])}
+              aria-label={t('search.termAria')}
+              spellCheck={false}
+            />
+          </label>
+          <button
+            type="button"
+            className={p2.primary}
+            disabled={busy || !text.trim()}
+            onClick={() => void run()}
+          >
+            {t('common.search')}
+          </button>
+          {busy ? (
+            <button type="button" className={p2.ghost} onClick={() => void cancel()}>
+              {t('common.cancel')}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={p2.ghost}
+            disabled={!text.trim()}
+            title={t('search.saveHint')}
+            onClick={saveCurrent}
+          >
+            {t('search.save')}
+          </button>
+        </div>
+
+        <p className={styles.scope} title={t('search.scopeTitle')}>
+          {scope}
+        </p>
+
+        {saved.length > 0 ? (
+          <div className={styles.saved} aria-label={t('search.savedAria')}>
+            <span className={styles.savedLabel}>{t('search.savedLabel')}</span>
+            {saved.map((entry) => (
+              <span key={entry.id} className={p2.chip}>
+                <button
+                  type="button"
+                  className={p2.linkButton}
+                  onClick={() => applySaved(entry)}
+                >
+                  {entry.label}
+                </button>
+                <button
+                  type="button"
+                  className={p2.ghost}
+                  aria-label={t('search.savedRemove', { label: entry.label })}
+                  onClick={() =>
+                    void persistSaved(saved.filter((item) => item.id !== entry.id))
+                  }
+                >
+                  <ToolbarIcon name="x" size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {filtersOpen ? <div className={styles.filters}>
         {commitMode ? (
           <>
             <label className={p2.fieldInline}>
@@ -472,6 +484,7 @@ export function SearchPanel({
             spellCheck={false}
           />
         </label>
+      </div> : null}
       </div>
 
       {error ? (
@@ -609,7 +622,6 @@ export function SearchPanel({
 
           {!busy && !hasResults ? (
             <div className={p2.empty}>
-              <h2>{t('search.title')}</h2>
               <p>{t('search.intro')}</p>
             </div>
           ) : null}

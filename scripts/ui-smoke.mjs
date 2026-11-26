@@ -248,9 +248,17 @@ function mockScript(commits, rows, diffLines) {
       if (args?.key === 'ui.language') {
         return window.localStorage.getItem('__smokeLang') ?? 'fr'
       }
+      const stored = window.__preferenceStore ?? {}
+      return Object.prototype.hasOwnProperty.call(stored, args?.key) ? stored[args.key] : null
+    },
+    preference_set: (args) => {
+      (window.__preferenceSets ??= []).push(args)
+      const key = args?.input?.key
+      if (typeof key === 'string') {
+        (window.__preferenceStore ??= {})[key] = args.input.value
+      }
       return null
     },
-    preference_set: (args) => { (window.__preferenceSets ??= []).push(args); return null },
     tools_detect: () => ({ editors: [], terminals: [], diffTools: [], mergeTools: [], configured: [] }),
     stash_list: () => [],
     worktree_list: () => ({ mainWorktree: '/tmp/beebranch-demo', entries: [
@@ -369,6 +377,9 @@ function mockScript(commits, rows, diffLines) {
     }),
     gitlab_repo_link_get: () => null,
     gitlab_mr_page: () => ({ items: [], page: 1, perPage: 25, nextPage: undefined, notModified: false, fromCache: false }),
+    azure_status: () => ({ connected: false }),
+    azure_repo_link_get: () => null,
+    azure_pr_page: () => ({ items: [], page: 1, perPage: 25, nextPage: undefined, notModified: false, fromCache: false }),
     github_status: () => window.__githubDisconnected ? { connected: false } : ({
       connected: true,
       instance: { id: 'gh_demo', baseUrl: 'https://github.com', displayName: 'GitHub' },
@@ -898,7 +909,7 @@ try {
   const graphPath = await screenshot(client, 'p0-graph.png')
 
   const initialColumns = await evaluate(client, `(() => {
-    const columns = document.querySelector('canvas').parentElement.parentElement.firstElementChild
+    const columns = document.querySelector('[data-role="graph-columns"]')
     return {
       author: columns.children[3].getBoundingClientRect().width,
       authorHeader: columns.children[3].textContent,
@@ -1303,6 +1314,20 @@ try {
   })()`)
   await delay(200)
   await screenshot(client, 'p0-diff-split.png')
+  assertUI('diff-split-preference', await evaluate(client, `(window.__preferenceSets ?? []).some((entry) => entry.input?.key === 'ui.diff.mode' && entry.input.value === 'split')`))
+  assertUI('diff-split-selected', await evaluate(client, `[...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Côte à côte')?.getAttribute('aria-pressed') === 'true'`))
+  // Closing the preview remounts the viewer; the mode must come back as split.
+  await evaluate(client, `document.querySelector('[data-central-close]')?.click()`)
+  await waitFor(client, `[...document.querySelectorAll('button')].every((item) => item.textContent.trim() !== 'Côte à côte')`, 'diff preview closed')
+  const reopened = await evaluate(client, `(() => {
+    const button = document.querySelector('section[aria-label="Prêts à committer"] button[title="src/module-3.ts"]')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!reopened) throw new Error('diff button missing after close')
+  await waitFor(client, `[...document.querySelectorAll('button')].some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`, 'diff split restored')
+  assertUI('diff-split-persisted', await evaluate(client, `[...document.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Côte à côte')?.getAttribute('aria-pressed') === 'true'`))
 
   await evaluate(client, `(() => {
     const box = document.querySelector('input[aria-label="Sélectionner cette ligne"]')
@@ -1377,7 +1402,7 @@ try {
     }
   }
   const p2Markers = {
-    'Resolve conflicts': ['src/main.rs', 'Actuel (ours)', 'theirs'],
+    'Resolve conflicts': ['src/main.rs', 'Sortie', 'theirs'],
     'Interactive rebase': ['Réorganiser les commits', 'Base du rebase'],
     Worktrees: ['Worktrees', 'hotfix', '/tmp/beebranch-demo'],
     Tags: ['Créer un tag', 'v0.1'],
@@ -1784,19 +1809,20 @@ try {
   assertUI('no-dedicated-changes-tab', await evaluate(client, `!document.querySelector('aside button[data-view="status"]')`))
   const density = await evaluate(client, `(() => {
     const canvas = document.querySelector('canvas')
-    const columns = canvas.parentElement.parentElement.firstElementChild
+    const columns = document.querySelector('[data-role="graph-columns"]')
     const file = document.querySelector('section[aria-label="À préparer"] button[title="src/module-1.ts"]')
     return { firstCommitTop: canvas.getBoundingClientRect().top, visibleCommits: Math.floor(canvas.clientHeight / Number(canvas.dataset.rowHeight)), referencesWidth: columns.children[0].getBoundingClientRect().width, graphWidth: columns.children[1].getBoundingClientRect().width, messageWidth: columns.children[2].getBoundingClientRect().width, authorWidth: columns.children[3].getBoundingClientRect().width, authorHeader: columns.children[3].textContent, dateWidth: columns.children[4].getBoundingClientRect().width, dateHeader: columns.children[4].textContent, fileTextSize: Number.parseFloat(getComputedStyle(file).fontSize), fileRowHeight: file.parentElement.getBoundingClientRect().height }
   })()`)
   assertUI('density-at-least-20-commits', density.visibleCommits >= 20)
   assertUI('density-content-starts-above-220', density.firstCommitTop <= 220)
   assertUI('density-reference-column-bounded', density.referencesWidth <= 220 && density.graphWidth <= 64)
-  assertUI('density-message-column-at-least-520', density.messageWidth >= 520)
+  assertUI('density-message-column-readable', density.messageWidth >= 160)
   assertUI('graph-date-column-visible', density.dateWidth >= 120 && density.dateHeader === 'Date')
+  assertUI('density-author-column-visible', density.authorWidth >= 90 && density.authorHeader === 'Auteur')
   assertUI('density-readable-files', density.fileTextSize >= 14 && density.fileRowHeight <= 32)
 
   const readColumns = () => evaluate(client, `(() => {
-    const columns = document.querySelector('canvas').parentElement.parentElement.firstElementChild
+    const columns = document.querySelector('[data-role="graph-columns"]')
     return {
       refs: columns.children[0].getBoundingClientRect().width,
       graph: columns.children[1].getBoundingClientRect().width,
@@ -1856,7 +1882,7 @@ try {
   assertUI('graph-columns-reset-available', resetDispatched)
   await delay(150)
   const columnsReset = await readColumns()
-  assertUI('graph-columns-reset', columnsReset.date <= 130 && columnsReset.refs <= 160)
+  assertUI('graph-columns-reset', columnsReset.date >= 112 && columnsReset.date <= 160 && columnsReset.refs <= 220 && columnsReset.author >= 90)
 
   const panelBefore = await evaluate(client, `document.querySelector('[aria-label="Préparation du prochain commit"]').getBoundingClientRect().width`)
   assertUI('inspector-resizer-available', await dragSeparator('Redimensionner le panneau latéral', -40))
@@ -1872,6 +1898,28 @@ try {
   for (const [width, height] of [[1440, 900], [390, 844]]) {
     await client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
     await delay(100)
+    if (width === 390) {
+      const narrowGraph = await evaluate(client, `(() => {
+        const columns = document.querySelector('[data-role="graph-columns"]')
+        const scroll = document.querySelector('[data-role="graph-scroll"]')
+        const canvas = document.querySelector('canvas')
+        return {
+          author: columns.children[3].getBoundingClientRect().width,
+          authorHeader: columns.children[3].textContent,
+          refs: columns.children[0].getBoundingClientRect().width,
+          refsHeader: columns.children[0].textContent.trim().length > 0,
+          date: columns.children[4].getBoundingClientRect().width,
+          overflowX: getComputedStyle(scroll).overflowX,
+          contentWidth: Number(canvas.dataset.contentWidth),
+          viewport: scroll.clientWidth,
+          scrollWidth: scroll.scrollWidth,
+        }
+      })()`)
+      assertUI('graph-narrow-keeps-author', narrowGraph.author >= 90 && narrowGraph.authorHeader === 'Auteur')
+      assertUI('graph-narrow-keeps-refs', narrowGraph.refs >= 90 && narrowGraph.refsHeader)
+      assertUI('graph-narrow-keeps-date', narrowGraph.date >= 112)
+      assertUI('graph-narrow-scrolls-horizontally', (narrowGraph.overflowX === 'auto' || narrowGraph.overflowX === 'scroll') && narrowGraph.scrollWidth > narrowGraph.viewport && narrowGraph.contentWidth > narrowGraph.viewport)
+    }
     for (const corner of ['bottom-right', 'top-left']) {
       await evaluate(client, `(() => {
         const canvas = document.querySelector('canvas'); canvas.focus()

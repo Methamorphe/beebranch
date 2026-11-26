@@ -6,13 +6,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react'
 import { t } from '../../i18n'
 import type { PresentedError } from '../../ipc/client'
 import type { ErrorAction } from '../../lib/errorRecovery'
 import { ToolbarIcon } from '../ToolbarIcon'
-import { ErrorNotice } from './ErrorNotice'
 import styles from './Toasts.module.css'
 
 export type ToastTone = 'success' | 'info' | 'error'
@@ -41,9 +41,15 @@ type ToastApi = {
 }
 
 /** Successes fade on their own; errors stay until the user closes them. */
-const LIFETIME: Record<ToastTone, number | null> = { success: 5000, info: 6000, error: null }
+const LIFETIME: Record<ToastTone, number | null> = { success: 5000, info: 5000, error: null }
 const ACTION_LIFETIME = 9000
 const MAX_VISIBLE = 4
+
+const ICONS: Record<ToastTone, 'check' | 'info' | 'warning'> = {
+  success: 'check',
+  info: 'info',
+  error: 'warning',
+}
 
 const ToastContext = createContext<ToastApi>({ show: () => {}, dismiss: () => {} })
 
@@ -77,54 +83,115 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className={styles.viewport} data-toasts="">
         {toasts.map((toast) => (
-          <ToastItem key={toast.id} toast={toast} onClose={() => remove(toast.id)} />
+          <ToastItem key={toast.id} toast={toast} onClose={remove} />
         ))}
       </div>
     </ToastContext.Provider>
   )
 }
 
-function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
+function ToastItem({ toast, onClose }: { toast: Toast; onClose: (id: number) => void }) {
   const [paused, setPaused] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const lifetime = toast.action ? ACTION_LIFETIME : LIFETIME[toast.tone]
+  const remaining = useRef(lifetime ?? 0)
+  const startedAt = useRef(0)
+  const toastId = toast.id
 
   useEffect(() => {
-    if (lifetime === null || paused) return
-    const timer = window.setTimeout(onClose, lifetime)
+    if (lifetime === null) return
+    if (paused) {
+      if (startedAt.current > 0) {
+        remaining.current = Math.max(0, remaining.current - (performance.now() - startedAt.current))
+        startedAt.current = 0
+      }
+      return
+    }
+    startedAt.current = performance.now()
+    const timer = window.setTimeout(() => onClose(toastId), remaining.current)
     return () => window.clearTimeout(timer)
-  }, [lifetime, paused, onClose])
+  }, [lifetime, paused, onClose, toastId])
+
+  const title = toast.notice?.message ?? toast.message
+  const subtitle = toast.notice?.remediation ?? null
+  const technical = toast.notice
+    ? [toast.notice.detail, toast.notice.code].filter((part) => part && part.length > 0).join('\n\n')
+    : ''
+  const noticeAction = toast.notice?.action
+  const undoAction = toast.notice ? undefined : toast.action
 
   return (
     <div
       className={styles.toast}
       data-tone={toast.tone}
+      data-paused={paused ? 'true' : undefined}
       role={toast.tone === 'error' ? 'alert' : 'status'}
       aria-live={toast.tone === 'error' ? 'assertive' : 'polite'}
+      style={
+        lifetime !== null
+          ? ({ '--toast-lifetime': `${lifetime}ms` } as CSSProperties)
+          : undefined
+      }
       onPointerEnter={() => setPaused(true)}
       onPointerLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
-      onBlur={() => setPaused(false)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPaused(false)
+      }}
     >
-      {toast.notice ? (
-        <ErrorNotice error={toast.notice} action={toast.notice.action} embedded />
-      ) : (
-        <span className={styles.message}>{toast.message}</span>
-      )}
-      {toast.action && !toast.notice ? (
-        <button
-          type="button"
-          className={styles.action}
-          onClick={() => {
-            toast.action?.run()
-            onClose()
-          }}
-        >
-          {toast.action.label}
-        </button>
-      ) : null}
-      <button type="button" className={styles.close} aria-label={t('common.close')} onClick={onClose}>
+      <span className={styles.icon} aria-hidden="true">
+        <ToolbarIcon name={ICONS[toast.tone]} size={16} />
+      </span>
+      <div className={styles.body}>
+        <p className={styles.title} title={title}>
+          {title}
+        </p>
+        {subtitle ? (
+          <p className={styles.subtitle} title={subtitle}>
+            {subtitle}
+          </p>
+        ) : null}
+        {noticeAction || undoAction || technical ? (
+          <div className={styles.footer}>
+            {noticeAction ? (
+              <button type="button" className={styles.action} onClick={noticeAction.run}>
+                {noticeAction.label}
+              </button>
+            ) : null}
+            {undoAction ? (
+              <button
+                type="button"
+                className={styles.action}
+                onClick={() => {
+                  undoAction.run()
+                  onClose(toast.id)
+                }}
+              >
+                {undoAction.label}
+              </button>
+            ) : null}
+            {technical ? (
+              <button
+                type="button"
+                className={styles.details}
+                aria-expanded={detailsOpen}
+                onClick={() => setDetailsOpen((value) => !value)}
+              >
+                {detailsOpen ? t('common.hide') : t('common.details')}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {detailsOpen && technical ? <pre className={styles.output}>{technical}</pre> : null}
+      </div>
+      <button type="button" className={styles.close} aria-label={t('common.close')} onClick={() => onClose(toast.id)}>
         <ToolbarIcon name="x" size={14} />
       </button>
+      {lifetime !== null ? (
+        <span className={styles.timer} aria-hidden="true">
+          <span />
+        </span>
+      ) : null}
     </div>
   )
 }

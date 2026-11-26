@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  worktreeAdd,
   worktreeList,
   worktreeLock,
   worktreePrune,
@@ -12,14 +11,18 @@ import { errorMessage } from '../ipc/client'
 import { t, useI18n } from '../i18n'
 import type { WorktreeEntry, WorktreePruneEntry, WorktreeReport } from '../types/git'
 import { ConfirmBar } from './ConfirmBar'
+import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
+import { useToastChannel } from './ui/Toasts'
 import p2 from './p2.module.css'
+import shared from './p1.module.css'
 
 type Props = {
   repoId: string
   generation: number
   onMutated: () => void
   onOpenRepo: (path: string) => void
+  onCreate: () => void
 }
 
 function folderName(path: string): string {
@@ -43,16 +46,12 @@ function lockState(entry: WorktreeEntry): {
   return { tone: 'good', label: t('ops.worktree.clean') }
 }
 
-export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Props) {
+export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo, onCreate }: Props) {
   const { t } = useI18n()
+  const pushNotice = useToastChannel('worktrees', 'success')
   const [report, setReport] = useState<WorktreeReport | null>(null)
-  const [path, setPath] = useState('')
-  const [reference, setReference] = useState('HEAD')
-  const [newBranch, setNewBranch] = useState('')
-  const [detach, setDetach] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = useState<WorktreeEntry | null>(null)
   const [lockTarget, setLockTarget] = useState<WorktreeEntry | null>(null)
   const [lockReason, setLockReason] = useState('')
@@ -77,10 +76,9 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
   const run = async (label: string, action: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       await action()
-      setNotice(label)
+      pushNotice(label)
       await load()
       onMutated()
     } catch (cause) {
@@ -107,9 +105,7 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
         <span className={`${p2.count} ${p2.tabnum}`}>
           {t('ops.worktree.count', { count: entries.length })}
         </span>
-        <span className={p2.spacer} />
-        <label className={p2.fieldInline}>
-          <span className={p2.toolbarLabel}>{t('ops.worktree.filterLabel')}</span>
+        <label className={p2.grow}>
           <input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
@@ -118,68 +114,30 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
             spellCheck={false}
           />
         </label>
-        <label className={p2.fieldInline}>
-          <span className={p2.toolbarLabel}>{t('ops.worktree.expireLabel')}</span>
-          <input
-            value={expire}
-            onChange={(event) => setExpire(event.target.value)}
-            placeholder="3.days.ago"
-            aria-label={t('ops.worktree.expireAria')}
-            spellCheck={false}
-          />
-        </label>
+        <span className={p2.spacer} />
         <button
           type="button"
           className={p2.ghost}
           disabled={busy}
           title={t('ops.worktree.repairHint')}
           onClick={() =>
-            void run(t('ops.worktree.notice.repaired'), () =>
-              worktreeRepair({ repoId }),
-            )
+            void run(t('ops.worktree.notice.repaired'), () => worktreeRepair({ repoId }))
           }
         >
           {t('ops.worktree.repair')}
         </button>
-        <button
-          type="button"
-          className={p2.ghost}
-          disabled={busy}
-          onClick={() => {
-            setPruned(null)
-            void run(t('ops.worktree.notice.pruneDryRunDone'), async () => {
-              const result = await worktreePrune({
-                repoId,
-                dryRun: true,
-                expire: expire.trim() || undefined,
-              })
-              setPruned(result.data.removed)
-            })
-          }}
-        >
-          {t('ops.worktree.pruneDryRun')}
-        </button>
-        <button
-          type="button"
-          className={p2.secondary}
-          disabled={busy}
-          onClick={() => setPruneOpen(true)}
-        >
+        <button type="button" className={p2.secondary} disabled={busy} onClick={() => setPruneOpen(true)}>
           {t('ops.worktree.prune')}
         </button>
+        <button type="button" className={p2.primary} onClick={onCreate}>
+          {t('common.create')}
+        </button>
       </div>
-
-      <p className={p2.hintBar}>{t('ops.worktree.hint')}</p>
 
       {error ? (
         <p className={p2.alert} role="alert">
           {error}
         </p>
-      ) : null}
-      {notice ? (
-        <div className={p2.listHeader} role="status">
-          <span className={p2.meta}>{notice}</span>
-        </div>
       ) : null}
 
       {pruned && pruned.length > 0 ? (
@@ -187,7 +145,9 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
           {pruned.map((entry) => (
             <div key={entry.path} className={p2.entry}>
               <span className={p2.dot} data-tone="warn" />
-              <span className={`${p2.mono} ${p2.entryTitle}`}>{entry.path}</span>
+              <span className={p2.entryTitle} title={entry.path}>
+                {folderName(entry.path)}
+              </span>
               <span className={p2.entryMeta}>{entry.reason || t('ops.worktree.pruneNoReason')}</span>
             </div>
           ))}
@@ -212,11 +172,13 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
                       {folderName(entry.path)}
                     </button>
                     <span className={p2.entryMeta}>
-                      <span className={p2.mono}>{entry.path}</span>
+                      <span className={p2.path} title={entry.path}>
+                        {entry.path}
+                      </span>
                     </span>
                     <span className={p2.entryMeta}>
                       <span className={`${p2.chip} ${entry.branch ? '' : p2.chipWarn}`}>
-                        {entry.branch ?? (entry.detached ? 'detached' : '—')}
+                        {entry.branch ?? (entry.detached ? t('ops.worktree.detached') : '—')}
                       </span>
                       {entry.main ? <span className={`${p2.chip} ${p2.chipAccent}`}>{t('ops.worktree.main')}</span> : null}
                       <span className={p2.meta}>{state.label}</span>
@@ -285,114 +247,40 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
             <div className={p2.empty} role="status">
               <h2>{t('ops.worktree.emptyTitle')}</h2>
               <p>{t('ops.worktree.emptyBody')}</p>
+              <button type="button" className={p2.primary} onClick={onCreate}>
+                {t('common.create')}
+              </button>
             </div>
           ) : null}
         </div>
-
-        <aside className={p2.screenAside} aria-label={t('ops.worktree.createAria')}>
-          <section className={p2.asideSection}>
-            <h2 className={p2.asideTitle}>{t('ops.worktree.createTitle')}</h2>
-            <label className={p2.field}>
-              {t('ops.worktree.pathLabel')}
-              <input
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-                placeholder="/Users/you/src/project-feature"
-                spellCheck={false}
-              />
-            </label>
-            <label className={p2.field}>
-              {t('ops.worktree.referenceLabel')}
-              <input
-                value={reference}
-                onChange={(event) => setReference(event.target.value)}
-                placeholder={t('ops.worktree.referencePlaceholder')}
-                spellCheck={false}
-              />
-            </label>
-            <label className={p2.field}>
-              {t('ops.worktree.newBranchLabel')}
-              <input
-                value={newBranch}
-                onChange={(event) => setNewBranch(event.target.value)}
-                placeholder={t('ops.worktree.newBranchPlaceholder')}
-                spellCheck={false}
-                disabled={detach}
-              />
-            </label>
-            <label className={p2.checkbox}>
-              <input
-                type="checkbox"
-                checked={detach}
-                onChange={(event) => {
-                  setDetach(event.target.checked)
-                  // `git worktree add` refuses `--detach` together with `-b`.
-                  if (event.target.checked) {
-                    setNewBranch('')
-                  }
-                }}
-              />
-              {t('ops.worktree.detachedHead')}
-            </label>
-            <button
-              type="button"
-              className={p2.primary}
-              disabled={busy || !path.trim() || !reference.trim()}
-              onClick={() =>
-                void run(t('ops.worktree.notice.created'), async () => {
-                  await worktreeAdd({
-                    repoId,
-                    path: path.trim(),
-                    reference: reference.trim(),
-                    newBranch: detach ? undefined : newBranch.trim() || undefined,
-                    detach,
-                  })
-                  setPath('')
-                  setNewBranch('')
-                })
-              }
-            >
-              {t('common.create')}
-            </button>
-            <p className={p2.asideHint}>
-              {t('ops.worktree.createHint')}
-            </p>
-          </section>
-        </aside>
       </div>
 
-      <Dialog
-        open={lockTarget !== null}
-        onClose={() => setLockTarget(null)}
-        busy={busy}
-        titleId="worktree-lock-title"
-      >
+      <Dialog open={lockTarget !== null} onClose={() => setLockTarget(null)} busy={busy} titleId="worktree-lock-title">
         <h2 id="worktree-lock-title">{t('ops.worktree.lockTitle')}</h2>
-        <p className={p2.mono}>{lockTarget?.path}</p>
-        <label className={p2.field}>
+        <p>
+          <code>{lockTarget?.path}</code>
+        </p>
+        <label className={shared.field}>
           {t('ops.worktree.lockReasonLabel')}
           <input
+            data-autofocus
             value={lockReason}
             onChange={(event) => setLockReason(event.target.value)}
             placeholder={t('ops.worktree.lockReasonPlaceholder')}
-            autoFocus
           />
         </label>
-        <div className={p2.dialogActions}>
-          <span className={p2.spacer} />
-          <button type="button" className={p2.ghost} onClick={() => setLockTarget(null)}>
+        <div className={shared.dialogActions}>
+          <Button type="button" onClick={() => setLockTarget(null)} disabled={busy}>
             {t('common.cancel')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={p2.primary}
+            variant="primary"
             disabled={busy || !lockTarget}
             onClick={() => {
               const target = lockTarget
               setLockTarget(null)
-              if (!target) {
-                return
-              }
+              if (!target) return
               void run(t('ops.worktree.notice.locked'), () =>
                 worktreeLock({
                   repoId,
@@ -403,7 +291,7 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
             }}
           >
             {t('ops.worktree.lock')}
-          </button>
+          </Button>
         </div>
       </Dialog>
 
@@ -414,31 +302,15 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
         irreversible
         confirmLabel={t('ops.worktree.remove')}
         busy={busy}
-        children={
-          pendingRemove?.branch ? (
-            <label className={p2.checkbox}>
-              <input
-                type="checkbox"
-                checked={removeBranch}
-                onChange={(event) => setRemoveBranch(event.target.checked)}
-              />
-              {t('ops.worktree.removeBranch', { branch: pendingRemove.branch })}
-            </label>
-          ) : null
-        }
         onCancel={() => setPendingRemove(null)}
         onConfirm={() => {
           const target = pendingRemove
           const deleteBranch = removeBranch
           setPendingRemove(null)
           setRemoveBranch(false)
-          if (!target) {
-            return
-          }
+          if (!target) return
           void run(
-            deleteBranch
-              ? t('ops.worktree.notice.removedWithBranch')
-              : t('ops.worktree.notice.removed'),
+            deleteBranch ? t('ops.worktree.notice.removedWithBranch') : t('ops.worktree.notice.removed'),
             () =>
               worktreeRemove({
                 repoId,
@@ -449,7 +321,18 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
               }),
           )
         }}
-      />
+      >
+        {pendingRemove?.branch ? (
+          <label className={p2.checkbox}>
+            <input
+              type="checkbox"
+              checked={removeBranch}
+              onChange={(event) => setRemoveBranch(event.target.checked)}
+            />
+            {t('ops.worktree.removeBranch', { branch: pendingRemove.branch })}
+          </label>
+        ) : null}
+      </ConfirmBar>
 
       <ConfirmBar
         open={pruneOpen}
@@ -470,7 +353,18 @@ export function WorktreesPanel({ repoId, generation, onMutated, onOpenRepo }: Pr
             setPruned(result.data.removed)
           })
         }}
-      />
+      >
+        <label className={p2.field}>
+          {t('ops.worktree.expireLabel')}
+          <input
+            value={expire}
+            onChange={(event) => setExpire(event.target.value)}
+            placeholder="3.days.ago"
+            aria-label={t('ops.worktree.expireAria')}
+            spellCheck={false}
+          />
+        </label>
+      </ConfirmBar>
     </div>
   )
 }

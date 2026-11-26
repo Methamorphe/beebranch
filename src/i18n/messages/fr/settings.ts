@@ -121,11 +121,13 @@ const messages = {
     'Récupère en arrière-plan les nouveautés des remotes du dépôt ouvert, à intervalle régulier ; s’applique à toute l’application.',
   'settings.pipelineNotify.title': 'Échec de pipeline',
   'settings.pipelineNotify.description':
-    'Notification du système quand une pipeline d’un dépôt ouvert passe en échec. Seule la forge déjà connectée est interrogée. Sous Windows, l’application installée est nécessaire.',
+    'Notification du système quand une pipeline d’un dépôt ouvert passe en échec. Seule la forge déjà connectée est interrogée. Sur Mac, l’application installée affiche la demande d’autorisation du système ; un lancement de développement n’en affiche pas et publie au nom de Terminal. Sous Windows, le système ne demande pas l’autorisation : la notification part directement, et seule l’application installée peut l’afficher au nom de BeeBranch.',
   'settings.pipelineNotify.aria': 'Notifications d’échec de pipeline',
   'settings.pipelineNotify.off': 'Désactivées',
   'settings.pipelineNotify.on': 'Activées',
   'settings.pipelineNotify.denied': 'Le système a refusé les notifications de BeeBranch.',
+  'settings.pipelineNotify.enabledTitle': 'BeeBranch',
+  'settings.pipelineNotify.enabledBody': 'Les notifications d’échec de pipeline sont activées.',
   'settings.checkoutStash.title': 'Modifications locales au checkout',
   'settings.checkoutStash.description':
     'Quand un changement de branche doit remiser vos modifications, choisir si ce stash est réappliqué sur la branche d’arrivée ou laissé dans la liste.',

@@ -4,9 +4,8 @@
 
 GitHub is added alongside GitLab without replacing it. The two providers are
 independent: separate sessions, tokens, OS keychains, and instance
-identifiers. A repository can be associated with only one project from one
-provider at a time; each provider's commands read only
-the association that belongs to it.
+identifiers. A repository can be associated with one project per provider.
+Each provider's commands read only the association that belongs to it.
 
 Delivered features:
 

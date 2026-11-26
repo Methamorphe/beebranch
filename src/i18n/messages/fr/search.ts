@@ -53,8 +53,8 @@ const messages = {
   'search.savedLabel': 'Recherches enregistrées',
   'search.savedAria': 'Recherches enregistrées',
   'search.savedRemove': 'Supprimer la recherche {label}',
-  'search.intro':
-    'Choisissez le type de recherche, saisissez un terme puis lancez la recherche. Vous pouvez annuler une recherche en cours.',
+  'search.options': 'Filtres',
+  'search.intro': 'Choisissez un type, saisissez un terme, puis recherchez.',
   'search.runningTitle': 'Recherche en cours…',
   'search.runningBody':
     'Les résultats apparaîtront dès que le dépôt aura répondu.',

@@ -1,56 +1,100 @@
 /* Centred above the status bar, clear of the commit button and the
-   navigator; newest at the bottom. */
+   navigator; newest at the bottom. One card width so a stack reads as
+   the same object, not bubbles of mixed sizes. */
 .viewport {
   position: fixed;
   left: 50%;
-  bottom: 40px;
+  bottom: calc(var(--statusbar) + 8px);
   transform: translateX(-50%);
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
-  max-width: min(440px, calc(100vw - 32px));
+  width: min(340px, calc(100vw - 32px));
   pointer-events: none;
 }
 
 .toast {
   --toast-accent: var(--info);
+  --toast-soft: var(--info-soft);
+  --toast-lifetime: 5s;
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  min-width: 260px;
-  padding: 10px 10px 10px 14px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--toast-accent);
+  width: 100%;
+  padding: 12px 10px 14px 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--toast-accent) 32%, var(--border));
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background:
+    linear-gradient(color-mix(in srgb, var(--toast-accent) 14%, var(--toast-soft)), color-mix(in srgb, var(--toast-accent) 14%, var(--toast-soft))),
+    var(--surface-raised);
   color: var(--text);
-  box-shadow: var(--shadow-md);
-  font-size: var(--text-sm);
-  line-height: var(--line-normal);
+  box-shadow: var(--shadow-pop);
+  line-height: var(--line-tight);
   pointer-events: auto;
   animation: toast-enter 160ms ease-out;
 }
 
 .toast[data-tone='success'] {
   --toast-accent: var(--success);
+  --toast-soft: var(--success-soft);
 }
 
 .toast[data-tone='error'] {
   --toast-accent: var(--error);
+  --toast-soft: var(--error-soft);
 }
 
-.message {
+.icon {
+  display: flex;
+  flex: none;
+  margin-top: 1px;
+  color: var(--toast-accent);
+}
+
+.body {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
-  overflow-wrap: anywhere;
+  padding-right: 4px;
 }
 
-.action {
+.title,
+.subtitle {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.action,
+.details {
   flex: none;
   padding: 2px 8px;
-  border: 1px solid var(--toast-accent);
+  border: 1px solid color-mix(in srgb, var(--toast-accent) 55%, var(--border));
   border-radius: var(--radius-sm);
   color: var(--text);
   background: transparent;
@@ -58,7 +102,20 @@
   font-weight: 600;
 }
 
+.output {
+  margin: 6px 0 0;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
 .close {
+  display: grid;
+  place-items: center;
   flex: none;
   width: 22px;
   height: 22px;
@@ -66,17 +123,47 @@
   border: 0;
   color: var(--muted);
   background: transparent;
-  font-size: 16px;
-  line-height: 1;
+  line-height: 0;
 }
 
 .close:hover {
   color: var(--text);
 }
 
+.timer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.timer > span {
+  display: block;
+  height: 100%;
+  background: var(--toast-accent);
+  transform-origin: left center;
+  animation: toast-timer var(--toast-lifetime) linear forwards;
+}
+
+.toast[data-paused='true'] .timer > span {
+  animation-play-state: paused;
+}
+
 @keyframes toast-enter {
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+}
+
+@keyframes toast-timer {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
   }
 }

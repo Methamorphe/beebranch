@@ -281,7 +281,7 @@ export function PipelineStatus({ repoId, generation }: Props) {
   const pipelines = overview.pipelines
   const state = aggregatePipelineState(pipelines.map((pipeline) => pipeline.status))
   const settled = pipelines.filter((pipeline) => isSettled(pipelineState(pipeline.status))).length
-  const provider = overview.provider === 'github' ? 'GitHub' : 'GitLab'
+  const provider = overview.provider === 'github' ? 'GitHub' : overview.provider === 'azure' ? 'Azure DevOps' : 'GitLab'
   const stateLabel = t(PIPELINE_STATE_KEYS[state])
   const openTarget =
     scope === 'repository'

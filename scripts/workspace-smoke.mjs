@@ -32,10 +32,6 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
       })()`)
       if (overflow.length) throw new Error('Overflow ' + id + ' at ' + width + ': ' + JSON.stringify(overflow.slice(0,8)))
       await check(id + '-fits-' + width, `document.querySelector('[data-repository-tool="${id}"]').getBoundingClientRect().width <= ${width}`)
-      if (id === 'worktrees' && width === 210) {
-        await evaluate(client, `document.querySelector('[data-repository-tool="worktrees"] aside').scrollIntoView({ block:'center' })`)
-        await screenshot('workspace-worktrees-narrow.png')
-      }
     }
     await evaluate(client, `document.querySelector('aside[aria-label="Explorateur du dépôt"]').style.width = ''`)
   }
@@ -176,7 +172,7 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('graph-branch-focus-dims-unrelated-row', `window.__focusPixels(2) !== window.__beforeFocus[0]`)
   await check('graph-branch-focus-preserves-ancestor-row', `window.__focusPixels(13) === window.__beforeFocus[1]`)
   await screenshot('workspace-branch-focus.png')
-  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x + 400, y:featurePoint.y })
+  await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y - 12 * rowHeight - 40 })
   await delay(60)
   await check('graph-branch-focus-clears-on-leave', `!document.querySelector('canvas').dataset.branchFocus && window.__focusPixels(2) === window.__beforeFocus[0]`)
   await client.send('Input.dispatchMouseEvent', { type:'mouseMoved', x:featurePoint.x, y:featurePoint.y })
@@ -208,13 +204,24 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   })()`)
   await click('[data-repository-section="tags"] button[aria-expanded]')
 
-  for (const id of ['remotes', 'tags', 'stash', 'worktrees', 'submodules', 'mrs', 'prs', 'search']) {
+  for (const id of ['remotes', 'tags', 'stash']) {
     await click(`[data-repository-section="${id}"] button[aria-expanded]`)
     await check(id + '-expands-in-place', `document.querySelector('#repository-${id}').hidden === false && document.querySelector('canvas') === window.__workspaceCanvas && document.querySelector('canvas').getBoundingClientRect().height > 600 && !document.querySelector('[data-central-editor]')`)
-    if (['worktrees', 'submodules', 'mrs', 'prs', 'search'].includes(id)) {
-      await verifyInlineWidth(id)
-    }
     await click(`[data-repository-section="${id}"] button[aria-expanded]`)
+  }
+  await click('[data-repository-section="remotes"] button[aria-expanded]')
+  await click('[data-repository-section="remotes"] [data-add]')
+  await waitFor(client, `document.querySelector('#remote-dialog-title') !== null`, 'add remote dialog')
+  await check('remote-add-opens-dialog', `document.querySelector('#remote-dialog-title').textContent.includes('Ajouter un remote') && document.querySelector('canvas') === window.__workspaceCanvas`)
+  await evaluate(client, `[...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Annuler')?.click()`)
+  await waitFor(client, `document.querySelector('#remote-dialog-title') === null`, 'remote dialog closed')
+  await click('[data-repository-section="remotes"] button[aria-expanded]')
+  for (const id of ['worktrees', 'submodules', 'mrs', 'prs', 'search']) {
+    await click(`[data-repository-section="${id}"]`)
+    await waitFor(client, `document.querySelector('[data-central-editor="${id}"]') !== null`, 'center ' + id)
+    await check(id + '-opens-in-center', `document.querySelector('canvas').closest('[hidden]') !== null && Boolean(document.querySelector('[data-central-editor="${id}"]'))`)
+    await click('[data-central-close]')
+    await waitFor(client, `document.querySelector('[data-central-editor]') === null`, 'closed ' + id)
   }
   // Sync, activity, tools and patches left the repository navigator. They open
   // from the left menu, still beside the graph.
@@ -404,23 +411,27 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
     }
     return true
   })()`)
-  await evaluate(client, `document.querySelector('[data-repository-section="pipelines"] button[aria-controls="repository-pipelines"]').click()`)
-  await waitFor(client, `Boolean(document.querySelector('[data-repository-tool="pipelines"]'))`, 'pipeline history tool')
-  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('#2300')`, 'pipeline history rows')
+  await evaluate(client, `document.querySelector('[data-repository-section="pipelines"]').click()`)
+  await waitFor(client, `Boolean(document.querySelector('[data-central-editor="pipelines"]'))`, 'pipeline history tool')
+  await waitFor(client, `document.querySelector('[data-central-editor="pipelines"]').innerText.includes('#2300')`, 'pipeline history rows')
   await check('pipelines-history-lists-refs', `(() => {
-    const text = document.querySelector('[data-repository-tool="pipelines"]').innerText
+    const text = document.querySelector('[data-central-editor="pipelines"]').innerText
     return text.includes('release/test') && text.includes('release/dev') && text.includes('#2303')
   })()`)
-  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.trim() === 'Charger plus').click()`)
+  await evaluate(client, `[...document.querySelectorAll('[data-central-editor="pipelines"] button')].find((button) => button.textContent.trim() === 'Charger plus').click()`)
   await waitFor(client, `window.__historyCalls.includes(2)`, 'pipeline history next page')
-  await evaluate(client, `document.querySelector('[data-repository-tool="pipelines"] [data-pipeline="2300"]').click()`)
-  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('smoke')`, 'pipeline jobs')
+  await check('pipelines-history-keeps-first-page', `(() => {
+    const text = document.querySelector('[data-central-editor="pipelines"]').innerText
+    return text.includes('#2303') && text.includes('#2300')
+  })()`)
+  await evaluate(client, `document.querySelector('[data-central-editor="pipelines"] [data-pipeline="2300"]').click()`)
+  await waitFor(client, `document.querySelector('[data-central-editor="pipelines"]').innerText.includes('smoke')`, 'pipeline jobs')
   await check('pipelines-history-opens-jobs', `(() => {
-    const text = document.querySelector('[data-repository-tool="pipelines"]').innerText
+    const text = document.querySelector('[data-central-editor="pipelines"]').innerText
     const lower = text.toLowerCase()
     return text.includes('#2300') && lower.includes('build') && lower.includes('compile') && lower.includes('test')
   })()`)
-  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.includes('compile')).click()`)
+  await evaluate(client, `[...document.querySelectorAll('[data-central-editor="pipelines"] button')].find((button) => button.textContent.includes('compile')).click()`)
   await waitFor(client, `document.querySelector('[role="dialog"]')?.innerText.includes('Compiling bee') === true`, 'job log dialog')
   await check('pipelines-job-log-in-app', `(() => {
     const call = (window.__jobLogCalls ?? [])[0]
@@ -428,8 +439,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   })()`)
   await evaluate(client, `[...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Fermer').click()`)
   await waitFor(client, `!document.querySelector('[role="dialog"]')`, 'job log closed')
-  await evaluate(client, `[...document.querySelectorAll('[data-repository-tool="pipelines"] button')].find((button) => button.textContent.includes('Tous les pipelines')).click()`)
-  await waitFor(client, `document.querySelector('[data-repository-tool="pipelines"]').innerText.includes('#2303')`, 'pipeline history back')
+  await check('pipelines-history-keeps-list', `document.querySelector('[data-central-editor="pipelines"]').innerText.includes('#2303')`)
+  await click('[data-central-close]')
+  await waitFor(client, `document.querySelector('[data-central-editor]') === null`, 'pipelines closed')
   await evaluate(client, `(() => { window.__TAURI_INTERNALS__.invoke = window.__historyInvoke; return true })()`)
 
   // Issue #19: drag a graph branch onto a left-panel local branch.
@@ -682,6 +694,23 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await check('status-arrow-from-main-stays-in-list', `document.activeElement === document.querySelector('section[aria-label="À préparer"] button[title="src/module-2.ts"]') && document.activeElement?.id !== 'main-content'`)
   await screenshot('workspace-status-arrow-nav.png')
   await screenshot('workspace-diff.png')
+  await evaluate(client, `Array.from(document.querySelectorAll('button')).find((item) => item.textContent.trim() === 'Côte à côte')?.click()`)
+  await delay(80)
+  await check('diff-split-preference', `(window.__preferenceSets ?? []).some((entry) => entry.input?.key === 'ui.diff.mode' && entry.input.value === 'split')`)
+  await check('diff-split-selected', `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`)
+  // A working-copy refresh used to remount the viewer and drop the mode.
+  await evaluate(client, `(() => {
+    window.__generationOverride = 5
+    window.__emitTauriEvent('repo://changed', { repoId:'repo_demo', generation:5, areas:['worktree'] })
+    return true
+  })()`)
+  await delay(120)
+  await check('diff-split-survives-refresh', `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`)
+  await click('button[aria-label="Fermer l’aperçu"]')
+  await waitFor(client, `Array.from(document.querySelectorAll('button')).every((item) => item.textContent.trim() !== 'Côte à côte')`, 'diff preview closed')
+  await click('button[title="src/module-1.ts"]')
+  await waitFor(client, `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`, 'diff split restored')
+  await check('diff-split-persisted', `Array.from(document.querySelectorAll('button')).some((item) => item.textContent.trim() === 'Côte à côte' && item.getAttribute('aria-pressed') === 'true')`)
   await click('button[aria-label="Fermer l’aperçu"]')
   await check('closing-diff-restores-same-graph', `document.querySelector('canvas') === window.__workspaceCanvas && !document.querySelector('canvas').closest('[hidden]')`)
 
@@ -873,9 +902,9 @@ export async function runRepositoryWorkspaceSmoke({ client, evaluate, screenshot
   await evaluate(client, `Array.from(document.querySelectorAll('main button')).find((button) => button.textContent.trim() === 'Résoudre').click()`)
   await waitFor(client, `document.querySelector('[data-central-editor] input, [data-central-editor] textarea') !== null`, 'central conflict editor')
   await waitFor(client, `document.querySelector('[aria-label="Résoudre les conflits par région"]') !== null`, 'conflict regions')
-  await check('conflict-region-listed', `document.querySelector('[aria-label="Résoudre les conflits par région"]').innerText.includes('Conflit 1')`)
-  await evaluate(client, `Array.from(document.querySelectorAll('[aria-label="Résoudre les conflits par région"] button')).find((button) => button.textContent.trim() === 'Garder theirs').click()`)
-  await check('conflict-region-choice-writes-marker-free-result', `document.querySelector('textarea[aria-label="Résolution du conflit"]')?.value.trimEnd() === 'theirs'`)
+  await check('conflict-region-listed', `document.querySelector('[aria-label="Résoudre les conflits par région"] [data-region="0"]') !== null`)
+  await evaluate(client, `Array.from(document.querySelectorAll('[aria-label="Résoudre les conflits par région"] button')).find((button) => button.getAttribute('aria-label') === 'Garder theirs').click()`)
+  await check('conflict-region-choice-writes-marker-free-result', `[...document.querySelectorAll('[data-kind="focus"] code')].map((node) => node.textContent).join('\\n').trimEnd() === 'theirs'`)
   await check('conflicts-replace-center', `document.querySelector('canvas').closest('[hidden]') !== null && !document.querySelector('[class*="historyTool"]')`)
   await screenshot('workspace-conflicts.png')
   await click('button[aria-label="Fermer le panneau et revenir à l’arbre"]')

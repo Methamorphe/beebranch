@@ -18,7 +18,7 @@ import {
   toolOpen,
   type DiffRequest,
 } from '../ipc/commands'
-import { errorMessage } from '../ipc/client'
+import { errorCode, errorMessage } from '../ipc/client'
 import { t, useI18n } from '../i18n'
 import { buildFileTree, flattenFileTree, type FileTreeRow } from '../lib/fileTree'
 import { splitPath } from '../lib/paths'
@@ -121,8 +121,49 @@ function isTypingField(target: EventTarget | null, filter: HTMLInputElement | nu
 }
 
 type PendingIgnore = {
-  entry: StatusEntry
-  pattern: string
+  entries: StatusEntry[]
+  /** One pattern from the row menu. Absent when each selected path is ignored. */
+  pattern?: string
+}
+
+type SelectedRow = { entry: StatusEntry; staged: boolean }
+
+function uniqueByPath(entries: StatusEntry[]): StatusEntry[] {
+  const seen = new Set<string>()
+  const unique: StatusEntry[] = []
+  for (const entry of entries) {
+    if (seen.has(entry.path)) continue
+    seen.add(entry.path)
+    unique.push(entry)
+  }
+  return unique
+}
+
+function discardableRow(row: SelectedRow): boolean {
+  return !row.staged
+    && row.entry.kind !== 'untracked'
+    && row.entry.kind !== 'unmerged'
+    && !row.entry.submodule
+    && !row.entry.path.endsWith('/')
+}
+
+function ignorableRow(row: SelectedRow): boolean {
+  return !row.entry.submodule && !row.entry.path.endsWith('/') && row.entry.kind !== 'ignored'
+}
+
+function stashableRow(row: SelectedRow): boolean {
+  return !row.entry.submodule
+    && row.entry.kind !== 'unmerged'
+    && row.entry.kind !== 'ignored'
+    && !row.entry.path.endsWith('/')
+}
+
+function patchableRow(row: SelectedRow): boolean {
+  return row.entry.kind !== 'untracked'
+    && row.entry.kind !== 'ignored'
+    && row.entry.kind !== 'unmerged'
+    && !row.entry.submodule
+    && !row.entry.path.endsWith('/')
 }
 
 type PendingDiscard = {
@@ -136,18 +177,16 @@ type RowAction = {
   label: string
   danger?: boolean
   disabled?: boolean
+  title?: string
   dividerBefore?: boolean
   run: () => void
   /** Opens a submenu in the right-click menu; listed inline in the popover. */
   children?: RowAction[]
 }
 
-type FileMenu = {
-  x: number
-  y: number
-  entry: StatusEntry
-  staged: boolean
-}
+type FileMenu =
+  | { kind: 'one'; x: number; y: number; entry: StatusEntry; staged: boolean }
+  | { kind: 'many'; x: number; y: number }
 
 export function RepoStatus({
   repoId,
@@ -537,13 +576,13 @@ export function RepoStatus({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
-  const run = async (label: string, action: () => Promise<unknown>) => {
+  const run = async (label: string | null, action: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
       await action()
-      setNotice(label)
+      if (label) setNotice(label)
       setRefresh((value) => value + 1)
       onMutated()
       return true
@@ -560,7 +599,7 @@ export function RepoStatus({
 
   const stage = (entry: StatusEntry) => {
     markFlash(entryPaths(entry))
-    return run(t('status.notice.staged', { path: entry.path }), () =>
+    return run(null, () =>
       indexStage(
         repoId,
         entryPaths(entry).map((path) => ({ path, hunks: [] })),
@@ -570,7 +609,7 @@ export function RepoStatus({
 
   const unstage = (entry: StatusEntry) => {
     markFlash(entryPaths(entry))
-    return run(t('status.notice.unstaged', { path: entry.path }), () =>
+    return run(null, () =>
       indexUnstage(
         repoId,
         entryPaths(entry).map((path) => ({ path, hunks: [] })),
@@ -638,16 +677,39 @@ export function RepoStatus({
     if (entry.kind === 'untracked') {
       void ignore(pattern)
     } else {
-      setPendingIgnore({ entry, pattern })
+      setPendingIgnore({ entries: [entry], pattern })
     }
+  }
+
+  const applyIgnore = async (entries: StatusEntry[]) => {
+    const label = entries.length === 1
+      ? entries[0]!.kind === 'untracked'
+        ? t('status.notice.ignored', { pattern: `/${entries[0]!.path}` })
+        : t('status.notice.ignoredUntracked', { pattern: `/${entries[0]!.path}` })
+      : plural('status.notice.ignoredMany.one', 'status.notice.ignoredMany.other', entries.length, { count: entries.length })
+    const ok = await run(label, async () => {
+      for (const entry of entries) {
+        await indexIgnore(
+          repoId,
+          `/${entry.path}`,
+          entry.kind === 'untracked' ? [] : [entry.path],
+        )
+      }
+    })
+    if (ok) setSelectedKeys(new Set())
   }
 
   const confirmIgnore = async () => {
     if (!pendingIgnore) {
       return
     }
-    // Only the current path: a rename source is no longer in the index.
-    await ignore(pendingIgnore.pattern, [pendingIgnore.entry.path])
+    const pending = pendingIgnore
+    if (pending.pattern) {
+      // Only the current path: a rename source is no longer in the index.
+      await ignore(pending.pattern, [pending.entries[0]!.path])
+    } else {
+      await applyIgnore(pending.entries)
+    }
     setPendingIgnore(null)
   }
 
@@ -689,28 +751,72 @@ export function RepoStatus({
     )
   }
 
+  const readPatch = async (kind: 'worktree' | 'index', paths: string[]) => {
+    if (paths.length === 0) return ''
+    try {
+      const patch = await patchCreate({ repoId, source: { kind, paths } })
+      return patch.text.trim() ? patch.text.trimEnd() : ''
+    } catch (cause) {
+      if (errorCode(cause) === 'patch.empty') return ''
+      throw cause
+    }
+  }
+
+  const savePatch = async (text: string, name: string) => {
+    if (!text.trim()) {
+      setError(t('status.error.emptyPatch'))
+      return
+    }
+    const path = await saveNativeDialog({ defaultPath: `${name}.patch` })
+    if (!path) return
+    await patchSave(path, text.endsWith('\n') ? text : `${text}\n`)
+    setNotice(t('status.notice.patchSaved', { path }))
+  }
+
   const createPatch = async (entry: StatusEntry, staged: boolean) => {
     setError(null)
     setNotice(null)
     try {
-      const patch = await patchCreate({
-        repoId,
-        source: { kind: staged ? 'index' : 'worktree', paths: entryPaths(entry) },
-      })
-      if (!patch.text.trim()) {
-        setError(t('status.error.emptyPatch'))
-        return
-      }
-      const name = entry.path.split('/').pop() ?? 'changes'
-      const path = await saveNativeDialog({ defaultPath: `${name}.patch` })
-      if (!path) {
-        return
-      }
-      await patchSave(path, patch.text)
-      setNotice(t('status.notice.patchSaved', { path }))
+      const text = await readPatch(staged ? 'index' : 'worktree', entryPaths(entry))
+      await savePatch(text, entry.path.split('/').pop() ?? 'changes')
     } catch (cause) {
       setError(errorMessage(cause))
     }
+  }
+
+  const createSelectionPatch = async (rows: SelectedRow[]) => {
+    setError(null)
+    setNotice(null)
+    const patchable = rows.filter(patchableRow)
+    const pathsOf = (staged: boolean) => [...new Set(
+      patchable.filter((row) => row.staged === staged).flatMap((row) => entryPaths(row.entry)),
+    )]
+    try {
+      const parts = [
+        await readPatch('worktree', pathsOf(false)),
+        await readPatch('index', pathsOf(true)),
+      ].filter((part) => part.length > 0)
+      const names = uniqueByPath(patchable.map((row) => row.entry))
+      const name = names.length === 1 ? (names[0]!.path.split('/').pop() ?? 'changes') : 'changes'
+      await savePatch(parts.join('\n'), name)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    }
+  }
+
+  const stashSelection = async (rows: SelectedRow[]) => {
+    const paths = [...new Set(rows.flatMap((row) => entryPaths(row.entry)))]
+    const files = uniqueByPath(rows.map((row) => row.entry))
+    markFlash(paths)
+    const label = files.length === 1
+      ? t('status.notice.stashed', { path: files[0]!.path })
+      : plural('status.notice.stashedMany.one', 'status.notice.stashedMany.other', files.length, { count: files.length })
+    const ok = await run(label, () => stashCreate({
+      repoId,
+      includeUntracked: rows.some((row) => row.entry.kind === 'untracked'),
+      paths,
+    }))
+    if (ok) setSelectedKeys(new Set())
   }
 
   const resolve = (entry: StatusEntry) =>
@@ -861,7 +967,7 @@ export function RepoStatus({
             {separator}
             {items.map((item) => (
               <button key={item.key} type="button" className={item.danger ? styles.danger : undefined}
-                disabled={item.disabled} onClick={item.run}>{item.label}</button>
+                disabled={item.disabled} title={item.title} onClick={item.run}>{item.label}</button>
             ))}
           </Fragment>
         )
@@ -869,7 +975,7 @@ export function RepoStatus({
       const button = (item: RowAction) => (
         <button key={item.key} type="button" role="menuitem"
           className={item.danger ? `${styles.menuAction} ${styles.danger}` : styles.menuAction}
-          disabled={item.disabled} onClick={() => {
+          disabled={item.disabled} title={item.title} onClick={() => {
             setFileMenu(null)
             item.run()
           }}>{item.label}</button>
@@ -948,7 +1054,7 @@ export function RepoStatus({
     const paths = [...new Set(targets.flatMap((item) => entryPaths(item.entry)))]
     markFlash(paths)
     const ok = await run(
-      plural('status.bulk.staged.one', 'status.bulk.staged.other', targets.length, { count: targets.length }),
+      null,
       () => indexStage(repoId, paths.map((path) => ({ path, hunks: [] }))),
     )
     if (ok) {
@@ -963,7 +1069,7 @@ export function RepoStatus({
     const paths = [...new Set(targets.flatMap((item) => entryPaths(item.entry)))]
     markFlash(paths)
     const ok = await run(
-      plural('status.bulk.unstaged.one', 'status.bulk.unstaged.other', targets.length, { count: targets.length }),
+      null,
       () => indexUnstage(repoId, paths.map((path) => ({ path, hunks: [] }))),
     )
     if (ok) {
@@ -1013,17 +1119,7 @@ export function RepoStatus({
     }
     const paths = [...new Set(targets.flatMap(entryPaths))]
     markFlash(paths)
-    const label = partial
-      ? plural(
-          group.staged ? 'status.bulk.unstaged.one' : 'status.bulk.staged.one',
-          group.staged ? 'status.bulk.unstaged.other' : 'status.bulk.staged.other',
-          targets.length,
-          { count: targets.length },
-        )
-      : group.staged
-        ? t('status.group.unstageAll')
-        : t('status.group.stageAll')
-    const ok = await run(label, () =>
+    const ok = await run(null, () =>
       (group.staged ? indexUnstage : indexStage)(repoId, paths.map((path) => ({ path, hunks: [] }))))
     if (ok && selectedInGroup.length > 0) {
       setSelectedKeys((current) => {
@@ -1035,6 +1131,70 @@ export function RepoStatus({
       })
     }
   }
+  const selectionPaths = uniqueByPath(selectedEntries.map((row) => row.entry))
+  const selectionActions = (): RowAction[] => {
+    const count = selectionPaths.length
+    const unstaged = selectedEntries.filter((row) => !row.staged)
+    const staged = selectedEntries.filter((row) => row.staged)
+    const discardable = selectedEntries.filter(discardableRow)
+    const ignorable = uniqueByPath(selectedEntries.filter(ignorableRow).map((row) => row.entry))
+    const stashable = selectedEntries.filter(stashableRow)
+    const patchable = uniqueByPath(selectedEntries.filter(patchableRow).map((row) => row.entry))
+    const actions: RowAction[] = []
+    if (unstaged.length > 0) {
+      actions.push({
+        key: 'stage',
+        label: t('status.selection.stage'),
+        disabled: busy,
+        run: () => void bulkStage(),
+      })
+    }
+    if (staged.length > 0) {
+      actions.push({
+        key: 'unstage',
+        label: t('status.selection.unstage'),
+        disabled: busy,
+        run: () => void bulkUnstage(),
+      })
+    }
+    actions.push({
+      key: 'discard',
+      label: plural('status.selection.discard.one', 'status.selection.discard.other', count, { count }),
+      danger: true,
+      disabled: busy || !canDiscardSelection,
+      title: canDiscardSelection ? undefined : t('status.bulk.discardTitle'),
+      run: () => void requestDiscard(discardable.map((row) => row.entry)),
+    })
+    actions.push({
+      key: 'ignore',
+      label: plural('status.selection.ignore.one', 'status.selection.ignore.other', ignorable.length || count, { count: ignorable.length || count }),
+      disabled: busy || ignorable.length !== count,
+      title: ignorable.length === count ? undefined : t('status.selection.ignoreTitle'),
+      run: () => {
+        if (ignorable.some((entry) => entry.kind !== 'untracked')) {
+          setPendingIgnore({ entries: ignorable })
+          return
+        }
+        void applyIgnore(ignorable)
+      },
+    })
+    const stashCount = uniqueByPath(stashable.map((row) => row.entry)).length
+    actions.push({
+      key: 'stash',
+      label: plural('status.selection.stash.one', 'status.selection.stash.other', stashCount || count, { count: stashCount || count }),
+      disabled: busy || stashable.length !== selectedEntries.length,
+      title: stashable.length === selectedEntries.length ? undefined : t('status.selection.stashTitle'),
+      run: () => void stashSelection(stashable),
+    })
+    actions.push({
+      key: 'patch',
+      label: plural('status.selection.patch.one', 'status.selection.patch.other', patchable.length || count, { count: patchable.length || count }),
+      disabled: busy || patchable.length === 0,
+      title: patchable.length > 0 ? undefined : t('status.selection.patchTitle'),
+      run: () => void createSelectionPatch(selectedEntries.filter(patchableRow)),
+    })
+    return actions
+  }
   const fileRow = (entry: StatusEntry, staged: boolean, selectable: boolean, depth: number) => {
     const selectionKey = entrySelectionKey(staged, entry.path)
     const { directory, name } = splitPath(entry.path)
@@ -1045,10 +1205,16 @@ export function RepoStatus({
         data-nav-key={selectionKey}
         tabIndex={entry.kind === 'ignored' ? -1 : undefined}
         data-selected={entry.path === selectedPath} data-checked={selectedKeys.has(selectionKey)} data-flash={flashPaths.has(entry.path)}
-        data-menu={fileMenu?.entry.path === entry.path && fileMenu.staged === staged}
+        data-menu={fileMenu?.kind === 'many'
+          ? selectedKeys.has(selectionKey)
+          : fileMenu?.kind === 'one' && fileMenu.entry.path === entry.path && fileMenu.staged === staged}
         onContextMenu={(event) => {
           event.preventDefault()
-          setFileMenu({ x: event.clientX, y: event.clientY, entry, staged })
+          if (selectedKeys.size > 1 && selectedKeys.has(selectionKey)) {
+            setFileMenu({ kind: 'many', x: event.clientX, y: event.clientY })
+            return
+          }
+          setFileMenu({ kind: 'one', x: event.clientX, y: event.clientY, entry, staged })
         }}>
         <input
           type="checkbox"
@@ -1200,13 +1366,31 @@ export function RepoStatus({
           )
         })}
       </div>
-      {fileMenu ? (
+      {fileMenu?.kind === 'one' ? (
         <ContextMenu x={fileMenu.x} y={fileMenu.y} title={fileMenu.entry.path}
           subtitle={entryLabel(fileMenu.entry)}
           ariaLabel={t('status.menu.aria', { path: fileMenu.entry.path })}
           onClose={() => setFileMenu(null)}>
           <div className={styles.menuActions}>
             {menuItems(fileMenu.entry, fileMenu.staged, 'context')}
+          </div>
+        </ContextMenu>
+      ) : null}
+      {fileMenu?.kind === 'many' ? (
+        <ContextMenu x={fileMenu.x} y={fileMenu.y}
+          title={plural('status.selection.title.one', 'status.selection.title.other', selectionPaths.length, { count: selectionPaths.length })}
+          subtitle={`${selectionPaths.slice(0, 3).map((entry) => entry.path).join(', ')}${selectionPaths.length > 3 ? '…' : ''}`}
+          ariaLabel={plural('status.selection.aria.one', 'status.selection.aria.other', selectionPaths.length, { count: selectionPaths.length })}
+          onClose={() => setFileMenu(null)}>
+          <div className={styles.menuActions}>
+            {selectionActions().map((action) => (
+              <button key={action.key} type="button" role="menuitem"
+                className={action.danger ? `${styles.menuAction} ${styles.danger}` : styles.menuAction}
+                disabled={action.disabled} title={action.title} onClick={() => {
+                  setFileMenu(null)
+                  action.run()
+                }}>{action.label}</button>
+            ))}
           </div>
         </ContextMenu>
       ) : null}
@@ -1229,9 +1413,16 @@ export function RepoStatus({
       />
       <ConfirmBar
         open={pendingIgnore !== null}
-        title={t('status.ignoreTracked.title')}
+        title={pendingIgnore?.pattern || (pendingIgnore?.entries.length ?? 0) <= 1
+          ? t('status.ignoreTracked.title')
+          : t('status.ignoreTracked.titleMany')}
         consequence={pendingIgnore
-          ? t('status.ignoreTracked.consequence', { path: pendingIgnore.entry.path, pattern: pendingIgnore.pattern })
+          ? pendingIgnore.pattern
+            ? t('status.ignoreTracked.consequence', { path: pendingIgnore.entries[0]!.path, pattern: pendingIgnore.pattern })
+            : t('status.ignoreTracked.consequenceMany', {
+                count: pendingIgnore.entries.length,
+                list: `${pendingIgnore.entries.slice(0, 3).map((entry) => entry.path).join(', ')}${pendingIgnore.entries.length > 3 ? '…' : ''}`,
+              })
           : ''}
         confirmLabel={t('status.ignoreTracked.confirm')}
         busy={busy}

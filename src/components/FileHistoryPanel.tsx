@@ -161,7 +161,7 @@ export function FileHistoryPanel({
         <div className={p2.segmented} role="group" aria-label={t('diff.history.aria')}>
           <button
             type="button"
-            className={tab === 'history' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'history' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'history'}
             onClick={() => setTab('history')}
           >
@@ -169,7 +169,7 @@ export function FileHistoryPanel({
           </button>
           <button
             type="button"
-            className={tab === 'blame' ? p2.segmentOn : p2.segment}
+            className={`${p2.segment} ${tab === 'blame' ? p2.segmentOn : ''}`}
             aria-pressed={tab === 'blame'}
             onClick={() => setTab('blame')}
           >

@@ -23,6 +23,159 @@ export function resolveGraphRef(raw: string, entries: RefEntry[]): RefEntry | un
   return matches.length === 1 ? matches[0] : undefined
 }
 
+function isDroppableBranch(entry: RefEntry, source: RefEntry) {
+  return (
+    !entry.symref &&
+    (entry.kind === 'branch' || entry.kind === 'remoteBranch') &&
+    entry.fullName !== source.fullName
+  )
+}
+
+function uniqueDroppable(entries: RefEntry[], source: RefEntry): RefEntry[] {
+  const seen = new Set<string>()
+  return entries.filter((entry) => {
+    if (!isDroppableBranch(entry, source) || seen.has(entry.fullName)) return false
+    seen.add(entry.fullName)
+    return true
+  })
+}
+
+/** Local name a remote tracking branch sits on (`origin/main` → `main`). */
+export function graphRefGroupKey(entry: RefEntry): string {
+  if (entry.kind === 'remoteBranch') {
+    const slash = entry.name.indexOf('/')
+    return slash >= 0 ? entry.name.slice(slash + 1) : entry.name
+  }
+  return entry.name
+}
+
+/** Remote name only, once the group already says `main` (`origin/main` → `origin`). */
+export function graphRefRemoteLabel(entry: RefEntry): string {
+  if (entry.kind !== 'remoteBranch') return entry.name
+  const slash = entry.name.indexOf('/')
+  return slash >= 0 ? entry.name.slice(0, slash) : entry.name
+}
+
+/** Locals and their remotes share a heading; tags stay at the end. */
+export function groupByBranchName<T>(
+  items: T[],
+  of: (item: T) => RefEntry | undefined,
+): { name: string; items: T[] }[] {
+  const groups: { name: string; items: T[] }[] = []
+  const index = new Map<string, { name: string; items: T[] }>()
+  const others: T[] = []
+  for (const item of items) {
+    const entry = of(item)
+    if (!entry || (entry.kind !== 'branch' && entry.kind !== 'remoteBranch')) {
+      others.push(item)
+      continue
+    }
+    const name = graphRefGroupKey(entry)
+    let group = index.get(name)
+    if (!group) {
+      group = { name, items: [] }
+      index.set(name, group)
+      groups.push(group)
+    }
+    group.items.push(item)
+  }
+  for (const group of groups) {
+    group.items.sort((left, right) => {
+      const rank = (item: T) => (of(item)?.kind === 'branch' ? 0 : 1)
+      return rank(left) - rank(right) || (of(left)?.name ?? '').localeCompare(of(right)?.name ?? '')
+    })
+  }
+  if (others.length > 0) groups.push({ name: '', items: others })
+  return groups
+}
+
+export function groupRefsByBranchName(entries: RefEntry[]): { name: string; items: RefEntry[] }[] {
+  return groupByBranchName(entries, (entry) => entry)
+}
+
+export type GraphRemoteUrl = { name: string; url: string; direction?: string }
+
+/** Fetch URL of a remote, then any URL of that name. */
+export function graphRemoteUrl(remote: string, urls?: readonly GraphRemoteUrl[]): string | undefined {
+  if (!urls || urls.length === 0) return undefined
+  return (
+    urls.find((item) => item.name === remote && item.direction === 'fetch')?.url ??
+    urls.find((item) => item.name === remote)?.url
+  )
+}
+
+function remoteHost(url: string): string | null {
+  const trimmed = url.trim()
+  if (!trimmed) return null
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    try {
+      return new URL(trimmed).hostname.toLowerCase() || null
+    } catch {
+      return null
+    }
+  }
+  const scp = /^(?:[^@/\s]+@)?([^:/]+):/.exec(trimmed)
+  return scp?.[1]?.toLowerCase() ?? null
+}
+
+/** Forge mark for a remote: host of its URL first, then the remote name. */
+export function graphRemoteGlyph(remote: string, url?: string): 'gitlab' | 'github' | 'azure' | 'remotes' {
+  const host = url ? remoteHost(url) ?? '' : ''
+  const name = remote.toLowerCase()
+  if (host.includes('gitlab') || name.includes('gitlab')) return 'gitlab'
+  if (
+    host === 'github.com' ||
+    host.endsWith('.github.com') ||
+    host.includes('github') ||
+    name.includes('github') ||
+    name === 'gh'
+  ) {
+    return 'github'
+  }
+  if (
+    host === 'dev.azure.com' ||
+    host === 'ssh.dev.azure.com' ||
+    host.endsWith('.visualstudio.com') ||
+    host.includes('azure') ||
+    name.includes('azure') ||
+    name.includes('ado')
+  ) {
+    return 'azure'
+  }
+  return 'remotes'
+}
+
+export type DropBranch = {
+  name: string
+  /** Local on this commit if there is one, otherwise a remote-tracking ref. */
+  target: RefEntry
+  local?: RefEntry
+  remotes: RefEntry[]
+}
+
+/** One drop (or checkout) row per branch: land on the local when it sits on the same commit. */
+export function dropBranchesFromRefs(entries: RefEntry[]): DropBranch[] {
+  return groupRefsByBranchName(entries).flatMap((group) => {
+    if (!group.name) return []
+    const local = group.items.find((entry) => entry.kind === 'branch')
+    const remotes = group.items.filter((entry) => entry.kind === 'remoteBranch')
+    const target = local ?? remotes[0]
+    return target ? [{ name: group.name, target, local, remotes }] : []
+  })
+}
+
+/** Every branch a drag can land on for this commit, not only the hovered pill. */
+export function dropTargetsForCommit(
+  commit: CommitSummary,
+  entries: RefEntry[],
+  source: RefEntry,
+): RefEntry[] {
+  return uniqueDroppable(
+    graphCommitRefs(commit, entries).flatMap(({ entry }) => (entry ? [entry] : [])),
+    source,
+  )
+}
+
 /** One decoration of a commit, resolved to its full ref when possible. */
 export type GraphRefDecoration = {
   raw: string
@@ -75,38 +228,33 @@ export function graphRefKind(raw: string, entry?: RefEntry): GraphRefKind {
 export type FoldedCommitRefs = {
   visible: GraphRefDecoration[]
   hidden: number
-  /** Keys of the local branches whose remote mirror folded away: they are in
-   * sync with their upstream, so their badge carries both glyphs. */
-  mirrored: string[]
-}
-
-function mirrorsUpstream(upstream: string, remote: RefEntry): boolean {
-  return upstream === remote.fullName || upstream === remote.name
+  /** Remote names (`origin`, `gitlab`) folded into each visible decoration key. */
+  remotes: Map<string, string[]>
 }
 
 /**
- * `main` and `origin/main` on the same commit describe one branch. A
- * remote-tracking ref that only mirrors a local branch present on the commit
- * needs no pill of its own, and nothing to disambiguate in a hover menu; the
- * local badge reports the sync instead. Ahead/behind branches sit on different
- * commits, so they never fold.
+ * Locals and remotes that share a short name on the same commit are one
+ * branch. `develop`, `origin/develop` and `gitlab/develop` become one pill
+ * labelled `develop`; the folded remotes become the extra glyphs. Tags stay
+ * on their own. Ahead/behind copies sit on other commits, so they never fold.
  */
-export function foldUpstreamRefs(decorated: GraphRefDecoration[]): FoldedCommitRefs {
-  const upstreams = decorated.flatMap(({ entry }) =>
-    entry?.kind === 'branch' && entry.upstream ? [entry.upstream] : [],
-  )
-  const mirrors = decorated.flatMap(({ entry, key }) =>
-    entry?.kind === 'remoteBranch' && upstreams.some((upstream) => mirrorsUpstream(upstream, entry))
-      ? [{ entry, key }]
-      : [],
-  )
-  const mirroredKeys = new Set(mirrors.map(({ key }) => key))
-  const visible = decorated.filter(({ key }) => !mirroredKeys.has(key))
-  const mirrored = decorated.flatMap(({ entry, key }) => {
-    const upstream = entry?.kind === 'branch' ? entry.upstream : undefined
-    return upstream && mirrors.some(({ entry: remote }) => mirrorsUpstream(upstream, remote))
-      ? [key]
-      : []
-  })
-  return { visible, hidden: decorated.length - visible.length, mirrored }
+export function foldCommitPills(decorated: GraphRefDecoration[]): FoldedCommitRefs {
+  const remotes = new Map<string, string[]>()
+  const visible: GraphRefDecoration[] = []
+  for (const group of groupByBranchName(decorated, (item) => item.entry)) {
+    if (!group.name) {
+      visible.push(...group.items)
+      continue
+    }
+    const local = group.items.find((item) => item.entry?.kind === 'branch')
+    const remoteItems = group.items.filter((item) => item.entry?.kind === 'remoteBranch')
+    const survivor = local ?? remoteItems[0] ?? group.items[0]
+    if (!survivor) continue
+    visible.push(survivor)
+    remotes.set(
+      survivor.key,
+      remoteItems.flatMap((item) => (item.entry ? [graphRefRemoteLabel(item.entry)] : [])),
+    )
+  }
+  return { visible, hidden: decorated.length - visible.length, remotes }
 }

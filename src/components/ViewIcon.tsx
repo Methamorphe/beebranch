@@ -16,6 +16,7 @@ import {
   GitPullRequest,
   GitPullRequestArrow,
   Hexagon,
+  Laptop,
   Puzzle,
   Logs,
   RefreshCw,
@@ -31,10 +32,11 @@ import {
 import type { ViewId } from '../data/navigation'
 import { AppIcon } from './IconSvg'
 
-type IconKey = ViewId | 'branch'
+export type ViewIconName = ViewId | 'branch' | 'local'
 
-const icons: Record<IconKey, LucideIcon> = {
+const icons: Record<ViewIconName, LucideIcon> = {
   graph: GitGraph,
+  local: Laptop,
   status: FileDiff,
   commit: GitCommitHorizontal,
   conflicts: GitMergeConflict,
@@ -52,6 +54,7 @@ const icons: Record<IconKey, LucideIcon> = {
   pipelines: Workflow,
   gitlab: Hexagon,
   github: GitFork,
+  azure: Cloud,
   integrations: Puzzle,
   stash: Archive,
   sync: RefreshCw,
@@ -64,6 +67,6 @@ const icons: Record<IconKey, LucideIcon> = {
   branch: GitBranch,
 }
 
-export function ViewIcon({ view, size = 18 }: { view: IconKey; size?: number }) {
+export function ViewIcon({ view, size = 18 }: { view: ViewIconName; size?: number }) {
   return <AppIcon icon={icons[view]} size={size} />
 }
